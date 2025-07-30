@@ -1,0 +1,370 @@
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Calendar, MapPin, User, Clock, MessageSquare } from 'lucide-react';
+import { format } from 'date-fns';
+import { toast } from '@/hooks/use-toast';
+
+interface Ticket {
+  id: string;
+  ticket_number: string;
+  title: string;
+  description: string;
+  room_number: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'completed';
+  created_at: string;
+  updated_at: string;
+  created_by: {
+    full_name: string;
+    role: string;
+  };
+  assigned_to?: {
+    full_name: string;
+  };
+}
+
+interface Comment {
+  id: string;
+  content: string;
+  created_at: string;
+  user_id: string;
+  profiles: {
+    full_name: string;
+    role: string;
+  };
+}
+
+interface Profile {
+  id: string;
+  full_name: string;
+  role: string;
+}
+
+interface TicketDetailDialogProps {
+  ticket: Ticket;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onTicketUpdated: () => void;
+}
+
+export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated }: TicketDetailDialogProps) {
+  const { profile } = useAuth();
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [maintenanceStaff, setMaintenanceStaff] = useState<Profile[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const canUpdateStatus = profile?.role === 'maintenance' && ticket.assigned_to?.full_name;
+  const canAssign = profile?.role && ['manager', 'admin'].includes(profile.role);
+
+  useEffect(() => {
+    if (open) {
+      fetchComments();
+      if (canAssign) {
+        fetchMaintenanceStaff();
+      }
+    }
+  }, [open, ticket.id]);
+
+  const fetchComments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .select(`
+          *,
+          profiles:user_id(full_name, role)
+        `)
+        .eq('ticket_id', ticket.id)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      setComments(data || []);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch comments',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const fetchMaintenanceStaff = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, role')
+        .eq('role', 'maintenance');
+
+      if (error) throw error;
+      setMaintenanceStaff(data || []);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch maintenance staff',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleStatusUpdate = async (newStatus: 'open' | 'in_progress' | 'completed') => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({ status: newStatus })
+        .eq('id', ticket.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Ticket status updated',
+      });
+
+      onTicketUpdated();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssignment = async (assignedToId: string) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({ assigned_to: assignedToId })
+        .eq('id', ticket.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Ticket assigned successfully',
+      });
+
+      onTicketUpdated();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newComment.trim() || !profile) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('comments').insert({
+        ticket_id: ticket.id,
+        user_id: profile.id,
+        content: newComment.trim(),
+      });
+
+      if (error) throw error;
+
+      setNewComment('');
+      fetchComments();
+      
+      toast({
+        title: 'Success',
+        description: 'Comment added',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'urgent': return 'bg-red-500 text-white';
+      case 'high': return 'bg-orange-500 text-white';
+      case 'medium': return 'bg-yellow-500 text-black';
+      case 'low': return 'bg-green-500 text-white';
+      default: return 'bg-gray-500 text-white';
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'open': return 'bg-blue-100 text-blue-800 border-blue-300';
+      case 'in_progress': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+      case 'completed': return 'bg-green-100 text-green-800 border-green-300';
+      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center justify-between">
+            <span>{ticket.ticket_number}</span>
+            <div className="flex gap-2">
+              <Badge className={getPriorityColor(ticket.priority)} variant="secondary">
+                {ticket.priority.toUpperCase()}
+              </Badge>
+              <Badge className={getStatusColor(ticket.status)} variant="outline">
+                {ticket.status.replace('_', ' ').toUpperCase()}
+              </Badge>
+            </div>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-6">
+          {/* Ticket Info */}
+          <div>
+            <h3 className="text-lg font-semibold mb-2">{ticket.title}</h3>
+            <p className="text-muted-foreground mb-4">{ticket.description}</p>
+            
+            <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <MapPin className="h-4 w-4" />
+                Room {ticket.room_number}
+              </div>
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                {format(new Date(ticket.created_at), 'MMM dd, yyyy HH:mm')}
+              </div>
+              <div className="flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Created by {ticket.created_by.full_name}
+              </div>
+              {ticket.assigned_to && (
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Assigned to {ticket.assigned_to.full_name}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-wrap gap-2">
+            {canUpdateStatus && (
+              <Select 
+                value={ticket.status} 
+                onValueChange={(value: 'open' | 'in_progress' | 'completed') => 
+                  handleStatusUpdate(value)
+                }
+                disabled={loading}
+              >
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Update Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+
+            {canAssign && (
+              <Select 
+                value={ticket.assigned_to?.full_name || ''} 
+                onValueChange={handleAssignment}
+                disabled={loading}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Assign to..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {maintenanceStaff.map((staff) => (
+                    <SelectItem key={staff.id} value={staff.id}>
+                      {staff.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Comments Section */}
+          <div>
+            <h4 className="font-semibold mb-4 flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Comments ({comments.length})
+            </h4>
+            
+            <div className="space-y-4 mb-4 max-h-60 overflow-y-auto">
+              {comments.map((comment) => (
+                <div key={comment.id} className="flex gap-3">
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="text-xs">
+                      {comment.profiles.full_name.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-sm">{comment.profiles.full_name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {comment.profiles.role}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {format(new Date(comment.created_at), 'MMM dd, HH:mm')}
+                      </span>
+                    </div>
+                    <p className="text-sm">{comment.content}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Add Comment Form */}
+            <form onSubmit={handleAddComment} className="space-y-3">
+              <div>
+                <Label htmlFor="comment">Add a comment</Label>
+                <Textarea
+                  id="comment"
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Share updates, ask questions, or provide additional information..."
+                  rows={3}
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit" disabled={loading || !newComment.trim()}>
+                  {loading ? 'Adding...' : 'Add Comment'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

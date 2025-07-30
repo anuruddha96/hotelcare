@@ -1,0 +1,252 @@
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
+import { TicketCard } from './TicketCard';
+import { CreateTicketDialog } from './CreateTicketDialog';
+import { TicketDetailDialog } from './TicketDetailDialog';
+import { UserManagementDialog } from './UserManagementDialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plus, Search, Users, Filter } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
+
+interface Ticket {
+  id: string;
+  ticket_number: string;
+  title: string;
+  description: string;
+  room_number: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'completed';
+  created_at: string;
+  updated_at: string;
+  created_by: {
+    full_name: string;
+    role: string;
+  };
+  assigned_to?: {
+    full_name: string;
+  };
+}
+
+export function Dashboard() {
+  const { profile } = useAuth();
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [userManagementOpen, setUserManagementOpen] = useState(false);
+
+  const canCreateTickets = profile?.role && ['housekeeping', 'reception', 'manager', 'admin'].includes(profile.role);
+  const canManageUsers = profile?.role === 'admin';
+
+  const fetchTickets = async () => {
+    setLoading(true);
+    try {
+      let query = supabase
+        .from('tickets')
+        .select(`
+          *,
+          created_by:profiles!tickets_created_by_fkey(full_name, role),
+          assigned_to:profiles!tickets_assigned_to_fkey(full_name)
+        `)
+        .order('created_at', { ascending: false });
+
+      // Filter by role
+      if (profile?.role === 'maintenance') {
+        query = query.eq('assigned_to', profile.id);
+      }
+
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      setTickets(data || []);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch tickets',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTickets();
+  }, [profile]);
+
+  const filteredTickets = tickets.filter(ticket => {
+    const matchesSearch = ticket.ticket_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         ticket.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         ticket.room_number.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'all' || ticket.status === statusFilter;
+    const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
+    
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
+
+  const getTicketCounts = () => {
+    return {
+      total: tickets.length,
+      open: tickets.filter(t => t.status === 'open').length,
+      inProgress: tickets.filter(t => t.status === 'in_progress').length,
+      completed: tickets.filter(t => t.status === 'completed').length,
+    };
+  };
+
+  const counts = getTicketCounts();
+
+  return (
+    <div className="container mx-auto px-4 py-6 space-y-6">
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
+        <div>
+          <h2 className="text-2xl font-bold text-foreground">
+            {profile?.role === 'maintenance' ? 'My Tickets' : 'All Tickets'}
+          </h2>
+          <p className="text-muted-foreground">
+            {profile?.role === 'maintenance' 
+              ? 'Tickets assigned to you' 
+              : 'Manage maintenance requests across the hotel'
+            }
+          </p>
+        </div>
+        
+        <div className="flex gap-2">
+          {canManageUsers && (
+            <Button
+              variant="outline"
+              onClick={() => setUserManagementOpen(true)}
+            >
+              <Users className="h-4 w-4 mr-2" />
+              Manage Users
+            </Button>
+          )}
+          
+          {canCreateTickets && (
+            <Button onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Ticket
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-card border rounded-lg p-4">
+          <p className="text-sm text-muted-foreground">Total</p>
+          <p className="text-2xl font-bold">{counts.total}</p>
+        </div>
+        <div className="bg-card border rounded-lg p-4">
+          <p className="text-sm text-muted-foreground">Open</p>
+          <p className="text-2xl font-bold text-blue-600">{counts.open}</p>
+        </div>
+        <div className="bg-card border rounded-lg p-4">
+          <p className="text-sm text-muted-foreground">In Progress</p>
+          <p className="text-2xl font-bold text-yellow-600">{counts.inProgress}</p>
+        </div>
+        <div className="bg-card border rounded-lg p-4">
+          <p className="text-sm text-muted-foreground">Completed</p>
+          <p className="text-2xl font-bold text-green-600">{counts.completed}</p>
+        </div>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by ticket number, title, or room..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        
+        <div className="flex gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[140px]">
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="open">Open</SelectItem>
+              <SelectItem value="in_progress">In Progress</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Priority" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Priority</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Tickets Grid */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      ) : filteredTickets.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">
+            {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' 
+              ? 'No tickets match your filters' 
+              : 'No tickets found'
+            }
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredTickets.map((ticket) => (
+            <TicketCard
+              key={ticket.id}
+              ticket={ticket}
+              onClick={() => setSelectedTicket(ticket)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Dialogs */}
+      <CreateTicketDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onTicketCreated={fetchTickets}
+      />
+      
+      {selectedTicket && (
+        <TicketDetailDialog
+          ticket={selectedTicket}
+          open={!!selectedTicket}
+          onOpenChange={() => setSelectedTicket(null)}
+          onTicketUpdated={fetchTickets}
+        />
+      )}
+      
+      {canManageUsers && (
+        <UserManagementDialog
+          open={userManagementOpen}
+          onOpenChange={setUserManagementOpen}
+        />
+      )}
+    </div>
+  );
+}
