@@ -52,7 +52,8 @@ export function Dashboard() {
         .select(`
           *,
           created_by:profiles!tickets_created_by_fkey(full_name, role),
-          assigned_to:profiles!tickets_assigned_to_fkey(full_name)
+          assigned_to:profiles!tickets_assigned_to_fkey(full_name),
+          closed_by:profiles!tickets_closed_by_fkey(full_name)
         `)
         .order('created_at', { ascending: false });
 

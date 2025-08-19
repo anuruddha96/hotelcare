@@ -7,7 +7,7 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instanciate createClient with right options
+  // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "12.2.12 (cd3cf9e)"
@@ -86,12 +86,15 @@ export type Database = {
       tickets: {
         Row: {
           assigned_to: string | null
+          closed_at: string | null
+          closed_by: string | null
           created_at: string | null
           created_by: string
           description: string
           id: string
           photo_url: string | null
           priority: Database["public"]["Enums"]["ticket_priority"]
+          resolution_text: string | null
           room_number: string
           status: Database["public"]["Enums"]["ticket_status"]
           ticket_number: string
@@ -100,12 +103,15 @@ export type Database = {
         }
         Insert: {
           assigned_to?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
           created_at?: string | null
           created_by: string
           description: string
           id?: string
           photo_url?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
+          resolution_text?: string | null
           room_number: string
           status?: Database["public"]["Enums"]["ticket_status"]
           ticket_number: string
@@ -114,12 +120,15 @@ export type Database = {
         }
         Update: {
           assigned_to?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
           created_at?: string | null
           created_by?: string
           description?: string
           id?: string
           photo_url?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
+          resolution_text?: string | null
           room_number?: string
           status?: Database["public"]["Enums"]["ticket_status"]
           ticket_number?: string
@@ -130,6 +139,13 @@ export type Database = {
           {
             foreignKeyName: "tickets_assigned_to_fkey"
             columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_closed_by_fkey"
+            columns: ["closed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
