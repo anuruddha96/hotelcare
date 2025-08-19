@@ -7,10 +7,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { Navigate } from 'react-router-dom';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function Auth() {
   const { signIn, signUp, user, loading } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   if (loading) {
     return (
@@ -77,13 +81,73 @@ export default function Auth() {
     setIsLoading(false);
   };
 
+  const handleForgotPassword = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setResetLoading(true);
+    
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('reset-email') as string;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth`,
+    });
+    
+    if (error) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Success',
+        description: 'Password reset email sent! Check your inbox.',
+      });
+      setForgotPasswordOpen(false);
+    }
+    
+    setResetLoading(false);
+  };
+
+  const handleResendVerification = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setResetLoading(true);
+    
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('resend-email') as string;
+
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/`,
+      }
+    });
+    
+    if (error) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Success',
+        description: 'Verification email sent! Check your inbox.',
+      });
+      setForgotPasswordOpen(false);
+    }
+    
+    setResetLoading(false);
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/5 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Maintenance Manager</CardTitle>
+          <CardTitle className="text-2xl font-bold">Hotel Management Dashboard</CardTitle>
           <CardDescription>
-            Access your maintenance management dashboard
+            Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -118,6 +182,64 @@ export default function Auth() {
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'Signing In...' : 'Sign In'}
                 </Button>
+                
+                <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="sm" className="w-full mt-2">
+                      Forgot Password / Resend Verification
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Reset Password or Resend Verification</DialogTitle>
+                      <DialogDescription>
+                        Choose an option to reset your password or resend email verification.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Tabs defaultValue="reset" className="w-full">
+                      <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="reset">Reset Password</TabsTrigger>
+                        <TabsTrigger value="resend">Resend Verification</TabsTrigger>
+                      </TabsList>
+                      
+                      <TabsContent value="reset">
+                        <form onSubmit={handleForgotPassword} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="reset-email">Email</Label>
+                            <Input
+                              id="reset-email"
+                              name="reset-email"
+                              type="email"
+                              required
+                              placeholder="Enter your email"
+                            />
+                          </div>
+                          <Button type="submit" className="w-full" disabled={resetLoading}>
+                            {resetLoading ? 'Sending...' : 'Send Reset Link'}
+                          </Button>
+                        </form>
+                      </TabsContent>
+                      
+                      <TabsContent value="resend">
+                        <form onSubmit={handleResendVerification} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="resend-email">Email</Label>
+                            <Input
+                              id="resend-email"
+                              name="resend-email"
+                              type="email"
+                              required
+                              placeholder="Enter your email"
+                            />
+                          </div>
+                          <Button type="submit" className="w-full" disabled={resetLoading}>
+                            {resetLoading ? 'Sending...' : 'Resend Verification'}
+                          </Button>
+                        </form>
+                      </TabsContent>
+                    </Tabs>
+                  </DialogContent>
+                </Dialog>
               </form>
             </TabsContent>
             

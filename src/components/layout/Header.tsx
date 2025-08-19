@@ -40,8 +40,8 @@ export function Header() {
     <header className="bg-background border-b border-border sticky top-0 z-50">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-foreground">Maintenance Manager</h1>
-          <p className="text-sm text-muted-foreground">Hotel Management System</p>
+          <h1 className="text-xl font-bold text-foreground">Hotel Management Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Comprehensive Hotel Operations Management</p>
         </div>
         
         <div className="flex items-center gap-4">
