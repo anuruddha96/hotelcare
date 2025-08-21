@@ -6,7 +6,7 @@ interface Profile {
   id: string;
   email: string;
   full_name: string;
-  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin';
+  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management';
   created_at: string;
   updated_at: string;
 }
@@ -30,53 +30,89 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener
+    let isMounted = true;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (!isMounted) return;
+        
+        console.log('Auth state changed:', event, session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Fetch user profile
           setTimeout(async () => {
-            const { data: profileData } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .maybeSingle();
-            
-            setProfile(profileData);
+            if (!isMounted) return;
+            try {
+              const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id)
+                .maybeSingle();
+
+              if (profileError) {
+                console.error('Error fetching profile:', profileError);
+                setProfile(null);
+              } else if (profileData) {
+                console.log('Profile fetched:', profileData);
+                setProfile(profileData);
+              } else {
+                console.log('No profile found for user');
+                setProfile(null);
+              }
+            } catch (error) {
+              console.error('Profile fetch error:', error);
+              setProfile(null);
+            }
+            setLoading(false);
           }, 0);
         } else {
           setProfile(null);
+          setLoading(false);
         }
-        
-        setLoading(false);
       }
     );
 
-    // Check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        // Fetch user profile
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .maybeSingle()
-          .then(({ data: profileData }) => {
-            setProfile(profileData);
-            setLoading(false);
-          });
+        setTimeout(async () => {
+          if (!isMounted) return;
+          try {
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .maybeSingle();
+
+            if (profileError) {
+              console.error('Error fetching profile:', profileError);
+              setProfile(null);
+            } else if (profileData) {
+              console.log('Profile fetched:', profileData);
+              setProfile(profileData);
+            } else {
+              console.log('No profile found for user');
+              setProfile(null);
+            }
+          } catch (error) {
+            console.error('Profile fetch error:', error);
+            setProfile(null);
+          }
+          setLoading(false);
+        }, 0);
       } else {
         setLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
