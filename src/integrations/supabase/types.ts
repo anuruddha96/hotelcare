@@ -83,54 +83,111 @@ export type Database = {
         }
         Relationships: []
       }
+      ticket_categories: {
+        Row: {
+          category_key: string
+          category_name: string
+          created_at: string
+          department: Database["public"]["Enums"]["user_role"]
+          id: string
+          sub_category_key: string | null
+          sub_category_name: string | null
+          sub_sub_category_key: string | null
+          sub_sub_category_name: string | null
+        }
+        Insert: {
+          category_key: string
+          category_name: string
+          created_at?: string
+          department: Database["public"]["Enums"]["user_role"]
+          id?: string
+          sub_category_key?: string | null
+          sub_category_name?: string | null
+          sub_sub_category_key?: string | null
+          sub_sub_category_name?: string | null
+        }
+        Update: {
+          category_key?: string
+          category_name?: string
+          created_at?: string
+          department?: Database["public"]["Enums"]["user_role"]
+          id?: string
+          sub_category_key?: string | null
+          sub_category_name?: string | null
+          sub_sub_category_key?: string | null
+          sub_sub_category_name?: string | null
+        }
+        Relationships: []
+      }
       tickets: {
         Row: {
           assigned_to: string | null
+          attachment_urls: string[] | null
+          category: string | null
           closed_at: string | null
           closed_by: string | null
           created_at: string | null
           created_by: string
           description: string
+          hotel: string | null
           id: string
           photo_url: string | null
           priority: Database["public"]["Enums"]["ticket_priority"]
           resolution_text: string | null
           room_number: string
+          sla_breach_reason: string | null
+          sla_due_date: string | null
           status: Database["public"]["Enums"]["ticket_status"]
+          sub_category: string | null
+          sub_sub_category: string | null
           ticket_number: string
           title: string
           updated_at: string | null
         }
         Insert: {
           assigned_to?: string | null
+          attachment_urls?: string[] | null
+          category?: string | null
           closed_at?: string | null
           closed_by?: string | null
           created_at?: string | null
           created_by: string
           description: string
+          hotel?: string | null
           id?: string
           photo_url?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
           resolution_text?: string | null
           room_number: string
+          sla_breach_reason?: string | null
+          sla_due_date?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
+          sub_category?: string | null
+          sub_sub_category?: string | null
           ticket_number: string
           title: string
           updated_at?: string | null
         }
         Update: {
           assigned_to?: string | null
+          attachment_urls?: string[] | null
+          category?: string | null
           closed_at?: string | null
           closed_by?: string | null
           created_at?: string | null
           created_by?: string
           description?: string
+          hotel?: string | null
           id?: string
           photo_url?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
           resolution_text?: string | null
           room_number?: string
+          sla_breach_reason?: string | null
+          sla_due_date?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
+          sub_category?: string | null
+          sub_sub_category?: string | null
           ticket_number?: string
           title?: string
           updated_at?: string | null
