@@ -33,7 +33,7 @@ interface Ticket {
   closed_by?: {
     full_name: string;
   };
-  created_by: {
+  created_by?: {
     full_name: string;
     role: string;
   };
@@ -76,8 +76,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
   const canUpdateStatus = profile?.role === 'maintenance' && ticket.assigned_to?.full_name;
   const canAssign = profile?.role && ['manager', 'admin'].includes(profile.role);
-  const canClose = profile?.role && ['maintenance', 'housekeeping'].includes(profile.role) && 
-    (ticket.assigned_to?.full_name === profile.full_name || ticket.created_by.full_name === profile.full_name);
+  const canClose = !!(profile?.role && ['maintenance', 'housekeeping'].includes(profile.role));
 
   useEffect(() => {
     if (open) {
@@ -354,7 +353,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               </div>
               <div className="flex items-center gap-2">
                 <User className="h-4 w-4" />
-                Created by {ticket.created_by.full_name}
+                Created by {ticket.created_by?.full_name ?? 'Unknown'}
               </div>
               {ticket.assigned_to && (
                 <div className="flex items-center gap-2">

@@ -23,7 +23,7 @@ interface Profile {
   id: string;
   email: string;
   full_name: string;
-  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin';
+  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management';
   created_at: string;
 }
 

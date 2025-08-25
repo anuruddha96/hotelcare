@@ -12,7 +12,7 @@ interface Ticket {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'completed';
   created_at: string;
-  created_by: {
+  created_by?: {
     full_name: string;
     role: string;
   };
@@ -95,7 +95,7 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
             <User className="h-3 w-3" />
-            {ticket.created_by.full_name}
+            {ticket.created_by?.full_name ?? 'Unknown'}
           </div>
           {ticket.assigned_to && (
             <div className="flex items-center gap-1">

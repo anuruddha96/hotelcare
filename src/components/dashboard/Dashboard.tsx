@@ -21,7 +21,7 @@ interface Ticket {
   status: 'open' | 'in_progress' | 'completed';
   created_at: string;
   updated_at: string;
-  created_by: {
+  created_by?: {
     full_name: string;
     role: string;
   };
@@ -49,12 +49,7 @@ export function Dashboard() {
     try {
       let query = supabase
         .from('tickets')
-        .select(`
-          *,
-          created_by:profiles!tickets_created_by_fkey(full_name, role),
-          assigned_to:profiles!tickets_assigned_to_fkey(full_name),
-          closed_by:profiles!tickets_closed_by_fkey(full_name)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
       // Filter by role
@@ -65,7 +60,18 @@ export function Dashboard() {
       const { data, error } = await query;
       
       if (error) throw error;
-      setTickets(data || []);
+      const parsed = (data || []).map((d: any) => ({
+        id: d.id,
+        ticket_number: d.ticket_number,
+        title: d.title,
+        description: d.description,
+        room_number: d.room_number,
+        priority: d.priority,
+        status: d.status,
+        created_at: d.created_at,
+        updated_at: d.updated_at,
+      })) as Ticket[];
+      setTickets(parsed);
     } catch (error: any) {
       toast({
         title: 'Error',
