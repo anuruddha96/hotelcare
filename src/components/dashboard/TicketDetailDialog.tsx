@@ -14,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle } from 'lucide-react';
+import { FileUpload } from './FileUpload';
+import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 
@@ -30,6 +31,7 @@ interface Ticket {
   updated_at: string;
   resolution_text?: string;
   closed_at?: string;
+  hotel?: string;
   closed_by?: {
     full_name: string;
   };
@@ -73,10 +75,11 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   const [maintenanceStaff, setMaintenanceStaff] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
   const [resolutionText, setResolutionText] = useState('');
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
 
   const canUpdateStatus = profile?.role === 'maintenance' && ticket.assigned_to?.full_name;
-  const canAssign = profile?.role && ['manager', 'admin'].includes(profile.role);
-  const canClose = !!(profile?.role && ['maintenance', 'housekeeping'].includes(profile.role));
+  const canAssign = profile?.role && ['manager', 'admin', 'reception'].includes(profile.role);
+  const canClose = !!(profile?.role && ['maintenance', 'housekeeping', 'reception', 'manager', 'admin'].includes(profile.role));
 
   useEffect(() => {
     if (open) {
@@ -114,14 +117,14 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, role')
-        .eq('role', 'maintenance');
+        .in('role', ['maintenance', 'housekeeping', 'reception', 'marketing', 'control_finance', 'hr', 'front_office']);
 
       if (error) throw error;
       setMaintenanceStaff(data || []);
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: 'Failed to fetch maintenance staff',
+        description: 'Failed to fetch staff',
         variant: 'destructive',
       });
     }
@@ -197,11 +200,31 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
         .from('tickets')
         .update({ 
           status: 'completed',
-          resolution_text: resolutionText.trim()
+          resolution_text: resolutionText.trim(),
+          closed_at: new Date().toISOString(),
+          closed_by: profile?.id
         })
         .eq('id', ticket.id);
 
       if (error) throw error;
+
+      // Send email notification to managers
+      try {
+        await supabase.functions.invoke('notify-manager-ticket-closed', {
+          body: {
+            ticketId: ticket.id,
+            ticketNumber: ticket.ticket_number,
+            title: ticket.title,
+            resolutionText: resolutionText.trim(),
+            closedBy: profile?.full_name || 'Unknown User',
+            hotel: ticket.hotel,
+            roomNumber: ticket.room_number
+          }
+        });
+      } catch (emailError) {
+        console.error('Failed to send email notification:', emailError);
+        // Don't fail the entire operation if email fails
+      }
 
       toast({
         title: 'Success',
@@ -209,6 +232,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       });
 
       onTicketUpdated();
+      onOpenChange(false); // Close the dialog
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -440,6 +464,20 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                       rows={3}
                     />
                   </div>
+                  
+                  <div>
+                    <Label className="flex items-center gap-2">
+                      <Paperclip className="h-4 w-4" />
+                      Attach Photos (Optional)
+                    </Label>
+                    <FileUpload 
+                      onFilesChange={setAttachmentFiles}
+                      maxFiles={3}
+                      acceptedFileTypes={['image/*']}
+                      className="mt-2"
+                    />
+                  </div>
+                  
                   <Button 
                     onClick={handleCloseTicket}
                     disabled={loading || !resolutionText.trim()}

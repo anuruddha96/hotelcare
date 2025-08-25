@@ -2,6 +2,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { UserManagementDialog } from '@/components/dashboard/UserManagementDialog';
+import { LanguageSwitcher } from '@/components/dashboard/LanguageSwitcher';
+import { ReportsDialog } from '@/components/dashboard/ReportsDialog';
 import { LogOut, Settings, User } from 'lucide-react';
 import {
   DropdownMenu,
@@ -55,6 +58,18 @@ export function Header() {
         </div>
         
         <div className="flex items-center gap-4">
+          <LanguageSwitcher />
+          
+          {(profile?.role === 'admin' || profile?.role === 'manager') && (
+            <>
+              <ReportsDialog />
+              <UserManagementDialog 
+                open={false}
+                onOpenChange={() => {}}
+              />
+            </>
+          )}
+          
           {profile && (
             <Badge 
               variant="secondary" 

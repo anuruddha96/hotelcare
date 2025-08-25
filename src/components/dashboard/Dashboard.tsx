@@ -52,9 +52,9 @@ export function Dashboard() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      // Filter by role
+      // Filter by role - allow all roles to see tickets
       if (profile?.role === 'maintenance') {
-        query = query.eq('assigned_to', profile.id);
+        query = query.or('assigned_to.eq.' + profile.id + ',created_by.eq.' + profile.id);
       }
 
       const { data, error } = await query;
