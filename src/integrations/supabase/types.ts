@@ -62,6 +62,7 @@ export type Database = {
           email: string
           full_name: string
           id: string
+          last_login: string | null
           role: Database["public"]["Enums"]["user_role"]
           updated_at: string | null
         }
@@ -70,6 +71,7 @@ export type Database = {
           email: string
           full_name: string
           id: string
+          last_login?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           updated_at?: string | null
         }
@@ -78,6 +80,7 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          last_login?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           updated_at?: string | null
         }
@@ -128,6 +131,7 @@ export type Database = {
           closed_by: string | null
           created_at: string | null
           created_by: string
+          department: string | null
           description: string
           hotel: string | null
           id: string
@@ -152,6 +156,7 @@ export type Database = {
           closed_by?: string | null
           created_at?: string | null
           created_by: string
+          department?: string | null
           description: string
           hotel?: string | null
           id?: string
@@ -176,6 +181,7 @@ export type Database = {
           closed_by?: string | null
           created_at?: string | null
           created_by?: string
+          department?: string | null
           description?: string
           hotel?: string | null
           id?: string
@@ -244,6 +250,14 @@ export type Database = {
         | "hr"
         | "front_office"
         | "top_management"
+        | "housekeeping_manager"
+        | "maintenance_manager"
+        | "marketing_manager"
+        | "reception_manager"
+        | "back_office_manager"
+        | "control_manager"
+        | "finance_manager"
+        | "top_management_manager"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -384,6 +398,14 @@ export const Constants = {
         "hr",
         "front_office",
         "top_management",
+        "housekeeping_manager",
+        "maintenance_manager",
+        "marketing_manager",
+        "reception_manager",
+        "back_office_manager",
+        "control_manager",
+        "finance_manager",
+        "top_management_manager",
       ],
     },
   },

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Globe } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 
 const languages = [
   { code: 'en', name: 'English', flag: '🇺🇸' },
@@ -11,14 +12,31 @@ const languages = [
 ];
 
 export function LanguageSwitcher() {
-  const [currentLanguage, setCurrentLanguage] = useState('en');
+  const [currentLanguage, setCurrentLanguage] = useState(() => {
+    return localStorage.getItem('preferred-language') || 'en';
+  });
+
+  useEffect(() => {
+    // Load saved language preference
+    const saved = localStorage.getItem('preferred-language');
+    if (saved) {
+      setCurrentLanguage(saved);
+    }
+  }, []);
 
   const handleLanguageChange = (langCode: string) => {
     setCurrentLanguage(langCode);
-    // Store in localStorage for persistence
     localStorage.setItem('preferred-language', langCode);
-    // Here you would typically trigger a translation system
-    // For now, we'll just store the preference
+    
+    // Show confirmation toast
+    const selectedLang = languages.find(lang => lang.code === langCode);
+    toast({
+      title: 'Language Changed',
+      description: `Language switched to ${selectedLang?.name}`,
+    });
+    
+    // Reload page to apply language changes
+    window.location.reload();
   };
 
   return (

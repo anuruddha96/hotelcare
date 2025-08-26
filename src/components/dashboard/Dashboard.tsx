@@ -5,6 +5,7 @@ import { TicketCard } from './TicketCard';
 import { CreateTicketDialog } from './CreateTicketDialog';
 import { TicketDetailDialog } from './TicketDetailDialog';
 import { UserManagementDialog } from './UserManagementDialog';
+import { AutoAssignmentService } from './AutoAssignmentService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -21,6 +22,8 @@ interface Ticket {
   status: 'open' | 'in_progress' | 'completed';
   created_at: string;
   updated_at: string;
+  department?: string;
+  hotel?: string;
   created_by?: {
     full_name: string;
     role: string;
@@ -41,21 +44,67 @@ export function Dashboard() {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [userManagementOpen, setUserManagementOpen] = useState(false);
 
-  const canCreateTickets = profile?.role && ['housekeeping', 'reception', 'manager', 'admin'].includes(profile.role);
+  const canCreateTickets = profile?.role && [
+    'housekeeping', 'reception', 'manager', 'admin', 'maintenance',
+    'housekeeping_manager', 'maintenance_manager', 'marketing_manager', 
+    'reception_manager', 'back_office_manager', 'control_manager', 
+    'finance_manager', 'top_management_manager'
+  ].includes(profile.role);
+  
   const canManageUsers = profile?.role === 'admin';
+  
+  const isManager = profile?.role && [
+    'manager', 'admin', 'housekeeping_manager', 'maintenance_manager',
+    'marketing_manager', 'reception_manager', 'back_office_manager',
+    'control_manager', 'finance_manager', 'top_management_manager'
+  ].includes(profile.role);
 
   const fetchTickets = async () => {
     setLoading(true);
     try {
       let query = supabase
         .from('tickets')
-        .select('*')
+        .select(`
+          *,
+          created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role)
+        `)
+        .neq('status', 'completed') // Exclude completed/archived tickets
         .order('created_at', { ascending: false });
 
-      // Filter by role - allow all roles to see tickets
+      // Role-based filtering
       if (profile?.role === 'maintenance') {
-        query = query.or('assigned_to.eq.' + profile.id + ',created_by.eq.' + profile.id);
+        // Maintenance users see only their assigned or created tickets
+        query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+      } else if (profile?.role === 'housekeeping_manager') {
+        // Housekeeping managers see housekeeping and maintenance tickets
+        query = query.in('department', ['housekeeping', 'maintenance']);
+      } else if (profile?.role === 'maintenance_manager') {
+        // Maintenance managers see only maintenance tickets
+        query = query.eq('department', 'maintenance');
+      } else if (profile?.role === 'marketing_manager') {
+        // Marketing managers see only marketing tickets
+        query = query.eq('department', 'marketing');
+      } else if (profile?.role === 'reception_manager') {
+        // Reception managers see only reception tickets
+        query = query.eq('department', 'reception');
+      } else if (profile?.role === 'back_office_manager') {
+        // Back office managers see only back office tickets
+        query = query.eq('department', 'back_office');
+      } else if (profile?.role === 'control_manager') {
+        // Control managers see only control tickets
+        query = query.eq('department', 'control');
+      } else if (profile?.role === 'finance_manager') {
+        // Finance managers see only finance tickets
+        query = query.eq('department', 'finance');
+      } else if (profile?.role === 'top_management_manager') {
+        // Top management managers see only top management tickets
+        query = query.eq('department', 'top_management');
+      } else if (!isManager) {
+        // Regular staff see only tickets assigned to them or created by them
+        query = query.or(`assigned_to.eq.${profile?.id},created_by.eq.${profile?.id}`);
       }
+      // Admins and general managers see all tickets (no additional filter)
 
       const { data, error } = await query;
       
@@ -70,6 +119,15 @@ export function Dashboard() {
         status: d.status,
         created_at: d.created_at,
         updated_at: d.updated_at,
+        department: d.department,
+        hotel: d.hotel,
+        created_by: d.created_by_profile ? {
+          full_name: d.created_by_profile.full_name,
+          role: d.created_by_profile.role,
+        } : undefined,
+        assigned_to: d.assigned_to_profile ? {
+          full_name: d.assigned_to_profile.full_name,
+        } : undefined,
       })) as Ticket[];
       setTickets(parsed);
     } catch (error: any) {
@@ -111,6 +169,7 @@ export function Dashboard() {
 
   return (
     <div className="container mx-auto px-4 py-6 space-y-6">
+      <AutoAssignmentService />
       {/* Header Actions */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
         <div>

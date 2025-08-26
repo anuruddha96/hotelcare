@@ -12,6 +12,8 @@ interface Ticket {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'completed';
   created_at: string;
+  department?: string;
+  hotel?: string;
   created_by?: {
     full_name: string;
     role: string;
@@ -34,6 +36,20 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
       case 'medium': return 'bg-yellow-500 text-black';
       case 'low': return 'bg-green-500 text-white';
       default: return 'bg-gray-500 text-white';
+    }
+  };
+
+  const getDepartmentColor = (department?: string) => {
+    switch (department) {
+      case 'maintenance': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'housekeeping': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'reception': return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+      case 'marketing': return 'bg-pink-100 text-pink-800 border-pink-200';
+      case 'back_office': return 'bg-cyan-100 text-cyan-800 border-cyan-200';
+      case 'control': return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      case 'finance': return 'bg-teal-100 text-teal-800 border-teal-200';
+      case 'top_management': return 'bg-violet-100 text-violet-800 border-violet-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
@@ -69,6 +85,11 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
             <Badge className={getPriorityColor(ticket.priority)} variant="secondary">
               {ticket.priority.toUpperCase()}
             </Badge>
+            {ticket.department && (
+              <Badge className={getDepartmentColor(ticket.department)}>
+                {ticket.department.replace('_', ' ').toUpperCase()}
+              </Badge>
+            )}
             <Badge className={getStatusColor(ticket.status)} variant="outline">
               {formatStatus(ticket.status)}
             </Badge>
@@ -92,13 +113,21 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
           </div>
         </div>
         
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-1">
+        <div className="space-y-1">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <User className="h-3 w-3" />
             {ticket.created_by?.full_name ?? 'Unknown'}
           </div>
+          
+          {ticket.hotel && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="text-xs">🏨</span>
+              <span>{ticket.hotel.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+            </div>
+          )}
+          
           {ticket.assigned_to && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <AlertCircle className="h-3 w-3" />
               Assigned to {ticket.assigned_to.full_name}
             </div>

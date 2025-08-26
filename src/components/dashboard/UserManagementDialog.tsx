@@ -23,7 +23,7 @@ interface Profile {
   id: string;
   email: string;
   full_name: string;
-  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management';
+  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager';
   created_at: string;
 }
 
@@ -121,7 +121,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     }
   };
 
-  const handleUpdateUserRole = async (userId: string, newRole: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin') => {
+  const handleUpdateUserRole = async (userId: string, newRole: Profile['role']) => {
     setLoading(true);
     try {
       const { error } = await supabase
@@ -156,6 +156,15 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'maintenance': return 'bg-green-500 text-white';
       case 'reception': return 'bg-purple-500 text-white';
       case 'housekeeping': return 'bg-orange-500 text-white';
+      case 'marketing': return 'bg-pink-500 text-white';
+      case 'housekeeping_manager': return 'bg-orange-600 text-white';
+      case 'maintenance_manager': return 'bg-green-600 text-white';
+      case 'marketing_manager': return 'bg-pink-600 text-white';
+      case 'reception_manager': return 'bg-purple-600 text-white';
+      case 'back_office_manager': return 'bg-cyan-600 text-white';
+      case 'control_manager': return 'bg-emerald-600 text-white';
+      case 'finance_manager': return 'bg-teal-600 text-white';
+      case 'top_management_manager': return 'bg-violet-600 text-white';
       default: return 'bg-gray-500 text-white';
     }
   };
@@ -167,7 +176,16 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'maintenance': return 'Maintenance';
       case 'manager': return 'Manager';
       case 'admin': return 'Admin';
-      default: return role;
+      case 'marketing': return 'Marketing';
+      case 'housekeeping_manager': return 'Housekeeping Manager';
+      case 'maintenance_manager': return 'Maintenance Manager';
+      case 'marketing_manager': return 'Marketing Manager';
+      case 'reception_manager': return 'Reception Manager';
+      case 'back_office_manager': return 'Back Office Manager';
+      case 'control_manager': return 'Control Manager';
+      case 'finance_manager': return 'Finance Manager';
+      case 'top_management_manager': return 'Top Management Manager';
+      default: return role.replace('_', ' ').toUpperCase();
     }
   };
 
@@ -294,8 +312,17 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                           <SelectItem value="housekeeping">Housekeeping</SelectItem>
                           <SelectItem value="reception">Reception</SelectItem>
                           <SelectItem value="maintenance">Maintenance</SelectItem>
+                          <SelectItem value="marketing">Marketing</SelectItem>
                           <SelectItem value="manager">Manager</SelectItem>
                           <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
+                          <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
+                          <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
+                          <SelectItem value="reception_manager">Reception Manager</SelectItem>
+                          <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
+                          <SelectItem value="control_manager">Control Manager</SelectItem>
+                          <SelectItem value="finance_manager">Finance Manager</SelectItem>
+                          <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -335,7 +362,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                   <Label>New Role</Label>
                   <Select 
                     value={selectedUser.role}
-                    onValueChange={(value: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin') => handleUpdateUserRole(selectedUser.id, value)}
+                    onValueChange={(value: Profile['role']) => handleUpdateUserRole(selectedUser.id, value)}
                     disabled={loading}
                   >
                     <SelectTrigger>
@@ -345,8 +372,17 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       <SelectItem value="housekeeping">Housekeeping</SelectItem>
                       <SelectItem value="reception">Reception</SelectItem>
                       <SelectItem value="maintenance">Maintenance</SelectItem>
+                      <SelectItem value="marketing">Marketing</SelectItem>
                       <SelectItem value="manager">Manager</SelectItem>
                       <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
+                      <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
+                      <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
+                      <SelectItem value="reception_manager">Reception Manager</SelectItem>
+                      <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
+                      <SelectItem value="control_manager">Control Manager</SelectItem>
+                      <SelectItem value="finance_manager">Finance Manager</SelectItem>
+                      <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
