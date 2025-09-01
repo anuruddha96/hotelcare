@@ -6,10 +6,12 @@ import { CreateTicketDialog } from './CreateTicketDialog';
 import { TicketDetailDialog } from './TicketDetailDialog';
 import { UserManagementDialog } from './UserManagementDialog';
 import { AutoAssignmentService } from './AutoAssignmentService';
+import { RoomManagement } from './RoomManagement';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Search, Users, Filter } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Search, Users, Filter, Home, Ticket } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Ticket {
@@ -168,41 +170,63 @@ export function Dashboard() {
   const counts = getTicketCounts();
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
+    <div className="min-h-screen bg-background">
       <AutoAssignmentService />
-      {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">
-            {profile?.role === 'maintenance' ? 'My Tickets' : 'All Tickets'}
-          </h2>
-          <p className="text-muted-foreground">
-            {profile?.role === 'maintenance' 
-              ? 'Tickets assigned to you' 
-              : 'Manage maintenance requests across the hotel'
-            }
-          </p>
-        </div>
-        
-        <div className="flex gap-2">
-          {canManageUsers && (
-            <Button
-              variant="outline"
-              onClick={() => setUserManagementOpen(true)}
-            >
-              <Users className="h-4 w-4 mr-2" />
-              Manage Users
-            </Button>
-          )}
-          
-          {canCreateTickets && (
-            <Button onClick={() => setCreateDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              New Ticket
-            </Button>
-          )}
-        </div>
-      </div>
+      
+      <div className="container mx-auto px-4 py-6">
+        <Tabs defaultValue="tickets" className="space-y-6">
+          <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
+            <div>
+              <h1 className="text-3xl font-bold text-foreground">Hotel Care Hub</h1>
+              <p className="text-muted-foreground">Complete hotel management system</p>
+            </div>
+            
+            <TabsList className="grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="tickets" className="flex items-center gap-2">
+                <Ticket className="h-4 w-4" />
+                Tickets
+              </TabsTrigger>
+              <TabsTrigger value="rooms" className="flex items-center gap-2">
+                <Home className="h-4 w-4" />
+                Rooms
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          <TabsContent value="tickets" className="space-y-6">
+            {/* Ticket Management Header */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
+              <div>
+                <h2 className="text-2xl font-bold text-foreground">
+                  {profile?.role === 'maintenance' ? 'My Tickets' : 'All Tickets'}
+                </h2>
+                <p className="text-muted-foreground">
+                  {profile?.role === 'maintenance' 
+                    ? 'Tickets assigned to you' 
+                    : 'Manage maintenance requests across the hotel'
+                  }
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                {canManageUsers && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setUserManagementOpen(true)}
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Manage Users
+                  </Button>
+                )}
+                
+                {canCreateTickets && (
+                  <Button onClick={() => setCreateDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    New Ticket
+                  </Button>
+                )}
+              </div>
+            </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -291,28 +315,36 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* Dialogs */}
-      <CreateTicketDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-        onTicketCreated={fetchTickets}
-      />
-      
-      {selectedTicket && (
-        <TicketDetailDialog
-          ticket={selectedTicket}
-          open={!!selectedTicket}
-          onOpenChange={() => setSelectedTicket(null)}
-          onTicketUpdated={fetchTickets}
+          </TabsContent>
+
+          <TabsContent value="rooms">
+            <RoomManagement />
+          </TabsContent>
+        </Tabs>
+
+        {/* Dialogs */}
+        <CreateTicketDialog
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          onTicketCreated={fetchTickets}
         />
-      )}
-      
-      {canManageUsers && (
-        <UserManagementDialog
-          open={userManagementOpen}
-          onOpenChange={setUserManagementOpen}
-        />
-      )}
+        
+        {selectedTicket && (
+          <TicketDetailDialog
+            ticket={selectedTicket}
+            open={!!selectedTicket}
+            onOpenChange={() => setSelectedTicket(null)}
+            onTicketUpdated={fetchTickets}
+          />
+        )}
+        
+        {canManageUsers && (
+          <UserManagementDialog
+            open={userManagementOpen}
+            onOpenChange={setUserManagementOpen}
+          />
+        )}
+      </div>
     </div>
   );
 }

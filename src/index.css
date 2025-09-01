@@ -101,5 +101,38 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
-  }
-}
+      /* Mobile Responsive Improvements */
+      .animate-fade-in {
+        animation: fadeIn 0.3s ease-out;
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      
+      /* Mobile Touch Targets */
+      @media (max-width: 768px) {
+        .touch-target {
+          min-height: 44px;
+          min-width: 44px;
+        }
+        
+        .mobile-padding {
+          padding: 1rem;
+        }
+        
+        .mobile-text {
+          font-size: 0.875rem;
+        }
+        
+        .mobile-grid {
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+        
+        .mobile-button {
+          padding: 0.75rem 1rem;
+          font-size: 0.875rem;
+        }
+      }
+    }

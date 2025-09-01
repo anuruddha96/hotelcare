@@ -56,6 +56,36 @@ export type Database = {
           },
         ]
       }
+      minibar_items: {
+        Row: {
+          category: string | null
+          created_at: string
+          id: string
+          is_active: boolean | null
+          name: string
+          price: number
+          updated_at: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          name: string
+          price?: number
+          updated_at?: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          price?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string | null
@@ -85,6 +115,117 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      room_minibar_usage: {
+        Row: {
+          created_at: string
+          guest_checkout_date: string | null
+          id: string
+          is_cleared: boolean | null
+          minibar_item_id: string
+          quantity_used: number | null
+          recorded_by: string | null
+          room_id: string
+          updated_at: string
+          usage_date: string | null
+        }
+        Insert: {
+          created_at?: string
+          guest_checkout_date?: string | null
+          id?: string
+          is_cleared?: boolean | null
+          minibar_item_id: string
+          quantity_used?: number | null
+          recorded_by?: string | null
+          room_id: string
+          updated_at?: string
+          usage_date?: string | null
+        }
+        Update: {
+          created_at?: string
+          guest_checkout_date?: string | null
+          id?: string
+          is_cleared?: boolean | null
+          minibar_item_id?: string
+          quantity_used?: number | null
+          recorded_by?: string | null
+          room_id?: string
+          updated_at?: string
+          usage_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_minibar_usage_minibar_item_id_fkey"
+            columns: ["minibar_item_id"]
+            isOneToOne: false
+            referencedRelation: "minibar_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_minibar_usage_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_minibar_usage_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rooms: {
+        Row: {
+          created_at: string
+          floor_number: number | null
+          hotel: string
+          id: string
+          last_cleaned_at: string | null
+          last_cleaned_by: string | null
+          notes: string | null
+          room_number: string
+          room_type: string | null
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          floor_number?: number | null
+          hotel: string
+          id?: string
+          last_cleaned_at?: string | null
+          last_cleaned_by?: string | null
+          notes?: string | null
+          room_number: string
+          room_type?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          floor_number?: number | null
+          hotel?: string
+          id?: string
+          last_cleaned_at?: string | null
+          last_cleaned_by?: string | null
+          notes?: string | null
+          room_number?: string
+          room_type?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rooms_last_cleaned_by_fkey"
+            columns: ["last_cleaned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ticket_categories: {
         Row: {

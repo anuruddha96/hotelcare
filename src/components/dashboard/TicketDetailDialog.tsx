@@ -75,6 +75,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   const [maintenanceStaff, setMaintenanceStaff] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
   const [resolutionText, setResolutionText] = useState('');
+  const [slaBreachReason, setSlaBreachReason] = useState('');
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
 
   const canUpdateStatus = profile?.role === 'maintenance' && ticket.assigned_to?.full_name;
@@ -194,16 +195,30 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       return;
     }
 
+    // Check if SLA is breached and require breach reason
+    const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
+    if (slaInfo.isOverdue && !slaBreachReason.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please provide an SLA breach reason for overdue tickets',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
+      const updateData = { 
+        status: 'completed' as const,
+        resolution_text: resolutionText.trim(),
+        closed_at: new Date().toISOString(),
+        closed_by: profile?.id,
+        ...(slaInfo.isOverdue && { sla_breach_reason: slaBreachReason.trim() })
+      };
+
       const { error } = await supabase
         .from('tickets')
-        .update({ 
-          status: 'completed',
-          resolution_text: resolutionText.trim(),
-          closed_at: new Date().toISOString(),
-          closed_by: profile?.id
-        })
+        .update(updateData)
         .eq('id', ticket.id);
 
       if (error) throw error;
@@ -465,6 +480,23 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     />
                   </div>
                   
+                  {/* SLA Breach Reason - Show only if ticket is overdue */}
+                  {(() => {
+                    const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
+                    return slaInfo.isOverdue && (
+                      <div>
+                        <Label htmlFor="slaBreachReason">SLA Breach Reason *</Label>
+                        <Textarea
+                          id="slaBreachReason"
+                          value={slaBreachReason}
+                          onChange={(e) => setSlaBreachReason(e.target.value)}
+                          placeholder="Explain why this ticket exceeded the SLA time limit..."
+                          rows={3}
+                        />
+                      </div>
+                    );
+                  })()}
+                  
                   <div>
                     <Label className="flex items-center gap-2">
                       <Paperclip className="h-4 w-4" />
@@ -480,7 +512,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   
                   <Button 
                     onClick={handleCloseTicket}
-                    disabled={loading || !resolutionText.trim()}
+                    disabled={loading || !resolutionText.trim() || ((() => {
+                      const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
+                      return slaInfo.isOverdue && !slaBreachReason.trim();
+                    })())}
                     className="w-full"
                   >
                     {loading ? 'Closing...' : 'Close Ticket'}
