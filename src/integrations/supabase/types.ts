@@ -438,6 +438,10 @@ export type Database = {
           role: Database["public"]["Enums"]["user_role"]
         }[]
       }
+      get_hotel_name_from_id: {
+        Args: { hotel_id: string }
+        Returns: string
+      }
       get_user_access_config: {
         Args: { user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
