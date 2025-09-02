@@ -56,6 +56,36 @@ export type Database = {
           },
         ]
       }
+      department_access_config: {
+        Row: {
+          access_scope: string
+          can_manage_all: boolean
+          created_at: string
+          department: string
+          id: string
+          role: Database["public"]["Enums"]["user_role"]
+          updated_at: string
+        }
+        Insert: {
+          access_scope: string
+          can_manage_all?: boolean
+          created_at?: string
+          department: string
+          id?: string
+          role: Database["public"]["Enums"]["user_role"]
+          updated_at?: string
+        }
+        Update: {
+          access_scope?: string
+          can_manage_all?: boolean
+          created_at?: string
+          department?: string
+          id?: string
+          role?: Database["public"]["Enums"]["user_role"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hotels: {
         Row: {
           created_at: string
@@ -406,6 +436,14 @@ export type Database = {
           full_name: string
           id: string
           role: Database["public"]["Enums"]["user_role"]
+        }[]
+      }
+      get_user_access_config: {
+        Args: { user_role: Database["public"]["Enums"]["user_role"] }
+        Returns: {
+          access_scope: string
+          can_manage_all: boolean
+          department: string
         }[]
       }
       get_user_role: {

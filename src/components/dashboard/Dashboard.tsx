@@ -5,6 +5,7 @@ import { TicketCard } from './TicketCard';
 import { CreateTicketDialog } from './CreateTicketDialog';
 import { TicketDetailDialog } from './TicketDetailDialog';
 import { UserManagementDialog } from './UserManagementDialog';
+import { AccessManagementDialog } from './AccessManagementDialog';
 import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
 import { ArchivedTickets } from './ArchivedTickets';
@@ -13,7 +14,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Search, Users, Filter, Home, Ticket, Settings } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Ticket {
@@ -47,6 +50,7 @@ export function Dashboard() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [userManagementOpen, setUserManagementOpen] = useState(false);
+  const [accessManagementOpen, setAccessManagementOpen] = useState(false);
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
 
   const canCreateTickets = profile?.role && [
@@ -83,68 +87,13 @@ export function Dashboard() {
       const selectColumns = (isManager || profile?.role === 'admin')
         ? `*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role)`
         : `*`;
+      
+      // Simplified query - RLS policy now handles all access control
       let query = supabase
         .from('tickets')
         .select(selectColumns as any)
         .not('status', 'eq', 'completed') // Exclude completed/archived tickets
         .order('created_at', { ascending: false });
-
-      // Role-based filtering - using correct Supabase syntax
-      if (profile?.role === 'maintenance') {
-        // Maintenance users see maintenance tickets, plus their assigned/created tickets
-        query = query.or(`department.eq.maintenance,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
-      } else if (profile?.role === 'housekeeping') {
-        // Housekeeping users see housekeeping tickets, plus their assigned/created tickets
-        query = query.or(`department.eq.housekeeping,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
-      } else if (profile?.role === 'reception') {
-        // Reception users see reception tickets, plus their assigned/created tickets
-        query = query.or(`department.eq.reception,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
-      } else if (profile?.role === 'marketing') {
-        // Marketing users see marketing tickets, plus their assigned/created tickets
-        query = query.or(`department.eq.marketing,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
-      } else if (profile?.role === 'control_finance') {
-        // Finance users see finance tickets, plus their assigned/created tickets
-        query = query.or(`department.eq.finance,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
-      } else if (profile?.role === 'hr') {
-        // HR users see HR tickets, plus their assigned/created tickets
-        query = query.or(`department.eq.hr,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
-      } else if (profile?.role === 'front_office') {
-        // Front office users see reception tickets, plus their assigned/created tickets
-        query = query.or(`department.eq.reception,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
-      } else if (profile?.role === 'top_management') {
-        // Top management users see all tickets
-        // No additional filter needed
-      } else if (profile?.role === 'housekeeping_manager') {
-        // Housekeeping managers see housekeeping and maintenance tickets
-        query = query.in('department', ['housekeeping', 'maintenance']);
-      } else if (profile?.role === 'maintenance_manager') {
-        // Maintenance managers see only maintenance tickets
-        query = query.eq('department', 'maintenance');
-      } else if (profile?.role === 'marketing_manager') {
-        // Marketing managers see only marketing tickets
-        query = query.eq('department', 'marketing');
-      } else if (profile?.role === 'reception_manager') {
-        // Reception managers see only reception tickets
-        query = query.eq('department', 'reception');
-      } else if (profile?.role === 'back_office_manager') {
-        // Back office managers see only back office tickets
-        query = query.eq('department', 'back_office');
-      } else if (profile?.role === 'control_manager') {
-        // Control managers see only control tickets
-        query = query.eq('department', 'control');
-      } else if (profile?.role === 'finance_manager') {
-        // Finance managers see only finance tickets
-        query = query.eq('department', 'finance');
-      } else if (profile?.role === 'top_management_manager') {
-        // Top management managers see only top management tickets
-        query = query.eq('department', 'top_management');
-      } else {
-        // For any other roles, if we have a profile id, show tickets assigned to or created by the user
-        if (profile?.id) {
-          query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
-        }
-      }
-      // Admins and general managers see all tickets (no additional filter)
 
       const { data, error } = await query;
       
@@ -283,6 +232,16 @@ export function Dashboard() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => setAccessManagementOpen(true)}
+                      className="text-xs sm:text-sm"
+                    >
+                      <Shield className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                      <span className="hidden sm:inline">Access Control</span>
+                      <span className="sm:hidden">Access</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => setCompanySettingsOpen(true)}
                       className="text-xs sm:text-sm"
                     >
@@ -378,7 +337,42 @@ export function Dashboard() {
             }
           </p>
         </div>
+      ) : profile?.role === 'admin' ? (
+        // Admin view: Group tickets by hotel
+        <div className="space-y-6">
+          {Object.entries(
+            filteredTickets.reduce((acc, ticket) => {
+              const hotel = ticket.hotel || 'Unassigned Hotel';
+              if (!acc[hotel]) acc[hotel] = [];
+              acc[hotel].push(ticket);
+              return acc;
+            }, {} as Record<string, Ticket[]>)
+          ).map(([hotelName, hotelTickets]) => (
+            <Card key={hotelName} className="overflow-hidden">
+              <CardHeader className="bg-muted/30 pb-3">
+                <CardTitle className="flex items-center justify-between">
+                  <span className="text-lg">{hotelName}</span>
+                  <Badge variant="secondary" className="ml-2">
+                    {hotelTickets.length} ticket{hotelTickets.length !== 1 ? 's' : ''}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {hotelTickets.map((ticket) => (
+                    <TicketCard
+                      key={ticket.id}
+                      ticket={ticket}
+                      onClick={() => setSelectedTicket(ticket)}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : (
+        // Regular view: Simple grid
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredTickets.map((ticket) => (
             <TicketCard
@@ -422,6 +416,10 @@ export function Dashboard() {
             <UserManagementDialog
               open={userManagementOpen}
               onOpenChange={setUserManagementOpen}
+            />
+            <AccessManagementDialog
+              open={accessManagementOpen}
+              onOpenChange={setAccessManagementOpen}
             />
             <CompanySettings
               open={companySettingsOpen}
