@@ -7,6 +7,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -17,7 +28,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileUpload } from './FileUpload';
 import { AttachmentViewer } from './AttachmentViewer';
 import { AttachmentUpload } from './AttachmentUpload';
-import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip } from 'lucide-react';
+import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 
@@ -85,6 +96,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   const canUpdateStatus = profile?.role === 'maintenance' && ticket.assigned_to?.full_name;
   const canAssign = profile?.role && ['manager', 'admin', 'reception'].includes(profile.role);
   const canClose = !!(profile?.role && ['maintenance', 'housekeeping', 'reception', 'manager', 'admin'].includes(profile.role));
+  const canDelete = profile?.role === 'admin';
 
   useEffect(() => {
     if (open) {
@@ -248,6 +260,34 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       toast({
         title: 'Success',
         description: 'Ticket closed successfully',
+      });
+
+      onTicketUpdated();
+      onOpenChange(false); // Close the dialog
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteTicket = async () => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .delete()
+        .eq('id', ticket.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Ticket deleted successfully',
       });
 
       onTicketUpdated();
@@ -478,6 +518,42 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     ))}
                   </SelectContent>
                 </Select>
+              )}
+
+              {/* Delete Ticket - Admin Only */}
+              {canDelete && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button 
+                      variant="destructive" 
+                      size="sm" 
+                      disabled={loading}
+                      className="ml-auto"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Ticket
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Ticket</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you absolutely sure you want to delete ticket <strong>{ticket.ticket_number}</strong>? 
+                        This action cannot be undone and will permanently remove the ticket and all its comments.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                      <AlertDialogAction 
+                        onClick={handleDeleteTicket}
+                        disabled={loading}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        {loading ? 'Deleting...' : 'Delete Permanently'}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
             </div>
 

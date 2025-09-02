@@ -7,6 +7,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -203,6 +214,28 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     }
   };
 
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    try {
+      // Delete from auth.users (this will cascade to profiles due to foreign key)
+      const { error } = await supabase.auth.admin.deleteUser(userId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: `User ${userName} deleted successfully`,
+      });
+
+      fetchUsers();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
   const getRoleColor = (role: string) => {
     switch (role) {
       case 'admin': return 'bg-red-500 text-white';
@@ -301,6 +334,37 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
+                        
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={loading}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete User</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you absolutely sure you want to delete <strong>{user.full_name}</strong>? 
+                                This action cannot be undone and will permanently remove the user account and all associated data.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                              <AlertDialogAction 
+                                onClick={() => handleDeleteUser(user.id, user.full_name)}
+                                disabled={loading}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                {loading ? 'Deleting...' : 'Delete Permanently'}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </CardContent>
                   </Card>

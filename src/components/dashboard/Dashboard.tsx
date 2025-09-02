@@ -148,7 +148,17 @@ export function Dashboard() {
     const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
     const matchesDepartment = departmentFilter === 'all' || ticket.department === departmentFilter;
     
-    return matchesSearch && matchesStatus && matchesPriority && matchesDepartment;
+    // Hide completed tickets by default unless:
+    // 1. User is specifically searching by ticket number or room number, OR
+    // 2. User has explicitly selected "completed" status filter
+    const isSearchingSpecific = searchQuery.trim() !== '' && (
+      ticket.ticket_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      ticket.room_number.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    const showCompleted = statusFilter === 'completed' || isSearchingSpecific;
+    const shouldShow = ticket.status !== 'completed' || showCompleted;
+    
+    return matchesSearch && matchesStatus && matchesPriority && matchesDepartment && shouldShow;
   });
 
   const getTicketCounts = () => {
