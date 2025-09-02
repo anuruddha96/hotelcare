@@ -175,6 +175,34 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     }
   };
 
+  const handleUpdateUserHotel = async (userId: string, newHotel: string) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ assigned_hotel: newHotel || null })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'User hotel assignment updated',
+      });
+
+      fetchUsers();
+      setSelectedUser(null);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getRoleColor = (role: string) => {
     switch (role) {
       case 'admin': return 'bg-red-500 text-white';
@@ -253,9 +281,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                         <div>
                           <h4 className="font-semibold">{user.full_name}</h4>
                           <p className="text-sm text-muted-foreground">{user.email}</p>
-                          {user.assigned_hotel && (
-                            <p className="text-xs text-blue-600">Hotel: {user.assigned_hotel}</p>
-                          )}
+                          <p className="text-xs text-blue-600">
+                            Hotel: {user.assigned_hotel || 'All Hotels'}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
                           </p>
@@ -393,9 +421,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
           <Dialog open={!!selectedUser} onOpenChange={() => setSelectedUser(null)}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Edit User Role</DialogTitle>
+                <DialogTitle>Edit User</DialogTitle>
                 <DialogDescription>
-                  Update the role for {selectedUser.full_name}
+                  Update role and hotel assignment for {selectedUser.full_name}
                 </DialogDescription>
               </DialogHeader>
               
@@ -408,7 +436,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                 </div>
                 
                 <div className="space-y-2">
-                  <Label>New Role</Label>
+                  <Label>Update Role</Label>
                   <Select 
                     value={selectedUser.role}
                     onValueChange={(value: Profile['role']) => handleUpdateUserRole(selectedUser.id, value)}
@@ -432,6 +460,34 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       <SelectItem value="control_manager">Control Manager</SelectItem>
                       <SelectItem value="finance_manager">Finance Manager</SelectItem>
                       <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Current Hotel Assignment</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedUser.assigned_hotel || 'All Hotels'}
+                  </p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Update Hotel Assignment</Label>
+                  <Select 
+                    value={selectedUser.assigned_hotel || ''}
+                    onValueChange={(value: string) => handleUpdateUserHotel(selectedUser.id, value)}
+                    disabled={loading}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select hotel assignment" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">All Hotels</SelectItem>
+                      {hotels.map((hotel) => (
+                        <SelectItem key={hotel.id} value={hotel.name}>
+                          {hotel.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

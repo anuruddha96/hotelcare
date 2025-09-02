@@ -31,8 +31,16 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     room_number: '',
     priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
     department: '',
-    hotel: '',
+    hotel: profile?.assigned_hotel || '',
   });
+
+  // Check if user can select any hotel or only their assigned one
+  const canSelectAnyHotel = profile?.role === 'admin' || profile?.role === 'top_management';
+  
+  // Available hotels based on user permissions
+  const availableHotels = canSelectAnyHotel 
+    ? hotels.filter(h => h.id !== 'all')
+    : hotels.filter(h => h.id !== 'all' && (profile?.assigned_hotel ? h.id === profile.assigned_hotel : true));
 
   const departments = [
     { value: 'maintenance', label: 'Maintenance' },
@@ -75,7 +83,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
         room_number: '',
         priority: 'medium',
         department: '',
-        hotel: '',
+        hotel: profile?.assigned_hotel || '',
       });
       
       onTicketCreated();
@@ -144,16 +152,24 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="hotel">Hotel</Label>
+            <Label htmlFor="hotel">
+              Hotel
+              {profile?.assigned_hotel && !canSelectAnyHotel && (
+                <span className="text-xs text-muted-foreground ml-2">
+                  (Assigned to: {profile.assigned_hotel})
+                </span>
+              )}
+            </Label>
             <Select 
               value={formData.hotel} 
               onValueChange={(value) => setFormData({ ...formData, hotel: value })}
+              disabled={!canSelectAnyHotel && !!profile?.assigned_hotel}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select Hotel" />
               </SelectTrigger>
               <SelectContent>
-                {hotels.filter(h => h.id !== 'all').map((hotel) => (
+                {availableHotels.map((hotel) => (
                   <SelectItem key={hotel.id} value={hotel.id}>
                     {hotel.name}
                   </SelectItem>

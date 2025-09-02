@@ -244,11 +244,18 @@ export function Dashboard() {
               <div>
                 <h2 className="text-2xl font-bold text-foreground">
                   {profile?.role === 'maintenance' ? 'My Tickets' : 'All Tickets'}
+                  {profile?.assigned_hotel && (
+                    <span className="text-lg font-normal text-muted-foreground ml-2">
+                      - {profile.assigned_hotel}
+                    </span>
+                  )}
                 </h2>
                 <p className="text-muted-foreground">
                   {profile?.role === 'maintenance' 
                     ? 'Tickets assigned to you' 
-                    : 'Manage maintenance requests across the hotel'
+                    : profile?.assigned_hotel && profile?.role !== 'admin' && profile?.role !== 'top_management'
+                      ? `Manage tickets for ${profile.assigned_hotel}`
+                      : 'Manage maintenance requests across all hotels'
                   }
                 </p>
               </div>

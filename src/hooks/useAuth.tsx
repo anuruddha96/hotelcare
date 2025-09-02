@@ -9,6 +9,7 @@ interface Profile {
   role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager';
   created_at: string;
   updated_at: string;
+  assigned_hotel?: string;
 }
 
 interface AuthContextType {
