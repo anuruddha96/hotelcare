@@ -335,39 +335,44 @@ export function RoomManagement() {
   });
 
   return (
-      <div className="container mx-auto p-4 space-y-6">
+      <div className="container mx-auto p-2 sm:p-4 space-y-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
+        <div className="flex flex-col gap-4 items-start">
           <div>
             <h2 className="text-2xl font-bold text-foreground">{t('rooms.title')}</h2>
             <p className="text-muted-foreground">{t('rooms.subtitle')}</p>
           </div>
           
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
             {isAdmin && (
               <>
                 <Button
                   variant="outline"
                   onClick={() => setMinibarDialogOpen(true)}
+                  className="flex-1 sm:flex-initial"
                 >
                   <Settings className="h-4 w-4 mr-2" />
-                  {t('rooms.minibarSettings')}
+                  <span className="hidden sm:inline">{t('rooms.minibarSettings')}</span>
+                  <span className="sm:hidden">Minibar</span>
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => setBulkCreateDialogOpen(true)}
+                  className="flex-1 sm:flex-initial"
                 >
                   <Upload className="h-4 w-4 mr-2" />
-                  Bulk Add Rooms
+                  <span className="hidden sm:inline">Bulk Add Rooms</span>
+                  <span className="sm:hidden">Bulk Add</span>
                 </Button>
                 <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button>
+                    <Button className="flex-1 sm:flex-initial">
                       <Plus className="h-4 w-4 mr-2" />
-                      {t('rooms.addRoom')}
+                      <span className="hidden sm:inline">{t('rooms.addRoom')}</span>
+                      <span className="sm:hidden">Add Room</span>
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>{t('createRoom.title')}</DialogTitle>
                     </DialogHeader>
@@ -375,7 +380,7 @@ export function RoomManagement() {
                       <div>
                         <Label>{t('createRoom.hotel')}</Label>
                         <Select value={newRoom.hotel} onValueChange={(value) => setNewRoom({...newRoom, hotel: value})}>
-                          <SelectTrigger>
+                          <SelectTrigger className="mt-1">
                             <SelectValue placeholder={t('createRoom.hotel')} />
                           </SelectTrigger>
                           <SelectContent>
@@ -393,39 +398,42 @@ export function RoomManagement() {
                           value={newRoom.room_number}
                           onChange={(e) => setNewRoom({...newRoom, room_number: e.target.value})}
                           placeholder="e.g., 101"
+                          className="mt-1"
                         />
                       </div>
-                      <div>
-                        <Label>Room Type</Label>
-                        <Select value={newRoom.room_type} onValueChange={(value) => setNewRoom({...newRoom, room_type: value})}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="economy">Economy</SelectItem>
-                            <SelectItem value="comfort">Comfort</SelectItem>
-                            <SelectItem value="standard">Standard</SelectItem>
-                            <SelectItem value="deluxe">Deluxe</SelectItem>
-                            <SelectItem value="suite">Suite</SelectItem>
-                            <SelectItem value="presidential">Presidential</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Bed Type</Label>
-                        <Select value={newRoom.bed_type} onValueChange={(value) => setNewRoom({...newRoom, bed_type: value})}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="single">Single</SelectItem>
-                            <SelectItem value="double">Double</SelectItem>
-                            <SelectItem value="queen">Queen</SelectItem>
-                            <SelectItem value="king">King</SelectItem>
-                            <SelectItem value="triple">Triple</SelectItem>
-                            <SelectItem value="quadruple">Quadruple</SelectItem>
-                          </SelectContent>
-                        </Select>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Room Type</Label>
+                          <Select value={newRoom.room_type} onValueChange={(value) => setNewRoom({...newRoom, room_type: value})}>
+                            <SelectTrigger className="mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="economy">Economy</SelectItem>
+                              <SelectItem value="comfort">Comfort</SelectItem>
+                              <SelectItem value="standard">Standard</SelectItem>
+                              <SelectItem value="deluxe">Deluxe</SelectItem>
+                              <SelectItem value="suite">Suite</SelectItem>
+                              <SelectItem value="presidential">Presidential</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Bed Type</Label>
+                          <Select value={newRoom.bed_type} onValueChange={(value) => setNewRoom({...newRoom, bed_type: value})}>
+                            <SelectTrigger className="mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="single">Single</SelectItem>
+                              <SelectItem value="double">Double</SelectItem>
+                              <SelectItem value="queen">Queen</SelectItem>
+                              <SelectItem value="king">King</SelectItem>
+                              <SelectItem value="triple">Triple</SelectItem>
+                              <SelectItem value="quadruple">Quadruple</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       <div>
                         <Label>Floor Number</Label>
@@ -434,6 +442,7 @@ export function RoomManagement() {
                           value={newRoom.floor_number}
                           onChange={(e) => setNewRoom({...newRoom, floor_number: e.target.value})}
                           placeholder="e.g., 1"
+                          className="mt-1"
                         />
                       </div>
                       <div>
@@ -442,6 +451,7 @@ export function RoomManagement() {
                           value={newRoom.room_name || ''}
                           onChange={(e) => setNewRoom({...newRoom, room_name: e.target.value})}
                           placeholder="Auto-generated if empty"
+                          className="mt-1"
                         />
                         <p className="text-xs text-muted-foreground mt-1">
                           Preview: {generateRoomName(newRoom)}
@@ -459,7 +469,7 @@ export function RoomManagement() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex flex-col gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -470,38 +480,42 @@ export function RoomManagement() {
             />
           </div>
           
-          <div className="flex gap-2">
-            <HotelFilter value={selectedHotel} onValueChange={setSelectedHotel} />
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex-1 sm:flex-initial">
+              <HotelFilter value={selectedHotel} onValueChange={setSelectedHotel} />
+            </div>
             
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder={t('common.status')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('rooms.allStatus')}</SelectItem>
-                <SelectItem value="clean">{t('rooms.clean')}</SelectItem>
-                <SelectItem value="dirty">{t('rooms.dirty')}</SelectItem>
-                <SelectItem value="maintenance">{t('rooms.maintenance')}</SelectItem>
-                <SelectItem value="out_of_order">{t('rooms.outOfOrder')}</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex-1 sm:flex-initial">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full sm:w-[140px]">
+                  <SelectValue placeholder={t('common.status')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('rooms.allStatus')}</SelectItem>
+                  <SelectItem value="clean">{t('rooms.clean')}</SelectItem>
+                  <SelectItem value="dirty">{t('rooms.dirty')}</SelectItem>
+                  <SelectItem value="maintenance">{t('rooms.maintenance')}</SelectItem>
+                  <SelectItem value="out_of_order">{t('rooms.outOfOrder')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
         {/* Room Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
             const count = rooms.filter(r => r.status === status).length;
             return (
-              <Card key={status}>
-                <CardContent className="p-4">
+              <Card key={status} className="hover:bg-muted/20 transition-colors">
+                <CardContent className="p-3 sm:p-4">
                   <div className="flex items-center gap-2">
                     {getStatusIcon(status)}
-                    <div>
-                      <p className="text-sm text-muted-foreground capitalize">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs sm:text-sm text-muted-foreground capitalize truncate">
                         {t(`rooms.${status}` as any)}
                       </p>
-                      <p className="text-2xl font-bold">{count}</p>
+                      <p className="text-xl sm:text-2xl font-bold">{count}</p>
                     </div>
                   </div>
                 </CardContent>

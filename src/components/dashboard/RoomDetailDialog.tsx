@@ -19,7 +19,7 @@ import {
   Wine,
   Plus,
   Minus,
-  DollarSign,
+  Euro,
   User,
   Calendar
 } from 'lucide-react';
@@ -313,32 +313,32 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
+        <DialogHeader className="flex-shrink-0 pb-4">
+          <DialogTitle className="flex items-center gap-2 text-xl">
             <Hotel className="h-5 w-5" />
             Room {room.room_number} {room.room_name && `- ${room.room_name}`}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">{room.hotel}</p>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="flex-1 overflow-y-auto space-y-6 pr-2">
           {/* Room Status Section */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-lg">
                 {getStatusIcon(room.status)}
                 Room Status
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <Badge className={getStatusColor(room.status)}>
                   {t(`room.status.${room.status}` as any)}
                 </Badge>
                 
                 <Select value={room.status} onValueChange={handleStatusChange}>
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-full sm:w-48">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -372,14 +372,14 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
           {/* Minibar Section */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <CardTitle className="flex items-center gap-2 text-lg">
                   <Wine className="h-5 w-5" />
                   Minibar Usage
                 </CardTitle>
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-medium">
-                    Total: ${getTotalMinibarValue().toFixed(2)}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                  <div className="text-sm font-medium text-primary">
+                    Total: €{getTotalMinibarValue().toFixed(2)}
                   </div>
                   {minibarUsage.length > 0 && (
                     <Button 
@@ -398,30 +398,31 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                 {minibarItems.map((item) => {
                   const currentUsage = getCurrentUsage(item.id);
                   return (
-                    <div key={item.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex-1">
+                    <div key={item.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border rounded-lg bg-card hover:bg-muted/20 transition-colors">
+                      <div className="flex-1 mb-3 sm:mb-0">
                         <div className="font-medium">{item.name}</div>
-                        <div className="text-sm text-muted-foreground flex items-center gap-2">
+                        <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
                           <span className="capitalize">{item.category}</span>
-                          <Separator orientation="vertical" className="h-4" />
-                          <span className="flex items-center gap-1">
-                            <DollarSign className="h-3 w-3" />
+                          <span className="hidden sm:inline">•</span>
+                          <span className="flex items-center gap-1 font-medium text-primary">
+                            <Euro className="h-3 w-3" />
                             {item.price.toFixed(2)}
                           </span>
                         </div>
                       </div>
                       
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => updateMinibarUsage(item.id, -1)}
                           disabled={currentUsage === 0}
+                          className="h-8 w-8 p-0"
                         >
                           <Minus className="h-4 w-4" />
                         </Button>
                         
-                        <span className="w-8 text-center font-medium">
+                        <span className="w-12 text-center font-semibold text-lg">
                           {currentUsage}
                         </span>
                         
@@ -429,6 +430,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                           variant="outline"
                           size="sm"
                           onClick={() => updateMinibarUsage(item.id, 1)}
+                          className="h-8 w-8 p-0"
                         >
                           <Plus className="h-4 w-4" />
                         </Button>
@@ -438,9 +440,10 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                 })}
                 
                 {minibarItems.length === 0 && (
-                  <p className="text-center text-muted-foreground py-4">
-                    No minibar items available
-                  </p>
+                  <div className="text-center py-8">
+                    <Wine className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">No minibar items available</p>
+                  </div>
                 )}
               </div>
             </CardContent>
@@ -449,13 +452,13 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
           {/* Recent Tickets Section */}
           <Card>
             <CardHeader>
-              <CardTitle>Recent Tickets</CardTitle>
+              <CardTitle className="text-lg">Recent Tickets</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {recentTickets.map((ticket) => (
-                  <div key={ticket.id} className="flex items-center justify-between p-2 border rounded">
-                    <div>
+                  <div key={ticket.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border rounded-lg bg-card hover:bg-muted/20 transition-colors">
+                    <div className="flex-1 mb-2 sm:mb-0">
                       <div className="font-medium">{ticket.ticket_number}</div>
                       <div className="text-sm text-muted-foreground">{ticket.title}</div>
                     </div>
@@ -467,9 +470,12 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                 ))}
                 
                 {recentTickets.length === 0 && (
-                  <p className="text-center text-muted-foreground py-4">
-                    No recent tickets
-                  </p>
+                  <div className="text-center py-8">
+                    <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+                      <Calendar className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <p className="text-muted-foreground">No recent tickets</p>
+                  </div>
                 )}
               </div>
             </CardContent>
