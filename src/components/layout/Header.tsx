@@ -52,16 +52,12 @@ export function Header() {
   return (
     <header className="bg-background border-b border-border sticky top-0 z-50">
       <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
-        <div className="min-w-0 flex-1 sm:flex-initial flex items-center gap-3">
+        <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
           <img 
             src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png" 
             alt="RD Hotels Logo" 
             className="h-8 sm:h-10 w-auto object-contain"
           />
-          <div className="min-w-0">
-            <h1 className="text-lg sm:text-xl font-bold text-foreground truncate">RD Hotels</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">Management Dashboard</p>
-          </div>
         </div>
         
         <div className="flex items-center gap-2 sm:gap-4">
