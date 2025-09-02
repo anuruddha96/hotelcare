@@ -66,6 +66,14 @@ export function Dashboard() {
 
   const fetchTickets = async () => {
     setLoading(true);
+    
+    // Guard: wait for profile to be available to avoid null access during initial load
+    if (!profile || !profile.id) {
+      setTickets([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       const selectColumns = (isManager || profile?.role === 'admin')
         ? `*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role)`
@@ -126,8 +134,10 @@ export function Dashboard() {
         // Top management managers see only top management tickets
         query = query.eq('department', 'top_management');
       } else {
-        // For any other roles, show tickets assigned to or created by the user
-        query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+        // For any other roles, if we have a profile id, show tickets assigned to or created by the user
+        if (profile?.id) {
+          query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+        }
       }
       // Admins and general managers see all tickets (no additional filter)
 
