@@ -67,8 +67,13 @@ export function Dashboard() {
   const fetchTickets = async () => {
     setLoading(true);
     
+    console.log('fetchTickets called with profile:', profile);
+    console.log('Profile role:', profile?.role);
+    console.log('Profile id:', profile?.id);
+    
     // Guard: wait for profile to be available to avoid null access during initial load
     if (!profile || !profile.id) {
+      console.log('No profile or profile.id, returning empty tickets');
       setTickets([]);
       setLoading(false);
       return;
