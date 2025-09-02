@@ -177,8 +177,9 @@ export function Dashboard() {
   };
 
   useEffect(() => {
+    if (!profile?.id) return;
     fetchTickets();
-  }, [profile]);
+  }, [profile?.id, profile?.role]);
 
   const filteredTickets = tickets
     .filter((t) => t.status !== 'completed')
