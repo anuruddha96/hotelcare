@@ -63,6 +63,7 @@ interface RoomWithTickets extends Room {
 
 export function RoomManagement() {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [rooms, setRooms] = useState<RoomWithTickets[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,7 +83,8 @@ export function RoomManagement() {
 
   useEffect(() => {
     fetchRooms();
-  }, []);
+    fetchHotels();
+  }, [profile]);
 
   const fetchRooms = async () => {
     setLoading(true);

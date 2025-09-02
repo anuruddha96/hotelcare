@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Globe } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const languages = [
   { code: 'en', name: 'English', flag: '🇺🇸' },
@@ -12,37 +12,23 @@ const languages = [
 ];
 
 export function LanguageSwitcher() {
-  const [currentLanguage, setCurrentLanguage] = useState(() => {
-    return localStorage.getItem('preferred-language') || 'en';
-  });
-
-  useEffect(() => {
-    // Load saved language preference
-    const saved = localStorage.getItem('preferred-language');
-    if (saved) {
-      setCurrentLanguage(saved);
-    }
-  }, []);
+  const { language, setLanguage, t } = useTranslation();
 
   const handleLanguageChange = (langCode: string) => {
-    setCurrentLanguage(langCode);
-    localStorage.setItem('preferred-language', langCode);
+    setLanguage(langCode as any);
     
     // Show confirmation toast
     const selectedLang = languages.find(lang => lang.code === langCode);
     toast({
-      title: 'Language Changed',
-      description: `Language switched to ${selectedLang?.name}`,
+      title: t('language.changed'),
+      description: `${t('language.switchedTo')} ${selectedLang?.name}`,
     });
-    
-    // Reload page to apply language changes
-    window.location.reload();
   };
 
   return (
     <div className="flex items-center gap-2">
       <Globe className="h-4 w-4 text-muted-foreground" />
-      <Select value={currentLanguage} onValueChange={handleLanguageChange}>
+      <Select value={language} onValueChange={handleLanguageChange}>
         <SelectTrigger className="w-[140px]">
           <SelectValue />
         </SelectTrigger>

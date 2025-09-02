@@ -56,6 +56,27 @@ export type Database = {
           },
         ]
       }
+      hotels: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       minibar_items: {
         Row: {
           category: string | null
@@ -88,6 +109,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          assigned_hotel: string | null
           created_at: string | null
           email: string
           full_name: string
@@ -97,6 +119,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          assigned_hotel?: string | null
           created_at?: string | null
           email: string
           full_name: string
@@ -106,6 +129,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          assigned_hotel?: string | null
           created_at?: string | null
           email?: string
           full_name?: string
@@ -186,6 +210,7 @@ export type Database = {
           last_cleaned_at: string | null
           last_cleaned_by: string | null
           notes: string | null
+          room_name: string | null
           room_number: string
           room_type: string | null
           status: string | null
@@ -199,6 +224,7 @@ export type Database = {
           last_cleaned_at?: string | null
           last_cleaned_by?: string | null
           notes?: string | null
+          room_name?: string | null
           room_number: string
           room_type?: string | null
           status?: string | null
@@ -212,6 +238,7 @@ export type Database = {
           last_cleaned_at?: string | null
           last_cleaned_by?: string | null
           notes?: string | null
+          room_name?: string | null
           room_number?: string
           room_type?: string | null
           status?: string | null

@@ -25,6 +25,7 @@ interface Profile {
   full_name: string;
   role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager';
   created_at: string;
+  assigned_hotel?: string;
 }
 
 interface UserManagementDialogProps {
@@ -41,13 +42,30 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     password: '',
     full_name: '',
     role: 'housekeeping' as const,
+    assigned_hotel: '',
   });
+  const [hotels, setHotels] = useState<any[]>([]);
 
   useEffect(() => {
     if (open) {
       fetchUsers();
+      fetchHotels();
     }
   }, [open]);
+
+  const fetchHotels = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('hotels')
+        .select('*')
+        .order('name');
+
+      if (error) throw error;
+      setHotels(data || []);
+    } catch (error: any) {
+      console.error('Error fetching hotels:', error);
+    }
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -87,11 +105,14 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
 
       if (authError) throw authError;
 
-      // Update profile with role
+      // Update profile with role and hotel
       if (authData.user) {
         const { error: profileError } = await supabase
           .from('profiles')
-          .update({ role: newUserData.role })
+          .update({ 
+            role: newUserData.role,
+            assigned_hotel: newUserData.assigned_hotel || null
+          })
           .eq('id', authData.user.id);
 
         if (profileError) throw profileError;
@@ -107,6 +128,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         password: '',
         full_name: '',
         role: 'housekeeping',
+        assigned_hotel: '',
       });
       
       fetchUsers();
@@ -227,6 +249,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                         <div>
                           <h4 className="font-semibold">{user.full_name}</h4>
                           <p className="text-sm text-muted-foreground">{user.email}</p>
+                          {user.assigned_hotel && (
+                            <p className="text-xs text-blue-600">Hotel: {user.assigned_hotel}</p>
+                          )}
                           <p className="text-xs text-muted-foreground">
                             Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
                           </p>
@@ -323,6 +348,26 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                           <SelectItem value="control_manager">Control Manager</SelectItem>
                           <SelectItem value="finance_manager">Finance Manager</SelectItem>
                           <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="hotel">Assigned Hotel</Label>
+                      <Select 
+                        value={newUserData.assigned_hotel} 
+                        onValueChange={(value: string) => setNewUserData({ ...newUserData, assigned_hotel: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select hotel (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">No specific hotel</SelectItem>
+                          {hotels.map((hotel) => (
+                            <SelectItem key={hotel.id} value={hotel.name}>
+                              {hotel.name}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
