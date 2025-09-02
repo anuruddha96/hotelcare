@@ -92,7 +92,7 @@ export function Dashboard() {
         closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)
       `;
       
-      // Simplified query - RLS policy now handles all access control
+      // Simplified query - RLS policy now handles all access control and excludes closed tickets
       let query = supabase
         .from('tickets')
         .select(selectColumns as any)
@@ -130,6 +130,21 @@ export function Dashboard() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Function to search closed tickets using secure RPC
+  const searchClosedTickets = async (searchTerm: string) => {
+    try {
+      const { data, error } = await supabase.rpc('search_closed_tickets' as any, {
+        search_term: searchTerm
+      });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error: any) {
+      console.error('Error searching closed tickets:', error);
+      return [];
     }
   };
 

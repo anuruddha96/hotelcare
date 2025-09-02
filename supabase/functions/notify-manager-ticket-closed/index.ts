@@ -25,18 +25,52 @@ const handler = async (req: Request): Promise<Response> => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const resendApiKey = Deno.env.get('RESEND_API_KEY')!;
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const resend = new Resend(resendApiKey);
+    if (!supabaseUrl || !supabaseServiceKey || !resendApiKey) {
+      throw new Error('Missing required environment variables');
+    }
+
+    // Create service role client for admin operations
+    const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
+    
+    // Create user client to verify permissions
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new Error('Missing or invalid authorization header');
+    }
+
+    const userToken = authHeader.replace('Bearer ', '');
+    const supabaseUser = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
+      global: {
+        headers: { Authorization: authHeader }
+      }
+    });
 
     const { ticketId, ticketNumber, title, resolutionText, closedBy, hotel, roomNumber }: NotificationRequest = await req.json();
 
-    console.log('Processing ticket closure notification:', { ticketId, ticketNumber });
+    // Validate input
+    if (!ticketId || !ticketNumber || !title || !resolutionText || !closedBy || !roomNumber) {
+      throw new Error('Missing required fields');
+    }
 
-    // Get all managers and admins
-    const { data: managers, error: managersError } = await supabase
+    console.log('Processing ticket closure notification:', { ticketId: ticketId.substring(0, 8), ticketNumber });
+
+    // Verify the user can view this ticket (using RLS)
+    const { data: ticketCheck, error: ticketError } = await supabaseUser
+      .from('tickets')
+      .select('id')
+      .eq('id', ticketId)
+      .single();
+
+    if (ticketError || !ticketCheck) {
+      console.error('User not authorized to access ticket:', ticketId);
+      throw new Error('Unauthorized access to ticket');
+    }
+
+    // Use service role to get managers (bypassing RLS for email functionality)
+    const { data: managers, error: managersError } = await supabaseService
       .from('profiles')
       .select('email, full_name')
       .in('role', ['manager', 'admin']);
@@ -53,6 +87,8 @@ const handler = async (req: Request): Promise<Response> => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    const resend = new Resend(resendApiKey);
 
     // Send email to each manager
     const emailPromises = managers.map(async (manager) => {

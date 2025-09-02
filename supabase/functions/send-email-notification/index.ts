@@ -1,34 +1,31 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Resend } from "npm:resend@2.0.0";
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
-
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 // Allowed email domains for security
-const ALLOWED_EMAIL_DOMAINS = [
+const allowedDomains = [
   'gmail.com',
-  'hotmail.com',
   'outlook.com',
+  'hotmail.com',
   'yahoo.com',
-  // Add your company domain here
-  // 'yourcompany.com'
+  'company.com', // Add your company domain here
+  'rdhotels.com' // Add specific hotel domains
 ];
 
 function validateEmailDomain(email: string): boolean {
   const domain = email.split('@')[1]?.toLowerCase();
-  return ALLOWED_EMAIL_DOMAINS.includes(domain);
+  return allowedDomains.includes(domain);
 }
 
 interface EmailRequest {
   to: string;
+  ticketId: string;
   ticketNumber: string;
   ticketTitle: string;
-  ticketId: string;
   hotel: string;
   assignedBy: string;
   priority?: string;
@@ -36,94 +33,132 @@ interface EmailRequest {
 }
 
 const handler = async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Parse and validate request body
-    const body: EmailRequest = await req.json();
-    const { to, ticketNumber, ticketTitle, ticketId, hotel, assignedBy, priority, description } = body;
-
-    // Input validation
-    if (!to || !ticketNumber || !ticketTitle || !ticketId || !hotel || !assignedBy) {
-      throw new Error('Missing required fields');
+    const resendApiKey = Deno.env.get('RESEND_API_KEY');
+    if (!resendApiKey) {
+      throw new Error('RESEND_API_KEY is not configured');
     }
 
-    if (typeof to !== 'string' || !to.includes('@')) {
-      throw new Error('Invalid email format');
+    const resend = new Resend(resendApiKey);
+    
+    const { to, ticketId, ticketNumber, ticketTitle, hotel, assignedBy, priority, description }: EmailRequest = await req.json();
+
+    // Validate required fields
+    if (!to || !ticketId || !ticketNumber || !ticketTitle || !hotel || !assignedBy) {
+      return new Response(
+        JSON.stringify({ error: 'Missing required fields: to, ticketId, ticketNumber, ticketTitle, hotel, assignedBy' }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(to)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid email format' }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // Validate email domain for security
     if (!validateEmailDomain(to)) {
-      throw new Error('Email domain not allowed');
+      console.log(`Email domain not allowed: ${to.split('@')[1]}`);
+      return new Response(
+        JSON.stringify({ error: 'Email domain not allowed' }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     // Validate priority if provided
     if (priority) {
       const validPriorities = ['low', 'medium', 'high', 'urgent'];
       if (!validPriorities.includes(priority)) {
-        throw new Error('Invalid priority value');
+        return new Response(
+          JSON.stringify({ error: 'Invalid priority value' }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
       }
     }
 
-    console.log('Received notification request:', { ticketId, to, ticketNumber, priority });
+    // Sanitize inputs to prevent injection
+    const sanitizedTitle = ticketTitle.replace(/<[^>]*>/g, '').substring(0, 200);
+    const sanitizedHotel = hotel.replace(/<[^>]*>/g, '').substring(0, 100);
+    const sanitizedAssignedBy = assignedBy.replace(/<[^>]*>/g, '').substring(0, 100);
+    const sanitizedDescription = description ? description.replace(/<[^>]*>/g, '').substring(0, 500) : '';
 
-    const loginUrl = `${Deno.env.get('SUPABASE_URL')}/auth/v1/magiclink?token=${ticketId}&redirect_to=${encodeURIComponent(`${Deno.env.get('SITE_URL')}/?ticket=${ticketId}`)}`;
+    console.log(`Sending email notification for ticket: ${ticketNumber}`);
 
-    const emailResponse = await resend.emails.send({
-      from: "RD Hotels <onboarding@resend.dev>",
-      to: [to],
-      subject: `New Ticket Assigned: ${ticketNumber}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #333;">New Ticket Assignment</h1>
-          <p>Hello,</p>
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
+          <h2 style="color: #007bff; margin-bottom: 20px;">🎟️ New Ticket Assignment - ${ticketNumber}</h2>
           
-          <p>You have been assigned a new service request ticket:</p>
-          
-          <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <h3>Ticket Details:</h3>
-            <p><strong>Ticket Number:</strong> ${ticketNumber}</p>
-            <p><strong>Title:</strong> ${ticketTitle}</p>
-            <p><strong>Hotel:</strong> ${hotel}</p>
-            <p><strong>Assigned by:</strong> ${assignedBy}</p>
-            ${priority ? `<p><strong>Priority:</strong> <span style="color: ${priority === 'urgent' ? '#dc2626' : priority === 'high' ? '#ea580c' : priority === 'medium' ? '#d97706' : '#65a30d'}">${priority.toUpperCase()}</span></p>` : ''}
-            ${description ? `<p><strong>Description:</strong> ${description}</p>` : ''}
+          <div style="background-color: white; padding: 20px; border-radius: 6px; margin-bottom: 20px;">
+            <h3 style="color: #333; margin-top: 0;">${sanitizedTitle}</h3>
+            
+            <div style="margin-bottom: 15px;">
+              <strong>Hotel:</strong> ${sanitizedHotel}<br>
+              <strong>Assigned by:</strong> ${sanitizedAssignedBy}<br>
+              ${priority ? `<strong>Priority:</strong> <span style="color: ${priority === 'urgent' ? '#dc3545' : priority === 'high' ? '#fd7e14' : priority === 'medium' ? '#ffc107' : '#28a745'};">${priority.toUpperCase()}</span><br>` : ''}
+              ${sanitizedDescription ? `<strong>Description:</strong> ${sanitizedDescription}` : ''}
+            </div>
           </div>
           
-          <p>Click the button below to view and manage this ticket:</p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${loginUrl}" 
-               style="background-color: #007bff; color: white; padding: 12px 24px; 
-                      text-decoration: none; border-radius: 5px; display: inline-block;">
-              View Ticket
+          <div style="text-align: center; margin-top: 30px;">
+            <a href="https://rdhotels-management.lovable.app/" 
+               style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              View Dashboard
             </a>
           </div>
           
-          <p style="font-size: 12px; color: #666;">
-            This is an automated message from RD Hotels Management System.
-          </p>
+          <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6; text-align: center; color: #6c757d; font-size: 12px;">
+            RD Hotels Management System<br>
+            This is an automated notification
+          </div>
         </div>
-      `,
+      </div>
+    `;
+
+    const result = await resend.emails.send({
+      from: 'RD Hotels <notifications@resend.dev>',
+      to: [to],
+      subject: `🎟️ New Ticket Assignment: ${ticketNumber} - ${sanitizedTitle}`,
+      html: emailHtml,
     });
 
-    console.log("Email sent successfully:", emailResponse);
+    console.log('Email sent successfully');
 
-    return new Response(JSON.stringify(emailResponse), {
+    return new Response(JSON.stringify(result), {
       status: 200,
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         ...corsHeaders,
       },
     });
   } catch (error: any) {
-    console.error("Error sending email:", error);
+    console.error('Error in send-email-notification function:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
       }
     );
   }
