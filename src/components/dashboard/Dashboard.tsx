@@ -76,7 +76,7 @@ export function Dashboard() {
         .not('status', 'eq', 'completed') // Exclude completed/archived tickets
         .order('created_at', { ascending: false });
 
-      // Role-based filtering - more inclusive to prevent blank screens
+      // Role-based filtering - using correct Supabase syntax
       if (profile?.role === 'maintenance') {
         // Maintenance users see maintenance tickets, plus their assigned/created tickets
         query = query.or(`department.eq.maintenance,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
@@ -125,6 +125,9 @@ export function Dashboard() {
       } else if (profile?.role === 'top_management_manager') {
         // Top management managers see only top management tickets
         query = query.eq('department', 'top_management');
+      } else {
+        // For any other roles, show tickets assigned to or created by the user
+        query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
       }
       // Admins and general managers see all tickets (no additional filter)
 
