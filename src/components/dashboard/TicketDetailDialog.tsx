@@ -115,10 +115,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
   const fetchMaintenanceStaff = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, role')
-        .in('role', ['maintenance', 'housekeeping', 'reception', 'marketing', 'control_finance', 'hr', 'front_office']);
+      // Use secure function that only returns assignable staff based on user role
+      const { data, error } = await supabase.rpc('get_assignable_staff', {
+        requesting_user_role: profile?.role
+      });
 
       if (error) throw error;
       setMaintenanceStaff(data || []);

@@ -51,7 +51,7 @@ interface Comment {
 interface Profile {
   id: string;
   full_name: string;
-  email: string;
+  email?: string; // Made optional since secure function doesn't return this
   role: string;
 }
 
@@ -101,10 +101,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   };
 
   const fetchMaintenanceStaff = async () => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .in('role', ['maintenance', 'manager', 'admin']);
+    // Use secure function that only returns assignable staff based on user role
+    const { data, error } = await supabase.rpc('get_assignable_staff', {
+      requesting_user_role: profile?.role
+    });
 
     if (error) {
       console.error('Error fetching staff:', error);

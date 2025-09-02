@@ -399,6 +399,14 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: string
       }
+      get_assignable_staff: {
+        Args: { requesting_user_role: Database["public"]["Enums"]["user_role"] }
+        Returns: {
+          full_name: string
+          id: string
+          role: Database["public"]["Enums"]["user_role"]
+        }[]
+      }
       get_user_role: {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]

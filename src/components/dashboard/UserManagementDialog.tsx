@@ -70,12 +70,16 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const fetchUsers = async () => {
     setLoading(true);
     try {
+      // Only allow admins and HR to fetch all users for management
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Access denied - insufficient permissions to view user profiles');
+        throw error;
+      }
       setUsers(data || []);
     } catch (error: any) {
       toast({
