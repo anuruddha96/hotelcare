@@ -74,19 +74,34 @@ export function Dashboard() {
           created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
           assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role)
         `)
-        .neq('status', 'completed') // Exclude completed/archived tickets
+        .not('status', 'eq', 'completed') // Exclude completed/archived tickets
         .order('created_at', { ascending: false });
 
-      // Role-based filtering
+      // Role-based filtering - more inclusive to prevent blank screens
       if (profile?.role === 'maintenance') {
-        // Maintenance users see only their assigned or created tickets
-        query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+        // Maintenance users see maintenance tickets, plus their assigned/created tickets
+        query = query.or(`department.eq.maintenance,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
       } else if (profile?.role === 'housekeeping') {
-        // Housekeeping users see only their assigned or created tickets
-        query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+        // Housekeeping users see housekeeping tickets, plus their assigned/created tickets
+        query = query.or(`department.eq.housekeeping,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
       } else if (profile?.role === 'reception') {
-        // Reception users see only their assigned or created tickets  
-        query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+        // Reception users see reception tickets, plus their assigned/created tickets
+        query = query.or(`department.eq.reception,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+      } else if (profile?.role === 'marketing') {
+        // Marketing users see marketing tickets, plus their assigned/created tickets
+        query = query.or(`department.eq.marketing,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+      } else if (profile?.role === 'control_finance') {
+        // Finance users see finance tickets, plus their assigned/created tickets
+        query = query.or(`department.eq.finance,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+      } else if (profile?.role === 'hr') {
+        // HR users see HR tickets, plus their assigned/created tickets
+        query = query.or(`department.eq.hr,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+      } else if (profile?.role === 'front_office') {
+        // Front office users see reception tickets, plus their assigned/created tickets
+        query = query.or(`department.eq.reception,assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+      } else if (profile?.role === 'top_management') {
+        // Top management users see all tickets
+        // No additional filter needed
       } else if (profile?.role === 'housekeeping_manager') {
         // Housekeeping managers see housekeeping and maintenance tickets
         query = query.in('department', ['housekeeping', 'maintenance']);
@@ -111,9 +126,6 @@ export function Dashboard() {
       } else if (profile?.role === 'top_management_manager') {
         // Top management managers see only top management tickets
         query = query.eq('department', 'top_management');
-      } else if (!isManager) {
-        // Regular staff see only tickets assigned to them or created by them
-        query = query.or(`assigned_to.eq.${profile?.id},created_by.eq.${profile?.id}`);
       }
       // Admins and general managers see all tickets (no additional filter)
 
