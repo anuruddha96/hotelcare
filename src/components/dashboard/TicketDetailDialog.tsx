@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileUpload } from './FileUpload';
+import { AttachmentViewer } from './AttachmentViewer';
 import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
@@ -32,6 +33,7 @@ interface Ticket {
   resolution_text?: string;
   closed_at?: string;
   hotel?: string;
+  attachment_urls?: string[];
   closed_by?: {
     full_name: string;
   };
@@ -415,6 +417,17 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     Closed by {ticket.closed_by.full_name} on {format(new Date(ticket.closed_at), 'MMM dd, yyyy HH:mm')}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Attachments */}
+            {ticket.attachment_urls && ticket.attachment_urls.length > 0 && (
+              <div className="mt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Paperclip className="h-4 w-4" />
+                  Attachments
+                </h4>
+                <AttachmentViewer attachments={ticket.attachment_urls} />
               </div>
             )}
           </div>

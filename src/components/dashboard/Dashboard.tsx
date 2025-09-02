@@ -47,6 +47,7 @@ export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [departmentFilter, setDepartmentFilter] = useState('all');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [userManagementOpen, setUserManagementOpen] = useState(false);
@@ -84,9 +85,13 @@ export function Dashboard() {
     }
 
     try {
-      const selectColumns = (isManager || profile?.role === 'admin')
-        ? `*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role)`
-        : `*`;
+      // Always fetch tickets with profile information
+      const selectColumns = `
+        *,
+        created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
+        assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role),
+        closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)
+      `;
       
       // Simplified query - RLS policy now handles all access control
       let query = supabase
@@ -144,8 +149,9 @@ export function Dashboard() {
     
     const matchesStatus = statusFilter === 'all' || ticket.status === statusFilter;
     const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
+    const matchesDepartment = departmentFilter === 'all' || ticket.department === departmentFilter;
     
-    return matchesSearch && matchesStatus && matchesPriority;
+    return matchesSearch && matchesStatus && matchesPriority && matchesDepartment;
   });
 
   const getTicketCounts = () => {
@@ -314,10 +320,26 @@ export function Dashboard() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Priority</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="high">High</SelectItem>
               <SelectItem value="urgent">Urgent</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+            <SelectTrigger className="w-[120px] sm:w-[150px] h-9 text-xs sm:text-sm">
+              <SelectValue placeholder="Department" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Departments</SelectItem>
+              <SelectItem value="maintenance">Maintenance</SelectItem>
+              <SelectItem value="housekeeping">Housekeeping</SelectItem>
+              <SelectItem value="reception">Reception</SelectItem>
+              <SelectItem value="marketing">Marketing</SelectItem>
+              <SelectItem value="finance">Finance</SelectItem>
+              <SelectItem value="control">Control</SelectItem>
+              <SelectItem value="hr">HR</SelectItem>
             </SelectContent>
           </Select>
         </div>
