@@ -115,7 +115,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
           .from('profiles')
           .update({ 
             role: newUserData.role,
-            assigned_hotel: newUserData.assigned_hotel || null
+            assigned_hotel: newUserData.assigned_hotel === 'none' ? null : newUserData.assigned_hotel || null
           })
           .eq('id', authData.user.id);
 
@@ -180,7 +180,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ assigned_hotel: newHotel || null })
+        .update({ assigned_hotel: newHotel === 'none' ? null : newHotel || null })
         .eq('id', userId);
 
       if (error) throw error;
@@ -394,7 +394,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                           <SelectValue placeholder="Select hotel (optional)" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">No specific hotel</SelectItem>
+                          <SelectItem value="none">No specific hotel</SelectItem>
                           {hotels.map((hotel) => (
                             <SelectItem key={hotel.id} value={hotel.name}>
                               {hotel.name}
@@ -474,7 +474,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                 <div className="space-y-2">
                   <Label>Update Hotel Assignment</Label>
                   <Select 
-                    value={selectedUser.assigned_hotel || ''}
+                    value={selectedUser.assigned_hotel || 'none'}
                     onValueChange={(value: string) => handleUpdateUserHotel(selectedUser.id, value)}
                     disabled={loading}
                   >
@@ -482,7 +482,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       <SelectValue placeholder="Select hotel assignment" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Hotels</SelectItem>
+                      <SelectItem value="none">All Hotels</SelectItem>
                       {hotels.map((hotel) => (
                         <SelectItem key={hotel.id} value={hotel.name}>
                           {hotel.name}
