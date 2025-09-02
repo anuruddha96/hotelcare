@@ -7,6 +7,7 @@ import { TicketDetailDialog } from './TicketDetailDialog';
 import { UserManagementDialog } from './UserManagementDialog';
 import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
+import { ArchivedTickets } from './ArchivedTickets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -77,6 +78,12 @@ export function Dashboard() {
       // Role-based filtering
       if (profile?.role === 'maintenance') {
         // Maintenance users see only their assigned or created tickets
+        query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+      } else if (profile?.role === 'housekeeping') {
+        // Housekeeping users see only their assigned or created tickets
+        query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
+      } else if (profile?.role === 'reception') {
+        // Reception users see only their assigned or created tickets  
         query = query.or(`assigned_to.eq.${profile.id},created_by.eq.${profile.id}`);
       } else if (profile?.role === 'housekeeping_manager') {
         // Housekeeping managers see housekeeping and maintenance tickets
@@ -181,7 +188,7 @@ export function Dashboard() {
               <p className="text-muted-foreground">Complete hotel management system</p>
             </div>
             
-            <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsList className="grid w-full max-w-lg grid-cols-3">
               <TabsTrigger value="tickets" className="flex items-center gap-2">
                 <Ticket className="h-4 w-4" />
                 Tickets
@@ -189,6 +196,10 @@ export function Dashboard() {
               <TabsTrigger value="rooms" className="flex items-center gap-2">
                 <Home className="h-4 w-4" />
                 Rooms
+              </TabsTrigger>
+              <TabsTrigger value="archive" className="flex items-center gap-2">
+                <Ticket className="h-4 w-4" />
+                Archive
               </TabsTrigger>
             </TabsList>
           </div>
@@ -319,6 +330,10 @@ export function Dashboard() {
 
           <TabsContent value="rooms">
             <RoomManagement />
+          </TabsContent>
+
+          <TabsContent value="archive">
+            <ArchivedTickets />
           </TabsContent>
         </Tabs>
 

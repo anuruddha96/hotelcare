@@ -142,11 +142,16 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-secondary/5 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Hotel Management Dashboard</CardTitle>
-          <CardDescription>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-4">
+      <Card className="w-full max-w-lg shadow-2xl border-0">
+        <CardHeader className="text-center space-y-4 pb-6">
+          <div className="mx-auto w-20 h-20 bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] rounded-full flex items-center justify-center">
+            <div className="text-white font-bold text-2xl">RD</div>
+          </div>
+          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
+            Hotel Management Dashboard
+          </CardTitle>
+          <CardDescription className="text-base">
             Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
           </CardDescription>
         </CardHeader>
