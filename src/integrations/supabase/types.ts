@@ -402,6 +402,7 @@ export type Database = {
       get_assignable_staff: {
         Args: { requesting_user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
+          email: string
           full_name: string
           id: string
           role: Database["public"]["Enums"]["user_role"]

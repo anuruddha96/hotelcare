@@ -51,7 +51,7 @@ interface Comment {
 interface Profile {
   id: string;
   full_name: string;
-  email?: string; // Made optional since secure function doesn't return this
+  email: string;
   role: string;
 }
 
