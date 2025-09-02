@@ -454,6 +454,10 @@ export type Database = {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      user_can_view_ticket: {
+        Args: { ticket_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       ticket_priority: "low" | "medium" | "high" | "urgent"

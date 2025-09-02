@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Download, Eye, FileText, Image as ImageIcon, File, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AttachmentViewerProps {
   attachments: string[];
@@ -13,6 +14,7 @@ interface AttachmentViewerProps {
 
 interface ParsedAttachment {
   url: string;
+  signedUrl?: string;
   filename: string;
   type: 'image' | 'document';
   extension: string;
@@ -20,9 +22,64 @@ interface ParsedAttachment {
 
 export function AttachmentViewer({ attachments, className }: AttachmentViewerProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [parsedAttachments, setParsedAttachments] = useState<ParsedAttachment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadSignedUrls = async () => {
+      if (!attachments || attachments.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const attachmentsWithSigned = await Promise.all(
+          attachments.map(async (url) => {
+            const parsed = parseAttachment(url);
+            
+            // Extract file path from URL for signed URL generation
+            const urlParts = url.split('/');
+            const bucketIndex = urlParts.findIndex(part => part === 'ticket-attachments');
+            if (bucketIndex !== -1 && bucketIndex < urlParts.length - 1) {
+              const filePath = urlParts.slice(bucketIndex + 1).join('/');
+              
+              // Generate signed URL with 1 hour expiry
+              const { data: signedData } = await supabase.storage
+                .from('ticket-attachments')
+                .createSignedUrl(filePath, 3600);
+              
+              if (signedData?.signedUrl) {
+                parsed.signedUrl = signedData.signedUrl;
+              }
+            }
+            
+            return parsed;
+          })
+        );
+        
+        setParsedAttachments(attachmentsWithSigned);
+      } catch (error) {
+        console.error('Error generating signed URLs:', error);
+        // Fallback to original URLs
+        setParsedAttachments(attachments.map(parseAttachment));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSignedUrls();
+  }, [attachments]);
 
   if (!attachments || attachments.length === 0) {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <div className={cn("space-y-4", className)}>
+        <div className="text-sm text-muted-foreground">Loading attachments...</div>
+      </div>
+    );
   }
 
   const parseAttachment = (url: string): ParsedAttachment => {
@@ -56,26 +113,27 @@ export function AttachmentViewer({ attachments, className }: AttachmentViewerPro
     }
   };
 
-  const downloadFile = async (url: string, filename: string) => {
+  const downloadFile = async (attachment: ParsedAttachment) => {
     try {
-      const response = await fetch(url);
+      const downloadUrl = attachment.signedUrl || attachment.url;
+      const response = await fetch(downloadUrl);
       const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
+      const objectUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
+      link.href = objectUrl;
+      link.download = attachment.filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(downloadUrl);
+      window.URL.revokeObjectURL(objectUrl);
     } catch (error) {
       console.error('Download failed:', error);
       // Fallback: open in new tab
-      window.open(url, '_blank');
+      const fallbackUrl = attachment.signedUrl || attachment.url;
+      window.open(fallbackUrl, '_blank');
     }
   };
 
-  const parsedAttachments = attachments.map(parseAttachment);
   const images = parsedAttachments.filter(att => att.type === 'image');
   const documents = parsedAttachments.filter(att => att.type === 'document');
 
@@ -97,10 +155,10 @@ export function AttachmentViewer({ attachments, className }: AttachmentViewerPro
                 <CardContent className="p-0">
                   <div 
                     className="relative aspect-square bg-muted flex items-center justify-center"
-                    onClick={() => setSelectedImage(attachment.url)}
+                    onClick={() => setSelectedImage(attachment.signedUrl || attachment.url)}
                   >
                     <img
-                      src={attachment.url}
+                      src={attachment.signedUrl || attachment.url}
                       alt={attachment.filename}
                       className="w-full h-full object-cover"
                       loading="lazy"
@@ -151,7 +209,7 @@ export function AttachmentViewer({ attachments, className }: AttachmentViewerPro
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => window.open(attachment.url, '_blank')}
+                        onClick={() => window.open(attachment.signedUrl || attachment.url, '_blank')}
                         className="h-8 w-8 p-0"
                       >
                         <ExternalLink className="h-4 w-4" />
@@ -159,7 +217,7 @@ export function AttachmentViewer({ attachments, className }: AttachmentViewerPro
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => downloadFile(attachment.url, attachment.filename)}
+                        onClick={() => downloadFile(attachment)}
                         className="h-8 w-8 p-0"
                       >
                         <Download className="h-4 w-4" />

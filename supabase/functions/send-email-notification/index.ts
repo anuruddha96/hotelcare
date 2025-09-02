@@ -9,6 +9,21 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// Allowed email domains for security
+const ALLOWED_EMAIL_DOMAINS = [
+  'gmail.com',
+  'hotmail.com',
+  'outlook.com',
+  'yahoo.com',
+  // Add your company domain here
+  // 'yourcompany.com'
+];
+
+function validateEmailDomain(email: string): boolean {
+  const domain = email.split('@')[1]?.toLowerCase();
+  return ALLOWED_EMAIL_DOMAINS.includes(domain);
+}
+
 interface EmailRequest {
   to: string;
   ticketNumber: string;
@@ -16,6 +31,8 @@ interface EmailRequest {
   ticketId: string;
   hotel: string;
   assignedBy: string;
+  priority?: string;
+  description?: string;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -24,7 +41,32 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { to, ticketNumber, ticketTitle, ticketId, hotel, assignedBy }: EmailRequest = await req.json();
+    // Parse and validate request body
+    const body: EmailRequest = await req.json();
+    const { to, ticketNumber, ticketTitle, ticketId, hotel, assignedBy, priority, description } = body;
+
+    // Input validation
+    if (!to || !ticketNumber || !ticketTitle || !ticketId || !hotel || !assignedBy) {
+      throw new Error('Missing required fields');
+    }
+
+    if (typeof to !== 'string' || !to.includes('@')) {
+      throw new Error('Invalid email format');
+    }
+
+    if (!validateEmailDomain(to)) {
+      throw new Error('Email domain not allowed');
+    }
+
+    // Validate priority if provided
+    if (priority) {
+      const validPriorities = ['low', 'medium', 'high', 'urgent'];
+      if (!validPriorities.includes(priority)) {
+        throw new Error('Invalid priority value');
+      }
+    }
+
+    console.log('Received notification request:', { ticketId, to, ticketNumber, priority });
 
     const loginUrl = `${Deno.env.get('SUPABASE_URL')}/auth/v1/magiclink?token=${ticketId}&redirect_to=${encodeURIComponent(`${Deno.env.get('SITE_URL')}/?ticket=${ticketId}`)}`;
 
@@ -45,6 +87,8 @@ const handler = async (req: Request): Promise<Response> => {
             <p><strong>Title:</strong> ${ticketTitle}</p>
             <p><strong>Hotel:</strong> ${hotel}</p>
             <p><strong>Assigned by:</strong> ${assignedBy}</p>
+            ${priority ? `<p><strong>Priority:</strong> <span style="color: ${priority === 'urgent' ? '#dc2626' : priority === 'high' ? '#ea580c' : priority === 'medium' ? '#d97706' : '#65a30d'}">${priority.toUpperCase()}</span></p>` : ''}
+            ${description ? `<p><strong>Description:</strong> ${description}</p>` : ''}
           </div>
           
           <p>Click the button below to view and manage this ticket:</p>

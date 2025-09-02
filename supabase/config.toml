@@ -43,4 +43,7 @@ enabled = true
 port = 54328
 
 [functions.send-email-notification]
-verify_jwt = false
+verify_jwt = true
+
+[functions.notify-manager-ticket-closed]
+verify_jwt = true
