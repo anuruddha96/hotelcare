@@ -12,8 +12,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { HotelFilter } from './HotelFilter';
 import { MinimBarManagement } from './MinimBarManagement';
-import { SimpleRoomCard } from './SimpleRoomCard';
+import { EnhancedRoomCard } from './EnhancedRoomCard';
 import { RoomDetailDialog } from './RoomDetailDialog';
+import { BulkRoomCreation } from './BulkRoomCreation';
 import { 
   Search, 
   Plus, 
@@ -24,7 +25,9 @@ import {
   MapPin,
   Clock,
   User,
-  Wrench
+  Wrench,
+  Upload,
+  Grid3X3
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -33,7 +36,9 @@ interface Room {
   id: string;
   hotel: string;
   room_number: string;
+  room_name?: string;
   room_type: string;
+  bed_type?: string;
   floor_number?: number;
   status: 'clean' | 'dirty' | 'out_of_order' | 'maintenance';
   last_cleaned_at?: string;
@@ -73,12 +78,14 @@ export function RoomManagement() {
   const [selectedHotel, setSelectedHotel] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
   const [minibarDialogOpen, setMinibarDialogOpen] = useState(false);
   const [newRoom, setNewRoom] = useState({
     hotel: '',
     room_number: '',
     room_name: '',
     room_type: 'standard',
+    bed_type: 'double',
     floor_number: ''
   });
   const [hotels, setHotels] = useState<any[]>([]);
@@ -201,13 +208,16 @@ export function RoomManagement() {
     }
 
     try {
+      const roomName = newRoom.room_name || generateRoomName(newRoom);
+      
       const { error } = await supabase
         .from('rooms')
         .insert({
           hotel: newRoom.hotel,
           room_number: newRoom.room_number,
-          room_name: newRoom.room_name || null,
+          room_name: roomName,
           room_type: newRoom.room_type,
+          bed_type: newRoom.bed_type,
           floor_number: newRoom.floor_number ? parseInt(newRoom.floor_number) : null
         });
 
@@ -219,7 +229,7 @@ export function RoomManagement() {
       });
 
       setCreateDialogOpen(false);
-      setNewRoom({ hotel: '', room_number: '', room_name: '', room_type: 'standard', floor_number: '' });
+      setNewRoom({ hotel: '', room_number: '', room_name: '', room_type: 'standard', bed_type: 'double', floor_number: '' });
       fetchRooms();
     } catch (error: any) {
       toast({
@@ -228,6 +238,13 @@ export function RoomManagement() {
         variant: 'destructive',
       });
     }
+  };
+
+  const generateRoomName = (room: { room_number: string; room_type: string; bed_type: string }) => {
+    const paddedNumber = room.room_number.padStart(3, '0');
+    const typeCapitalized = room.room_type.charAt(0).toUpperCase() + room.room_type.slice(1);
+    const bedCapitalized = room.bed_type.charAt(0).toUpperCase() + room.bed_type.slice(1);
+    return `${paddedNumber}-${typeCapitalized}-${bedCapitalized}`;
   };
 
   const handleStatusChange = async (roomId: string, newStatus: string, notes?: string) => {
@@ -287,12 +304,34 @@ export function RoomManagement() {
   const filteredRooms = rooms.filter(room => {
     const matchesSearch = 
       room.room_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      room.hotel.toLowerCase().includes(searchQuery.toLowerCase());
+      room.hotel.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (room.room_name && room.room_name.toLowerCase().includes(searchQuery.toLowerCase()));
     
     const matchesHotel = selectedHotel === 'all' || room.hotel === selectedHotel;
     const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
     
     return matchesSearch && matchesHotel && matchesStatus;
+  });
+
+  // Group rooms by hotel and sort by room number
+  const groupedRooms = filteredRooms.reduce((acc, room) => {
+    if (!acc[room.hotel]) {
+      acc[room.hotel] = [];
+    }
+    acc[room.hotel].push(room);
+    return acc;
+  }, {} as Record<string, typeof filteredRooms>);
+
+  // Sort rooms within each hotel by room number
+  Object.keys(groupedRooms).forEach(hotel => {
+    groupedRooms[hotel].sort((a, b) => {
+      const numA = parseInt(a.room_number);
+      const numB = parseInt(b.room_number);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      return a.room_number.localeCompare(b.room_number);
+    });
   });
 
   return (
@@ -313,6 +352,13 @@ export function RoomManagement() {
                 >
                   <Settings className="h-4 w-4 mr-2" />
                   {t('rooms.minibarSettings')}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setBulkCreateDialogOpen(true)}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Bulk Add Rooms
                 </Button>
                 <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
                   <DialogTrigger asChild>
@@ -342,15 +388,7 @@ export function RoomManagement() {
                         </Select>
                       </div>
                       <div>
-                        <Label>{t('createRoom.roomName')}</Label>
-                        <Input
-                          value={newRoom.room_name || ''}
-                          onChange={(e) => setNewRoom({...newRoom, room_name: e.target.value})}
-                          placeholder="e.g., Executive Suite"
-                        />
-                      </div>
-                      <div>
-                        <Label>{t('createRoom.roomNumber')}</Label>
+                        <Label>Room Number</Label>
                         <Input
                           value={newRoom.room_number}
                           onChange={(e) => setNewRoom({...newRoom, room_number: e.target.value})}
@@ -358,12 +396,14 @@ export function RoomManagement() {
                         />
                       </div>
                       <div>
-                        <Label>{t('createRoom.roomType')}</Label>
+                        <Label>Room Type</Label>
                         <Select value={newRoom.room_type} onValueChange={(value) => setNewRoom({...newRoom, room_type: value})}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="economy">Economy</SelectItem>
+                            <SelectItem value="comfort">Comfort</SelectItem>
                             <SelectItem value="standard">Standard</SelectItem>
                             <SelectItem value="deluxe">Deluxe</SelectItem>
                             <SelectItem value="suite">Suite</SelectItem>
@@ -372,13 +412,40 @@ export function RoomManagement() {
                         </Select>
                       </div>
                       <div>
-                        <Label>{t('createRoom.floorNumber')}</Label>
+                        <Label>Bed Type</Label>
+                        <Select value={newRoom.bed_type} onValueChange={(value) => setNewRoom({...newRoom, bed_type: value})}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="single">Single</SelectItem>
+                            <SelectItem value="double">Double</SelectItem>
+                            <SelectItem value="queen">Queen</SelectItem>
+                            <SelectItem value="king">King</SelectItem>
+                            <SelectItem value="triple">Triple</SelectItem>
+                            <SelectItem value="quadruple">Quadruple</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Floor Number</Label>
                         <Input
                           type="number"
                           value={newRoom.floor_number}
                           onChange={(e) => setNewRoom({...newRoom, floor_number: e.target.value})}
                           placeholder="e.g., 1"
                         />
+                      </div>
+                      <div>
+                        <Label>Custom Room Name (Optional)</Label>
+                        <Input
+                          value={newRoom.room_name || ''}
+                          onChange={(e) => setNewRoom({...newRoom, room_name: e.target.value})}
+                          placeholder="Auto-generated if empty"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Preview: {generateRoomName(newRoom)}
+                        </p>
                       </div>
                       <Button onClick={handleCreateRoom} className="w-full">
                         {t('createRoom.create')}
@@ -443,7 +510,7 @@ export function RoomManagement() {
           })}
         </div>
 
-        {/* Room Grid */}
+        {/* Rooms by Hotel */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -453,21 +520,54 @@ export function RoomManagement() {
             <p className="text-muted-foreground">No rooms found</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredRooms.map((room) => (
-              <SimpleRoomCard 
-                key={room.id} 
-                room={room} 
-                onClick={() => handleRoomClick(room)}
-              />
-            ))}
+          <div className="space-y-8">
+            {(profile?.role === 'admin' || profile?.role === 'top_management') 
+              ? Object.keys(groupedRooms).sort().map(hotel => (
+                  <div key={hotel}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <MapPin className="h-5 w-5 text-primary" />
+                      <h3 className="text-xl font-semibold text-foreground">{hotel}</h3>
+                      <Badge variant="outline">
+                        {groupedRooms[hotel].length} rooms
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      {groupedRooms[hotel].map((room) => (
+                        <EnhancedRoomCard 
+                          key={room.id} 
+                          room={room} 
+                          onClick={() => handleRoomClick(room)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredRooms.map((room) => (
+                    <EnhancedRoomCard 
+                      key={room.id} 
+                      room={room} 
+                      onClick={() => handleRoomClick(room)}
+                    />
+                  ))}
+                </div>
+              )
+            }
           </div>
         )}
 
-        {/* Minibar Management Dialog */}
+        {/* Dialogs */}
         <MinimBarManagement 
           open={minibarDialogOpen} 
           onOpenChange={setMinibarDialogOpen} 
+        />
+
+        <BulkRoomCreation 
+          open={bulkCreateDialogOpen}
+          onOpenChange={setBulkCreateDialogOpen}
+          hotels={hotels}
+          onComplete={fetchRooms}
         />
 
         <RoomDetailDialog

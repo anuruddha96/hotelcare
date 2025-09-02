@@ -233,6 +233,7 @@ export type Database = {
       }
       rooms: {
         Row: {
+          bed_type: string | null
           created_at: string
           floor_number: number | null
           hotel: string
@@ -247,6 +248,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          bed_type?: string | null
           created_at?: string
           floor_number?: number | null
           hotel: string
@@ -261,6 +263,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          bed_type?: string | null
           created_at?: string
           floor_number?: number | null
           hotel?: string
