@@ -8,7 +8,6 @@ import { UserManagementDialog } from './UserManagementDialog';
 import { AccessManagementDialog } from './AccessManagementDialog';
 import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
-import { ArchivedTickets } from './ArchivedTickets';
 import { CompanySettings } from './CompanySettings';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -97,7 +96,6 @@ export function Dashboard() {
       let query = supabase
         .from('tickets')
         .select(selectColumns as any)
-        .not('status', 'eq', 'completed') // Exclude completed/archived tickets
         .order('created_at', { ascending: false });
 
       const { data, error } = await query;
@@ -141,7 +139,6 @@ export function Dashboard() {
   }, [profile?.id, profile?.role]);
 
   const filteredTickets = tickets
-    .filter((t) => t.status !== 'completed')
     .filter(ticket => {
     const matchesSearch = ticket.ticket_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          ticket.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -181,7 +178,7 @@ export function Dashboard() {
               </p>
             </div>
             
-            <TabsList className="grid w-full max-w-lg grid-cols-3 h-8 sm:h-10">
+            <TabsList className="grid w-full max-w-lg grid-cols-2 h-8 sm:h-10">
               <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                 <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden sm:inline">Tickets</span>
@@ -191,11 +188,6 @@ export function Dashboard() {
                 <Home className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden sm:inline">Rooms</span>
                 <span className="sm:hidden">R</span>
-              </TabsTrigger>
-              <TabsTrigger value="archive" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Archive</span>
-                <span className="sm:hidden">A</span>
               </TabsTrigger>
             </TabsList>
           </div>
@@ -353,9 +345,9 @@ export function Dashboard() {
       ) : filteredTickets.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground">
-            {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' 
-              ? 'No tickets match your filters' 
-              : 'No tickets found'
+            {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' || departmentFilter !== 'all' 
+              ? 'No tickets match your filters. Try adjusting your search criteria.' 
+              : 'No tickets found. Create a new ticket to get started.'
             }
           </p>
         </div>
@@ -411,10 +403,6 @@ export function Dashboard() {
           <TabsContent value="rooms">
             <RoomManagement />
           </TabsContent>
-
-          <TabsContent value="archive">
-            <ArchivedTickets />
-          </TabsContent>
         </Tabs>
 
         {/* Dialogs */}
@@ -429,7 +417,10 @@ export function Dashboard() {
             ticket={selectedTicket}
             open={!!selectedTicket}
             onOpenChange={() => setSelectedTicket(null)}
-            onTicketUpdated={fetchTickets}
+            onTicketUpdated={() => {
+              fetchTickets();
+              setSelectedTicket(null); // Close dialog after update
+            }}
           />
         )}
         

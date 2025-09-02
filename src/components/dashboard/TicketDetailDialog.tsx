@@ -16,6 +16,7 @@ import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileUpload } from './FileUpload';
 import { AttachmentViewer } from './AttachmentViewer';
+import { AttachmentUpload } from './AttachmentUpload';
 import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
@@ -79,6 +80,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   const [resolutionText, setResolutionText] = useState('');
   const [slaBreachReason, setSlaBreachReason] = useState('');
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+  const [commentAttachments, setCommentAttachments] = useState<string[]>([]);
 
   const canUpdateStatus = profile?.role === 'maintenance' && ticket.assigned_to?.full_name;
   const canAssign = profile?.role && ['manager', 'admin', 'reception'].includes(profile.role);
@@ -294,6 +296,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       if (error) throw error;
 
       setNewComment('');
+      setCommentAttachments([]);
       fetchComments();
       
       toast({
@@ -309,6 +312,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCommentAttachmentsChange = (attachments: string[]) => {
+    setCommentAttachments(attachments);
   };
 
   const getPriorityColor = (priority: string) => {
@@ -583,6 +590,21 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   rows={3}
                 />
               </div>
+              
+              {/* Attachment Upload for Comments */}
+              <div>
+                <Label className="flex items-center gap-2 mb-2">
+                  <Paperclip className="h-4 w-4" />
+                  Attach Files (Optional)
+                </Label>
+                <AttachmentUpload
+                  ticketId={ticket.id}
+                  onAttachmentsChange={handleCommentAttachmentsChange}
+                  maxFiles={3}
+                  className="mb-2"
+                />
+              </div>
+              
               <div className="flex justify-end">
                 <Button type="submit" disabled={loading || !newComment.trim()}>
                   {loading ? 'Adding...' : 'Add Comment'}
