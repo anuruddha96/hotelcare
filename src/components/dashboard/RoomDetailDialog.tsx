@@ -1,46 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
+import { useTranslation } from '@/hooks/useTranslation';
 import { 
-  Bed, 
-  MapPin, 
-  Clock, 
-  User, 
-  Ticket, 
-  ShoppingCart, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Wrench, 
+  XCircle, 
+  Hotel, 
+  Wine,
   Plus,
   Minus,
-  CheckCircle2,
-  AlertTriangle,
-  Settings,
-  Wrench
+  DollarSign,
+  User,
+  Calendar
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Room {
   id: string;
-  hotel: string;
   room_number: string;
-  room_type: string;
+  room_name?: string;
+  hotel: string;
+  status: string;
+  room_type?: string;
   floor_number?: number;
-  status: 'clean' | 'dirty' | 'out_of_order' | 'maintenance';
-  last_cleaned_at?: string;
-  last_cleaned_by?: {
-    full_name: string;
-  };
   notes?: string;
-  created_at: string;
-  updated_at: string;
+  last_cleaned_at?: string;
+  last_cleaned_by?: string;
 }
 
 interface MinibarItem {
@@ -53,12 +48,11 @@ interface MinibarItem {
 
 interface MinibarUsage {
   id: string;
+  minibar_item_id: string;
   quantity_used: number;
-  minibar_item: {
-    id: string;
-    name: string;
-    price: number;
-  };
+  usage_date: string;
+  is_cleared: boolean;
+  minibar_items: MinibarItem;
 }
 
 interface Ticket {
@@ -71,29 +65,30 @@ interface Ticket {
 }
 
 interface RoomDetailDialogProps {
-  room: Room;
+  room: Room | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onRoomUpdated: () => void;
+  onRoomUpdated?: () => void;
 }
 
 export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: RoomDetailDialogProps) {
+  const { t } = useTranslation();
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [minibarItems, setMinibarItems] = useState<MinibarItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
-  const [tempUsage, setTempUsage] = useState<Record<string, number>>({});
-  const [notes, setNotes] = useState(room.notes || '');
+  const [tempUsage, setTempUsage] = useState<{ [key: string]: number }>({});
+  const [roomNotes, setRoomNotes] = useState('');
 
   useEffect(() => {
-    if (open) {
+    if (open && room) {
+      setRoomNotes(room.notes || '');
       fetchMinibarItems();
       fetchMinibarUsage();
       fetchRecentTickets();
-      setNotes(room.notes || '');
     }
-  }, [open, room.id]);
+  }, [open, room]);
 
   const fetchMinibarItems = async () => {
     try {
@@ -107,49 +102,34 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       if (error) throw error;
       setMinibarItems(data || []);
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch minibar items',
-        variant: 'destructive',
-      });
+      console.error('Error fetching minibar items:', error);
     }
   };
 
   const fetchMinibarUsage = async () => {
+    if (!room) return;
+
     try {
       const { data, error } = await supabase
         .from('room_minibar_usage')
         .select(`
-          id,
-          quantity_used,
-          minibar_items!inner(id, name, price)
+          *,
+          minibar_items (*)
         `)
         .eq('room_id', room.id)
-        .eq('is_cleared', false);
+        .eq('is_cleared', false)
+        .order('usage_date', { ascending: false });
 
       if (error) throw error;
-      
-      const usage = (data || []).map(item => ({
-        id: item.id,
-        quantity_used: item.quantity_used,
-        minibar_item: {
-          id: item.minibar_items.id,
-          name: item.minibar_items.name,
-          price: item.minibar_items.price
-        }
-      }));
-      
-      setMinibarUsage(usage);
+      setMinibarUsage(data || []);
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch minibar usage',
-        variant: 'destructive',
-      });
+      console.error('Error fetching minibar usage:', error);
     }
   };
 
   const fetchRecentTickets = async () => {
+    if (!room) return;
+
     try {
       const { data, error } = await supabase
         .from('tickets')
@@ -162,20 +142,18 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       if (error) throw error;
       setRecentTickets(data || []);
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch recent tickets',
-        variant: 'destructive',
-      });
+      console.error('Error fetching recent tickets:', error);
     }
   };
 
   const handleStatusChange = async (newStatus: string) => {
+    if (!room) return;
+
     setLoading(true);
     try {
       const updateData: any = {
         status: newStatus,
-        notes
+        notes: roomNotes,
       };
 
       if (newStatus === 'clean') {
@@ -191,86 +169,93 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       if (error) throw error;
 
       toast({
-        title: 'Success',
-        description: `Room status updated to ${newStatus}`,
+        title: "Success",
+        description: "Room status updated successfully",
       });
 
-      onRoomUpdated();
+      onRoomUpdated?.();
     } catch (error: any) {
       toast({
-        title: 'Error',
+        title: "Error",
         description: error.message,
-        variant: 'destructive',
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const updateMinibarUsage = async (itemId: string, quantity: number) => {
-    if (quantity < 0) return;
+  const updateMinibarUsage = async (itemId: string, change: number) => {
+    if (!room) return;
 
-    setLoading(true);
+    const currentUsage = getCurrentUsage(itemId);
+    const newQuantity = Math.max(0, currentUsage + change);
+
+    if (newQuantity === 0 && currentUsage === 0) return;
+
     try {
-      const existingUsage = minibarUsage.find(u => u.minibar_item.id === itemId);
-
-      if (existingUsage) {
-        if (quantity === 0) {
-          // Delete the usage record
+      if (newQuantity === 0) {
+        // Remove usage record
+        const existingUsage = minibarUsage.find(u => u.minibar_item_id === itemId);
+        if (existingUsage) {
           const { error } = await supabase
             .from('room_minibar_usage')
             .delete()
             .eq('id', existingUsage.id);
 
           if (error) throw error;
-        } else {
-          // Update existing usage
+        }
+      } else {
+        // Update or create usage record
+        const existingUsage = minibarUsage.find(u => u.minibar_item_id === itemId);
+        
+        if (existingUsage) {
           const { error } = await supabase
             .from('room_minibar_usage')
             .update({
-              quantity_used: quantity,
+              quantity_used: newQuantity,
+              usage_date: new Date().toISOString(),
               recorded_by: profile?.id
             })
             .eq('id', existingUsage.id);
 
           if (error) throw error;
-        }
-      } else if (quantity > 0) {
-        // Create new usage record
-        const { error } = await supabase
-          .from('room_minibar_usage')
-          .insert({
-            room_id: room.id,
-            minibar_item_id: itemId,
-            quantity_used: quantity,
-            recorded_by: profile?.id
-          });
+        } else {
+          const { error } = await supabase
+            .from('room_minibar_usage')
+            .insert({
+              room_id: room.id,
+              minibar_item_id: itemId,
+              quantity_used: newQuantity,
+              usage_date: new Date().toISOString(),
+              recorded_by: profile?.id
+            });
 
-        if (error) throw error;
+          if (error) throw error;
+        }
       }
 
-      fetchMinibarUsage();
+      await fetchMinibarUsage();
       toast({
-        title: 'Success',
-        description: 'Minibar usage updated',
+        title: "Success",
+        description: "Minibar usage updated",
       });
     } catch (error: any) {
       toast({
-        title: 'Error',
+        title: "Error",
         description: error.message,
-        variant: 'destructive',
+        variant: "destructive",
       });
-    } finally {
-      setLoading(false);
     }
   };
 
   const clearMinibarUsage = async () => {
-    setLoading(true);
+    if (!room) return;
+
     try {
       const { error } = await supabase
         .from('room_minibar_usage')
-        .update({
+        .update({ 
           is_cleared: true,
           guest_checkout_date: new Date().toISOString()
         })
@@ -279,30 +264,27 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
 
       if (error) throw error;
 
+      await fetchMinibarUsage();
       toast({
-        title: 'Success',
-        description: 'Minibar usage cleared for checkout',
+        title: "Success",
+        description: "Minibar usage cleared for checkout",
       });
-
-      fetchMinibarUsage();
     } catch (error: any) {
       toast({
-        title: 'Error',
+        title: "Error",
         description: error.message,
-        variant: 'destructive',
+        variant: "destructive",
       });
-    } finally {
-      setLoading(false);
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'clean': return 'bg-green-100 text-green-800 border-green-300';
-      case 'dirty': return 'bg-red-100 text-red-800 border-red-300';
-      case 'out_of_order': return 'bg-gray-100 text-gray-800 border-gray-300';
-      case 'maintenance': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      default: return 'bg-blue-100 text-blue-800 border-blue-300';
+      case 'clean': return 'bg-green-100 text-green-800';
+      case 'dirty': return 'bg-orange-100 text-orange-800';
+      case 'maintenance': return 'bg-blue-100 text-blue-800';
+      case 'out_of_order': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -310,87 +292,78 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
     switch (status) {
       case 'clean': return <CheckCircle2 className="h-4 w-4" />;
       case 'dirty': return <AlertTriangle className="h-4 w-4" />;
-      case 'out_of_order': return <Settings className="h-4 w-4" />;
       case 'maintenance': return <Wrench className="h-4 w-4" />;
-      default: return <Bed className="h-4 w-4" />;
+      case 'out_of_order': return <XCircle className="h-4 w-4" />;
+      default: return <CheckCircle2 className="h-4 w-4" />;
     }
   };
 
-  const getCurrentUsage = (itemId: string) => {
-    return minibarUsage.find(u => u.minibar_item.id === itemId)?.quantity_used || 0;
+  const getCurrentUsage = (itemId: string): number => {
+    const usage = minibarUsage.find(u => u.minibar_item_id === itemId);
+    return usage?.quantity_used || 0;
   };
 
-  const getTotalMinibarValue = () => {
+  const getTotalMinibarValue = (): number => {
     return minibarUsage.reduce((total, usage) => {
-      return total + (usage.quantity_used * usage.minibar_item.price);
+      return total + (usage.quantity_used * usage.minibar_items.price);
     }, 0);
   };
 
+  if (!room) return null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Bed className="h-6 w-6" />
-              <div>
-                <div>Room {room.room_number}</div>
-                <div className="text-sm text-muted-foreground font-normal">
-                  {room.hotel.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                </div>
-              </div>
-            </div>
-            <Badge className={getStatusColor(room.status)} variant="outline">
-              {getStatusIcon(room.status)}
-              <span className="ml-2 capitalize">{room.status.replace('_', ' ')}</span>
-            </Badge>
+          <DialogTitle className="flex items-center gap-2">
+            <Hotel className="h-5 w-5" />
+            Room {room.room_number} {room.room_name && `- ${room.room_name}`}
           </DialogTitle>
+          <p className="text-sm text-muted-foreground">{room.hotel}</p>
         </DialogHeader>
 
         <div className="space-y-6">
           {/* Room Status Section */}
           <Card>
             <CardHeader>
-              <CardTitle>Room Status</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                {getStatusIcon(room.status)}
+                Room Status
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => (
-                  <Button
-                    key={status}
-                    size="sm"
-                    variant={room.status === status ? 'default' : 'outline'}
-                    onClick={() => handleStatusChange(status)}
-                    disabled={loading}
-                    className="capitalize"
-                  >
-                    {getStatusIcon(status)}
-                    <span className="ml-2">{status.replace('_', ' ')}</span>
-                  </Button>
-                ))}
+              <div className="flex items-center gap-4">
+                <Badge className={getStatusColor(room.status)}>
+                  {t(`room.status.${room.status}` as any)}
+                </Badge>
+                
+                <Select value={room.status} onValueChange={handleStatusChange}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="clean">{t('room.status.clean')}</SelectItem>
+                    <SelectItem value="dirty">{t('room.status.dirty')}</SelectItem>
+                    <SelectItem value="maintenance">{t('room.status.maintenance')}</SelectItem>
+                    <SelectItem value="out_of_order">{t('room.status.out_of_order')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>
-                <Label htmlFor="notes">Notes</Label>
+                <label className="text-sm font-medium">Notes</label>
                 <Textarea
-                  id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Add any notes about this room..."
-                  rows={3}
+                  value={roomNotes}
+                  onChange={(e) => setRoomNotes(e.target.value)}
+                  placeholder="Add room notes..."
+                  className="mt-1"
                 />
               </div>
 
               {room.last_cleaned_at && (
-                <div className="text-sm text-muted-foreground flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  Last cleaned: {format(new Date(room.last_cleaned_at), 'MMM dd, yyyy HH:mm')}
-                  {room.last_cleaned_by && (
-                    <span className="flex items-center gap-1">
-                      <User className="h-4 w-4" />
-                      {room.last_cleaned_by.full_name}
-                    </span>
-                  )}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Calendar className="h-4 w-4" />
+                  Last cleaned: {new Date(room.last_cleaned_at).toLocaleString()}
                 </div>
               )}
             </CardContent>
@@ -399,55 +372,76 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
           {/* Minibar Section */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ShoppingCart className="h-5 w-5" />
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Wine className="h-5 w-5" />
                   Minibar Usage
-                </div>
-                {minibarUsage.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">
-                      Total: ${getTotalMinibarValue().toFixed(2)}
-                    </Badge>
-                    <Button size="sm" onClick={clearMinibarUsage} disabled={loading}>
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-medium">
+                    Total: ${getTotalMinibarValue().toFixed(2)}
+                  </div>
+                  {minibarUsage.length > 0 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={clearMinibarUsage}
+                    >
                       Clear for Checkout
                     </Button>
-                  </div>
-                )}
-              </CardTitle>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="space-y-3">
                 {minibarItems.map((item) => {
                   const currentUsage = getCurrentUsage(item.id);
                   return (
                     <div key={item.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">{item.name}</p>
-                        <p className="text-sm text-muted-foreground">${item.price.toFixed(2)}</p>
+                      <div className="flex-1">
+                        <div className="font-medium">{item.name}</div>
+                        <div className="text-sm text-muted-foreground flex items-center gap-2">
+                          <span className="capitalize">{item.category}</span>
+                          <Separator orientation="vertical" className="h-4" />
+                          <span className="flex items-center gap-1">
+                            <DollarSign className="h-3 w-3" />
+                            {item.price.toFixed(2)}
+                          </span>
+                        </div>
                       </div>
+                      
                       <div className="flex items-center gap-2">
                         <Button
-                          size="sm"
                           variant="outline"
-                          onClick={() => updateMinibarUsage(item.id, currentUsage - 1)}
-                          disabled={currentUsage === 0 || loading}
+                          size="sm"
+                          onClick={() => updateMinibarUsage(item.id, -1)}
+                          disabled={currentUsage === 0}
                         >
-                          <Minus className="h-3 w-3" />
+                          <Minus className="h-4 w-4" />
                         </Button>
-                        <span className="w-8 text-center">{currentUsage}</span>
+                        
+                        <span className="w-8 text-center font-medium">
+                          {currentUsage}
+                        </span>
+                        
                         <Button
-                          size="sm"
                           variant="outline"
-                          onClick={() => updateMinibarUsage(item.id, currentUsage + 1)}
-                          disabled={loading}
+                          size="sm"
+                          onClick={() => updateMinibarUsage(item.id, 1)}
                         >
-                          <Plus className="h-3 w-3" />
+                          <Plus className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
                   );
                 })}
+                
+                {minibarItems.length === 0 && (
+                  <p className="text-center text-muted-foreground py-4">
+                    No minibar items available
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -455,37 +449,29 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
           {/* Recent Tickets Section */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Ticket className="h-5 w-5" />
-                Recent Tickets
-              </CardTitle>
+              <CardTitle>Recent Tickets</CardTitle>
             </CardHeader>
             <CardContent>
-              {recentTickets.length === 0 ? (
-                <p className="text-muted-foreground">No recent tickets for this room</p>
-              ) : (
-                <div className="space-y-3">
-                  {recentTickets.map((ticket) => (
-                    <div key={ticket.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium">{ticket.ticket_number}</p>
-                        <p className="text-sm text-muted-foreground">{ticket.title}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {format(new Date(ticket.created_at), 'MMM dd, yyyy')}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={ticket.priority === 'urgent' ? 'destructive' : 'secondary'}>
-                          {ticket.priority}
-                        </Badge>
-                        <Badge variant={ticket.status === 'completed' ? 'default' : 'outline'}>
-                          {ticket.status}
-                        </Badge>
-                      </div>
+              <div className="space-y-2">
+                {recentTickets.map((ticket) => (
+                  <div key={ticket.id} className="flex items-center justify-between p-2 border rounded">
+                    <div>
+                      <div className="font-medium">{ticket.ticket_number}</div>
+                      <div className="text-sm text-muted-foreground">{ticket.title}</div>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">{ticket.priority}</Badge>
+                      <Badge variant="secondary">{ticket.status}</Badge>
+                    </div>
+                  </div>
+                ))}
+                
+                {recentTickets.length === 0 && (
+                  <p className="text-center text-muted-foreground py-4">
+                    No recent tickets
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>

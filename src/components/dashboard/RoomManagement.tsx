@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { HotelFilter } from './HotelFilter';
 import { MinimBarManagement } from './MinimBarManagement';
+import { SimpleRoomCard } from './SimpleRoomCard';
+import { RoomDetailDialog } from './RoomDetailDialog';
 import { 
   Search, 
   Plus, 
@@ -75,10 +77,13 @@ export function RoomManagement() {
   const [newRoom, setNewRoom] = useState({
     hotel: '',
     room_number: '',
+    room_name: '',
     room_type: 'standard',
     floor_number: ''
   });
   const [hotels, setHotels] = useState<any[]>([]);
+  const [selectedRoom, setSelectedRoom] = useState<any>(null);
+  const [roomDetailOpen, setRoomDetailOpen] = useState(false);
 
   const isAdmin = profile?.role === 'admin';
   const canManageRooms = profile?.role && ['admin', 'manager', 'reception'].includes(profile.role);
@@ -154,6 +159,11 @@ export function RoomManagement() {
     }
   };
 
+  const handleRoomClick = (room: any) => {
+    setSelectedRoom(room);
+    setRoomDetailOpen(true);
+  };
+
   const fetchHotels = async () => {
     try {
       const { data, error } = await supabase
@@ -184,6 +194,7 @@ export function RoomManagement() {
         .insert({
           hotel: newRoom.hotel,
           room_number: newRoom.room_number,
+          room_name: newRoom.room_name || null,
           room_type: newRoom.room_type,
           floor_number: newRoom.floor_number ? parseInt(newRoom.floor_number) : null
         });
@@ -196,7 +207,7 @@ export function RoomManagement() {
       });
 
       setCreateDialogOpen(false);
-      setNewRoom({ hotel: '', room_number: '', room_type: 'standard', floor_number: '' });
+      setNewRoom({ hotel: '', room_number: '', room_name: '', room_type: 'standard', floor_number: '' });
       fetchRooms();
     } catch (error: any) {
       toast({
@@ -273,255 +284,186 @@ export function RoomManagement() {
   });
 
   return (
-    <div className="container mx-auto p-4 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Room Management</h2>
-          <p className="text-muted-foreground">Monitor and manage hotel room status</p>
-        </div>
-        
-        <div className="flex flex-wrap gap-2">
-          {isAdmin && (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => setMinibarDialogOpen(true)}
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Minibar Settings
-              </Button>
-              <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Room
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create New Room</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div>
-                      <Label>Hotel</Label>
-                      <Select value={newRoom.hotel} onValueChange={(value) => setNewRoom({...newRoom, hotel: value})}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select hotel" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="memories-budapest">Hotel Memories Budapest</SelectItem>
-                          <SelectItem value="mika-downtown">Hotel Mika Downtown</SelectItem>
-                          <SelectItem value="ottofiori">Hotel Ottofiori</SelectItem>
-                          <SelectItem value="gozsdu-court">Gozsdu Court Budapest</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Room Number</Label>
-                      <Input
-                        value={newRoom.room_number}
-                        onChange={(e) => setNewRoom({...newRoom, room_number: e.target.value})}
-                        placeholder="e.g., 101"
-                      />
-                    </div>
-                    <div>
-                      <Label>Room Type</Label>
-                      <Select value={newRoom.room_type} onValueChange={(value) => setNewRoom({...newRoom, room_type: value})}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="standard">Standard</SelectItem>
-                          <SelectItem value="deluxe">Deluxe</SelectItem>
-                          <SelectItem value="suite">Suite</SelectItem>
-                          <SelectItem value="presidential">Presidential</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Floor Number</Label>
-                      <Input
-                        type="number"
-                        value={newRoom.floor_number}
-                        onChange={(e) => setNewRoom({...newRoom, floor_number: e.target.value})}
-                        placeholder="e.g., 1"
-                      />
-                    </div>
-                    <Button onClick={handleCreateRoom} className="w-full">
-                      Create Room
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by room number or hotel..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        
-        <div className="flex gap-2">
-          <HotelFilter value={selectedHotel} onValueChange={setSelectedHotel} />
+      <div className="container mx-auto p-4 space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
+          <div>
+            <h2 className="text-2xl font-bold text-foreground">{t('rooms.title')}</h2>
+            <p className="text-muted-foreground">{t('rooms.subtitle')}</p>
+          </div>
           
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="clean">Clean</SelectItem>
-              <SelectItem value="dirty">Dirty</SelectItem>
-              <SelectItem value="maintenance">Maintenance</SelectItem>
-              <SelectItem value="out_of_order">Out of Order</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Room Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
-          const count = rooms.filter(r => r.status === status).length;
-          return (
-            <Card key={status}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2">
-                  {getStatusIcon(status)}
-                  <div>
-                    <p className="text-sm text-muted-foreground capitalize">
-                      {status.replace('_', ' ')}
-                    </p>
-                    <p className="text-2xl font-bold">{count}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Room Grid */}
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
-      ) : filteredRooms.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">No rooms found</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredRooms.map((room) => (
-            <Card key={room.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Bed className="h-5 w-5" />
-                    {room.room_number}
-                  </CardTitle>
-                  <Badge className={getStatusColor(room.status)} variant="outline">
-                    {getStatusIcon(room.status)}
-                    <span className="ml-1 capitalize">{room.status.replace('_', ' ')}</span>
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <MapPin className="h-4 w-4" />
-                  {room.hotel.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                </div>
-              </CardHeader>
-              
-              <CardContent className="space-y-4">
-                {/* Quick Action Buttons */}
-                <div className="flex gap-2 flex-wrap">
-                  {room.status !== 'clean' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => handleStatusChange(room.id, 'clean')}
-                    >
-                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                      Clean
+          <div className="flex flex-wrap gap-2">
+            {isAdmin && (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setMinibarDialogOpen(true)}
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  {t('rooms.minibarSettings')}
+                </Button>
+                <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      {t('rooms.addRoom')}
                     </Button>
-                  )}
-                  {room.status !== 'dirty' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => handleStatusChange(room.id, 'dirty')}
-                    >
-                      <AlertTriangle className="h-3 w-3 mr-1" />
-                      Dirty
-                    </Button>
-                  )}
-                </div>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{t('createRoom.title')}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <Label>{t('createRoom.hotel')}</Label>
+                        <Select value={newRoom.hotel} onValueChange={(value) => setNewRoom({...newRoom, hotel: value})}>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t('createRoom.hotel')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {hotels.map((hotel) => (
+                              <SelectItem key={hotel.id} value={hotel.name}>
+                                {hotel.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>{t('createRoom.roomName')}</Label>
+                        <Input
+                          value={newRoom.room_name || ''}
+                          onChange={(e) => setNewRoom({...newRoom, room_name: e.target.value})}
+                          placeholder="e.g., Executive Suite"
+                        />
+                      </div>
+                      <div>
+                        <Label>{t('createRoom.roomNumber')}</Label>
+                        <Input
+                          value={newRoom.room_number}
+                          onChange={(e) => setNewRoom({...newRoom, room_number: e.target.value})}
+                          placeholder="e.g., 101"
+                        />
+                      </div>
+                      <div>
+                        <Label>{t('createRoom.roomType')}</Label>
+                        <Select value={newRoom.room_type} onValueChange={(value) => setNewRoom({...newRoom, room_type: value})}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="standard">Standard</SelectItem>
+                            <SelectItem value="deluxe">Deluxe</SelectItem>
+                            <SelectItem value="suite">Suite</SelectItem>
+                            <SelectItem value="presidential">Presidential</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>{t('createRoom.floorNumber')}</Label>
+                        <Input
+                          type="number"
+                          value={newRoom.floor_number}
+                          onChange={(e) => setNewRoom({...newRoom, floor_number: e.target.value})}
+                          placeholder="e.g., 1"
+                        />
+                      </div>
+                      <Button onClick={handleCreateRoom} className="w-full">
+                        {t('createRoom.create')}
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </>
+            )}
+          </div>
+        </div>
 
-                {/* Last Cleaned Info */}
-                {room.last_cleaned_at && (
-                  <div className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    Cleaned {format(new Date(room.last_cleaned_at), 'MMM dd, HH:mm')}
-                    {room.last_cleaned_by && (
-                      <span className="flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        {room.last_cleaned_by.full_name}
-                      </span>
-                    )}
-                  </div>
-                )}
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={t('rooms.search')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          
+          <div className="flex gap-2">
+            <HotelFilter value={selectedHotel} onValueChange={setSelectedHotel} />
+            
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder={t('common.status')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('rooms.allStatus')}</SelectItem>
+                <SelectItem value="clean">{t('rooms.clean')}</SelectItem>
+                <SelectItem value="dirty">{t('rooms.dirty')}</SelectItem>
+                <SelectItem value="maintenance">{t('rooms.maintenance')}</SelectItem>
+                <SelectItem value="out_of_order">{t('rooms.outOfOrder')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
-                {/* Recent Tickets */}
-                {room.recent_tickets.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Recent Tickets:</p>
-                    <div className="space-y-1">
-                      {room.recent_tickets.slice(0, 2).map((ticket) => (
-                        <div key={ticket.id} className="text-xs p-2 bg-muted rounded">
-                          <p className="font-medium">{ticket.ticket_number}</p>
-                          <p className="truncate">{ticket.title}</p>
-                        </div>
-                      ))}
+        {/* Room Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
+            const count = rooms.filter(r => r.status === status).length;
+            return (
+              <Card key={status}>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    {getStatusIcon(status)}
+                    <div>
+                      <p className="text-sm text-muted-foreground capitalize">
+                        {t(`rooms.${status}` as any)}
+                      </p>
+                      <p className="text-2xl font-bold">{count}</p>
                     </div>
                   </div>
-                )}
-
-                {/* Minibar Usage */}
-                {room.minibar_usage.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Pending Minibar:</p>
-                    <div className="space-y-1">
-                      {room.minibar_usage.slice(0, 3).map((usage) => (
-                        <div key={usage.id} className="text-xs flex justify-between bg-orange-50 p-1 rounded">
-                          <span>{usage.minibar_item.name} x{usage.quantity_used}</span>
-                          <span>${(usage.minibar_item.price * usage.quantity_used).toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
-      )}
 
-      {/* Minibar Management Dialog */}
-      <MinimBarManagement 
-        open={minibarDialogOpen} 
-        onOpenChange={setMinibarDialogOpen} 
-      />
-    </div>
+        {/* Room Grid */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : filteredRooms.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">No rooms found</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredRooms.map((room) => (
+              <SimpleRoomCard 
+                key={room.id} 
+                room={room} 
+                onClick={() => handleRoomClick(room)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Minibar Management Dialog */}
+        <MinimBarManagement 
+          open={minibarDialogOpen} 
+          onOpenChange={setMinibarDialogOpen} 
+        />
+
+        <RoomDetailDialog
+          room={selectedRoom}
+          open={roomDetailOpen}
+          onOpenChange={setRoomDetailOpen}
+          onRoomUpdated={fetchRooms}
+        />
+      </div>
   );
 }
