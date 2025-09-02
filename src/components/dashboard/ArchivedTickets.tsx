@@ -40,20 +40,27 @@ export function ArchivedTickets() {
 
   useEffect(() => {
     fetchArchivedTickets();
-  }, [profile]);
+  }, [profile, searchQuery]);
 
   const fetchArchivedTickets = async () => {
+    const term = (searchQuery || '').trim();
+    if (term.length < 2) {
+      setTickets([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
+      const isPrivileged = profile?.role === 'admin' || profile?.role === 'manager';
+      const selectColumns = isPrivileged
+        ? `*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role), closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)`
+        : `id, ticket_number, title, description, room_number, priority, status, created_at, closed_at, resolution_text, hotel`;
+
       const { data, error } = await supabase
         .from('tickets')
-        .select(`
-          *,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
-          assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role),
-          closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)
-        `)
+        .select(selectColumns)
         .eq('status', 'completed')
+        .or(`ticket_number.ilike.%${term}%,room_number.ilike.%${term}%`)
         .order('closed_at', { ascending: false });
 
       if (error) throw error;
@@ -136,7 +143,7 @@ export function ArchivedTickets() {
       ) : filteredTickets.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground">
-            {searchQuery ? 'No archived tickets match your search' : 'No archived tickets found'}
+            {searchQuery.trim().length < 2 ? 'Type at least 2 characters to search closed tickets' : 'No archived tickets match your search'}
           </p>
         </div>
       ) : (

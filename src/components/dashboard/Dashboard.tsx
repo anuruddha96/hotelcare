@@ -67,13 +67,12 @@ export function Dashboard() {
   const fetchTickets = async () => {
     setLoading(true);
     try {
+      const selectColumns = (isManager || profile?.role === 'admin')
+        ? `*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role)`
+        : `*`;
       let query = supabase
         .from('tickets')
-        .select(`
-          *,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
-          assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role)
-        `)
+        .select(selectColumns)
         .not('status', 'eq', 'completed') // Exclude completed/archived tickets
         .order('created_at', { ascending: false });
 
@@ -168,7 +167,9 @@ export function Dashboard() {
     fetchTickets();
   }, [profile]);
 
-  const filteredTickets = tickets.filter(ticket => {
+  const filteredTickets = tickets
+    .filter((t) => t.status !== 'completed')
+    .filter(ticket => {
     const matchesSearch = ticket.ticket_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          ticket.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          ticket.room_number.toLowerCase().includes(searchQuery.toLowerCase());
