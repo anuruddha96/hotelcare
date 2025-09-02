@@ -96,14 +96,26 @@ export function RoomManagement() {
   const fetchRooms = async () => {
     setLoading(true);
     try {
-      const { data: roomsData, error } = await supabase
-        .from('rooms')
-        .select(`
-          *,
-          last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)
-        `)
-        .order('hotel', { ascending: true })
-        .order('room_number', { ascending: true });
+      let roomsData: any[] | null = null;
+      let error: any = null;
+
+      const base = supabase.from('rooms');
+
+      if (profile?.role === 'admin' || profile?.role === 'manager') {
+        const res = await base
+          .select('* , last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)' as any)
+          .order('hotel', { ascending: true })
+          .order('room_number', { ascending: true });
+        roomsData = res.data;
+        error = res.error;
+      } else {
+        const res = await base
+          .select('*')
+          .order('hotel', { ascending: true })
+          .order('room_number', { ascending: true });
+        roomsData = res.data;
+        error = res.error;
+      }
 
       if (error) throw error;
 

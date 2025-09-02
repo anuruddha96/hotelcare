@@ -72,7 +72,7 @@ export function Dashboard() {
         : `*`;
       let query = supabase
         .from('tickets')
-        .select(selectColumns)
+        .select(selectColumns as any)
         .not('status', 'eq', 'completed') // Exclude completed/archived tickets
         .order('created_at', { ascending: false });
 
