@@ -8,11 +8,12 @@ import { UserManagementDialog } from './UserManagementDialog';
 import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
 import { ArchivedTickets } from './ArchivedTickets';
+import { CompanySettings } from './CompanySettings';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Search, Users, Filter, Home, Ticket } from 'lucide-react';
+import { Plus, Search, Users, Filter, Home, Ticket, Settings } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Ticket {
@@ -46,6 +47,7 @@ export function Dashboard() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [userManagementOpen, setUserManagementOpen] = useState(false);
+  const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
 
   const canCreateTickets = profile?.role && [
     'housekeeping', 'reception', 'manager', 'admin', 'maintenance',
@@ -221,13 +223,22 @@ export function Dashboard() {
               
               <div className="flex gap-2">
                 {canManageUsers && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setUserManagementOpen(true)}
-                  >
-                    <Users className="h-4 w-4 mr-2" />
-                    Manage Users
-                  </Button>
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => setUserManagementOpen(true)}
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Manage Users
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setCompanySettingsOpen(true)}
+                    >
+                      <Settings className="h-4 w-4 mr-2" />
+                      Company Settings
+                    </Button>
+                  </>
                 )}
                 
                 {canCreateTickets && (
@@ -354,10 +365,16 @@ export function Dashboard() {
         )}
         
         {canManageUsers && (
-          <UserManagementDialog
-            open={userManagementOpen}
-            onOpenChange={setUserManagementOpen}
-          />
+          <>
+            <UserManagementDialog
+              open={userManagementOpen}
+              onOpenChange={setUserManagementOpen}
+            />
+            <CompanySettings
+              open={companySettingsOpen}
+              onOpenChange={setCompanySettingsOpen}
+            />
+          </>
         )}
       </div>
     </div>

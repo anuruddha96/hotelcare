@@ -145,8 +145,12 @@ export default function Auth() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-4">
       <Card className="w-full max-w-lg shadow-2xl border-0">
         <CardHeader className="text-center space-y-4 pb-6">
-          <div className="mx-auto w-20 h-20 bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] rounded-full flex items-center justify-center">
-            <div className="text-white font-bold text-2xl">RD</div>
+          <div className="mx-auto w-32 h-20 flex items-center justify-center">
+            <img 
+              src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
+              alt="RD Hotels Logo" 
+              className="max-w-full max-h-full object-contain"
+            />
           </div>
           <CardTitle className="text-3xl font-bold bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
             Hotel Management Dashboard
