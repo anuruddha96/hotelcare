@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,6 +78,7 @@ export function RoomManagement() {
     room_type: 'standard',
     floor_number: ''
   });
+  const [hotels, setHotels] = useState<any[]>([]);
 
   const isAdmin = profile?.role === 'admin';
   const canManageRooms = profile?.role && ['admin', 'manager', 'reception'].includes(profile.role);
@@ -149,6 +151,20 @@ export function RoomManagement() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchHotels = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('hotels')
+        .select('*')
+        .order('name');
+
+      if (error) throw error;
+      setHotels(data || []);
+    } catch (error: any) {
+      console.error('Error fetching hotels:', error);
     }
   };
 
