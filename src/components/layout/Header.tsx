@@ -51,13 +51,13 @@ export function Header() {
 
   return (
     <header className="bg-background border-b border-border sticky top-0 z-50">
-      <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">Hotel Management Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Manage all service requests of RD Hotels</p>
+      <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
+        <div className="min-w-0 flex-1 sm:flex-initial">
+          <h1 className="text-lg sm:text-xl font-bold text-foreground truncate">Hotel Management Dashboard</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">Manage all service requests of RD Hotels</p>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <LanguageSwitcher />
           
           {(profile?.role === 'admin' || profile?.role === 'manager') && (
@@ -73,7 +73,7 @@ export function Header() {
           {profile && (
             <Badge 
               variant="secondary" 
-              className={`${getRoleColor(profile.role)} text-white`}
+              className={`${getRoleColor(profile.role)} text-white text-xs sm:text-sm hidden sm:inline-flex`}
             >
               {getRoleLabel(profile.role)}
             </Badge>
@@ -89,12 +89,15 @@ export function Header() {
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56" align="end">
+            <DropdownMenuContent className="w-48 sm:w-56" align="end">
               <div className="flex items-center justify-start gap-2 p-2">
                 <div className="flex flex-col space-y-1 leading-none">
-                  <p className="font-medium">{profile?.full_name}</p>
-                  <p className="w-[200px] truncate text-sm text-muted-foreground">
+                  <p className="font-medium text-sm">{profile?.full_name}</p>
+                  <p className="w-[160px] sm:w-[200px] truncate text-xs text-muted-foreground">
                     {profile?.email}
+                  </p>
+                  <p className="text-xs text-muted-foreground sm:hidden">
+                    {profile && getRoleLabel(profile.role)}
                   </p>
                 </div>
               </div>

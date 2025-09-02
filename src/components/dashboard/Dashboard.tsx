@@ -216,41 +216,44 @@ export function Dashboard() {
       
       <div className="container mx-auto px-4 py-6">
         <Tabs defaultValue="tickets" className="space-y-6">
-          <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
+          <div className="flex flex-col gap-4 justify-between items-start">
             <div>
-              <h1 className="text-3xl font-bold text-foreground">Hotel Care Hub</h1>
-              <p className="text-muted-foreground">Complete hotel management system</p>
+              <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Hotel Care Hub</h1>
+              <p className="text-sm sm:text-base text-muted-foreground">Complete hotel management system</p>
             </div>
             
-            <TabsList className="grid w-full max-w-lg grid-cols-3">
-              <TabsTrigger value="tickets" className="flex items-center gap-2">
-                <Ticket className="h-4 w-4" />
-                Tickets
+            <TabsList className="grid w-full max-w-lg grid-cols-3 h-8 sm:h-10">
+              <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Tickets</span>
+                <span className="sm:hidden">T</span>
               </TabsTrigger>
-              <TabsTrigger value="rooms" className="flex items-center gap-2">
-                <Home className="h-4 w-4" />
-                Rooms
+              <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                <Home className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Rooms</span>
+                <span className="sm:hidden">R</span>
               </TabsTrigger>
-              <TabsTrigger value="archive" className="flex items-center gap-2">
-                <Ticket className="h-4 w-4" />
-                Archive
+              <TabsTrigger value="archive" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Archive</span>
+                <span className="sm:hidden">A</span>
               </TabsTrigger>
             </TabsList>
           </div>
 
           <TabsContent value="tickets" className="space-y-6">
             {/* Ticket Management Header */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
+            <div className="flex flex-col gap-3 sm:gap-4 justify-between items-start">
               <div>
-                <h2 className="text-2xl font-bold text-foreground">
+                <h2 className="text-xl sm:text-2xl font-bold text-foreground">
                   {profile?.role === 'maintenance' ? 'My Tickets' : 'All Tickets'}
                   {profile?.assigned_hotel && (
-                    <span className="text-lg font-normal text-muted-foreground ml-2">
-                      - {profile.assigned_hotel}
+                    <span className="block sm:inline text-base sm:text-lg font-normal text-muted-foreground sm:ml-2">
+                      {profile.assigned_hotel}
                     </span>
                   )}
                 </h2>
-                <p className="text-muted-foreground">
+                <p className="text-sm sm:text-base text-muted-foreground">
                   {profile?.role === 'maintenance' 
                     ? 'Tickets assigned to you' 
                     : profile?.assigned_hotel && profile?.role !== 'admin' && profile?.role !== 'top_management'
@@ -260,71 +263,78 @@ export function Dashboard() {
                 </p>
               </div>
               
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                 {canManageUsers && (
                   <>
                     <Button
                       variant="outline"
+                      size="sm"
                       onClick={() => setUserManagementOpen(true)}
+                      className="text-xs sm:text-sm"
                     >
-                      <Users className="h-4 w-4 mr-2" />
-                      Manage Users
+                      <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                      <span className="hidden sm:inline">Manage Users</span>
+                      <span className="sm:hidden">Users</span>
                     </Button>
                     <Button
                       variant="outline"
+                      size="sm"
                       onClick={() => setCompanySettingsOpen(true)}
+                      className="text-xs sm:text-sm"
                     >
-                      <Settings className="h-4 w-4 mr-2" />
-                      Company Settings
+                      <Settings className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                      <span className="hidden sm:inline">Company Settings</span>
+                      <span className="sm:hidden">Settings</span>
                     </Button>
                   </>
                 )}
                 
                 {canCreateTickets && (
-                  <Button onClick={() => setCreateDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    New Ticket
+                  <Button onClick={() => setCreateDialogOpen(true)} size="sm" className="text-xs sm:text-sm">
+                    <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                    <span className="hidden sm:inline">New Ticket</span>
+                    <span className="sm:hidden">New</span>
                   </Button>
                 )}
               </div>
             </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-card border rounded-lg p-4">
-          <p className="text-sm text-muted-foreground">Total</p>
-          <p className="text-2xl font-bold">{counts.total}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-card border rounded-lg p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground">Total</p>
+          <p className="text-xl sm:text-2xl font-bold">{counts.total}</p>
         </div>
-        <div className="bg-card border rounded-lg p-4">
-          <p className="text-sm text-muted-foreground">Open</p>
-          <p className="text-2xl font-bold text-blue-600">{counts.open}</p>
+        <div className="bg-card border rounded-lg p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground">Open</p>
+          <p className="text-xl sm:text-2xl font-bold text-blue-600">{counts.open}</p>
         </div>
-        <div className="bg-card border rounded-lg p-4">
-          <p className="text-sm text-muted-foreground">In Progress</p>
-          <p className="text-2xl font-bold text-yellow-600">{counts.inProgress}</p>
+        <div className="bg-card border rounded-lg p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground">In Progress</p>
+          <p className="text-xl sm:text-2xl font-bold text-yellow-600">{counts.inProgress}</p>
         </div>
-        <div className="bg-card border rounded-lg p-4">
-          <p className="text-sm text-muted-foreground">Completed</p>
-          <p className="text-2xl font-bold text-green-600">{counts.completed}</p>
+        <div className="bg-card border rounded-lg p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-muted-foreground">Completed</p>
+          <p className="text-xl sm:text-2xl font-bold text-green-600">{counts.completed}</p>
         </div>
       </div>
 
       {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by ticket number, title, or room..."
+            placeholder="Search tickets..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
+            className="pl-10 h-9 sm:h-10 text-sm"
           />
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex gap-2 overflow-x-auto">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[140px]">
-              <Filter className="h-4 w-4 mr-2" />
+            <SelectTrigger className="w-[110px] sm:w-[140px] h-9 text-xs sm:text-sm">
+              <Filter className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -336,7 +346,7 @@ export function Dashboard() {
           </Select>
           
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-[110px] sm:w-[140px] h-9 text-xs sm:text-sm">
               <SelectValue placeholder="Priority" />
             </SelectTrigger>
             <SelectContent>

@@ -142,73 +142,75 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-4">
-      <Card className="w-full max-w-lg shadow-2xl border-0">
-        <CardHeader className="text-center space-y-4 pb-6">
-          <div className="mx-auto w-32 h-20 flex items-center justify-center">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
+      <Card className="w-full max-w-sm sm:max-w-lg shadow-2xl border-0">
+        <CardHeader className="text-center space-y-3 sm:space-y-4 pb-4 sm:pb-6">
+          <div className="mx-auto w-24 h-16 sm:w-32 sm:h-20 flex items-center justify-center">
             <img 
               src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
               alt="RD Hotels Logo" 
               className="max-w-full max-h-full object-contain"
             />
           </div>
-          <CardTitle className="text-3xl font-bold bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
+          <CardTitle className="text-xl sm:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
             Hotel Management Dashboard
           </CardTitle>
-          <CardDescription className="text-base">
+          <CardDescription className="text-sm sm:text-base px-2 sm:px-0">
             Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4 sm:px-6">
           <Tabs defaultValue="signin" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 h-8 sm:h-10">
+              <TabsTrigger value="signin" className="text-xs sm:text-sm">Sign In</TabsTrigger>
+              <TabsTrigger value="signup" className="text-xs sm:text-sm">Sign Up</TabsTrigger>
             </TabsList>
             
             <TabsContent value="signin">
-              <form onSubmit={handleSignIn} className="space-y-4">
+              <form onSubmit={handleSignIn} className="space-y-3 sm:space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signin-email">Email</Label>
+                  <Label htmlFor="signin-email" className="text-sm">Email</Label>
                   <Input
                     id="signin-email"
                     name="email"
                     type="email"
                     required
                     placeholder="Enter your email"
+                    className="h-9 sm:h-10"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signin-password">Password</Label>
+                  <Label htmlFor="signin-password" className="text-sm">Password</Label>
                   <Input
                     id="signin-password"
                     name="password"
                     type="password"
                     required
                     placeholder="Enter your password"
+                    className="h-9 sm:h-10"
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full h-9 sm:h-10 text-sm" disabled={isLoading}>
                   {isLoading ? 'Signing In...' : 'Sign In'}
                 </Button>
                 
                 <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
                   <DialogTrigger asChild>
-                    <Button variant="ghost" size="sm" className="w-full mt-2">
+                    <Button variant="ghost" size="sm" className="w-full mt-2 h-8 text-xs sm:text-sm">
                       Forgot Password / Resend Verification
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="w-[95vw] max-w-sm sm:max-w-md">
                     <DialogHeader>
-                      <DialogTitle>Reset Password or Resend Verification</DialogTitle>
-                      <DialogDescription>
+                      <DialogTitle className="text-lg sm:text-xl">Reset Password or Resend Verification</DialogTitle>
+                      <DialogDescription className="text-sm">
                         Choose an option to reset your password or resend email verification.
                       </DialogDescription>
                     </DialogHeader>
                     <Tabs defaultValue="reset" className="w-full">
-                      <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="reset">Reset Password</TabsTrigger>
-                        <TabsTrigger value="resend">Resend Verification</TabsTrigger>
+                      <TabsList className="grid w-full grid-cols-2 h-8 sm:h-10">
+                        <TabsTrigger value="reset" className="text-xs sm:text-sm">Reset Password</TabsTrigger>
+                        <TabsTrigger value="resend" className="text-xs sm:text-sm">Resend Verification</TabsTrigger>
                       </TabsList>
                       
                       <TabsContent value="reset">
@@ -253,29 +255,31 @@ export default function Auth() {
             </TabsContent>
             
             <TabsContent value="signup">
-              <form onSubmit={handleSignUp} className="space-y-4">
+              <form onSubmit={handleSignUp} className="space-y-3 sm:space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signup-name">Full Name</Label>
+                  <Label htmlFor="signup-name" className="text-sm">Full Name</Label>
                   <Input
                     id="signup-name"
                     name="fullName"
                     type="text"
                     required
                     placeholder="Enter your full name"
+                    className="h-9 sm:h-10"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
+                  <Label htmlFor="signup-email" className="text-sm">Email</Label>
                   <Input
                     id="signup-email"
                     name="email"
                     type="email"
                     required
                     placeholder="Enter your email"
+                    className="h-9 sm:h-10"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
+                  <Label htmlFor="signup-password" className="text-sm">Password</Label>
                   <Input
                     id="signup-password"
                     name="password"
@@ -283,9 +287,10 @@ export default function Auth() {
                     required
                     placeholder="Create a password"
                     minLength={6}
+                    className="h-9 sm:h-10"
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full h-9 sm:h-10 text-sm" disabled={isLoading}>
                   {isLoading ? 'Creating Account...' : 'Sign Up'}
                 </Button>
               </form>
