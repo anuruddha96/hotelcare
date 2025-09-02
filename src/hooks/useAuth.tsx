@@ -6,9 +6,12 @@ interface Profile {
   id: string;
   email: string;
   full_name: string;
+  nickname?: string;
+  profile_picture_url?: string;
   role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager';
   created_at: string;
   updated_at: string;
+  last_login?: string;
   assigned_hotel?: string;
 }
 

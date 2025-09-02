@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { UserManagementDialog } from '@/components/dashboard/UserManagementDialog';
 import { LanguageSwitcher } from '@/components/dashboard/LanguageSwitcher';
 import { ReportsDialog } from '@/components/dashboard/ReportsDialog';
+import { ProfileDialog } from '@/components/dashboard/ProfileDialog';
+import { SettingsDialog } from '@/components/dashboard/SettingsDialog';
 import { LogOut, Settings, User } from 'lucide-react';
 import {
   DropdownMenu,
@@ -16,6 +19,8 @@ import {
 
 export function Header() {
   const { profile, signOut } = useAuth();
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
 
   const getRoleColor = (role: string) => {
     switch (role) {
@@ -86,8 +91,9 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-10 w-10">
+                  <AvatarImage src={profile?.profile_picture_url || ''} />
                   <AvatarFallback>
-                    {profile?.full_name?.charAt(0)?.toUpperCase() || 'U'}
+                    {(profile?.nickname || profile?.full_name)?.charAt(0)?.toUpperCase() || 'U'}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -95,7 +101,9 @@ export function Header() {
             <DropdownMenuContent className="w-48 sm:w-56" align="end">
               <div className="flex items-center justify-start gap-2 p-2">
                 <div className="flex flex-col space-y-1 leading-none">
-                  <p className="font-medium text-sm">{profile?.full_name}</p>
+                  <p className="font-medium text-sm">
+                    {profile?.nickname || profile?.full_name}
+                  </p>
                   <p className="w-[160px] sm:w-[200px] truncate text-xs text-muted-foreground">
                     {profile?.email}
                   </p>
@@ -105,11 +113,11 @@ export function Header() {
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setProfileDialogOpen(true)}>
                 <User className="mr-2 h-4 w-4" />
                 Profile
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}>
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
               </DropdownMenuItem>
@@ -122,6 +130,15 @@ export function Header() {
           </DropdownMenu>
         </div>
       </div>
+      
+      <ProfileDialog 
+        open={profileDialogOpen} 
+        onOpenChange={setProfileDialogOpen} 
+      />
+      <SettingsDialog 
+        open={settingsDialogOpen} 
+        onOpenChange={setSettingsDialogOpen} 
+      />
     </header>
   );
 }
