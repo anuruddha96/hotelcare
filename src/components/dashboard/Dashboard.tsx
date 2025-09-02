@@ -218,8 +218,12 @@ export function Dashboard() {
         <Tabs defaultValue="tickets" className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Hotel Care Hub</h1>
-              <p className="text-sm sm:text-base text-muted-foreground">Complete hotel management system</p>
+              <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
+                {profile?.assigned_hotel || 'Hotel Care Hub'}
+              </h1>
+              <p className="text-sm sm:text-base text-muted-foreground">
+                {profile?.assigned_hotel ? `${profile.assigned_hotel} Management System` : 'Complete hotel management system'}
+              </p>
             </div>
             
             <TabsList className="grid w-full max-w-lg grid-cols-3 h-8 sm:h-10">
