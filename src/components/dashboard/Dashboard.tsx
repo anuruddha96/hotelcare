@@ -10,6 +10,7 @@ import { AccessManagementDialog } from './AccessManagementDialog';
 import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
 import { CompanySettings } from './CompanySettings';
+import { HousekeepingTab } from './HousekeepingTab';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
