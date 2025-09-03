@@ -329,6 +329,33 @@ export type Database = {
         }
         Relationships: []
       }
+      ticket_creation_config: {
+        Row: {
+          can_create: boolean
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["user_role"] | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          can_create?: boolean
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["user_role"] | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          can_create?: boolean
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["user_role"] | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       tickets: {
         Row: {
           assigned_to: string | null
@@ -479,6 +506,10 @@ export type Database = {
       get_user_role_safe: {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
+      }
+      has_ticket_creation_permission: {
+        Args: { _user_id: string }
+        Returns: boolean
       }
       user_can_view_ticket: {
         Args: { ticket_id: string }
