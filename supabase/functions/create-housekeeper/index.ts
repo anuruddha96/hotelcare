@@ -84,10 +84,9 @@ export const handler = async (req: Request): Promise<Response> => {
 
     console.log('✅ Permission check passed');
 
-    // 2) Generate credentials
-    const generatedUsername = `${String(full_name).trim().toLowerCase().replace(/\s+/g, '.')}.${Math.floor(Math.random() * 10000)
-        .toString()
-        .padStart(4, '0')}`;
+    // 2) Generate credentials with timestamp to ensure uniqueness
+    const timestamp = Date.now().toString().slice(-6);
+    const generatedUsername = `${String(full_name).trim().toLowerCase().replace(/\s+/g, '.')}.${timestamp}`;
 
     const generatedPassword = `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`;
 
@@ -137,11 +136,11 @@ export const handler = async (req: Request): Promise<Response> => {
     const newUserId = authResult.data.user.id;
     console.log('✅ Auth user created:', newUserId);
 
-    // 4) Insert profile with same id
+    // 4) Insert profile with same id - handle conflicts with upsert
     console.log('📝 Creating profile...');
     const { error: insertProfileErr } = await admin
       .from('profiles')
-      .insert({
+      .upsert({
         id: newUserId,
         email: finalEmail,
         full_name,
@@ -149,12 +148,16 @@ export const handler = async (req: Request): Promise<Response> => {
         phone_number: phone_number || null,
         assigned_hotel: !assigned_hotel || assigned_hotel === 'none' ? null : assigned_hotel,
         nickname: generatedUsername,
+      }, {
+        onConflict: 'id'
       });
 
     if (insertProfileErr) {
       console.error('❌ Profile creation failed:', insertProfileErr);
       // Rollback: delete auth user to keep things clean
-      await admin.auth.admin.deleteUser(newUserId).catch(() => {});
+      await admin.auth.admin.deleteUser(newUserId).catch((deleteErr) => {
+        console.error('⚠️ Failed to cleanup auth user:', deleteErr);
+      });
       return new Response(
         JSON.stringify({ success: false, error: insertProfileErr.message }),
         { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
