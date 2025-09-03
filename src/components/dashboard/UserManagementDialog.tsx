@@ -299,96 +299,104 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="w-[95vw] max-w-4xl h-[95vh] max-h-[95vh] overflow-hidden flex flex-col">
+        <DialogHeader className="flex-shrink-0 pb-4">
+          <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
             <User className="h-5 w-5" />
             User Management
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-sm">
             Manage user accounts and roles for the maintenance management system.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="users" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="users">All Users</TabsTrigger>
-            <TabsTrigger value="create">Create User</TabsTrigger>
+        <Tabs defaultValue="users" className="w-full flex flex-col flex-1 min-h-0">
+          <TabsList className="grid w-full grid-cols-2 flex-shrink-0">
+            <TabsTrigger value="users" className="text-xs sm:text-sm">All Users</TabsTrigger>
+            <TabsTrigger value="create" className="text-xs sm:text-sm">Create User</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="users" className="space-y-4">
+          <TabsContent value="users" className="flex-1 min-h-0 overflow-auto">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               </div>
             ) : (
-              <div className="grid gap-4">
+              <div className="space-y-3 pr-2">
                 {users.map((user) => (
                   <Card key={user.id}>
-                    <CardContent className="flex items-center justify-between p-4">
-                      <div className="flex items-center gap-4">
-                        <Avatar>
-                          <AvatarFallback>
-                            {user.full_name.charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                         <div>
-                           <h4 className="font-semibold">{user.full_name}</h4>
-                           <p className="text-sm text-muted-foreground">{user.email || 'No email'}</p>
-                           {user.phone_number && (
-                             <p className="text-sm text-muted-foreground">📞 {user.phone_number}</p>
-                           )}
-                           <p className="text-xs text-blue-600">
-                             Hotel: {user.assigned_hotel || 'All Hotels'}
-                           </p>
-                           <p className="text-xs text-muted-foreground">
-                             Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
-                           </p>
-                         </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <Badge className={getRoleColor(user.role)} variant="secondary">
-                          {getRoleLabel(user.role)}
-                        </Badge>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setSelectedUser(user)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3">
+                          <Avatar className="w-10 h-10 flex-shrink-0">
+                            <AvatarFallback className="text-sm">
+                              {user.full_name.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-sm sm:text-base truncate">{user.full_name}</h4>
+                            <p className="text-xs sm:text-sm text-muted-foreground truncate">{user.email || 'No email'}</p>
+                            {user.phone_number && (
+                              <p className="text-xs sm:text-sm text-muted-foreground">📞 {user.phone_number}</p>
+                            )}
+                            <p className="text-xs text-blue-600">
+                              Hotel: {user.assigned_hotel || 'All Hotels'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
+                            </p>
+                          </div>
+                        </div>
                         
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
+                        <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
+                          <Badge className={`${getRoleColor(user.role)} text-xs`} variant="secondary">
+                            {getRoleLabel(user.role)}
+                          </Badge>
+                          <div className="flex items-center gap-1">
                             <Button
                               size="sm"
-                              variant="destructive"
-                              disabled={loading}
+                              variant="outline"
+                              onClick={() => setSelectedUser(user)}
+                              className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                              <span className="hidden sm:inline sm:ml-1">Edit</span>
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete User</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you absolutely sure you want to delete <strong>{user.full_name}</strong>? 
-                                This action cannot be undone and will permanently remove the user account and all associated data.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-                              <AlertDialogAction 
-                                onClick={() => handleDeleteUser(user.id, user.full_name)}
-                                disabled={loading}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                {loading ? 'Deleting...' : 'Delete Permanently'}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                            
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={loading}
+                                  className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
+                                >
+                                  <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                  <span className="hidden sm:inline sm:ml-1">Delete</span>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent className="w-[95vw] max-w-md">
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle className="text-base">Delete User</AlertDialogTitle>
+                                  <AlertDialogDescription className="text-sm">
+                                    Are you absolutely sure you want to delete <strong>{user.full_name}</strong>? 
+                                    This action cannot be undone and will permanently remove the user account and all associated data.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
+                                  <AlertDialogCancel disabled={loading} className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                                  <AlertDialogAction 
+                                    onClick={() => handleDeleteUser(user.id, user.full_name)}
+                                    disabled={loading}
+                                    className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    {loading ? 'Deleting...' : 'Delete Permanently'}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

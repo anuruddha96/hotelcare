@@ -218,15 +218,19 @@ export function HousekeepingStaffManagement() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6 p-4 sm:p-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Users className="h-5 w-5" />
-          <h3 className="text-lg font-semibold">Housekeeping Staff</h3>
+          <h3 className="text-lg sm:text-xl font-semibold">Housekeeping Staff</h3>
         </div>
-        <Button onClick={() => setShowCreateForm(!showCreateForm)}>
+        <Button 
+          onClick={() => setShowCreateForm(!showCreateForm)}
+          className="w-full sm:w-auto"
+        >
           <UserPlus className="h-4 w-4 mr-2" />
-          Add Housekeeper
+          <span className="sm:hidden">Add New Housekeeper</span>
+          <span className="hidden sm:inline">Add Housekeeper</span>
         </Button>
       </div>
 
@@ -368,40 +372,43 @@ export function HousekeepingStaffManagement() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-3 sm:gap-4">
           {staff.map((member) => (
             <Card key={member.id}>
-              <CardContent className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-4">
-                  <Avatar>
-                    <AvatarFallback>
-                      {member.full_name.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <h4 className="font-semibold">{member.full_name}</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {member.email || 'No email provided'}
-                    </p>
-                    {member.phone_number && (
-                      <p className="text-sm text-muted-foreground">📞 {member.phone_number}</p>
-                    )}
-                    <p className="text-xs text-blue-600">
-                      Hotel: {member.assigned_hotel || 'All Hotels'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Added {format(new Date(member.created_at), 'MMM dd, yyyy')}
-                    </p>
+              <CardContent className="p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3 sm:gap-4">
+                    <Avatar className="w-10 h-10 sm:w-12 sm:h-12">
+                      <AvatarFallback className="text-sm sm:text-base">
+                        {member.full_name.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-sm sm:text-base truncate">{member.full_name}</h4>
+                      <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                        {member.email || 'No email provided'}
+                      </p>
+                      {member.phone_number && (
+                        <p className="text-xs sm:text-sm text-muted-foreground">📞 {member.phone_number}</p>
+                      )}
+                      <p className="text-xs text-blue-600">
+                        Hotel: {member.assigned_hotel || 'All Hotels'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Added {format(new Date(member.created_at), 'MMM dd, yyyy')}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Badge className="bg-orange-500 text-white" variant="secondary">
-                    Housekeeper
-                  </Badge>
-                  <Button size="sm" variant="outline" onClick={() => openEdit(member)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
+                  
+                  <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
+                    <Badge className="bg-orange-500 text-white text-xs" variant="secondary">
+                      Housekeeper
+                    </Badge>
+                    <Button size="sm" variant="outline" onClick={() => openEdit(member)}>
+                      <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span className="ml-1 sm:hidden">Edit</span>
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>

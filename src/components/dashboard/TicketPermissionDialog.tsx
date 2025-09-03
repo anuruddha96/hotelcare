@@ -226,35 +226,36 @@ export function TicketPermissionDialog({ open, onOpenChange }: TicketPermissionD
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="w-[95vw] max-w-4xl h-[95vh] max-h-[95vh] overflow-hidden flex flex-col">
+        <DialogHeader className="flex-shrink-0 pb-4">
+          <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
             <Ticket className="h-5 w-5" />
-            Ticket Creation Permissions
+            <span className="hidden sm:inline">Ticket Creation Permissions</span>
+            <span className="sm:hidden">Ticket Permissions</span>
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-sm">
             Configure which roles and users can create tickets. User-specific permissions override role permissions.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="flex-1 min-h-0 overflow-auto space-y-4 sm:space-y-6 pr-2">
           {/* Add Role Permission */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Users className="h-5 w-5" />
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                <Users className="h-4 w-4 sm:h-5 sm:w-5" />
                 Role Permissions
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm">
                 Set ticket creation permissions for entire user roles
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-end gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
                 <div className="flex-1">
-                  <Label>Role</Label>
+                  <Label className="text-sm">Role</Label>
                   <Select value={selectedRole} onValueChange={setSelectedRole}>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-9">
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
                     <SelectContent>
@@ -266,16 +267,21 @@ export function TicketPermissionDialog({ open, onOpenChange }: TicketPermissionD
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center justify-between sm:justify-start space-x-2">
+                  <Label htmlFor="role-enabled" className="text-sm">Can Create Tickets</Label>
                   <Switch
                     id="role-enabled"
                     checked={roleEnabled}
                     onCheckedChange={setRoleEnabled}
                   />
-                  <Label htmlFor="role-enabled">Can Create Tickets</Label>
                 </div>
-                <Button onClick={handleAddRolePermission} disabled={!selectedRole}>
-                  Add Role Rule
+                <Button 
+                  onClick={handleAddRolePermission} 
+                  disabled={!selectedRole}
+                  className="w-full sm:w-auto"
+                >
+                  <span className="sm:hidden">Add Role Permission</span>
+                  <span className="hidden sm:inline">Add Role Rule</span>
                 </Button>
               </div>
             </CardContent>
@@ -283,42 +289,47 @@ export function TicketPermissionDialog({ open, onOpenChange }: TicketPermissionD
 
           {/* Add User Permission */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <UserPlus className="h-5 w-5" />
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                <UserPlus className="h-4 w-4 sm:h-5 sm:w-5" />
                 User Permissions
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm">
                 Override role permissions for specific users
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-end gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
                 <div className="flex-1">
-                  <Label>User</Label>
+                  <Label className="text-sm">User</Label>
                   <Select value={selectedUser} onValueChange={setSelectedUser}>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-9">
                       <SelectValue placeholder="Select user" />
                     </SelectTrigger>
                     <SelectContent>
                       {users.map((user) => (
                         <SelectItem key={user.id} value={user.id}>
-                          {user.full_name} ({user.email})
+                          <span className="block truncate">{user.full_name} ({user.email})</span>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center justify-between sm:justify-start space-x-2">
+                  <Label htmlFor="user-enabled" className="text-sm">Can Create Tickets</Label>
                   <Switch
                     id="user-enabled"
                     checked={userEnabled}
                     onCheckedChange={setUserEnabled}
                   />
-                  <Label htmlFor="user-enabled">Can Create Tickets</Label>
                 </div>
-                <Button onClick={handleAddUserPermission} disabled={!selectedUser}>
-                  Add User Rule
+                <Button 
+                  onClick={handleAddUserPermission} 
+                  disabled={!selectedUser}
+                  className="w-full sm:w-auto"
+                >
+                  <span className="sm:hidden">Add User Permission</span>
+                  <span className="hidden sm:inline">Add User Rule</span>
                 </Button>
               </div>
             </CardContent>
@@ -326,50 +337,52 @@ export function TicketPermissionDialog({ open, onOpenChange }: TicketPermissionD
 
           {/* Current Permissions */}
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Current Permissions</h3>
+            <h3 className="text-base sm:text-lg font-semibold">Current Permissions</h3>
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {permissions.map((permission) => (
                   <div
                     key={permission.id}
-                    className="flex items-center justify-between p-4 bg-muted rounded-lg"
+                    className="p-3 sm:p-4 bg-muted rounded-lg"
                   >
-                    <div className="flex items-center gap-3">
-                      {permission.role ? (
-                        <Badge variant="outline">
-                          Role: {getRoleLabel(permission.role)}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                        {permission.role ? (
+                          <Badge variant="outline" className="text-xs w-fit">
+                            Role: {getRoleLabel(permission.role)}
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs w-fit">
+                            <span className="truncate max-w-[200px]">User: {getUserName(permission.user_id!)}</span>
+                          </Badge>
+                        )}
+                        <Badge variant={permission.can_create ? 'default' : 'destructive'} className="text-xs w-fit">
+                          {permission.can_create ? 'Can Create' : 'Cannot Create'}
                         </Badge>
-                      ) : (
-                        <Badge variant="secondary">
-                          User: {getUserName(permission.user_id!)}
-                        </Badge>
-                      )}
-                      <Badge variant={permission.can_create ? 'default' : 'destructive'}>
-                        {permission.can_create ? 'Can Create' : 'Cannot Create'}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={permission.can_create}
-                        onCheckedChange={() => handleTogglePermission(permission.id, permission.can_create)}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeletePermission(permission.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-2">
+                        <Switch
+                          checked={permission.can_create}
+                          onCheckedChange={() => handleTogglePermission(permission.id, permission.can_create)}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeletePermission(permission.id)}
+                          className="text-destructive hover:text-destructive h-8 w-8 p-0"
+                        >
+                          <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
                 {permissions.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">
+                  <p className="text-center text-muted-foreground py-8 text-sm">
                     No custom permissions configured. All users can create tickets by default.
                   </p>
                 )}
