@@ -28,10 +28,16 @@ export function HousekeepingTab() {
     fetchUserRole();
   }, [user?.id]);
 
-  const isManager = userRole === 'manager' || userRole === 'admin';
-  const isHousekeeping = userRole === 'housekeeping' || isManager;
+  // Full management access: admin, top_management, manager, housekeeping_manager, reception
+  const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'reception'].includes(userRole);
+  
+  // Can view housekeeping section: all staff with manager access + housekeeping + maintenance (read-only)
+  const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'maintenance'].includes(userRole);
+  
+  // Read-only access for minor staff
+  const isReadOnlyAccess = ['housekeeping', 'maintenance'].includes(userRole) && !hasManagerAccess;
 
-  if (!isHousekeeping) {
+  if (!canAccessHousekeeping) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         <p>Access restricted to housekeeping staff and managers</p>
@@ -42,12 +48,12 @@ export function HousekeepingTab() {
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className={`grid w-full ${isManager ? 'grid-cols-5' : 'grid-cols-1'}`}>
+        <TabsList className={`grid w-full ${hasManagerAccess ? 'grid-cols-5' : 'grid-cols-1'}`}>
           <TabsTrigger value="assignments" className="flex items-center gap-2">
             <ClipboardCheck className="h-4 w-4" />
             My Tasks
           </TabsTrigger>
-          {isManager && (
+          {hasManagerAccess && (
             <>
               <TabsTrigger value="quick-assign" className="flex items-center gap-2">
                 <Zap className="h-4 w-4" />
@@ -73,7 +79,7 @@ export function HousekeepingTab() {
           <HousekeepingStaffView />
         </TabsContent>
 
-        {isManager && (
+        {hasManagerAccess && (
           <>
             <TabsContent value="quick-assign" className="space-y-6">
               <SimpleRoomAssignment onAssignmentCreated={() => {
