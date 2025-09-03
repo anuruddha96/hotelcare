@@ -698,6 +698,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      get_email_by_nickname: {
+        Args: { p_nickname: string }
+        Returns: string
+      }
       get_hotel_name_from_id: {
         Args: { hotel_id: string }
         Returns: string
