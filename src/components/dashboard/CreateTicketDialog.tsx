@@ -44,7 +44,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
   // Available hotels based on user permissions
   const availableHotels = canSelectAnyHotel 
     ? hotels.filter(h => h.id !== 'all')
-    : hotels.filter(h => h.id !== 'all' && (profile?.assigned_hotel ? h.id === profile.assigned_hotel : true));
+    : hotels.filter(h => h.id !== 'all' && (profile?.assigned_hotel ? h.name === profile.assigned_hotel : true));
 
   const departments = [
     { value: 'maintenance', label: 'Maintenance' },
@@ -123,7 +123,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create New Ticket</DialogTitle>
           <DialogDescription>
@@ -192,7 +192,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
               </SelectTrigger>
               <SelectContent>
                 {availableHotels.map((hotel) => (
-                  <SelectItem key={hotel.id} value={hotel.id}>
+                  <SelectItem key={hotel.id} value={hotel.name}>
                     {hotel.name}
                   </SelectItem>
                 ))}
