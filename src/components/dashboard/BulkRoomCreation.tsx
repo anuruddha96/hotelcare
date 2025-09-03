@@ -121,7 +121,31 @@ export function BulkRoomCreation({ open, onOpenChange, hotels, onComplete }: Bul
 
     setIsSubmitting(true);
     try {
-      const roomData = validRooms.map(room => ({
+      // First, check which rooms already exist for this hotel
+      const { data: existingRooms, error: fetchError } = await supabase
+        .from('rooms')
+        .select('room_number')
+        .eq('hotel', selectedHotel);
+
+      if (fetchError) throw fetchError;
+
+      const existingRoomNumbers = new Set(existingRooms?.map(r => r.room_number) || []);
+      
+      // Filter out rooms that already exist
+      const newRooms = validRooms.filter(room => !existingRoomNumbers.has(room.room_number));
+      const duplicateRooms = validRooms.filter(room => existingRoomNumbers.has(room.room_number));
+
+      if (newRooms.length === 0) {
+        toast({
+          title: 'No rooms to create',
+          description: `All ${duplicateRooms.length} rooms already exist in ${selectedHotel}`,
+          variant: 'destructive',
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      const roomData = newRooms.map(room => ({
         hotel: selectedHotel,
         room_number: room.room_number,
         room_name: room.room_name || generateRoomName(room),
@@ -137,9 +161,14 @@ export function BulkRoomCreation({ open, onOpenChange, hotels, onComplete }: Bul
 
       if (error) throw error;
 
+      let message = `Successfully created ${roomData.length} rooms`;
+      if (duplicateRooms.length > 0) {
+        message += `. Skipped ${duplicateRooms.length} rooms that already existed: ${duplicateRooms.map(r => r.room_number).join(', ')}`;
+      }
+
       toast({
         title: 'Success',
-        description: `Successfully created ${roomData.length} rooms`,
+        description: message,
       });
 
       setRooms([]);
