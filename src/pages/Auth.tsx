@@ -33,10 +33,11 @@ export default function Auth() {
     setIsLoading(true);
     
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
+    const emailOrUsername = formData.get('email') as string;
     const password = formData.get('password') as string;
 
-    const { error } = await signIn(email, password);
+    // For now, just use direct sign in - username functionality can be added later
+    const { error } = await signIn(emailOrUsername, password);
     
     if (error) {
       toast({

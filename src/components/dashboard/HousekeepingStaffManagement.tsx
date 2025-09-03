@@ -33,6 +33,7 @@ export function HousekeepingStaffManagement() {
     email: '',
     assigned_hotel: '',
   });
+  const [generatedCredentials, setGeneratedCredentials] = useState<{username: string, password: string, email: string} | null>(null);
 
   useEffect(() => {
     fetchCurrentUserRole();
