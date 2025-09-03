@@ -351,46 +351,51 @@ export function PMSUpload() {
       </CardHeader>
       <CardContent className="space-y-4">
         {!uploading && !results && (
-          <div 
-            {...getRootProps()} 
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-              isDragActive 
-                ? 'border-primary bg-primary/5' 
-                : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
-            }`}
-          >
-            <input {...getInputProps()} />
-            <Upload className={`h-12 w-12 mx-auto mb-4 transition-colors ${
-              isDragActive ? 'text-primary' : 'text-muted-foreground'
-            }`} />
-            <div className="space-y-2">
-              <h3 className="font-medium">
-                {isDragActive ? 'Drop your PMS file here' : 'Upload PMS Excel File'}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                {isDragActive 
-                  ? 'Release to upload your file'
-                  : 'Drag & drop your PMS export file here, or click to select'
-                }
-              </p>
-              {!isDragActive && (
-                <>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    id="pms-upload"
-                  />
-                  <Button asChild>
-                    <label htmlFor="pms-upload" className="cursor-pointer">
-                      Choose File
-                    </label>
+          <>
+            <div 
+              {...getRootProps()} 
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                isDragActive 
+                  ? 'border-primary bg-primary/5' 
+                  : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
+              }`}
+            >
+              <input {...getInputProps()} style={{ display: 'none' }} />
+              <Upload className={`h-12 w-12 mx-auto mb-4 transition-colors ${
+                isDragActive ? 'text-primary' : 'text-muted-foreground'
+              }`} />
+              <div className="space-y-2">
+                <h3 className="font-medium">
+                  {isDragActive ? 'Drop your PMS file here' : 'Upload PMS Excel File'}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {isDragActive 
+                    ? 'Release to upload your file'
+                    : 'Drag & drop your PMS export file here, or click to select'
+                  }
+                </p>
+                {!isDragActive && (
+                  <Button 
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      document.getElementById('pms-upload-manual')?.click();
+                    }}
+                  >
+                    Choose File
                   </Button>
-                </>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+            
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleFileUpload}
+              className="hidden"
+              id="pms-upload-manual"
+            />
+          </>
         )}
 
         {uploading && (
