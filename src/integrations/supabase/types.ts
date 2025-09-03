@@ -456,10 +456,6 @@ export type Database = {
           role: Database["public"]["Enums"]["user_role"]
         }[]
       }
-      get_current_user_role: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
       get_hotel_name_from_id: {
         Args: { hotel_id: string }
         Returns: string
@@ -473,6 +469,10 @@ export type Database = {
         }[]
       }
       get_user_role: {
+        Args: { user_id: string }
+        Returns: Database["public"]["Enums"]["user_role"]
+      }
+      get_user_role_safe: {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
       }
