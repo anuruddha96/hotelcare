@@ -33,18 +33,44 @@ export function PMSUpload() {
 
   // Extract room number from complex room names (e.g., "70SNG-306" -> "306")
   const extractRoomNumber = (roomName: string): string => {
-    // Remove any trailing "SH" suffix first
-    let cleanName = roomName.replace(/SH$/, '');
+    const originalName = roomName;
     
-    // Extract number after the last dash or period
-    const match = cleanName.match(/[-.](\d+)$/);
+    // Pattern 1: Numbers after QRP (e.g., "66EC.QRP216" -> "216")
+    let match = roomName.match(/QRP(\d+)/);
     if (match) {
-      return match[1].replace(/^0+/, '') || match[1]; // Remove leading zeros but keep if all zeros
+      return match[1].replace(/^0+/, '') || match[1];
     }
     
-    // Fallback: extract any number at the end
+    // Pattern 2: Numbers before SH suffix (e.g., "59TRP-209SH" -> "209")
+    match = roomName.match(/[-.](\d+)SH$/);
+    if (match) {
+      return match[1].replace(/^0+/, '') || match[1];
+    }
+    
+    // Pattern 3: Numbers in middle patterns (e.g., "21SYN.TWIN-109SH" -> "109")
+    match = roomName.match(/TWIN-(\d+)/);
+    if (match) {
+      return match[1].replace(/^0+/, '') || match[1];
+    }
+    
+    // Pattern 4: Numbers after DOUBLE (e.g., "SYN.DOUBLE-105" -> "105") 
+    match = roomName.match(/DOUBLE-(\d+)/);
+    if (match) {
+      return match[1].replace(/^0+/, '') || match[1];
+    }
+    
+    // Remove any trailing "SH" suffix for other patterns
+    let cleanName = roomName.replace(/SH$/, '');
+    
+    // Pattern 5: Extract number after the last dash or period
+    match = cleanName.match(/[-.](\d+)$/);
+    if (match) {
+      return match[1].replace(/^0+/, '') || match[1];
+    }
+    
+    // Pattern 6: Fallback - extract any number at the end
     const fallbackMatch = cleanName.match(/(\d+)$/);
-    return fallbackMatch ? fallbackMatch[1].replace(/^0+/, '') || fallbackMatch[1] : roomName;
+    return fallbackMatch ? fallbackMatch[1].replace(/^0+/, '') || fallbackMatch[1] : originalName;
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
