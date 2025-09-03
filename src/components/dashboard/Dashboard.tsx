@@ -205,7 +205,7 @@ export function Dashboard() {
               </p>
             </div>
             
-            <TabsList className="grid w-full max-w-lg grid-cols-2 h-8 sm:h-10">
+            <TabsList className="grid w-full max-w-lg grid-cols-3 h-8 sm:h-10">
               <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                 <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden sm:inline">Tickets</span>
@@ -215,6 +215,11 @@ export function Dashboard() {
                 <Home className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden sm:inline">Rooms</span>
                 <span className="sm:hidden">R</span>
+              </TabsTrigger>
+              <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Housekeeping</span>
+                <span className="sm:hidden">H</span>
               </TabsTrigger>
             </TabsList>
           </div>
@@ -439,6 +444,10 @@ export function Dashboard() {
 
           <TabsContent value="rooms">
             <RoomManagement />
+          </TabsContent>
+
+          <TabsContent value="housekeeping">
+            <HousekeepingTab />
           </TabsContent>
         </Tabs>
 

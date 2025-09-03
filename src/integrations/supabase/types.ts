@@ -107,6 +107,48 @@ export type Database = {
         }
         Relationships: []
       }
+      housekeeping_notes: {
+        Row: {
+          assignment_id: string | null
+          content: string
+          created_at: string
+          created_by: string
+          id: string
+          is_resolved: boolean
+          note_type: string
+          resolved_at: string | null
+          resolved_by: string | null
+          room_id: string
+          updated_at: string
+        }
+        Insert: {
+          assignment_id?: string | null
+          content: string
+          created_at?: string
+          created_by: string
+          id?: string
+          is_resolved?: boolean
+          note_type?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          room_id: string
+          updated_at?: string
+        }
+        Update: {
+          assignment_id?: string | null
+          content?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          is_resolved?: boolean
+          note_type?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          room_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       minibar_items: {
         Row: {
           category: string | null
@@ -173,6 +215,54 @@ export type Database = {
           profile_picture_url?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      room_assignments: {
+        Row: {
+          assigned_by: string
+          assigned_to: string
+          assignment_date: string
+          assignment_type: Database["public"]["Enums"]["assignment_type"]
+          completed_at: string | null
+          created_at: string
+          estimated_duration: number | null
+          id: string
+          notes: string | null
+          priority: number
+          room_id: string
+          status: Database["public"]["Enums"]["assignment_status"]
+          updated_at: string
+        }
+        Insert: {
+          assigned_by: string
+          assigned_to: string
+          assignment_date?: string
+          assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          completed_at?: string | null
+          created_at?: string
+          estimated_duration?: number | null
+          id?: string
+          notes?: string | null
+          priority?: number
+          room_id: string
+          status?: Database["public"]["Enums"]["assignment_status"]
+          updated_at?: string
+        }
+        Update: {
+          assigned_by?: string
+          assigned_to?: string
+          assignment_date?: string
+          assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          completed_at?: string | null
+          created_at?: string
+          estimated_duration?: number | null
+          id?: string
+          notes?: string | null
+          priority?: number
+          room_id?: string
+          status?: Database["public"]["Enums"]["assignment_status"]
+          updated_at?: string
         }
         Relationships: []
       }
@@ -491,6 +581,10 @@ export type Database = {
         Args: { hotel_id: string }
         Returns: string
       }
+      get_housekeeping_summary: {
+        Args: { target_date?: string; user_id: string }
+        Returns: Json
+      }
       get_user_access_config: {
         Args: { user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
@@ -517,6 +611,12 @@ export type Database = {
       }
     }
     Enums: {
+      assignment_status: "assigned" | "in_progress" | "completed" | "cancelled"
+      assignment_type:
+        | "daily_cleaning"
+        | "checkout_cleaning"
+        | "maintenance"
+        | "deep_cleaning"
       ticket_priority: "low" | "medium" | "high" | "urgent"
       ticket_status: "open" | "in_progress" | "completed"
       user_role:
@@ -665,6 +765,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      assignment_status: ["assigned", "in_progress", "completed", "cancelled"],
+      assignment_type: [
+        "daily_cleaning",
+        "checkout_cleaning",
+        "maintenance",
+        "deep_cleaning",
+      ],
       ticket_priority: ["low", "medium", "high", "urgent"],
       ticket_status: ["open", "in_progress", "completed"],
       user_role: [
