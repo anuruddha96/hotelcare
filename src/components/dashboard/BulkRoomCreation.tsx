@@ -44,6 +44,7 @@ export function BulkRoomCreation({ open, onOpenChange, hotels, onComplete }: Bul
   const bedTypes = [
     { value: 'single', label: 'Single' },
     { value: 'double', label: 'Double' },
+    { value: 'twin', label: 'Twin' },
     { value: 'queen', label: 'Queen' },
     { value: 'king', label: 'King' },
     { value: 'triple', label: 'Triple' },

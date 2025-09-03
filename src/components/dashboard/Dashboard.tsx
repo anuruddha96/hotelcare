@@ -307,13 +307,13 @@ export function Dashboard() {
 
       {/* Search and Filters */}
       <div className="flex flex-col gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className="relative flex-1 p-3 bg-gradient-to-r from-primary/5 to-primary/10 rounded-lg border border-primary/20 shadow-sm">
+          <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 h-4 w-4 text-primary" />
           <Input
-            placeholder="Search tickets..."
+            placeholder="🔍 Search tickets..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-9 sm:h-10 text-sm"
+            className="pl-10 h-9 sm:h-10 text-sm bg-background/80 border-primary/30 focus:border-primary focus:ring-primary/20"
           />
         </div>
         

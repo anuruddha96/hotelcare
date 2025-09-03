@@ -427,6 +427,7 @@ export function RoomManagement() {
                             <SelectContent>
                               <SelectItem value="single">Single</SelectItem>
                               <SelectItem value="double">Double</SelectItem>
+                              <SelectItem value="twin">Twin</SelectItem>
                               <SelectItem value="queen">Queen</SelectItem>
                               <SelectItem value="king">King</SelectItem>
                               <SelectItem value="triple">Triple</SelectItem>
@@ -470,13 +471,13 @@ export function RoomManagement() {
 
         {/* Filters */}
         <div className="flex flex-col gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <div className="relative flex-1 p-3 bg-gradient-to-r from-secondary/20 to-secondary/10 rounded-lg border border-secondary/30 shadow-sm">
+            <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary-foreground" />
             <Input
-              placeholder={t('rooms.search')}
+              placeholder={`🏨 ${t('rooms.search')}`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
+              className="pl-10 bg-background/80 border-secondary/40 focus:border-secondary focus:ring-secondary/20"
             />
           </div>
           
