@@ -97,22 +97,37 @@ export function HousekeepingStaffManagement() {
     setLoading(true);
     
     try {
-      // Use the new secure function
-      const { data, error } = await supabase.rpc('create_user_with_profile', {
-        p_email: newStaffData.email || null,
-        p_password: 'changeme123', // Default password for housekeeping staff
+      // Use the new v2 function to avoid conflicts
+      const { data, error } = await supabase.rpc('create_user_with_profile_v2', {
         p_full_name: newStaffData.full_name,
         p_role: 'housekeeping',
+        p_email: newStaffData.email || null,
         p_phone_number: newStaffData.phone_number || null,
         p_assigned_hotel: newStaffData.assigned_hotel || null
       });
 
       if (error) throw error;
       
-      const result = data as { success: boolean; error?: string; message?: string };
+      const result = data as { 
+        success: boolean; 
+        error?: string; 
+        message?: string;
+        username?: string;
+        password?: string;
+        email?: string;
+      };
       
       if (!result.success) {
         throw new Error(result.error || 'Failed to create staff member');
+      }
+
+      // Show generated credentials
+      if (result.username && result.password) {
+        setGeneratedCredentials({
+          username: result.username,
+          password: result.password,
+          email: result.email || ''
+        });
       }
 
       toast({
@@ -340,13 +355,9 @@ export function HousekeepingStaffManagement() {
               <CardContent className="text-center py-8">
                 <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
                 <h3 className="font-medium mb-2">No housekeeping staff yet</h3>
-                <p className="text-muted-foreground mb-4">
-                  Add your first housekeeper to get started
+                <p className="text-muted-foreground">
+                  Use the "Add Housekeeper" button above to get started
                 </p>
-                <Button onClick={() => setShowCreateForm(true)}>
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Add Housekeeper
-                </Button>
               </CardContent>
             </Card>
           )}

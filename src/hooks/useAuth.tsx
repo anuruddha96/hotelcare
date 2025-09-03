@@ -21,7 +21,7 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: any }>;
+  signIn: (emailOrUsername: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 }
@@ -157,11 +157,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
+  const signIn = async (emailOrUsername: string, password: string) => {
+    // First try with email
+    let { error } = await supabase.auth.signInWithPassword({
+      email: emailOrUsername,
       password,
     });
+    
+    // If email login fails and input doesn't contain @, try username lookup
+    if (error && !emailOrUsername.includes('@')) {
+      try {
+        // Look up email by username (nickname field)
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('nickname', emailOrUsername)
+          .single();
+        
+        if (profileData?.email) {
+          // Try logging in with the found email
+          const result = await supabase.auth.signInWithPassword({
+            email: profileData.email,
+            password,
+          });
+          error = result.error;
+        }
+      } catch (lookupError) {
+        // Keep original error if username lookup fails
+      }
+    }
+    
     return { error };
   };
 

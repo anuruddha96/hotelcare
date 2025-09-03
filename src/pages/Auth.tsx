@@ -170,13 +170,13 @@ export default function Auth() {
             <TabsContent value="signin">
               <form onSubmit={handleSignIn} className="space-y-3 sm:space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signin-email" className="text-sm">Email</Label>
+                  <Label htmlFor="signin-email" className="text-sm">Email or Username</Label>
                   <Input
                     id="signin-email"
                     name="email"
-                    type="email"
+                    type="text"
                     required
-                    placeholder="Enter your email"
+                    placeholder="Enter your email or username"
                     className="h-9 sm:h-10"
                   />
                 </div>
