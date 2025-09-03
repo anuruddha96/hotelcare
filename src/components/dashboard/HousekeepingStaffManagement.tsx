@@ -99,13 +99,15 @@ export function HousekeepingStaffManagement() {
     try {
       console.log('Creating staff with data:', newStaffData);
       
-      // Use the new v2 function to avoid conflicts
-      const { data, error } = await supabase.rpc('create_user_with_profile_v2', {
-        p_full_name: newStaffData.full_name,
-        p_role: 'housekeeping',
-        p_email: newStaffData.email || null,
-        p_phone_number: newStaffData.phone_number || null,
-        p_assigned_hotel: newStaffData.assigned_hotel || null
+      // Call edge function which creates auth user and profile atomically
+      const { data, error } = await supabase.functions.invoke('create-housekeeper', {
+        body: {
+          full_name: newStaffData.full_name,
+          role: 'housekeeping',
+          email: newStaffData.email || null,
+          phone_number: newStaffData.phone_number || null,
+          assigned_hotel: newStaffData.assigned_hotel || null,
+        },
       });
 
       console.log('Function result:', { data, error });

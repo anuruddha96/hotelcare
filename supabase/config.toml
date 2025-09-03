@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.notify-manager-ticket-closed]
 verify_jwt = true
+
+[functions.create-housekeeper]
+verify_jwt = true
