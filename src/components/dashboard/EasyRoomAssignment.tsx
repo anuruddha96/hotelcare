@@ -95,7 +95,10 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
         .from('room_assignments')
         .insert(assignments as any);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Assignment error:', error);
+        throw error;
+      }
 
       toast.success(`Assigned ${assignments.length} room(s)`);
       onAssignmentCreated();

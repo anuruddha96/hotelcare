@@ -158,6 +158,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = async (emailOrUsername: string, password: string) => {
+    console.log('Attempting login with:', emailOrUsername);
+    
     // First try with email
     let { error } = await supabase.auth.signInWithPassword({
       email: emailOrUsername,
@@ -166,23 +168,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     // If email login fails and input doesn't contain @, try username lookup
     if (error && !emailOrUsername.includes('@')) {
+      console.log('Email login failed, trying username lookup');
       try {
         // Look up email by username (nickname field)
-        const { data: profileData } = await supabase
+        const { data: profileData, error: lookupError } = await supabase
           .from('profiles')
           .select('email')
           .eq('nickname', emailOrUsername)
           .single();
         
+        console.log('Username lookup result:', profileData, lookupError);
+        
         if (profileData?.email) {
+          console.log('Found email for username, attempting login with:', profileData.email);
           // Try logging in with the found email
           const result = await supabase.auth.signInWithPassword({
             email: profileData.email,
             password,
           });
           error = result.error;
+          console.log('Username-based login result:', result.error);
         }
       } catch (lookupError) {
+        console.error('Username lookup failed:', lookupError);
         // Keep original error if username lookup fails
       }
     }

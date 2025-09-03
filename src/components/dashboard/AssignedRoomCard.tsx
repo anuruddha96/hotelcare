@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
+import { TimerComponent } from './TimerComponent';
 
 interface AssignedRoomCardProps {
   assignment: {
@@ -197,6 +198,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span>{assignment.estimated_duration} min</span>
+              {assignment.status === 'in_progress' && assignment.started_at && (
+                <TimerComponent startedAt={assignment.started_at} />
+              )}
             </div>
           )}
         </div>
