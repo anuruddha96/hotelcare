@@ -184,6 +184,15 @@ export function PMSUpload() {
           const room = rooms[0];
           const currentStatus = room.status;
           
+          console.log(`[PMS] Found room ${roomNumber} with current status: ${currentStatus}`);
+          
+          // Skip rooms that are manually set to maintenance or out of order
+          if (currentStatus === 'maintenance' || currentStatus === 'out_of_order') {
+            console.log(`[PMS] Room ${roomNumber}: Skipping update - manually set to ${currentStatus}`);
+            processed.processed++;
+            continue;
+          }
+          
           // Determine new status based on PMS data
           let newStatus = 'clean';
           let needsCleaning = false;
@@ -198,12 +207,8 @@ export function PMSUpload() {
             newStatus = 'dirty';
             needsCleaning = true;
             console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${row.Status})`);
-          } else if (row.Defect && row.Defect !== '') {
-            // Room has maintenance issues
-            newStatus = 'maintenance';
-            console.log(`[PMS] Room ${roomNumber}: Setting to maintenance (Defect: ${row.Defect})`);
           } else {
-            console.log(`[PMS] Room ${roomNumber}: Keeping as clean`);
+            console.log(`[PMS] Room ${roomNumber}: Setting to clean`);
           }
 
           console.log(`[PMS] Room ${roomNumber}: Status change ${currentStatus} -> ${newStatus}`);
