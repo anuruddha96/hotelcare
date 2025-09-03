@@ -48,6 +48,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     try {
       const updateData: any = { status: newStatus };
       
+      // If starting work, track the start time
+      if (newStatus === 'in_progress') {
+        updateData.started_at = new Date().toISOString();
+      }
+      
       // If completing, also update the room status and tracking info
       if (newStatus === 'completed') {
         updateData.completed_at = new Date().toISOString();

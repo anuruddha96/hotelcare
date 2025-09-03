@@ -6,7 +6,8 @@ import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
 import { PMSUpload } from './PMSUpload';
 import { SimpleRoomAssignment } from './SimpleRoomAssignment';
-import { ClipboardCheck, Users, Upload, Zap } from 'lucide-react';
+import { PerformanceLeaderboard } from './PerformanceLeaderboard';
+import { ClipboardCheck, Users, Upload, Zap, Trophy } from 'lucide-react';
 
 export function HousekeepingTab() {
   const { user } = useAuth();
@@ -41,7 +42,7 @@ export function HousekeepingTab() {
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className={`grid w-full ${isManager ? 'grid-cols-4' : 'grid-cols-1'}`}>
+        <TabsList className={`grid w-full ${isManager ? 'grid-cols-5' : 'grid-cols-1'}`}>
           <TabsTrigger value="assignments" className="flex items-center gap-2">
             <ClipboardCheck className="h-4 w-4" />
             My Tasks
@@ -55,6 +56,10 @@ export function HousekeepingTab() {
               <TabsTrigger value="pms-upload" className="flex items-center gap-2">
                 <Upload className="h-4 w-4" />
                 PMS Upload
+              </TabsTrigger>
+              <TabsTrigger value="performance" className="flex items-center gap-2">
+                <Trophy className="h-4 w-4" />
+                Performance
               </TabsTrigger>
               <TabsTrigger value="manage" className="flex items-center gap-2">
                 <Users className="h-4 w-4" />
@@ -81,6 +86,10 @@ export function HousekeepingTab() {
 
             <TabsContent value="pms-upload" className="space-y-6">
               <PMSUpload />
+            </TabsContent>
+
+            <TabsContent value="performance" className="space-y-6">
+              <PerformanceLeaderboard />
             </TabsContent>
 
             <TabsContent value="manage" className="space-y-6">

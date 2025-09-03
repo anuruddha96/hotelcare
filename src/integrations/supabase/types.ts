@@ -149,6 +149,62 @@ export type Database = {
         }
         Relationships: []
       }
+      housekeeping_performance: {
+        Row: {
+          actual_duration_minutes: number
+          assignment_date: string
+          assignment_id: string
+          assignment_type: Database["public"]["Enums"]["assignment_type"]
+          completed_at: string
+          created_at: string
+          efficiency_score: number
+          estimated_duration_minutes: number | null
+          housekeeper_id: string
+          id: string
+          room_id: string
+          started_at: string
+          updated_at: string
+        }
+        Insert: {
+          actual_duration_minutes: number
+          assignment_date: string
+          assignment_id: string
+          assignment_type: Database["public"]["Enums"]["assignment_type"]
+          completed_at: string
+          created_at?: string
+          efficiency_score?: number
+          estimated_duration_minutes?: number | null
+          housekeeper_id: string
+          id?: string
+          room_id: string
+          started_at: string
+          updated_at?: string
+        }
+        Update: {
+          actual_duration_minutes?: number
+          assignment_date?: string
+          assignment_id?: string
+          assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          completed_at?: string
+          created_at?: string
+          efficiency_score?: number
+          estimated_duration_minutes?: number | null
+          housekeeper_id?: string
+          id?: string
+          room_id?: string
+          started_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_performance_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       minibar_items: {
         Row: {
           category: string | null
@@ -231,6 +287,7 @@ export type Database = {
           notes: string | null
           priority: number
           room_id: string
+          started_at: string | null
           status: Database["public"]["Enums"]["assignment_status"]
           updated_at: string
         }
@@ -246,6 +303,7 @@ export type Database = {
           notes?: string | null
           priority?: number
           room_id: string
+          started_at?: string | null
           status?: Database["public"]["Enums"]["assignment_status"]
           updated_at?: string
         }
@@ -261,6 +319,7 @@ export type Database = {
           notes?: string | null
           priority?: number
           room_id?: string
+          started_at?: string | null
           status?: Database["public"]["Enums"]["assignment_status"]
           updated_at?: string
         }
@@ -602,6 +661,21 @@ export type Database = {
       get_hotel_name_from_id: {
         Args: { hotel_id: string }
         Returns: string
+      }
+      get_housekeeper_performance_stats: {
+        Args: { days_back?: number; target_housekeeper_id?: string }
+        Returns: Json
+      }
+      get_housekeeping_leaderboard: {
+        Args: { days_back?: number }
+        Returns: {
+          avg_duration_minutes: number
+          avg_efficiency_score: number
+          full_name: string
+          housekeeper_id: string
+          rank_position: number
+          total_completed: number
+        }[]
       }
       get_housekeeping_summary: {
         Args: { target_date?: string; user_id: string }
