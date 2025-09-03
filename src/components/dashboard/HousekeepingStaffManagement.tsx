@@ -97,6 +97,8 @@ export function HousekeepingStaffManagement() {
     setLoading(true);
     
     try {
+      console.log('Creating staff with data:', newStaffData);
+      
       // Use the new v2 function to avoid conflicts
       const { data, error } = await supabase.rpc('create_user_with_profile_v2', {
         p_full_name: newStaffData.full_name,
@@ -105,6 +107,8 @@ export function HousekeepingStaffManagement() {
         p_phone_number: newStaffData.phone_number || null,
         p_assigned_hotel: newStaffData.assigned_hotel || null
       });
+
+      console.log('Function result:', { data, error });
 
       if (error) throw error;
       
@@ -116,6 +120,8 @@ export function HousekeepingStaffManagement() {
         password?: string;
         email?: string;
       };
+      
+      console.log('Parsed result:', result);
       
       if (!result.success) {
         throw new Error(result.error || 'Failed to create staff member');
@@ -145,6 +151,7 @@ export function HousekeepingStaffManagement() {
       
       fetchHousekeepingStaff();
     } catch (error: any) {
+      console.error('Error creating staff:', error);
       toast({
         title: 'Error',
         description: error.message,
@@ -155,9 +162,13 @@ export function HousekeepingStaffManagement() {
     }
   };
 
-  // Only show for housekeeping managers
-  if (currentUserRole !== 'housekeeping_manager') {
-    return null;
+  // Allow access for admins, top management, managers, and housekeeping managers
+  if (!['admin', 'top_management', 'manager', 'housekeeping_manager'].includes(currentUserRole)) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground">
+        <p>Access restricted to managers and administrators</p>
+      </div>
+    );
   }
 
   return (
