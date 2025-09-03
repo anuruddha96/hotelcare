@@ -102,24 +102,17 @@ export function HousekeepingManagerView() {
 
   const fetchTeamAssignments = async () => {
     try {
+      // Fetch assignments for selected date and compute counts in JS (avoids unsupported group())
       const { data, error } = await supabase
         .from('room_assignments')
-        .select(`
-          assigned_to,
-          status,
-          profiles!room_assignments_assigned_to_fkey (
-            full_name,
-            nickname
-          )
-        `)
+        .select('assigned_to,status')
         .eq('assignment_date', selectedDate);
 
       if (error) throw error;
 
-      // Process assignments to create team summary
       const summaryMap = new Map<string, TeamAssignment>();
-      
-      // Initialize all staff members with zero counts
+
+      // Initialize all staff with zero counts so cards always show
       housekeepingStaff.forEach(staff => {
         summaryMap.set(staff.id, {
           staff_id: staff.id,
@@ -127,19 +120,19 @@ export function HousekeepingManagerView() {
           total_assigned: 0,
           completed: 0,
           in_progress: 0,
-          pending: 0
+          pending: 0,
         });
       });
-      
-      // Update counts from assignments (create entry if missing)
-      data?.forEach((assignment: any) => {
-        const staffId = assignment.assigned_to;
+
+      // Apply counts
+      (data || []).forEach((row: any) => {
+        const staffId = row.assigned_to as string;
         let summary = summaryMap.get(staffId);
         if (!summary) {
-          const name = assignment.profiles?.full_name || 'Unassigned';
+          const staff = housekeepingStaff.find(s => s.id === staffId);
           summary = {
             staff_id: staffId,
-            staff_name: name,
+            staff_name: staff?.full_name || 'Unassigned',
             total_assigned: 0,
             completed: 0,
             in_progress: 0,
@@ -147,19 +140,10 @@ export function HousekeepingManagerView() {
           };
           summaryMap.set(staffId, summary);
         }
-
-        summary.total_assigned++;
-        switch (assignment.status) {
-          case 'completed':
-            summary.completed++;
-            break;
-          case 'in_progress':
-            summary.in_progress++;
-            break;
-          case 'assigned':
-            summary.pending++;
-            break;
-        }
+        summary.total_assigned += 1;
+        if (row.status === 'completed') summary.completed += 1;
+        else if (row.status === 'in_progress') summary.in_progress += 1;
+        else if (row.status === 'assigned') summary.pending += 1;
       });
 
       setTeamAssignments(Array.from(summaryMap.values()));

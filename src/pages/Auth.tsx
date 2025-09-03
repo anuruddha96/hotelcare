@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { Navigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
@@ -43,16 +43,9 @@ export default function Auth() {
     const { error } = await signIn(emailOrUsername, password);
     
     if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Invalid login credentials');
     } else {
-      toast({
-        title: 'Success',
-        description: 'Welcome back!',
-      });
+      toast.success('Welcome back!');
     }
     
     setIsLoading(false);
@@ -70,16 +63,9 @@ export default function Auth() {
     const { error } = await signUp(email, password, fullName);
     
     if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Could not create account');
     } else {
-      toast({
-        title: 'Success',
-        description: 'Account created! Please check your email to verify your account.',
-      });
+      toast.success('Account created! Please check your email to verify your account.');
     }
     
     setIsLoading(false);
@@ -97,16 +83,9 @@ export default function Auth() {
     });
     
     if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to send reset email');
     } else {
-      toast({
-        title: 'Success',
-        description: 'Password reset email sent! Check your inbox.',
-      });
+      toast.success('Password reset email sent! Check your inbox.');
       setForgotPasswordOpen(false);
     }
     
@@ -129,16 +108,9 @@ export default function Auth() {
     });
     
     if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to resend verification');
     } else {
-      toast({
-        title: 'Success',
-        description: 'Verification email sent! Check your inbox.',
-      });
+      toast.success('Verification email sent! Check your inbox.');
       setForgotPasswordOpen(false);
     }
     
