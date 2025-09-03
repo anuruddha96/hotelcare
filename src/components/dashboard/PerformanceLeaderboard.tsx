@@ -88,57 +88,57 @@ export function PerformanceLeaderboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
-          <Trophy className="h-6 w-6 text-yellow-500" />
-          <h2 className="text-2xl font-bold">Performance Analytics</h2>
+          <Trophy className="h-5 w-5 sm:h-6 sm:w-6 text-yellow-500" />
+          <h2 className="text-lg sm:text-2xl font-bold">Performance Analytics</h2>
         </div>
         <Tabs value={timeframe} onValueChange={setTimeframe}>
-          <TabsList>
-            <TabsTrigger value="7">7 Days</TabsTrigger>
-            <TabsTrigger value="30">30 Days</TabsTrigger>
-            <TabsTrigger value="90">90 Days</TabsTrigger>
+          <TabsList className="w-full sm:w-auto">
+            <TabsTrigger value="7" className="flex-1 sm:flex-none">7 Days</TabsTrigger>
+            <TabsTrigger value="30" className="flex-1 sm:flex-none">30 Days</TabsTrigger>
+            <TabsTrigger value="90" className="flex-1 sm:flex-none">90 Days</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
       {personalStats && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-4 sm:mb-6">
           <Card>
-            <CardContent className="p-4 text-center">
-              <Clock className="h-8 w-8 mx-auto mb-2 text-blue-500" />
-              <div className="text-2xl font-bold">{Math.round(personalStats.avg_duration_minutes)}</div>
-              <div className="text-sm text-muted-foreground">Avg Minutes</div>
+            <CardContent className="p-3 sm:p-4 text-center">
+              <Clock className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-blue-500" />
+              <div className="text-xl sm:text-2xl font-bold">{Math.round(personalStats.avg_duration_minutes)}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Avg Minutes</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <TrendingUp className={`h-8 w-8 mx-auto mb-2 ${getEfficiencyColor(personalStats.avg_efficiency_score)}`} />
-              <div className={`text-2xl font-bold ${getEfficiencyColor(personalStats.avg_efficiency_score)}`}>
+            <CardContent className="p-3 sm:p-4 text-center">
+              <TrendingUp className={`h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 ${getEfficiencyColor(personalStats.avg_efficiency_score)}`} />
+              <div className={`text-xl sm:text-2xl font-bold ${getEfficiencyColor(personalStats.avg_efficiency_score)}`}>
                 {Math.round(personalStats.avg_efficiency_score)}%
               </div>
-              <div className="text-sm text-muted-foreground">Efficiency</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Efficiency</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <Target className="h-8 w-8 mx-auto mb-2 text-green-500" />
-              <div className="text-2xl font-bold">{personalStats.total_completed}</div>
-              <div className="text-sm text-muted-foreground">Completed</div>
+            <CardContent className="p-3 sm:p-4 text-center">
+              <Target className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-green-500" />
+              <div className="text-xl sm:text-2xl font-bold">{personalStats.total_completed}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Completed</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <Star className="h-8 w-8 mx-auto mb-2 text-purple-500" />
-              <div className="text-2xl font-bold">{personalStats.best_time_minutes}</div>
-              <div className="text-sm text-muted-foreground">Best Time</div>
+            <CardContent className="p-3 sm:p-4 text-center">
+              <Star className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-purple-500" />
+              <div className="text-xl sm:text-2xl font-bold">{personalStats.best_time_minutes}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Best Time</div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="p-4 text-center">
-              <Medal className="h-8 w-8 mx-auto mb-2 text-orange-500" />
-              <div className="text-2xl font-bold">{personalStats.total_rooms_today}</div>
-              <div className="text-sm text-muted-foreground">Today</div>
+            <CardContent className="p-3 sm:p-4 text-center">
+              <Medal className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-orange-500" />
+              <div className="text-xl sm:text-2xl font-bold">{personalStats.total_rooms_today}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Today</div>
             </CardContent>
           </Card>
         </div>
@@ -146,9 +146,10 @@ export function PerformanceLeaderboard() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Trophy className="h-5 w-5" />
-            Housekeeping Leaderboard - Last {timeframe} Days
+          <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+            <Trophy className="h-4 w-4 sm:h-5 sm:w-5" />
+            <span className="hidden sm:inline">Housekeeping Leaderboard - Last {timeframe} Days</span>
+            <span className="sm:hidden">Leaderboard - {timeframe}d</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -159,41 +160,48 @@ export function PerformanceLeaderboard() {
           ) : (
             <div className="space-y-3">
               {leaderboard.map((entry) => (
-                <div 
+                <div
                   key={entry.housekeeper_id}
-                  className={`flex items-center justify-between p-4 rounded-lg border ${
+                  className={`p-4 sm:p-5 rounded-lg border flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${
                     entry.housekeeper_id === user?.id ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'
                   }`}
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center justify-center w-8 h-8">
-                      {getRankIcon(entry.rank_position)}
-                    </div>
-                    <div>
-                      <div className="font-semibold">
-                        {entry.full_name}
-                        {entry.housekeeper_id === user?.id && (
-                          <Badge variant="outline" className="ml-2">You</Badge>
-                        )}
+                  <div className="w-full">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center w-8 h-8">
+                          {getRankIcon(entry.rank_position)}
+                        </div>
+                        <div>
+                          <div className="font-semibold">
+                            {entry.full_name}
+                            {entry.housekeeper_id === user?.id && (
+                              <Badge variant="outline" className="ml-2">You</Badge>
+                            )}
+                          </div>
+                          <div className="text-xs sm:text-sm text-muted-foreground">
+                            {entry.total_completed} rooms completed
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-sm text-muted-foreground">
-                        {entry.total_completed} rooms completed
+                      <div className="sm:hidden">
+                        {getEfficiencyBadge(entry.avg_efficiency_score)}
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-6">
+
+                  <div className="grid grid-cols-3 gap-4 sm:flex sm:items-center sm:gap-6">
                     <div className="text-center">
-                      <div className="text-lg font-bold">{Math.round(entry.avg_duration_minutes)} min</div>
+                      <div className="text-base sm:text-lg font-bold">{Math.round(entry.avg_duration_minutes)} min</div>
                       <div className="text-xs text-muted-foreground">Avg Time</div>
                     </div>
                     <div className="text-center">
-                      <div className={`text-lg font-bold ${getEfficiencyColor(entry.avg_efficiency_score)}`}>
+                      <div className={`text-base sm:text-lg font-bold ${getEfficiencyColor(entry.avg_efficiency_score)}`}>
                         {Math.round(entry.avg_efficiency_score)}%
                       </div>
                       <div className="text-xs text-muted-foreground">Efficiency</div>
                     </div>
-                    <div>
+                    <div className="hidden sm:block">
                       {getEfficiencyBadge(entry.avg_efficiency_score)}
                     </div>
                   </div>
