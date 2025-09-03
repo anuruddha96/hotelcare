@@ -59,13 +59,12 @@ export function HousekeepingManagerView() {
 
   const fetchTeamAssignments = async () => {
     try {
-      // Get assignments for each staff member
-      const { data: assignments, error } = await supabase
+      const { data, error } = await supabase
         .from('room_assignments')
         .select(`
           assigned_to,
           status,
-          profiles:assigned_to (
+          profiles!room_assignments_assigned_to_fkey (
             full_name,
             nickname
           )
@@ -74,10 +73,10 @@ export function HousekeepingManagerView() {
 
       if (error) throw error;
 
-      // Process assignments to create summary
+      // Process assignments to create team summary
       const summaryMap = new Map<string, TeamAssignment>();
       
-      assignments?.forEach((assignment: any) => {
+      data?.forEach((assignment: any) => {
         const staffId = assignment.assigned_to;
         const staffName = assignment.profiles?.full_name || 'Unknown';
         
@@ -111,6 +110,7 @@ export function HousekeepingManagerView() {
       setTeamAssignments(Array.from(summaryMap.values()));
     } catch (error) {
       console.error('Error fetching team assignments:', error);
+      toast.error('Failed to load team assignments');
     }
   };
 

@@ -50,20 +50,14 @@ export function HousekeepingStaffView() {
   }, [user?.id, selectedDate]);
 
   const fetchAssignments = async () => {
+    if (!user?.id) return;
+    
     try {
       const { data, error } = await supabase
         .from('room_assignments')
         .select(`
-          id,
-          room_id,
-          assignment_type,
-          status,
-          priority,
-          estimated_duration,
-          notes,
-          assignment_date,
-          created_at,
-          rooms (
+          *,
+          rooms!inner (
             room_number,
             hotel,
             status,
@@ -71,21 +65,13 @@ export function HousekeepingStaffView() {
             floor_number
           )
         `)
-        .eq('assigned_to', user?.id)
+        .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate)
         .order('priority', { ascending: false })
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      
-      // Filter and properly type the assignments
-      const validAssignments = (data || [])
-        .filter(assignment => assignment.rooms && !('error' in assignment.rooms))
-        .map(assignment => ({
-          ...assignment,
-          rooms: assignment.rooms as any
-        }));
-      setAssignments(validAssignments);
+      setAssignments(data || []);
     } catch (error) {
       console.error('Error fetching assignments:', error);
       toast.error('Failed to load assignments');

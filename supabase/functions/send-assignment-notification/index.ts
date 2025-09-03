@@ -107,7 +107,7 @@ const handler = async (req: Request): Promise<Response> => {
     `;
 
     const emailResponse = await resend.emails.send({
-      from: "Housekeeping Management <noreply@yourdomain.com>",
+      from: "Housekeeping Management <onboarding@resend.dev>",
       to: [profile.email],
       subject: `New Room Assignment - ${totalRooms} rooms for ${new Date(assignmentDate).toLocaleDateString()}`,
       html: emailHtml,

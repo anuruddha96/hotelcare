@@ -129,16 +129,21 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           .filter(Boolean)
           .join(', ');
 
-        await supabase.functions.invoke('send-assignment-notification', {
-          body: {
-            staffId: selectedStaff,
-            staffName: selectedStaffMember.full_name,
-            assignmentDate: selectedDate,
-            roomNumbers,
-            assignmentType,
-            totalRooms: selectedRooms.length
-          }
-        });
+        try {
+          await supabase.functions.invoke('send-assignment-notification', {
+            body: {
+              staffId: selectedStaff,
+              staffName: selectedStaffMember.full_name,
+              assignmentDate: selectedDate,
+              roomNumbers,
+              assignmentType,
+              totalRooms: selectedRooms.length
+            }
+          });
+        } catch (notificationError) {
+          console.error('Error sending notification:', notificationError);
+          // Don't fail the assignment if notification fails
+        }
       }
 
       toast.success(`Successfully assigned ${selectedRooms.length} rooms to ${selectedStaffMember?.full_name}`);
