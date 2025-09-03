@@ -405,15 +405,15 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
             )}
           </TabsContent>
 
-          <TabsContent value="create">
+          <TabsContent value="create" className="flex-1 min-h-0 overflow-auto">
             <Card>
-              <CardHeader>
+              <CardHeader className="flex-shrink-0">
                 <CardTitle className="flex items-center gap-2">
                   <UserPlus className="h-5 w-5" />
                   Create New User
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="overflow-auto">
                 <form onSubmit={handleCreateUser} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
