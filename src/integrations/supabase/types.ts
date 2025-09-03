@@ -54,13 +54,6 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "comments_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "staff_directory"
-            referencedColumns: ["id"]
-          },
         ]
       }
       department_access_config: {
@@ -236,13 +229,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "room_minibar_usage_recorded_by_fkey"
-            columns: ["recorded_by"]
-            isOneToOne: false
-            referencedRelation: "staff_directory"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "room_minibar_usage_room_id_fkey"
             columns: ["room_id"]
             isOneToOne: false
@@ -303,13 +289,6 @@ export type Database = {
             columns: ["last_cleaned_by"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "rooms_last_cleaned_by_fkey"
-            columns: ["last_cleaned_by"]
-            isOneToOne: false
-            referencedRelation: "staff_directory"
             referencedColumns: ["id"]
           },
         ]
@@ -435,29 +414,8 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "tickets_assigned_to_fkey"
-            columns: ["assigned_to"]
-            isOneToOne: false
-            referencedRelation: "staff_directory"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "tickets_closed_by_fkey"
             columns: ["closed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tickets_closed_by_fkey"
-            columns: ["closed_by"]
-            isOneToOne: false
-            referencedRelation: "staff_directory"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tickets_created_by_fkey"
-            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -466,52 +424,14 @@ export type Database = {
             foreignKeyName: "tickets_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
-            referencedRelation: "staff_directory"
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
       }
     }
     Views: {
-      staff_directory: {
-        Row: {
-          assigned_hotel: string | null
-          created_at: string | null
-          email: string | null
-          full_name: string | null
-          id: string | null
-          last_login: string | null
-          nickname: string | null
-          profile_picture_url: string | null
-          role: Database["public"]["Enums"]["user_role"] | null
-          updated_at: string | null
-        }
-        Insert: {
-          assigned_hotel?: string | null
-          created_at?: string | null
-          email?: never
-          full_name?: string | null
-          id?: string | null
-          last_login?: string | null
-          nickname?: string | null
-          profile_picture_url?: string | null
-          role?: Database["public"]["Enums"]["user_role"] | null
-          updated_at?: string | null
-        }
-        Update: {
-          assigned_hotel?: string | null
-          created_at?: string | null
-          email?: never
-          full_name?: string | null
-          id?: string | null
-          last_login?: string | null
-          nickname?: string | null
-          profile_picture_url?: string | null
-          role?: Database["public"]["Enums"]["user_role"] | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Functions: {
       generate_ticket_number: {
