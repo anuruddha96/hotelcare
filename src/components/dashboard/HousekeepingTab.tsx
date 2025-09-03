@@ -4,10 +4,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
+import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
 import { PMSUpload } from './PMSUpload';
 import { SimpleRoomAssignment } from './SimpleRoomAssignment';
 import { PerformanceLeaderboard } from './PerformanceLeaderboard';
-import { ClipboardCheck, Users, Upload, Zap, Trophy } from 'lucide-react';
+import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus } from 'lucide-react';
 
 export function HousekeepingTab() {
   const { user } = useAuth();
@@ -48,7 +49,7 @@ export function HousekeepingTab() {
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className={`grid w-full ${hasManagerAccess ? 'grid-cols-5' : 'grid-cols-1'}`}>
+        <TabsList className={`grid w-full ${hasManagerAccess ? 'grid-cols-6' : 'grid-cols-1'}`}>
           <TabsTrigger value="assignments" className="flex items-center gap-2">
             <ClipboardCheck className="h-4 w-4" />
             My Tasks
@@ -66,6 +67,10 @@ export function HousekeepingTab() {
               <TabsTrigger value="performance" className="flex items-center gap-2">
                 <Trophy className="h-4 w-4" />
                 Performance
+              </TabsTrigger>
+              <TabsTrigger value="staff-management" className="flex items-center gap-2">
+                <UserPlus className="h-4 w-4" />
+                Staff
               </TabsTrigger>
               <TabsTrigger value="manage" className="flex items-center gap-2">
                 <Users className="h-4 w-4" />
@@ -96,6 +101,10 @@ export function HousekeepingTab() {
 
             <TabsContent value="performance" className="space-y-6">
               <PerformanceLeaderboard />
+            </TabsContent>
+
+            <TabsContent value="staff-management" className="space-y-6">
+              <HousekeepingStaffManagement />
             </TabsContent>
 
             <TabsContent value="manage" className="space-y-6">

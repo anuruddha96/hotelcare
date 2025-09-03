@@ -360,7 +360,7 @@ export function PMSUpload() {
                   : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
               }`}
             >
-              <input {...getInputProps()} style={{ display: 'none' }} />
+              <input {...getInputProps()} />
               <Upload className={`h-12 w-12 mx-auto mb-4 transition-colors ${
                 isDragActive ? 'text-primary' : 'text-muted-foreground'
               }`} />
@@ -371,30 +371,11 @@ export function PMSUpload() {
                 <p className="text-sm text-muted-foreground">
                   {isDragActive 
                     ? 'Release to upload your file'
-                    : 'Drag & drop your PMS export file here, or click to select'
+                    : 'Drag & drop your PMS export file here, or click to browse'
                   }
                 </p>
-                {!isDragActive && (
-                  <Button 
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      document.getElementById('pms-upload-manual')?.click();
-                    }}
-                  >
-                    Choose File
-                  </Button>
-                )}
               </div>
             </div>
-            
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileUpload}
-              className="hidden"
-              id="pms-upload-manual"
-            />
           </>
         )}
 

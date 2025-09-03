@@ -249,17 +249,19 @@ export function Dashboard() {
               
               <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                 {canManageUsers && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setUserManagementOpen(true)}
+                    className="text-xs sm:text-sm"
+                  >
+                    <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                    <span className="hidden sm:inline">Manage Users</span>
+                    <span className="sm:hidden">Users</span>
+                  </Button>
+                )}
+                {canManageUsers && (
                   <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setUserManagementOpen(true)}
-                      className="text-xs sm:text-sm"
-                    >
-                      <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                      <span className="hidden sm:inline">Manage Users</span>
-                      <span className="sm:hidden">Users</span>
-                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
