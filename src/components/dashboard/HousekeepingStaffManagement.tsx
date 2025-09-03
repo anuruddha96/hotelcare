@@ -243,6 +243,54 @@ export function HousekeepingStaffManagement() {
         </Card>
       )}
 
+      {generatedCredentials && (
+        <Card className="border-green-200 bg-green-50">
+          <CardHeader>
+            <CardTitle className="text-green-800 flex items-center gap-2">
+              ✅ Housekeeper Created Successfully
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-green-700">
+              Please provide these login credentials to the new housekeeper:
+            </p>
+            <div className="space-y-2 bg-white p-4 rounded border">
+              <div>
+                <Label className="font-semibold">Username:</Label>
+                <Input 
+                  value={generatedCredentials.username} 
+                  readOnly 
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="font-semibold">Password:</Label>
+                <Input 
+                  value={generatedCredentials.password} 
+                  readOnly 
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="font-semibold">Email:</Label>
+                <Input 
+                  value={generatedCredentials.email} 
+                  readOnly 
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <Button 
+              onClick={() => setGeneratedCredentials(null)}
+              variant="outline"
+              className="w-full"
+            >
+              Close
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>

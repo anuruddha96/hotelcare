@@ -636,13 +636,35 @@ export type Database = {
     }
     Functions: {
       create_user_with_profile: {
+        Args:
+          | {
+              p_assigned_hotel?: string
+              p_email: string
+              p_full_name: string
+              p_password: string
+              p_phone_number?: string
+              p_role?: Database["public"]["Enums"]["user_role"]
+            }
+          | {
+              p_assigned_hotel?: string
+              p_email?: string
+              p_full_name: string
+              p_password?: string
+              p_phone_number?: string
+              p_role?: Database["public"]["Enums"]["user_role"]
+              p_username?: string
+            }
+        Returns: Json
+      }
+      create_user_with_profile_v2: {
         Args: {
           p_assigned_hotel?: string
-          p_email: string
+          p_email?: string
           p_full_name: string
-          p_password: string
+          p_password?: string
           p_phone_number?: string
           p_role?: Database["public"]["Enums"]["user_role"]
+          p_username?: string
         }
         Returns: Json
       }
