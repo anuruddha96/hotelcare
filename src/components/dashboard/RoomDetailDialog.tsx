@@ -21,7 +21,8 @@ import {
   Minus,
   Euro,
   User,
-  Calendar
+  Calendar,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -309,17 +310,69 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
     }, 0);
   };
 
+  const handleDeleteRoom = async () => {
+    if (!room || profile?.role !== 'admin') return;
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete room ${room.room_number}? This action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('rooms')
+        .delete()
+        .eq('id', room.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Room deleted successfully",
+      });
+
+      onRoomUpdated?.();
+      onOpenChange(false);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!room) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
         <DialogHeader className="flex-shrink-0 pb-4">
-          <DialogTitle className="flex items-center gap-2 text-xl">
-            <Hotel className="h-5 w-5" />
-            Room {room.room_number} {room.room_name && `- ${room.room_name}`}
-          </DialogTitle>
-          <p className="text-sm text-muted-foreground">{room.hotel}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <Hotel className="h-5 w-5" />
+                Room {room.room_number} {room.room_name && `- ${room.room_name}`}
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground">{room.hotel}</p>
+            </div>
+            {profile?.role === 'admin' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDeleteRoom}
+                disabled={loading}
+                className="text-destructive hover:text-destructive hover:border-destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Room
+              </Button>
+            )}
+          </div>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-6 pr-2">
