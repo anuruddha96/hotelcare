@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import { useDropzone } from 'react-dropzone';
 import * as XLSX from 'xlsx';
 
 interface PMSData {
@@ -24,6 +25,7 @@ interface PMSData {
 export function PMSUpload() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [backgroundUpload, setBackgroundUpload] = useState(false);
   const [results, setResults] = useState<{
     processed: number;
     updated: number;
@@ -31,70 +33,100 @@ export function PMSUpload() {
     errors: string[];
   } | null>(null);
 
-  // Extract room number from complex room names (e.g., "70SNG-306" -> "306")
+  // Handle background processing notifications
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && backgroundUpload) {
+        // User came back, check if background upload is still running
+        toast.info('PMS upload is still processing in the background...');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [backgroundUpload]);
+
+  // Enhanced room number extraction based on provided mappings
   const extractRoomNumber = (roomName: string): string => {
     const originalName = roomName;
     
-    // Pattern 1: Numbers after QRP (e.g., "66EC.QRP216" -> "216")
-    let match = roomName.match(/QRP(\d+)/);
+    // Clean and normalize the input
+    let cleanName = roomName.trim();
+    
+    // Handle specific patterns based on provided mappings
+    
+    // Pattern 1: QRP rooms (e.g., "66EC.QRP216" -> "216")
+    let match = cleanName.match(/QRP(\d{3})/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 2: Numbers before SH suffix (e.g., "59TRP-209SH" -> "209")
-    match = roomName.match(/[-.](\d+)SH$/);
+    // Pattern 2: SNG rooms (e.g., "70SNG-306" -> "306")
+    match = cleanName.match(/\d+SNG-(\d{3})/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 3: Numbers in middle patterns (e.g., "21SYN.TWIN-109SH" -> "109")
-    match = roomName.match(/TWIN-(\d+)/);
+    // Pattern 3: ECDBL rooms (e.g., "71ECDBL-308" -> "308") 
+    match = cleanName.match(/\d+ECDBL-(\d{3})/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 4: Numbers after DOUBLE (e.g., "SYN.DOUBLE-105" -> "105") 
-    match = roomName.match(/DOUBLE-(\d+)/);
+    // Pattern 4: QUEEN rooms with or without SH (e.g., "1QUEEN-002", "4QUEEN-008SH" -> "002", "008")
+    match = cleanName.match(/\d+QUEEN-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 5: Numbers after QUEEN (e.g., "1QUEEN-002" -> "002")
-    match = roomName.match(/QUEEN-(\d+)/);
+    // Pattern 5: TWIN rooms with or without SH (e.g., "7TWIN-034SH", "8TWIN-036" -> "034", "036")
+    match = cleanName.match(/\d+TWIN-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 6: Numbers after TRP (e.g., "3TRP-006" -> "006")
-    match = roomName.match(/TRP-(\d+)/);
+    // Pattern 6: DOUBLE rooms (e.g., "16DOUBLE-104", "39DOUBLE-135" -> "104", "135")
+    match = cleanName.match(/\d+DOUBLE-(\d{3})/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 7: Numbers after QDR (e.g., "9QDR-038" -> "038")
-    match = roomName.match(/QDR-(\d+)/);
+    // Pattern 7: SYN.TWIN rooms with or without SH (e.g., "13SYN.TWIN-101", "21SYN.TWIN-109SH" -> "101", "109")
+    match = cleanName.match(/\d+SYN\.TWIN-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Remove any trailing "SH" suffix for other patterns
-    let cleanName = roomName.replace(/SH$/, '');
-    
-    // Pattern 8: Extract number after the last dash or period
-    match = cleanName.match(/[-.](\d+)$/);
+    // Pattern 8: SYN.DOUBLE rooms with or without SH (e.g., "15SYN.DOUBLE-103", "19SYN.DOUBLE-107SH" -> "103", "107")
+    match = cleanName.match(/\d+SYN\.DOUBLE-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 9: Fallback - extract any number at the end
-    const fallbackMatch = cleanName.match(/(\d+)$/);
+    // Pattern 9: TRP rooms with or without SH (e.g., "3TRP-006", "59TRP-209SH" -> "006", "209")
+    match = cleanName.match(/\d+TRP-(\d{3})(?:SH)?/);
+    if (match) {
+      return match[1];
+    }
+    
+    // Pattern 10: QDR rooms (e.g., "9QDR-038", "26QDR-114" -> "038", "114")
+    match = cleanName.match(/\d+QDR-(\d{3})/);
+    if (match) {
+      return match[1];
+    }
+    
+    // Fallback: Extract last 3-digit number after dash or period
+    match = cleanName.match(/[-.](\d{3})(?:SH)?$/);
+    if (match) {
+      return match[1];
+    }
+    
+    // Final fallback: Any 3-digit number at the end
+    const fallbackMatch = cleanName.match(/(\d{3})(?:SH)?$/);
     return fallbackMatch ? fallbackMatch[1] : originalName;
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  const processFile = async (file: File) => {
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
       toast.error('Please upload an Excel file (.xlsx or .xls)');
       return;
@@ -103,6 +135,16 @@ export function PMSUpload() {
     setUploading(true);
     setProgress(0);
     setResults(null);
+
+    // Check if user might navigate away and enable background processing
+    const handleBeforeUnload = () => {
+      if (uploading) {
+        setBackgroundUpload(true);
+        toast.info('Upload will continue in background. You will be notified when complete.');
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     try {
       const data = await file.arrayBuffer();
@@ -135,7 +177,7 @@ export function PMSUpload() {
             .eq('room_number', roomNumber);
 
           if (roomError || !rooms || rooms.length === 0) {
-            processed.errors.push(`Room ${row.Room} not found in system`);
+            processed.errors.push(`Room ${row.Room} (extracted: ${roomNumber}) not found in system`);
             continue;
           }
 
@@ -226,18 +268,66 @@ export function PMSUpload() {
 
       setProgress(100);
       setResults(processed);
+      setBackgroundUpload(false);
       
-      toast.success(`Upload completed! Processed ${processed.processed} rooms, updated ${processed.updated}, assigned ${processed.assigned} new tasks`);
+      // Show completion notification
+      const successMessage = `Upload completed! Processed ${processed.processed} rooms, updated ${processed.updated}, assigned ${processed.assigned} new tasks`;
+      
+      if (document.visibilityState === 'visible') {
+        toast.success(successMessage);
+      } else {
+        // User is on another tab, show notification that will persist
+        toast.success(successMessage, { duration: 10000 });
+        
+        // Try to show browser notification if permission granted
+        if (Notification.permission === 'granted') {
+          new Notification('PMS Upload Complete', {
+            body: successMessage,
+            icon: '/favicon.ico'
+          });
+        }
+      }
       
     } catch (error) {
       console.error('Error processing file:', error);
       toast.error('Failed to process the Excel file');
+      setBackgroundUpload(false);
     } finally {
       setUploading(false);
-      // Reset file input
-      event.target.value = '';
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     }
   };
+
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length > 0) {
+      await processFile(acceptedFiles[0]);
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls'],
+    },
+    multiple: false,
+  });
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    await processFile(file);
+    // Reset file input
+    event.target.value = '';
+  };
+
+  // Request notification permission on component mount
+  useEffect(() => {
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
 
   return (
     <Card>
@@ -252,25 +342,44 @@ export function PMSUpload() {
       </CardHeader>
       <CardContent className="space-y-4">
         {!uploading && !results && (
-          <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
-            <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+          <div 
+            {...getRootProps()} 
+            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+              isDragActive 
+                ? 'border-primary bg-primary/5' 
+                : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
+            }`}
+          >
+            <input {...getInputProps()} />
+            <Upload className={`h-12 w-12 mx-auto mb-4 transition-colors ${
+              isDragActive ? 'text-primary' : 'text-muted-foreground'
+            }`} />
             <div className="space-y-2">
-              <h3 className="font-medium">Upload PMS Excel File</h3>
+              <h3 className="font-medium">
+                {isDragActive ? 'Drop your PMS file here' : 'Upload PMS Excel File'}
+              </h3>
               <p className="text-sm text-muted-foreground">
-                Select your PMS export file with room data
+                {isDragActive 
+                  ? 'Release to upload your file'
+                  : 'Drag & drop your PMS export file here, or click to select'
+                }
               </p>
-              <input
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleFileUpload}
-                className="hidden"
-                id="pms-upload"
-              />
-              <Button asChild>
-                <label htmlFor="pms-upload" className="cursor-pointer">
-                  Choose File
-                </label>
-              </Button>
+              {!isDragActive && (
+                <>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="pms-upload"
+                  />
+                  <Button asChild>
+                    <label htmlFor="pms-upload" className="cursor-pointer">
+                      Choose File
+                    </label>
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -280,6 +389,11 @@ export function PMSUpload() {
             <div className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5 animate-pulse" />
               <span>Processing PMS data...</span>
+              {backgroundUpload && (
+                <Badge variant="secondary" className="ml-2">
+                  Running in background
+                </Badge>
+              )}
             </div>
             <Progress value={progress} className="w-full" />
             <p className="text-sm text-muted-foreground text-center">
@@ -287,6 +401,11 @@ export function PMSUpload() {
                progress < 90 ? 'Processing room data...' : 
                'Finalizing updates...'}
             </p>
+            {backgroundUpload && (
+              <p className="text-xs text-muted-foreground text-center bg-muted p-2 rounded">
+                💡 You can navigate to other tabs while this processes. You'll be notified when complete.
+              </p>
+            )}
           </div>
         )}
 
