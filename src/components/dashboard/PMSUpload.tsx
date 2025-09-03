@@ -192,14 +192,21 @@ export function PMSUpload() {
             // Checkout room - needs checkout cleaning
             newStatus = 'dirty';
             needsCleaning = true;
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Occupied: ${row.Occupied}, Departure: ${row.Departure})`);
           } else if (row.Status === 'untidy' || row.Status === 'dirty') {
             // Room marked as dirty in PMS
             newStatus = 'dirty';
             needsCleaning = true;
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${row.Status})`);
           } else if (row.Defect && row.Defect !== '') {
             // Room has maintenance issues
             newStatus = 'maintenance';
+            console.log(`[PMS] Room ${roomNumber}: Setting to maintenance (Defect: ${row.Defect})`);
+          } else {
+            console.log(`[PMS] Room ${roomNumber}: Keeping as clean`);
           }
+
+          console.log(`[PMS] Room ${roomNumber}: Status change ${currentStatus} -> ${newStatus}`);
 
           // Update room status if changed
           if (currentStatus !== newStatus) {
