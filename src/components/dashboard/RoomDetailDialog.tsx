@@ -175,6 +175,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       });
 
       onRoomUpdated?.();
+      onOpenChange(false); // Close dialog automatically after successful update
     } catch (error: any) {
       toast({
         title: "Error",

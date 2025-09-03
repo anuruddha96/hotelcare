@@ -91,6 +91,7 @@ export function RoomManagement() {
   const [hotels, setHotels] = useState<any[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
+  const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(null);
 
   const isAdmin = profile?.role === 'admin';
   const canManageRooms = profile?.role && ['admin', 'manager', 'reception'].includes(profile.role);
@@ -309,8 +310,9 @@ export function RoomManagement() {
     
     const matchesHotel = selectedHotel === 'all' || room.hotel === selectedHotel;
     const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
+    const matchesActiveFilter = !activeStatusFilter || room.status === activeStatusFilter;
     
-    return matchesSearch && matchesHotel && matchesStatus;
+    return matchesSearch && matchesHotel && matchesStatus && matchesActiveFilter;
   });
 
   // Group rooms by hotel and sort by room number
@@ -334,8 +336,34 @@ export function RoomManagement() {
     });
   });
 
+  const handleStatusFilterClick = (status: string) => {
+    if (activeStatusFilter === status) {
+      setActiveStatusFilter(null); // Reset filter if same status clicked
+    } else {
+      setActiveStatusFilter(status); // Set new filter
+    }
+  };
+
+  const getStatusDisplayName = (status: string) => {
+    switch (status) {
+      case 'clean': return t('rooms.clean');
+      case 'dirty': return t('rooms.dirty');
+      case 'maintenance': return t('rooms.maintenance');
+      case 'out_of_order': return 'Out of Order';
+      default: return status;
+    }
+  };
+
   return (
-      <div className="container mx-auto p-2 sm:p-4 space-y-6">
+      <div 
+        className="container mx-auto p-2 sm:p-4 space-y-6"
+        onClick={(e) => {
+          // Reset filter when clicking outside of cards
+          if (e.target === e.currentTarget) {
+            setActiveStatusFilter(null);
+          }
+        }}
+      >
         {/* Header */}
         <div className="flex flex-col gap-4 items-start">
           <div>
@@ -507,16 +535,27 @@ export function RoomManagement() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
             const count = rooms.filter(r => r.status === status).length;
+            const isActive = activeStatusFilter === status;
             return (
-              <Card key={status} className="hover:bg-muted/20 transition-colors">
+              <Card 
+                key={status} 
+                className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+                  isActive 
+                    ? 'ring-2 ring-primary bg-primary/10 shadow-lg border-primary' 
+                    : 'hover:bg-muted/20 hover:shadow-md'
+                }`}
+                onClick={() => handleStatusFilterClick(status)}
+              >
                 <CardContent className="p-3 sm:p-4">
                   <div className="flex items-center gap-2">
                     {getStatusIcon(status)}
                     <div className="min-w-0 flex-1">
                       <p className="text-xs sm:text-sm text-muted-foreground capitalize truncate">
-                        {t(`rooms.${status}` as any)}
+                        {getStatusDisplayName(status)}
                       </p>
-                      <p className="text-xl sm:text-2xl font-bold">{count}</p>
+                      <p className={`text-xl sm:text-2xl font-bold ${isActive ? 'text-primary' : ''}`}>
+                        {count}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
