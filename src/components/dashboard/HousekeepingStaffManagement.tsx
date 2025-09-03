@@ -112,7 +112,10 @@ export function HousekeepingStaffManagement() {
 
       console.log('Function result:', { data, error });
 
-      if (error) throw error;
+      if (error) {
+        const serverMsg = (data as any)?.error || (data as any)?.message;
+        throw new Error(serverMsg || error.message || 'Edge function failed');
+      }
       
       const result = data as { 
         success: boolean; 
