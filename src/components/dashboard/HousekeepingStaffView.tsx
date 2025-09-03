@@ -49,6 +49,43 @@ export function HousekeepingStaffView() {
     }
   }, [user?.id, selectedDate]);
 
+  // Real-time subscription for assignment updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel('assignment-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_assignments',
+          filter: `assigned_to=eq.${user.id}`
+        },
+        () => {
+          fetchAssignments();
+          fetchSummary();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'rooms'
+        },
+        () => {
+          fetchAssignments();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, selectedDate]);
+
   const fetchAssignments = async () => {
     if (!user?.id) return;
     
@@ -104,6 +141,9 @@ export function HousekeepingStaffView() {
         assignment.id === assignmentId 
           ? { ...assignment, status: newStatus }
           : assignment
+      ).filter(assignment => 
+        // Remove completed assignments from the list for cleaner view
+        newStatus === 'completed' && assignment.id === assignmentId ? false : true
       )
     );
     fetchSummary(); // Refresh summary

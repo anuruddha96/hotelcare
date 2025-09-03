@@ -46,15 +46,37 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
     setLoading(true);
     try {
+      const updateData: any = { status: newStatus };
+      
+      // If completing, also update the room status and tracking info
+      if (newStatus === 'completed') {
+        updateData.completed_at = new Date().toISOString();
+        
+        // Update the room status to clean
+        const { error: roomError } = await supabase
+          .from('rooms')
+          .update({ 
+            status: 'clean',
+            last_cleaned_at: new Date().toISOString(),
+            last_cleaned_by: (await supabase.auth.getUser()).data.user?.id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', assignment.room_id);
+
+        if (roomError) {
+          console.error('Error updating room status:', roomError);
+        }
+      }
+
       const { error } = await supabase
         .from('room_assignments')
-        .update({ status: newStatus })
+        .update(updateData)
         .eq('id', assignment.id);
 
       if (error) throw error;
       
       onStatusUpdate(assignment.id, newStatus);
-      toast.success(`Room ${assignment.rooms.room_number} marked as ${newStatus}`);
+      toast.success(`Room ${assignment.rooms.room_number} marked as ${newStatus}${newStatus === 'completed' ? ' and status updated to clean' : ''}`);
     } catch (error) {
       console.error('Error updating assignment status:', error);
       toast.error('Failed to update status');

@@ -76,34 +76,37 @@ export function HousekeepingManagerView() {
       // Process assignments to create team summary
       const summaryMap = new Map<string, TeamAssignment>();
       
+      // Initialize all staff members with zero counts
+      housekeepingStaff.forEach(staff => {
+        summaryMap.set(staff.id, {
+          staff_id: staff.id,
+          staff_name: staff.full_name,
+          total_assigned: 0,
+          completed: 0,
+          in_progress: 0,
+          pending: 0
+        });
+      });
+      
+      // Update counts from assignments
       data?.forEach((assignment: any) => {
         const staffId = assignment.assigned_to;
-        const staffName = assignment.profiles?.full_name || 'Unknown';
+        const summary = summaryMap.get(staffId);
         
-        if (!summaryMap.has(staffId)) {
-          summaryMap.set(staffId, {
-            staff_id: staffId,
-            staff_name: staffName,
-            total_assigned: 0,
-            completed: 0,
-            in_progress: 0,
-            pending: 0
-          });
-        }
-        
-        const summary = summaryMap.get(staffId)!;
-        summary.total_assigned++;
-        
-        switch (assignment.status) {
-          case 'completed':
-            summary.completed++;
-            break;
-          case 'in_progress':
-            summary.in_progress++;
-            break;
-          case 'assigned':
-            summary.pending++;
-            break;
+        if (summary) {
+          summary.total_assigned++;
+          
+          switch (assignment.status) {
+            case 'completed':
+              summary.completed++;
+              break;
+            case 'in_progress':
+              summary.in_progress++;
+              break;
+            case 'assigned':
+              summary.pending++;
+              break;
+          }
         }
       });
 

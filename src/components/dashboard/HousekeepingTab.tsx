@@ -4,7 +4,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
-import { ClipboardCheck, Users } from 'lucide-react';
+import { PMSUpload } from './PMSUpload';
+import { SimpleRoomAssignment } from './SimpleRoomAssignment';
+import { ClipboardCheck, Users, Upload, Zap } from 'lucide-react';
 
 export function HousekeepingTab() {
   const { user } = useAuth();
@@ -39,16 +41,26 @@ export function HousekeepingTab() {
   return (
     <div className="space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className={`grid w-full ${isManager ? 'grid-cols-4' : 'grid-cols-1'}`}>
           <TabsTrigger value="assignments" className="flex items-center gap-2">
             <ClipboardCheck className="h-4 w-4" />
-            My Assignments
+            My Tasks
           </TabsTrigger>
           {isManager && (
-            <TabsTrigger value="manage" className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Manage Team
-            </TabsTrigger>
+            <>
+              <TabsTrigger value="quick-assign" className="flex items-center gap-2">
+                <Zap className="h-4 w-4" />
+                Quick Assign
+              </TabsTrigger>
+              <TabsTrigger value="pms-upload" className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                PMS Upload
+              </TabsTrigger>
+              <TabsTrigger value="manage" className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Team View
+              </TabsTrigger>
+            </>
           )}
         </TabsList>
 
@@ -57,9 +69,24 @@ export function HousekeepingTab() {
         </TabsContent>
 
         {isManager && (
-          <TabsContent value="manage" className="space-y-6">
-            <HousekeepingManagerView />
-          </TabsContent>
+          <>
+            <TabsContent value="quick-assign" className="space-y-6">
+              <SimpleRoomAssignment onAssignmentCreated={() => {
+                // Refresh the team view if it's active
+                if (activeTab === 'manage') {
+                  // This will be handled by the HousekeepingManagerView component
+                }
+              }} />
+            </TabsContent>
+
+            <TabsContent value="pms-upload" className="space-y-6">
+              <PMSUpload />
+            </TabsContent>
+
+            <TabsContent value="manage" className="space-y-6">
+              <HousekeepingManagerView />
+            </TabsContent>
+          </>
         )}
       </Tabs>
     </div>
