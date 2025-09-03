@@ -38,7 +38,7 @@ interface Summary {
   pending: number;
 }
 
-export function HousekeepingStaffView() {
+export function MobileHousekeepingView() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -120,7 +120,6 @@ export function HousekeepingStaffView() {
 
       if (error) throw error;
       
-      // Parse JSON response
       const summaryData = typeof data === 'string' ? JSON.parse(data) : data;
       setSummary(summaryData || { total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
     } catch (error) {
@@ -135,11 +134,10 @@ export function HousekeepingStaffView() {
           ? { ...assignment, status: newStatus }
           : assignment
       ).filter(assignment => 
-        // Remove completed assignments from the list for cleaner view
         newStatus === 'completed' && assignment.id === assignmentId ? false : true
       )
     );
-    fetchSummary(); // Refresh summary
+    fetchSummary();
   };
 
   const getAssignmentTypeLabel = (type: string) => {

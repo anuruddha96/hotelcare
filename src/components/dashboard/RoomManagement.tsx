@@ -13,8 +13,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { HotelFilter } from './HotelFilter';
 import { MinimBarManagement } from './MinimBarManagement';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
+import { CompactRoomCard } from './CompactRoomCard';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { BulkRoomCreation } from './BulkRoomCreation';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { 
   Search, 
   Plus, 
@@ -72,6 +74,7 @@ interface RoomWithTickets extends Room {
 export function RoomManagement() {
   const { profile } = useAuth();
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomWithTickets[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -585,25 +588,49 @@ export function RoomManagement() {
                         {groupedRooms[hotel].length} rooms
                       </Badge>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                      {groupedRooms[hotel].map((room) => (
-                        <EnhancedRoomCardV2 
-                          key={room.id} 
-                          room={room} 
-                          onClick={() => handleRoomClick(room)}
-                        />
-                      ))}
-                    </div>
+                     <div className={`grid gap-3 ${
+                       isMobile 
+                         ? 'grid-cols-2 sm:grid-cols-3' 
+                         : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                     }`}>
+                       {groupedRooms[hotel].map((room) => (
+                         isMobile ? (
+                           <CompactRoomCard 
+                             key={room.id} 
+                             room={room} 
+                             onClick={() => handleRoomClick(room)}
+                           />
+                         ) : (
+                           <EnhancedRoomCardV2 
+                             key={room.id} 
+                             room={room} 
+                             onClick={() => handleRoomClick(room)}
+                           />
+                         )
+                       ))}
+                     </div>
                   </div>
                 ))
               : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className={`grid gap-3 ${
+                  isMobile 
+                    ? 'grid-cols-2 sm:grid-cols-3' 
+                    : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                }`}>
                   {filteredRooms.map((room) => (
-                    <EnhancedRoomCardV2 
-                      key={room.id} 
-                      room={room} 
-                      onClick={() => handleRoomClick(room)}
-                    />
+                    isMobile ? (
+                      <CompactRoomCard 
+                        key={room.id} 
+                        room={room} 
+                        onClick={() => handleRoomClick(room)}
+                      />
+                    ) : (
+                      <EnhancedRoomCardV2 
+                        key={room.id} 
+                        room={room} 
+                        onClick={() => handleRoomClick(room)}
+                      />
+                    )
                   ))}
                 </div>
               )

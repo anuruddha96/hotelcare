@@ -195,7 +195,7 @@ export function Dashboard() {
       <AutoAssignmentService />
       
       <div className="container mx-auto px-4 py-6">
-        <Tabs defaultValue="rooms" className="space-y-6">
+        <Tabs defaultValue={profile?.role && ['housekeeping', 'maintenance'].includes(profile.role) ? "tickets" : "rooms"} className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
@@ -206,23 +206,34 @@ export function Dashboard() {
               </p>
             </div>
             
-            <TabsList className="grid w-full max-w-lg grid-cols-3 h-8 sm:h-10">
-              <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Tickets</span>
-                <span className="sm:hidden">T</span>
-              </TabsTrigger>
-              <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                <Home className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Rooms</span>
-                <span className="sm:hidden">R</span>
-              </TabsTrigger>
-              <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Housekeeping</span>
-                <span className="sm:hidden">H</span>
-              </TabsTrigger>
-            </TabsList>
+            {/* Role-based navigation tabs */}
+            {profile?.role && ['housekeeping', 'maintenance'].includes(profile.role) ? (
+              <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
+                <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+                  <Ticket className="h-4 w-4" />
+                  <span>Tickets</span>
+                </TabsTrigger>
+                <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
+                  <Users className="h-4 w-4" />
+                  <span>Housekeeping</span>
+                </TabsTrigger>
+              </TabsList>
+            ) : (
+              <TabsList className="grid w-full max-w-lg grid-cols-3 h-10 sm:h-12">
+                <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+                  <Ticket className="h-4 w-4" />
+                  <span>Tickets</span>
+                </TabsTrigger>
+                <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
+                  <Home className="h-4 w-4" />
+                  <span>Rooms</span>
+                </TabsTrigger>
+                <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
+                  <Users className="h-4 w-4" />
+                  <span>Housekeeping</span>
+                </TabsTrigger>
+              </TabsList>
+            )}
           </div>
 
           <TabsContent value="tickets" className="space-y-6">

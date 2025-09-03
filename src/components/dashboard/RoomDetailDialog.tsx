@@ -351,15 +351,17 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
+      <DialogContent className="w-[95vw] max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
         <DialogHeader className="flex-shrink-0 pb-4">
           <div className="flex items-center justify-between">
             <div>
-              <DialogTitle className="flex items-center gap-2 text-xl">
-                <Hotel className="h-5 w-5" />
-                Room {room.room_number} {room.room_name && `- ${room.room_name}`}
+              <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
+                <Hotel className="h-4 w-4 sm:h-5 sm:w-5" />
+                <span className="text-base sm:text-xl">
+                  Room {room.room_number} {room.room_name && `- ${room.room_name}`}
+                </span>
               </DialogTitle>
-              <p className="text-sm text-muted-foreground">{room.hotel}</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">{room.hotel}</p>
             </div>
             {profile?.role === 'admin' && (
               <Button
@@ -370,24 +372,25 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                 className="text-destructive hover:text-destructive hover:border-destructive"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
-                Delete Room
+                <span className="hidden sm:inline">Delete Room</span>
+                <span className="sm:hidden">Delete</span>
               </Button>
             )}
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+        <div className="flex-1 overflow-y-auto space-y-4 sm:space-y-6 pr-2">
           {/* Room Status Section */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
+            <CardHeader className="pb-3 sm:pb-4">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                 {getStatusIcon(room.status)}
-                Room Status
+                <span>Room Status</span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <Badge className={getStatusColor(room.status)}>
+            <CardContent className="space-y-3 sm:space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                <Badge className={`${getStatusColor(room.status)} w-fit`}>
                   {t(`room.status.${room.status}` as any)}
                 </Badge>
                 
@@ -411,13 +414,14 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                   onChange={(e) => setRoomNotes(e.target.value)}
                   placeholder="Add room notes..."
                   className="mt-1"
+                  rows={2}
                 />
               </div>
 
               {room.last_cleaned_at && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Calendar className="h-4 w-4" />
-                  Last cleaned: {new Date(room.last_cleaned_at).toLocaleString()}
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+                  <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>Last cleaned: {new Date(room.last_cleaned_at).toLocaleString()}</span>
                 </div>
               )}
             </CardContent>
@@ -425,13 +429,13 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
 
           {/* Minibar Section */}
           <Card>
-            <CardHeader>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Wine className="h-5 w-5" />
-                  Minibar Usage
+            <CardHeader className="pb-3 sm:pb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  <Wine className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <span>Minibar Usage</span>
                 </CardTitle>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <div className="text-sm font-medium text-primary">
                     Total: €{getTotalMinibarValue().toFixed(2)}
                   </div>
@@ -440,22 +444,24 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                       variant="outline" 
                       size="sm" 
                       onClick={clearMinibarUsage}
+                      className="text-xs sm:text-sm"
                     >
-                      Clear for Checkout
+                      <span className="hidden sm:inline">Clear for Checkout</span>
+                      <span className="sm:hidden">Clear</span>
                     </Button>
                   )}
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
+              <div className="space-y-2 sm:space-y-3">
                 {minibarItems.map((item) => {
                   const currentUsage = getCurrentUsage(item.id);
                   return (
-                    <div key={item.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border rounded-lg bg-card hover:bg-muted/20 transition-colors">
-                      <div className="flex-1 mb-3 sm:mb-0">
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
+                    <div key={item.id} className="flex flex-col gap-3 p-3 border rounded-lg bg-card hover:bg-muted/20 transition-colors sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex-1">
+                        <div className="font-medium text-sm sm:text-base">{item.name}</div>
+                        <div className="text-xs sm:text-sm text-muted-foreground flex flex-wrap items-center gap-2">
                           <span className="capitalize">{item.category}</span>
                           <span className="hidden sm:inline">•</span>
                           <span className="flex items-center gap-1 font-medium text-primary">
@@ -465,7 +471,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                         </div>
                       </div>
                       
-                      <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
+                      <div className="flex items-center gap-2 justify-center">
                         <Button
                           variant="outline"
                           size="sm"
@@ -476,7 +482,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                           <Minus className="h-4 w-4" />
                         </Button>
                         
-                        <span className="w-12 text-center font-semibold text-lg">
+                        <span className="w-10 text-center font-semibold text-base sm:text-lg">
                           {currentUsage}
                         </span>
                         
