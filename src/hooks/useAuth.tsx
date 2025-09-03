@@ -170,25 +170,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error && !emailOrUsername.includes('@')) {
       console.log('Email login failed, trying username lookup');
       try {
-        // Look up email by username (nickname field)
-        const { data: profileData, error: lookupError } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('nickname', emailOrUsername)
-          .single();
+        // Resolve email via secure RPC to bypass RLS during pre-auth
+        const { data: emailData, error: rpcError } = await supabase.rpc('get_email_by_nickname', {
+          p_nickname: emailOrUsername,
+        });
+        console.log('Username RPC lookup:', emailData, rpcError);
         
-        console.log('Username lookup result:', profileData, lookupError);
-        
-        if (profileData?.email) {
-          console.log('Found email for username, attempting login with:', profileData.email);
-          // Try logging in with the found email
+        if (emailData) {
+          console.log('Found email for username, attempting login with:', emailData);
           const result = await supabase.auth.signInWithPassword({
-            email: profileData.email,
+            email: emailData as string,
             password,
           });
           error = result.error;
           console.log('Username-based login result:', result.error);
         }
+
       } catch (lookupError) {
         console.error('Username lookup failed:', lookupError);
         // Keep original error if username lookup fails

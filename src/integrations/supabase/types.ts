@@ -635,6 +635,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_authenticated_housekeeper: {
+        Args: {
+          p_assigned_hotel?: string
+          p_email?: string
+          p_full_name: string
+          p_password?: string
+          p_phone_number?: string
+          p_username?: string
+        }
+        Returns: Json
+      }
       create_user_with_profile: {
         Args:
           | {
