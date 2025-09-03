@@ -63,7 +63,7 @@ export function Dashboard() {
     'finance_manager', 'top_management_manager'
   ].includes(profile.role);
   
-  const canManageUsers = profile?.role === 'admin';
+  const canManageUsers = profile?.role === 'admin' || profile?.role === 'housekeeping_manager';
   
   const isManager = profile?.role && [
     'manager', 'admin', 'housekeeping_manager', 'maintenance_manager',

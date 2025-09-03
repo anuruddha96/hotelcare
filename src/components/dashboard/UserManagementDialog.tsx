@@ -127,40 +127,27 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     setLoading(true);
     
     try {
-      // For housekeeping profiles, email is optional
-      const isHousekeepingProfile = newUserData.role === 'housekeeping';
-      const tempEmail = newUserData.email || `temp_${Date.now()}@placeholder.com`;
-      
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: tempEmail,
-        password: newUserData.password,
-        user_metadata: {
-          full_name: newUserData.full_name,
-        },
-        email_confirm: true,
+      // Use the new secure function instead of admin API
+      const { data, error } = await supabase.rpc('create_user_with_profile', {
+        p_email: newUserData.email || null,
+        p_password: newUserData.password,
+        p_full_name: newUserData.full_name,
+        p_role: newUserData.role,
+        p_phone_number: newUserData.phone_number || null,
+        p_assigned_hotel: newUserData.assigned_hotel || null
       });
 
-      if (authError) throw authError;
-
-      // Update profile with role, hotel, and phone number
-      if (authData.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({ 
-            role: newUserData.role,
-            assigned_hotel: newUserData.assigned_hotel === 'none' ? null : newUserData.assigned_hotel || null,
-            phone_number: newUserData.phone_number || null,
-            email: isHousekeepingProfile && !newUserData.email ? null : newUserData.email || tempEmail
-          })
-          .eq('id', authData.user.id);
-
-        if (profileError) throw profileError;
+      if (error) throw error;
+      
+      const result = data as { success: boolean; error?: string; message?: string };
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create user');
       }
 
       toast({
         title: 'Success',
-        description: 'User created successfully',
+        description: result.message || 'User created successfully',
       });
 
       setNewUserData({
@@ -242,10 +229,18 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
 
   const handleDeleteUser = async (userId: string, userName: string) => {
     try {
-      // Delete from auth.users (this will cascade to profiles due to foreign key)
-      const { error } = await supabase.auth.admin.deleteUser(userId);
+      // Use the new secure function instead of admin API
+      const { data, error } = await supabase.rpc('delete_user_profile', {
+        p_user_id: userId
+      });
 
       if (error) throw error;
+      
+      const result = data as { success: boolean; error?: string; message?: string };
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete user');
+      }
 
       toast({
         title: 'Success',

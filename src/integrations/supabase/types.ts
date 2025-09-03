@@ -635,6 +635,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_user_with_profile: {
+        Args: {
+          p_assigned_hotel?: string
+          p_email: string
+          p_full_name: string
+          p_password: string
+          p_phone_number?: string
+          p_role?: Database["public"]["Enums"]["user_role"]
+        }
+        Returns: Json
+      }
+      delete_user_profile: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       generate_ticket_number: {
         Args: Record<PropertyKey, never>
         Returns: string

@@ -149,12 +149,12 @@ export function HousekeepingManagerView() {
           <DialogTrigger asChild>
             <Button className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
-              Assign Rooms
+              Assign Room
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl">
             <DialogHeader>
-              <DialogTitle>Assign Rooms to Staff</DialogTitle>
+              <DialogTitle>Create Room Assignment</DialogTitle>
             </DialogHeader>
             <RoomAssignmentDialog 
               onAssignmentCreated={handleAssignmentCreated}
