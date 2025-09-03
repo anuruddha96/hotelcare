@@ -6,7 +6,7 @@ import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
 import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
 import { PMSUpload } from './PMSUpload';
-import { SimpleRoomAssignment } from './SimpleRoomAssignment';
+import { EasyRoomAssignment } from './EasyRoomAssignment';
 import { PerformanceLeaderboard } from './PerformanceLeaderboard';
 import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus } from 'lucide-react';
 
@@ -87,7 +87,7 @@ export function HousekeepingTab() {
         {hasManagerAccess && (
           <>
             <TabsContent value="quick-assign" className="space-y-6">
-              <SimpleRoomAssignment onAssignmentCreated={() => {
+              <EasyRoomAssignment onAssignmentCreated={() => {
                 // Refresh the team view if it's active
                 if (activeTab === 'manage') {
                   // This will be handled by the HousekeepingManagerView component

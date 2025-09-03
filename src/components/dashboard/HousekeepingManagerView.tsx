@@ -40,6 +40,49 @@ export function HousekeepingManagerView() {
     fetchTeamAssignments();
   }, [selectedDate]);
 
+  // Real-time subscriptions for live updates
+  useEffect(() => {
+    // Subscribe to profile changes (new housekeeping staff)
+    const profilesChannel = supabase
+      .channel('profiles-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: 'role=eq.housekeeping'
+        },
+        () => {
+          console.log('Profile change detected, refreshing staff list');
+          fetchHousekeepingStaff();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to room assignment changes
+    const assignmentsChannel = supabase
+      .channel('assignments-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_assignments'
+        },
+        () => {
+          console.log('Assignment change detected, refreshing data');
+          fetchTeamAssignments();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(profilesChannel);
+      supabase.removeChannel(assignmentsChannel);
+    };
+  }, [selectedDate]);
+
   const fetchHousekeepingStaff = async () => {
     try {
       const { data, error } = await supabase
