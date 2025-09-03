@@ -9,7 +9,7 @@ interface MobileOptimizedCardProps {
   className?: string;
 }
 
-export function MobileOptimizedCard({ children, className = "" }: MobileOptimizedCardProps) {
+export function MobileOptimizedCard({ children, className = "", onClick }: MobileOptimizedCardProps & { onClick?: () => void }) {
   const isMobile = useIsMobile();
 
   return (
@@ -19,7 +19,9 @@ export function MobileOptimizedCard({ children, className = "" }: MobileOptimize
         ${isMobile ? 'touch-target mobile-padding animate-fade-in' : ''} 
         hover:shadow-lg transition-all duration-200 
         ${isMobile ? 'active:scale-95' : 'hover:scale-[1.02]'}
+        ${onClick ? 'cursor-pointer' : ''}
       `}
+      onClick={onClick}
     >
       {children}
     </Card>

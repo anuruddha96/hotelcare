@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { HotelFilter } from './HotelFilter';
 import { MinimBarManagement } from './MinimBarManagement';
-import { EnhancedRoomCard } from './EnhancedRoomCard';
+import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { BulkRoomCreation } from './BulkRoomCreation';
 import { 
@@ -471,13 +471,13 @@ export function RoomManagement() {
 
         {/* Filters */}
         <div className="flex flex-col gap-4">
-          <div className="relative flex-1 p-3 bg-gradient-to-r from-secondary/20 to-secondary/10 rounded-lg border border-secondary/30 shadow-sm">
-            <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary-foreground" />
+          <div className="relative flex-1 p-3 bg-gradient-to-r from-primary/5 to-accent/5 rounded-lg border border-primary/20 shadow-sm">
+            <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 h-4 w-4 text-primary/70" />
             <Input
-              placeholder={`🏨 ${t('rooms.search')}`}
+              placeholder={t('rooms.search')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-background/80 border-secondary/40 focus:border-secondary focus:ring-secondary/20"
+              className="pl-10 bg-background/90 border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/20 focus:shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)] transition-all duration-300"
             />
           </div>
           
@@ -548,7 +548,7 @@ export function RoomManagement() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                       {groupedRooms[hotel].map((room) => (
-                        <EnhancedRoomCard 
+                        <EnhancedRoomCardV2 
                           key={room.id} 
                           room={room} 
                           onClick={() => handleRoomClick(room)}
@@ -560,7 +560,7 @@ export function RoomManagement() {
               : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {filteredRooms.map((room) => (
-                    <EnhancedRoomCard 
+                    <EnhancedRoomCardV2 
                       key={room.id} 
                       room={room} 
                       onClick={() => handleRoomClick(room)}
