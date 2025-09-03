@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -28,6 +28,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [createdTicketId, setCreatedTicketId] = useState<string | null>(null);
+  const [canCreateTickets, setCanCreateTickets] = useState(true);
   const attachmentUploadRef = useRef<{ uploadAttachments: () => Promise<string[]> }>(null);
   const [formData, setFormData] = useState({
     title: '',
@@ -37,6 +38,28 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     department: '',
     hotel: profile?.assigned_hotel || '',
   });
+
+  // Check ticket creation permission
+  useEffect(() => {
+    const checkPermission = async () => {
+      if (!profile?.id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .rpc('has_ticket_creation_permission', { _user_id: profile.id });
+        
+        if (error) throw error;
+        setCanCreateTickets(data);
+      } catch (error) {
+        console.error('Error checking ticket creation permission:', error);
+        setCanCreateTickets(false);
+      }
+    };
+
+    if (open && profile?.id) {
+      checkPermission();
+    }
+  }, [open, profile?.id]);
 
   // Check if user can select any hotel or only their assigned one
   const canSelectAnyHotel = profile?.role === 'admin' || profile?.role === 'top_management';
@@ -131,128 +154,143 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
           </DialogDescription>
         </DialogHeader>
         
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="title">Title</Label>
-            <Input
-              id="title"
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              placeholder="Brief description of the issue"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="room_number">Room Number</Label>
-            <Input
-              id="room_number"
-              value={formData.room_number}
-              onChange={(e) => setFormData({ ...formData, room_number: e.target.value })}
-              placeholder="e.g. 101, Lobby, Kitchen"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="department">Department</Label>
-            <Select 
-              value={formData.department} 
-              onValueChange={(value) => setFormData({ ...formData, department: value })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Department" />
-              </SelectTrigger>
-              <SelectContent>
-                {departments.map((dept) => (
-                  <SelectItem key={dept.value} value={dept.value}>
-                    {dept.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="hotel">
-              Hotel
-              {profile?.assigned_hotel && !canSelectAnyHotel && (
-                <span className="text-xs text-muted-foreground ml-2">
-                  (Assigned to: {profile.assigned_hotel})
-                </span>
-              )}
-            </Label>
-            <Select 
-              value={formData.hotel} 
-              onValueChange={(value) => setFormData({ ...formData, hotel: value })}
-              disabled={!canSelectAnyHotel && !!profile?.assigned_hotel}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Hotel" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableHotels.map((hotel) => (
-                  <SelectItem key={hotel.id} value={hotel.name}>
-                    {hotel.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="priority">Priority</Label>
-            <Select 
-              value={formData.priority} 
-              onValueChange={(value: 'low' | 'medium' | 'high' | 'urgent') => 
-                setFormData({ ...formData, priority: value })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="urgent">Urgent</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Detailed description of the maintenance issue..."
-              rows={4}
-              required
-            />
-          </div>
-
-          {/* Attachment Upload */}
-          <AttachmentUpload
-            ticketId={createdTicketId}
-            onAttachmentsChange={handleAttachmentsChange}
-            maxFiles={5}
-          />
-
-          <div className="flex justify-end gap-2 pt-4">
-            <Button
-              type="button"
+        {!canCreateTickets ? (
+          <div className="p-6 text-center">
+            <p className="text-muted-foreground">
+              You do not have permission to create tickets. Please contact your administrator.
+            </p>
+            <Button 
+              onClick={() => onOpenChange(false)} 
+              className="mt-4"
               variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={loading}
             >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Creating...' : 'Create Ticket'}
+              Close
             </Button>
           </div>
-        </form>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">Title</Label>
+              <Input
+                id="title"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="Brief description of the issue"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="room_number">Room Number</Label>
+              <Input
+                id="room_number"
+                value={formData.room_number}
+                onChange={(e) => setFormData({ ...formData, room_number: e.target.value })}
+                placeholder="e.g. 101, Lobby, Kitchen"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="department">Department</Label>
+              <Select 
+                value={formData.department} 
+                onValueChange={(value) => setFormData({ ...formData, department: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.value} value={dept.value}>
+                      {dept.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="hotel">
+                Hotel
+                {profile?.assigned_hotel && !canSelectAnyHotel && (
+                  <span className="text-xs text-muted-foreground ml-2">
+                    (Assigned to: {profile.assigned_hotel})
+                  </span>
+                )}
+              </Label>
+              <Select 
+                value={formData.hotel} 
+                onValueChange={(value) => setFormData({ ...formData, hotel: value })}
+                disabled={!canSelectAnyHotel && !!profile?.assigned_hotel}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Hotel" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableHotels.map((hotel) => (
+                    <SelectItem key={hotel.id} value={hotel.name}>
+                      {hotel.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="priority">Priority</Label>
+              <Select 
+                value={formData.priority} 
+                onValueChange={(value: 'low' | 'medium' | 'high' | 'urgent') => 
+                  setFormData({ ...formData, priority: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Detailed description of the maintenance issue..."
+                rows={4}
+                required
+              />
+            </div>
+
+            {/* Attachment Upload */}
+            <AttachmentUpload
+              ticketId={createdTicketId}
+              onAttachmentsChange={handleAttachmentsChange}
+              maxFiles={5}
+            />
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? 'Creating...' : 'Create Ticket'}
+              </Button>
+            </div>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );

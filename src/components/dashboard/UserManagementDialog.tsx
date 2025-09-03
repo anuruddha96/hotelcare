@@ -447,6 +447,13 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                         </SelectContent>
                       </Select>
                     </div>
+
+                    <div className="space-y-2">
+                      <Label>Can Create Tickets</Label>
+                      <div className="text-sm text-muted-foreground">
+                        This setting will be configured through the Admin Settings → Ticket Permissions menu.
+                      </div>
+                    </div>
                     
                     <div className="space-y-2">
                       <Label htmlFor="hotel">Assigned Hotel</Label>
@@ -554,6 +561,13 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Ticket Creation Permissions</Label>
+                  <div className="text-sm text-muted-foreground">
+                    To modify ticket creation permissions for this user, use the Admin Settings → Ticket Permissions menu.
+                  </div>
                 </div>
               </div>
             </DialogContent>

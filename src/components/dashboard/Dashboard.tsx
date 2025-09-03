@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { TicketCard } from './TicketCard';
 import { CreateTicketDialog } from './CreateTicketDialog';
+import { TicketPermissionDialog } from './TicketPermissionDialog';
 import { TicketDetailDialog } from './TicketDetailDialog';
 import { UserManagementDialog } from './UserManagementDialog';
 import { AccessManagementDialog } from './AccessManagementDialog';
@@ -48,6 +49,7 @@ export function Dashboard() {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [ticketPermissionDialogOpen, setTicketPermissionDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [userManagementOpen, setUserManagementOpen] = useState(false);
   const [accessManagementOpen, setAccessManagementOpen] = useState(false);
@@ -265,6 +267,16 @@ export function Dashboard() {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => setTicketPermissionDialogOpen(true)}
+                      className="text-xs sm:text-sm"
+                    >
+                      <Ticket className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                      <span className="hidden sm:inline">Ticket Permissions</span>
+                      <span className="sm:hidden">Tickets</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => setCompanySettingsOpen(true)}
                       className="text-xs sm:text-sm"
                     >
@@ -458,6 +470,10 @@ export function Dashboard() {
             <AccessManagementDialog
               open={accessManagementOpen}
               onOpenChange={setAccessManagementOpen}
+            />
+            <TicketPermissionDialog
+              open={ticketPermissionDialogOpen}
+              onOpenChange={setTicketPermissionDialogOpen}
             />
             <CompanySettings
               open={companySettingsOpen}
