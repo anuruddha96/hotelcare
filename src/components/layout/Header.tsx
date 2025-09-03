@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export function Header() {
-  const { profile, signOut } = useAuth();
+  const { profile, user, signOut } = useAuth();
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
 
@@ -93,7 +93,7 @@ export function Header() {
                 <Avatar className="h-10 w-10">
                   <AvatarImage src={profile?.profile_picture_url || ''} />
                   <AvatarFallback>
-                    {(profile?.nickname || profile?.full_name)?.charAt(0)?.toUpperCase() || 'U'}
+                    {((profile?.nickname || profile?.full_name || user?.email || 'U').charAt(0) || 'U').toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
               </Button>

@@ -47,28 +47,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           setTimeout(async () => {
             if (!isMounted) return;
-            try {
-              const { data: profileData, error: profileError } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', session.user.id)
-                .maybeSingle();
+              try {
+                const { data: profileData, error: profileError } = await supabase
+                  .from('profiles')
+                  .select('*')
+                  .eq('id', session.user.id)
+                  .maybeSingle();
 
-              if (profileError) {
-                console.error('Error fetching profile:', profileError);
-                setProfile(null);
-              } else if (profileData) {
-                console.log('Profile fetched:', profileData);
-                setProfile(profileData);
-              } else {
-                console.log('No profile found for user');
+                if (profileData && !profileError) {
+                  console.log('Profile fetched:', profileData);
+                  setProfile(profileData as any);
+                } else {
+                  console.warn('Profile not available, using secure role fallback', profileError);
+                  // Fallback: fetch role securely and build a minimal profile so role-based UI still works
+                  let roleFallback: any = undefined;
+                  try {
+                    const { data: roleData } = await supabase.rpc('get_user_role' as any, {
+                      user_id: session.user.id,
+                    });
+                    roleFallback = roleData || 'maintenance';
+                  } catch (e) {
+                    console.error('Fallback role fetch failed:', e);
+                    roleFallback = 'maintenance';
+                  }
+
+                  const minimalProfile = {
+                    id: session.user.id,
+                    email: session.user.email || '',
+                    full_name: (session.user.user_metadata as any)?.full_name || (session.user.email || 'User'),
+                    role: roleFallback,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    nickname: (session.user.user_metadata as any)?.nickname,
+                    profile_picture_url: (session.user.user_metadata as any)?.avatar_url,
+                  } as any;
+                  setProfile(minimalProfile);
+                }
+              } catch (error) {
+                console.error('Profile fetch error:', error);
                 setProfile(null);
               }
-            } catch (error) {
-              console.error('Profile fetch error:', error);
-              setProfile(null);
-            }
-            setLoading(false);
+              setLoading(false);
           }, 0);
         } else {
           setProfile(null);
@@ -85,28 +104,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         setTimeout(async () => {
           if (!isMounted) return;
-          try {
-            const { data: profileData, error: profileError } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .maybeSingle();
+            try {
+              const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id)
+                .maybeSingle();
 
-            if (profileError) {
-              console.error('Error fetching profile:', profileError);
-              setProfile(null);
-            } else if (profileData) {
-              console.log('Profile fetched:', profileData);
-              setProfile(profileData);
-            } else {
-              console.log('No profile found for user');
+              if (profileData && !profileError) {
+                console.log('Profile fetched:', profileData);
+                setProfile(profileData as any);
+              } else {
+                console.warn('Profile not available, using secure role fallback', profileError);
+                let roleFallback: any = undefined;
+                try {
+                  const { data: roleData } = await supabase.rpc('get_user_role' as any, {
+                    user_id: session.user.id,
+                  });
+                  roleFallback = roleData || 'maintenance';
+                } catch (e) {
+                  console.error('Fallback role fetch failed:', e);
+                  roleFallback = 'maintenance';
+                }
+
+                const minimalProfile = {
+                  id: session.user.id,
+                  email: session.user.email || '',
+                  full_name: (session.user.user_metadata as any)?.full_name || (session.user.email || 'User'),
+                  role: roleFallback,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                  nickname: (session.user.user_metadata as any)?.nickname,
+                  profile_picture_url: (session.user.user_metadata as any)?.avatar_url,
+                } as any;
+                setProfile(minimalProfile);
+              }
+            } catch (error) {
+              console.error('Profile fetch error:', error);
               setProfile(null);
             }
-          } catch (error) {
-            console.error('Profile fetch error:', error);
-            setProfile(null);
-          }
-          setLoading(false);
+            setLoading(false);
         }, 0);
       } else {
         setLoading(false);
