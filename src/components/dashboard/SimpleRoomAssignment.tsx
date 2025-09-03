@@ -106,6 +106,27 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
 
       if (error) throw error;
 
+      // Send email notifications for each assignment
+      for (const assignment of assignments) {
+        try {
+          const room = rooms.find(r => r.id === assignment.room_id);
+          await supabase.functions.invoke('send-work-assignment-notification', {
+            body: {
+              staff_id: assignment.assigned_to,
+              assignment_type: 'room_assignment',
+              assignment_details: {
+                room_number: room?.room_number || 'Unknown',
+                assignment_type: assignment.assignment_type
+              },
+              hotel_name: room?.hotel
+            }
+          });
+        } catch (notificationError) {
+          console.log('Failed to send notification for assignment:', notificationError);
+          // Don't break the flow if email fails
+        }
+      }
+
       const staffMember = staff.find(s => s.id === selectedStaff);
       toast.success(`Assigned ${assignments.length} rooms for ${type.replace('_', ' ')} to ${staffMember?.full_name}`);
       

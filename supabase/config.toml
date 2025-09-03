@@ -45,5 +45,8 @@ port = 54328
 [functions.send-email-notification]
 verify_jwt = true
 
+[functions.send-work-assignment-notification]
+verify_jwt = false
+
 [functions.notify-manager-ticket-closed]
 verify_jwt = true

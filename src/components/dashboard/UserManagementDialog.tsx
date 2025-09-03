@@ -34,6 +34,7 @@ interface Profile {
   id: string;
   email: string;
   full_name: string;
+  phone_number?: string;
   role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager';
   created_at: string;
   assigned_hotel?: string;
@@ -50,19 +51,37 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [newUserData, setNewUserData] = useState({
     email: '',
+    phone_number: '',
     password: '',
     full_name: '',
     role: 'housekeeping' as const,
     assigned_hotel: '',
   });
+  const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [hotels, setHotels] = useState<any[]>([]);
 
   useEffect(() => {
     if (open) {
       fetchUsers();
       fetchHotels();
+      fetchCurrentUserRole();
     }
   }, [open]);
+
+  const fetchCurrentUserRole = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+
+      if (error) throw error;
+      setCurrentUserRole(data?.role || '');
+    } catch (error: any) {
+      console.error('Error fetching current user role:', error);
+    }
+  };
 
   const fetchHotels = async () => {
     try {
@@ -108,9 +127,13 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     setLoading(true);
     
     try {
+      // For housekeeping profiles, email is optional
+      const isHousekeepingProfile = newUserData.role === 'housekeeping';
+      const tempEmail = newUserData.email || `temp_${Date.now()}@placeholder.com`;
+      
       // Create auth user
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: newUserData.email,
+        email: tempEmail,
         password: newUserData.password,
         user_metadata: {
           full_name: newUserData.full_name,
@@ -120,13 +143,15 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
 
       if (authError) throw authError;
 
-      // Update profile with role and hotel
+      // Update profile with role, hotel, and phone number
       if (authData.user) {
         const { error: profileError } = await supabase
           .from('profiles')
           .update({ 
             role: newUserData.role,
-            assigned_hotel: newUserData.assigned_hotel === 'none' ? null : newUserData.assigned_hotel || null
+            assigned_hotel: newUserData.assigned_hotel === 'none' ? null : newUserData.assigned_hotel || null,
+            phone_number: newUserData.phone_number || null,
+            email: isHousekeepingProfile && !newUserData.email ? null : newUserData.email || tempEmail
           })
           .eq('id', authData.user.id);
 
@@ -140,6 +165,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
 
       setNewUserData({
         email: '',
+        phone_number: '',
         password: '',
         full_name: '',
         role: 'housekeeping',
@@ -311,16 +337,19 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             {user.full_name.charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
-                        <div>
-                          <h4 className="font-semibold">{user.full_name}</h4>
-                          <p className="text-sm text-muted-foreground">{user.email}</p>
-                          <p className="text-xs text-blue-600">
-                            Hotel: {user.assigned_hotel || 'All Hotels'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
-                          </p>
-                        </div>
+                         <div>
+                           <h4 className="font-semibold">{user.full_name}</h4>
+                           <p className="text-sm text-muted-foreground">{user.email || 'No email'}</p>
+                           {user.phone_number && (
+                             <p className="text-sm text-muted-foreground">📞 {user.phone_number}</p>
+                           )}
+                           <p className="text-xs text-blue-600">
+                             Hotel: {user.assigned_hotel || 'All Hotels'}
+                           </p>
+                           <p className="text-xs text-muted-foreground">
+                             Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
+                           </p>
+                         </div>
                       </div>
                       
                       <div className="flex items-center gap-2">
@@ -395,17 +424,35 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       />
                     </div>
                     
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={newUserData.email}
-                        onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
-                        placeholder="Enter email address"
-                        required
-                      />
-                    </div>
+                     <div className="space-y-2">
+                       <Label htmlFor="email">
+                         Email {newUserData.role === 'housekeeping' ? '(Optional)' : '(Required)'}
+                       </Label>
+                       <Input
+                         id="email"
+                         type="email"
+                         value={newUserData.email}
+                         onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
+                         placeholder="Enter email address"
+                         required={newUserData.role !== 'housekeeping'}
+                       />
+                       {newUserData.role === 'housekeeping' && !newUserData.email && (
+                         <p className="text-xs text-muted-foreground">
+                           Email can be added later to enable notifications
+                         </p>
+                       )}
+                     </div>
+
+                     <div className="space-y-2">
+                       <Label htmlFor="phone_number">Phone Number (Optional)</Label>
+                       <Input
+                         id="phone_number"
+                         type="tel"
+                         value={newUserData.phone_number}
+                         onChange={(e) => setNewUserData({ ...newUserData, phone_number: e.target.value })}
+                         placeholder="Enter phone number"
+                       />
+                     </div>
                     
                     <div className="space-y-2">
                       <Label htmlFor="password">Password</Label>
@@ -420,33 +467,90 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       />
                     </div>
                     
-                    <div className="space-y-2">
-                      <Label htmlFor="role">Role</Label>
-                      <Select 
-                        value={newUserData.role} 
-                        onValueChange={(value: any) => setNewUserData({ ...newUserData, role: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                          <SelectItem value="reception">Reception</SelectItem>
-                          <SelectItem value="maintenance">Maintenance</SelectItem>
-                          <SelectItem value="marketing">Marketing</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
-                          <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
-                          <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
-                          <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
-                          <SelectItem value="reception_manager">Reception Manager</SelectItem>
-                          <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
-                          <SelectItem value="control_manager">Control Manager</SelectItem>
-                          <SelectItem value="finance_manager">Finance Manager</SelectItem>
-                          <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                     <div className="space-y-2">
+                       <Label htmlFor="role">Role</Label>
+                       <Select 
+                         value={newUserData.role} 
+                         onValueChange={(value: any) => setNewUserData({ ...newUserData, role: value })}
+                       >
+                         <SelectTrigger>
+                           <SelectValue />
+                         </SelectTrigger>
+                         <SelectContent>
+                           {/* Housekeeping managers can only create housekeeping staff */}
+                           {currentUserRole === 'housekeeping_manager' && (
+                             <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                           )}
+                           
+                           {/* Maintenance managers can create maintenance staff */}
+                           {currentUserRole === 'maintenance_manager' && (
+                             <SelectItem value="maintenance">Maintenance</SelectItem>
+                           )}
+                           
+                           {/* Reception managers can create reception staff */}
+                           {currentUserRole === 'reception_manager' && (
+                             <SelectItem value="reception">Reception</SelectItem>
+                           )}
+                           
+                           {/* Marketing managers can create marketing staff */}
+                           {currentUserRole === 'marketing_manager' && (
+                             <SelectItem value="marketing">Marketing</SelectItem>
+                           )}
+                           
+                           {/* Other managers can create their department staff */}
+                           {(currentUserRole === 'back_office_manager' || 
+                             currentUserRole === 'control_manager' || 
+                             currentUserRole === 'finance_manager') && (
+                             <>
+                               <SelectItem value="control_finance">Control & Finance</SelectItem>
+                               <SelectItem value="hr">HR</SelectItem>
+                               <SelectItem value="front_office">Front Office</SelectItem>
+                             </>
+                           )}
+                           
+                           {/* General managers can create most roles */}
+                           {currentUserRole === 'manager' && (
+                             <>
+                               <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                               <SelectItem value="reception">Reception</SelectItem>
+                               <SelectItem value="maintenance">Maintenance</SelectItem>
+                               <SelectItem value="marketing">Marketing</SelectItem>
+                               <SelectItem value="control_finance">Control & Finance</SelectItem>
+                               <SelectItem value="hr">HR</SelectItem>
+                               <SelectItem value="front_office">Front Office</SelectItem>
+                             </>
+                           )}
+                           
+                           {/* Top management and admins can create any role */}
+                           {(currentUserRole === 'admin' || currentUserRole === 'top_management' || currentUserRole === 'top_management_manager') && (
+                             <>
+                               <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                               <SelectItem value="reception">Reception</SelectItem>
+                               <SelectItem value="maintenance">Maintenance</SelectItem>
+                               <SelectItem value="marketing">Marketing</SelectItem>
+                               <SelectItem value="control_finance">Control & Finance</SelectItem>
+                               <SelectItem value="hr">HR</SelectItem>
+                               <SelectItem value="front_office">Front Office</SelectItem>
+                               <SelectItem value="manager">Manager</SelectItem>
+                               <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
+                               <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
+                               <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
+                               <SelectItem value="reception_manager">Reception Manager</SelectItem>
+                               <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
+                               <SelectItem value="control_manager">Control Manager</SelectItem>
+                               <SelectItem value="finance_manager">Finance Manager</SelectItem>
+                               <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                               {currentUserRole === 'admin' && <SelectItem value="admin">Admin</SelectItem>}
+                             </>
+                           )}
+                         </SelectContent>
+                       </Select>
+                       <p className="text-xs text-muted-foreground">
+                         {currentUserRole === 'housekeeping_manager' && 'You can only create housekeeping staff profiles'}
+                         {(currentUserRole === 'admin' || currentUserRole === 'top_management') && 'You can create any user role'}
+                         {(!['admin', 'top_management', 'housekeeping_manager'].includes(currentUserRole)) && 'Available roles based on your permissions'}
+                       </p>
+                     </div>
 
                     <div className="space-y-2">
                       <Label>Can Create Tickets</Label>

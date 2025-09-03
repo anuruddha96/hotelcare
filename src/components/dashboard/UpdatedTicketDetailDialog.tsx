@@ -180,19 +180,25 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
       if (error) throw error;
 
-      // Send email notification
-      const assignedUser = maintenanceStaff.find(staff => staff.id === userId);
-      if (assignedUser) {
-        await supabase.functions.invoke('send-email-notification', {
+      // Send email notification to assigned staff if they have an email
+      try {
+        await supabase.functions.invoke('send-work-assignment-notification', {
           body: {
-            to: assignedUser.email,
-            ticketNumber: ticket.ticket_number,
-            ticketTitle: ticket.title,
-            ticketId: ticket.id,
-            hotel: ticket.hotel,
-            assignedBy: profile?.full_name || 'System'
+            staff_id: userId,
+            assignment_type: 'ticket',
+            assignment_details: {
+              id: ticket.id,
+              title: ticket.title,
+              room_number: ticket.room_number,
+              priority: ticket.priority
+            },
+            hotel_name: ticket.hotel
           }
         });
+        console.log('Assignment notification sent successfully');
+      } catch (notificationError) {
+        console.log('Failed to send notification email:', notificationError);
+        // Don't throw error here - assignment was successful
       }
 
       toast({
