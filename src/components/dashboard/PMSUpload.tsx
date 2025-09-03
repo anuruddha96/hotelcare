@@ -186,12 +186,9 @@ export function PMSUpload() {
           
           console.log(`[PMS] Found room ${roomNumber} with current status: ${currentStatus}`);
           
-          // Skip rooms that are manually set to maintenance or out of order
-          if (currentStatus === 'maintenance' || currentStatus === 'out_of_order') {
-            console.log(`[PMS] Room ${roomNumber}: Skipping update - manually set to ${currentStatus}`);
-            processed.processed++;
-            continue;
-          }
+          // Allow PMS to override status (manual lock not yet implemented)
+          // If you need to preserve manual maintenance/out_of_order, we'll add a DB flag (status_locked)
+
           
           // Determine new status based on PMS data
           let newStatus = 'clean';
