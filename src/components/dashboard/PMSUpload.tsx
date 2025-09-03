@@ -324,7 +324,7 @@ export function PMSUpload() {
 
   // Request notification permission on component mount
   useEffect(() => {
-    if (Notification.permission === 'default') {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
   }, []);
