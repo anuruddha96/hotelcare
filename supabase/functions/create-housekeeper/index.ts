@@ -11,15 +11,18 @@ export const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  console.log('🚀 Edge function called');
+
   try {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
     const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    const supabase = createClient(SUPABASE_URL, ANON_KEY, {
-      global: { headers: { Authorization: req.headers.get('Authorization')! } },
-    });
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    console.log('📦 Environment variables loaded');
+
+    // Parse request body
+    const body = await req.json();
+    console.log('📥 Request body:', body);
 
     const {
       full_name,
@@ -27,21 +30,32 @@ export const handler = async (req: Request): Promise<Response> => {
       phone_number,
       assigned_hotel,
       role = 'housekeeping',
-      username,
-      password,
-    } = await req.json();
+    } = body;
+
+    console.log('🔐 Creating Supabase clients');
+    
+    const supabase = createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: req.headers.get('Authorization')! } },
+    });
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    console.log('🔍 Verifying caller permissions');
 
     // 1) Verify caller
     const {
       data: { user },
       error: getUserError,
     } = await supabase.auth.getUser();
+    
     if (getUserError || !user) {
+      console.error('❌ Auth error:', getUserError);
       return new Response(
         JSON.stringify({ success: false, error: 'Unauthorized' }),
         { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
       );
     }
+
+    console.log('👤 User verified:', user.id);
 
     const { data: roleRow } = await supabase
       .from('profiles')
@@ -50,7 +64,10 @@ export const handler = async (req: Request): Promise<Response> => {
       .maybeSingle();
 
     const callerRole = roleRow?.role as string | undefined;
+    console.log('🎭 Caller role:', callerRole);
+    
     if (!callerRole || !['admin', 'housekeeping_manager', 'manager', 'top_management'].includes(callerRole)) {
+      console.error('❌ Insufficient permissions for role:', callerRole);
       return new Response(
         JSON.stringify({ success: false, error: 'Insufficient permissions' }),
         { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
@@ -58,28 +75,30 @@ export const handler = async (req: Request): Promise<Response> => {
     }
 
     if (callerRole === 'housekeeping_manager' && role !== 'housekeeping') {
+      console.error('❌ Housekeeping manager cannot create non-housekeeping staff');
       return new Response(
         JSON.stringify({ success: false, error: 'Housekeeping managers can only create housekeeping staff' }),
         { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
       );
     }
 
-    // 2) Generate credentials when needed
-    const generatedUsername = username && String(username).trim().length
-      ? String(username).trim().toLowerCase()
-      : `${String(full_name).trim().toLowerCase().replace(/\s+/g, '.')}.${Math.floor(Math.random() * 10000)
-          .toString()
-          .padStart(4, '0')}`;
+    console.log('✅ Permission check passed');
 
-    const generatedPassword = password && String(password).trim().length
-      ? String(password).trim()
-      : `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`;
+    // 2) Generate credentials
+    const generatedUsername = `${String(full_name).trim().toLowerCase().replace(/\s+/g, '.')}.${Math.floor(Math.random() * 10000)
+        .toString()
+        .padStart(4, '0')}`;
+
+    const generatedPassword = `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`;
 
     const finalEmail = email && String(email).trim().length
       ? String(email).trim()
       : `${generatedUsername}@rdhotels.local`;
 
+    console.log('🔑 Generated credentials:', { username: generatedUsername, email: finalEmail });
+
     // 3) Create auth user with service role
+    console.log('👤 Creating auth user...');
     const { data: createdUser, error: createErr } = await admin.auth.admin.createUser({
       email: finalEmail,
       password: generatedPassword,
@@ -92,6 +111,7 @@ export const handler = async (req: Request): Promise<Response> => {
     });
 
     if (createErr || !createdUser.user) {
+      console.error('❌ Auth user creation failed:', createErr);
       return new Response(
         JSON.stringify({ success: false, error: createErr?.message || 'Failed to create auth user' }),
         { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
@@ -99,8 +119,10 @@ export const handler = async (req: Request): Promise<Response> => {
     }
 
     const newUserId = createdUser.user.id;
+    console.log('✅ Auth user created:', newUserId);
 
     // 4) Insert profile with same id
+    console.log('📝 Creating profile...');
     const { error: insertProfileErr } = await admin
       .from('profiles')
       .insert({
@@ -114,6 +136,7 @@ export const handler = async (req: Request): Promise<Response> => {
       });
 
     if (insertProfileErr) {
+      console.error('❌ Profile creation failed:', insertProfileErr);
       // Rollback: delete auth user to keep things clean
       await admin.auth.admin.deleteUser(newUserId).catch(() => {});
       return new Response(
@@ -122,18 +145,25 @@ export const handler = async (req: Request): Promise<Response> => {
       );
     }
 
+    console.log('✅ Profile created successfully');
+
+    const result = {
+      success: true,
+      user_id: newUserId,
+      username: generatedUsername,
+      password: generatedPassword,
+      email: finalEmail,
+      message: 'User created successfully',
+    };
+
+    console.log('🎉 Success! Returning result:', result);
+
     return new Response(
-      JSON.stringify({
-        success: true,
-        user_id: newUserId,
-        username: generatedUsername,
-        password: generatedPassword,
-        email: finalEmail,
-        message: 'User created successfully',
-      }),
+      JSON.stringify(result),
       { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
     );
   } catch (e: any) {
+    console.error('💥 Unhandled error:', e);
     return new Response(
       JSON.stringify({ success: false, error: e?.message || 'Unknown error' }),
       { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
