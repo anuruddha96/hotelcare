@@ -91,15 +91,15 @@ export const handler = async (req: Request): Promise<Response> => {
 
     const generatedPassword = `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`;
 
-    const finalEmail = email && String(email).trim().length
+    let finalEmail = email && String(email).trim().length
       ? String(email).trim()
       : `${generatedUsername}@rdhotels.local`;
 
     console.log('🔑 Generated credentials:', { username: generatedUsername, email: finalEmail });
 
-    // 3) Create auth user with service role
+    // 3) Create auth user with service role - handle email conflicts
     console.log('👤 Creating auth user...');
-    const { data: createdUser, error: createErr } = await admin.auth.admin.createUser({
+    let authResult = await admin.auth.admin.createUser({
       email: finalEmail,
       password: generatedPassword,
       email_confirm: true,
@@ -110,15 +110,31 @@ export const handler = async (req: Request): Promise<Response> => {
       },
     });
 
-    if (createErr || !createdUser.user) {
-      console.error('❌ Auth user creation failed:', createErr);
+    // If email already exists, try with a unique generated email
+    if (authResult.error?.message?.includes('already been registered')) {
+      console.log('⚠️ Email already exists, trying with unique email...');
+      finalEmail = `${generatedUsername}@rdhotels.local`;
+      authResult = await admin.auth.admin.createUser({
+        email: finalEmail,
+        password: generatedPassword,
+        email_confirm: true,
+        user_metadata: {
+          full_name,
+          username: generatedUsername,
+          assigned_hotel,
+        },
+      });
+    }
+
+    if (authResult.error || !authResult.data.user) {
+      console.error('❌ Auth user creation failed:', authResult.error);
       return new Response(
-        JSON.stringify({ success: false, error: createErr?.message || 'Failed to create auth user' }),
+        JSON.stringify({ success: false, error: authResult.error?.message || 'Failed to create auth user' }),
         { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
       );
     }
 
-    const newUserId = createdUser.user.id;
+    const newUserId = authResult.data.user.id;
     console.log('✅ Auth user created:', newUserId);
 
     // 4) Insert profile with same id
