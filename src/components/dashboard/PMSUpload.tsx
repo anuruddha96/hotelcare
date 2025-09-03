@@ -31,6 +31,22 @@ export function PMSUpload() {
     errors: string[];
   } | null>(null);
 
+  // Extract room number from complex room names (e.g., "70SNG-306" -> "306")
+  const extractRoomNumber = (roomName: string): string => {
+    // Remove any trailing "SH" suffix first
+    let cleanName = roomName.replace(/SH$/, '');
+    
+    // Extract number after the last dash or period
+    const match = cleanName.match(/[-.](\d+)$/);
+    if (match) {
+      return match[1].replace(/^0+/, '') || match[1]; // Remove leading zeros but keep if all zeros
+    }
+    
+    // Fallback: extract any number at the end
+    const fallbackMatch = cleanName.match(/(\d+)$/);
+    return fallbackMatch ? fallbackMatch[1].replace(/^0+/, '') || fallbackMatch[1] : roomName;
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -65,11 +81,14 @@ export function PMSUpload() {
         setProgress(10 + (i / jsonData.length) * 80);
 
         try {
-          // Find the room
+          // Extract room number from complex room name
+          const roomNumber = extractRoomNumber(row.Room.toString());
+          
+          // Find the room by extracted number
           const { data: rooms, error: roomError } = await supabase
             .from('rooms')
-            .select('id, status')
-            .eq('room_number', row.Room.toString());
+            .select('id, status, room_number')
+            .eq('room_number', roomNumber);
 
           if (roomError || !rooms || rooms.length === 0) {
             processed.errors.push(`Room ${row.Room} not found in system`);
