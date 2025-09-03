@@ -19,6 +19,8 @@ interface Assignment {
   notes: string;
   assignment_date: string;
   created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
   rooms: {
     room_number: string;
     hotel: string;
@@ -108,7 +110,7 @@ export function HousekeepingStaffView() {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      setAssignments(data || []);
+      setAssignments((data || []).filter((a: any) => a.status !== 'completed'));
     } catch (error) {
       console.error('Error fetching assignments:', error);
       toast.error('Failed to load assignments');

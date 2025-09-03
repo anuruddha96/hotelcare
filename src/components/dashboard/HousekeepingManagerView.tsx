@@ -131,25 +131,34 @@ export function HousekeepingManagerView() {
         });
       });
       
-      // Update counts from assignments
+      // Update counts from assignments (create entry if missing)
       data?.forEach((assignment: any) => {
         const staffId = assignment.assigned_to;
-        const summary = summaryMap.get(staffId);
-        
-        if (summary) {
-          summary.total_assigned++;
-          
-          switch (assignment.status) {
-            case 'completed':
-              summary.completed++;
-              break;
-            case 'in_progress':
-              summary.in_progress++;
-              break;
-            case 'assigned':
-              summary.pending++;
-              break;
-          }
+        let summary = summaryMap.get(staffId);
+        if (!summary) {
+          const name = assignment.profiles?.full_name || 'Unassigned';
+          summary = {
+            staff_id: staffId,
+            staff_name: name,
+            total_assigned: 0,
+            completed: 0,
+            in_progress: 0,
+            pending: 0,
+          };
+          summaryMap.set(staffId, summary);
+        }
+
+        summary.total_assigned++;
+        switch (assignment.status) {
+          case 'completed':
+            summary.completed++;
+            break;
+          case 'in_progress':
+            summary.in_progress++;
+            break;
+          case 'assigned':
+            summary.pending++;
+            break;
         }
       });
 
@@ -195,7 +204,7 @@ export function HousekeepingManagerView() {
               Assign Room
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl">
+          <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create Room Assignment</DialogTitle>
             </DialogHeader>

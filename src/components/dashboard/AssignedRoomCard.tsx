@@ -26,6 +26,8 @@ interface AssignedRoomCardProps {
     priority: number;
     estimated_duration: number;
     notes: string;
+    started_at?: string | null;
+    completed_at?: string | null;
     rooms: {
       room_number: string;
       hotel: string;
