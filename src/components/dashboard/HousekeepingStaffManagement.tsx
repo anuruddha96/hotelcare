@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { UserPlus, Users, Edit } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
@@ -34,6 +35,8 @@ export function HousekeepingStaffManagement() {
     assigned_hotel: '',
   });
   const [generatedCredentials, setGeneratedCredentials] = useState<{username: string, password: string, email: string} | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editData, setEditData] = useState({ id: '', full_name: '', phone_number: '', email: '', assigned_hotel: 'none' });
 
   useEffect(() => {
     fetchCurrentUserRole();
@@ -162,6 +165,44 @@ export function HousekeepingStaffManagement() {
         description: error.message,
         variant: 'destructive',
       });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Edit handlers
+  const openEdit = (member: HousekeepingStaff) => {
+    setEditData({
+      id: member.id,
+      full_name: member.full_name,
+      phone_number: member.phone_number || '',
+      email: member.email || '',
+      assigned_hotel: member.assigned_hotel || 'none',
+    });
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!editData.id) return;
+    setLoading(true);
+    try {
+      const payload: any = {
+        full_name: editData.full_name,
+        phone_number: editData.phone_number || null,
+        email: editData.email || '',
+        assigned_hotel: editData.assigned_hotel === 'none' ? null : editData.assigned_hotel,
+      };
+      const { error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', editData.id);
+      if (error) throw error;
+      toast({ title: 'Updated', description: 'Staff member updated successfully' });
+      setEditOpen(false);
+      fetchHousekeepingStaff();
+    } catch (err: any) {
+      console.error('Update failed:', err);
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -358,7 +399,7 @@ export function HousekeepingStaffManagement() {
                   <Badge className="bg-orange-500 text-white" variant="secondary">
                     Housekeeper
                   </Badge>
-                  <Button size="sm" variant="outline">
+                  <Button size="sm" variant="outline" onClick={() => openEdit(member)}>
                     <Edit className="h-4 w-4" />
                   </Button>
                 </div>
@@ -379,6 +420,47 @@ export function HousekeepingStaffManagement() {
           )}
         </div>
       )}
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Housekeeper</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_full_name">Full Name</Label>
+              <Input id="edit_full_name" value={editData.full_name} onChange={(e) => setEditData({ ...editData, full_name: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_phone">Phone</Label>
+              <Input id="edit_phone" value={editData.phone_number} onChange={(e) => setEditData({ ...editData, phone_number: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_email">Email</Label>
+              <Input id="edit_email" type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_hotel">Assigned Hotel</Label>
+              <Select value={editData.assigned_hotel} onValueChange={(v) => setEditData({ ...editData, assigned_hotel: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select hotel" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">All Hotels</SelectItem>
+                  {hotels.map((hotel) => (
+                    <SelectItem key={hotel.id} value={hotel.name}>{hotel.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+              <Button onClick={saveEdit} disabled={loading}>Save</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

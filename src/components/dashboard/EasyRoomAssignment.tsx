@@ -30,6 +30,7 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string>('');
+  const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -66,57 +67,40 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
     }
   };
 
-  const assignAllRooms = async () => {
-    if (!selectedStaff) {
-      toast.error('Please select a housekeeper first');
-      return;
-    }
+  const toggleRoom = (roomId: string) => {
+    setSelectedRooms(prev => prev.includes(roomId) ? prev.filter(id => id !== roomId) : [...prev, roomId]);
+  };
 
-    if (rooms.length === 0) {
-      toast.error('No dirty rooms to assign');
-      return;
-    }
+  const selectAll = () => setSelectedRooms(rooms.map(r => r.id));
+  const clearAll = () => setSelectedRooms([]);
+
+  const assignSelectedRooms = async () => {
+    if (!selectedStaff) return toast.error('Please select a housekeeper first');
+    if (selectedRooms.length === 0) return toast.error('Select at least one room');
 
     setLoading(true);
     try {
-      const assignments = rooms.map(room => ({
-        room_id: room.id,
+      const assignments = selectedRooms.map(roomId => ({
+        room_id: roomId,
         assigned_to: selectedStaff,
-        assigned_by: user?.id,
+        assigned_by: user?.id as string,
         assignment_date: selectedDate,
         assignment_type: 'daily_cleaning' as const,
         priority: 1,
         estimated_duration: 30,
-        notes: 'Quick assignment - all dirty rooms'
+        notes: 'Quick assignment - selected rooms'
       }));
 
       const { error } = await supabase
         .from('room_assignments')
-        .insert(assignments);
+        .insert(assignments as any);
 
       if (error) throw error;
 
-      // Send notification
-      try {
-        await supabase.functions.invoke('send-work-assignment-notification', {
-          body: {
-            staff_id: selectedStaff,
-            assignment_type: 'room_assignment',
-            assignment_details: {
-              room_count: rooms.length,
-              assignment_type: 'daily_cleaning'
-            }
-          }
-        });
-      } catch (notificationError) {
-        console.log('Notification failed:', notificationError);
-      }
-
-      const staffMember = staff.find(s => s.id === selectedStaff);
-      toast.success(`Assigned ${assignments.length} rooms to ${staffMember?.full_name}`);
-      
+      toast.success(`Assigned ${assignments.length} room(s)`);
       onAssignmentCreated();
-      fetchData(); // Refresh rooms list
+      clearAll();
+      fetchData();
     } catch (error) {
       console.error('Error creating assignments:', error);
       toast.error('Failed to create assignments');
@@ -141,7 +125,7 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
           Quick Assign
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Assign all dirty rooms to a housekeeper instantly
+          Select a housekeeper, pick rooms, then assign
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -162,7 +146,7 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
           </Select>
         </div>
 
-        {/* Rooms Overview */}
+        {/* Rooms Selection */}
         {rooms.length > 0 ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -172,38 +156,54 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
               </Badge>
             </div>
 
-            {/* Simple Room Display */}
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={selectAll}>Select All</Button>
+              <Button variant="outline" size="sm" onClick={clearAll}>Clear</Button>
+            </div>
+
+            {/* Room Grid */}
             <div className="bg-muted/50 p-4 rounded-lg space-y-3">
               {Object.entries(groupedRooms).map(([hotel, hotelRooms]) => (
                 <div key={hotel} className="space-y-2">
                   <h4 className="text-sm font-medium text-muted-foreground">{hotel}</h4>
                   <div className="flex flex-wrap gap-2">
-                    {hotelRooms.map((room) => (
-                      <Badge key={room.id} variant="secondary" className="text-xs">
-                        {room.room_number}
-                      </Badge>
-                    ))}
+                    {hotelRooms.map((room) => {
+                      const checked = selectedRooms.includes(room.id);
+                      return (
+                        <button
+                          type="button"
+                          key={room.id}
+                          onClick={() => toggleRoom(room.id)}
+                          className={`px-3 py-1 rounded-full text-xs border transition ${
+                            checked ? 'bg-blue-600 text-white border-blue-600' : 'bg-background border-muted'
+                          }`}
+                          aria-pressed={checked}
+                        >
+                          {room.room_number}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Simple Assignment Action */}
+            {/* Assign Action */}
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="font-medium text-blue-900">Ready to Assign</h4>
                   <p className="text-sm text-blue-700">
-                    All {rooms.length} dirty rooms will be assigned for daily cleaning
+                    {selectedRooms.length} room(s) selected
                   </p>
                 </div>
                 <Button
-                  onClick={assignAllRooms}
-                  disabled={loading || !selectedStaff}
+                  onClick={assignSelectedRooms}
+                  disabled={loading || !selectedStaff || selectedRooms.length === 0}
                   className="bg-blue-600 hover:bg-blue-700"
                 >
                   <Calendar className="h-4 w-4 mr-2" />
-                  {loading ? 'Assigning...' : 'Assign All Rooms'}
+                  {loading ? 'Assigning...' : 'Assign Selected'}
                 </Button>
               </div>
             </div>
@@ -217,7 +217,7 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
         )}
 
         <div className="text-xs text-muted-foreground bg-gray-50 p-3 rounded">
-          <p><strong>How it works:</strong> Select a housekeeper and click "Assign All Rooms" to instantly assign all dirty rooms for today's cleaning schedule.</p>
+          <p><strong>How it works:</strong> Select a housekeeper, choose individual rooms, then click "Assign Selected".</p>
         </div>
       </CardContent>
     </Card>
