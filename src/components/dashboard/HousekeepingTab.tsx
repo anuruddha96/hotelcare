@@ -47,34 +47,64 @@ export function HousekeepingTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className={`grid w-full ${hasManagerAccess ? 'grid-cols-6' : 'grid-cols-1'}`}>
-          <TabsTrigger value="assignments" className="flex items-center gap-2">
-            <ClipboardCheck className="h-4 w-4" />
-            My Tasks
+        <TabsList className={`
+          ${hasManagerAccess 
+            ? 'flex flex-nowrap overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
+            : 'grid w-full grid-cols-1'
+          }
+          ${hasManagerAccess ? 'sm:grid sm:grid-cols-6 sm:justify-center' : ''}
+        `}>
+          <TabsTrigger 
+            value="assignments" 
+            className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+          >
+            <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
+            <span className="hidden xs:inline">My Tasks</span>
+            <span className="xs:hidden">Tasks</span>
           </TabsTrigger>
           {hasManagerAccess && (
             <>
-              <TabsTrigger value="quick-assign" className="flex items-center gap-2">
-                <Zap className="h-4 w-4" />
-                Quick Assign
+              <TabsTrigger 
+                value="quick-assign" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Zap className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Quick Assign</span>
+                <span className="xs:hidden">Assign</span>
               </TabsTrigger>
-              <TabsTrigger value="pms-upload" className="flex items-center gap-2">
-                <Upload className="h-4 w-4" />
-                PMS Upload
+              <TabsTrigger 
+                value="pms-upload" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Upload className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">PMS Upload</span>
+                <span className="xs:hidden">Upload</span>
               </TabsTrigger>
-              <TabsTrigger value="performance" className="flex items-center gap-2">
-                <Trophy className="h-4 w-4" />
-                Performance
+              <TabsTrigger 
+                value="performance" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Performance</span>
+                <span className="xs:hidden">Stats</span>
               </TabsTrigger>
-              <TabsTrigger value="staff-management" className="flex items-center gap-2">
-                <UserPlus className="h-4 w-4" />
-                Staff
+              <TabsTrigger 
+                value="staff-management" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Staff</span>
+                <span className="xs:hidden">Staff</span>
               </TabsTrigger>
-              <TabsTrigger value="manage" className="flex items-center gap-2">
-                <Users className="h-4 w-4" />
-                Team View
+              <TabsTrigger 
+                value="manage" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Team View</span>
+                <span className="xs:hidden">Team</span>
               </TabsTrigger>
             </>
           )}

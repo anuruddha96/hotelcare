@@ -118,6 +118,16 @@ All colors MUST be HSL.
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Scrollbar utilities for mobile horizontal scrolling */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari, and Opera */
+}
+
 /* Mobile Touch Targets and Optimizations */
 @media (max-width: 768px) {
   .touch-target {
