@@ -40,8 +40,6 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
   const [staff, setStaff] = useState<HousekeepingStaff[]>([]);
   const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string>('');
-  const [assignmentType, setAssignmentType] = useState<'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning'>('daily_cleaning');
-  const [priority, setPriority] = useState<number>(1);
   const [estimatedDuration, setEstimatedDuration] = useState<number>(30);
   const [notes, setNotes] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -111,8 +109,8 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
   const createAssignments = async () => {
     if (!selectedStaff || selectedRooms.length === 0) {
       toast({
-        title: 'Error',
-        description: 'Please select staff and at least one room',
+        title: t('common.error'),
+        description: t('assignment.selectStaffAndRooms'),
         variant: 'destructive',
       });
       return;
@@ -120,17 +118,22 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
     setLoading(true);
     try {
-      // Create assignments for all selected rooms
-      const assignments = selectedRooms.map(roomId => ({
-        room_id: roomId,
-        assigned_to: selectedStaff,
-        assigned_by: user?.id,
-        assignment_date: selectedDate,
-        assignment_type: assignmentType,
-        priority,
-        estimated_duration: estimatedDuration,
-        notes: notes.trim() || null
-      }));
+      // Determine assignment type based on room type automatically
+      const assignments = selectedRooms.map(roomId => {
+        const room = rooms.find(r => r.id === roomId);
+        const assignmentType: 'checkout_cleaning' | 'daily_cleaning' = room?.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning';
+        
+        return {
+          room_id: roomId,
+          assigned_to: selectedStaff,
+          assigned_by: user?.id,
+          assignment_date: selectedDate,
+          assignment_type: assignmentType,
+          priority: 2, // Standard priority for all housekeeping tasks
+          estimated_duration: estimatedDuration,
+          notes: notes.trim() || null
+        };
+      });
 
       const { error } = await supabase
         .from('room_assignments')
@@ -153,7 +156,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
               staffName: selectedStaffMember.full_name,
               assignmentDate: selectedDate,
               roomNumbers,
-              assignmentType,
+              assignmentType: 'mixed', // Since we have automatic assignment based on room type
               totalRooms: selectedRooms.length
             }
           });
@@ -164,7 +167,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       }
 
       toast({
-        title: 'Success',
+        title: t('common.success'),
         description: `Successfully assigned ${selectedRooms.length} rooms to ${selectedStaffMember?.full_name}`,
       });
       onAssignmentCreated();
@@ -173,13 +176,12 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       setSelectedRooms([]);
       setSelectedStaff('');
       setNotes('');
-      setPriority(1);
       setEstimatedDuration(30);
     } catch (error) {
       console.error('Error creating assignments:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to create assignments',
+        title: t('common.error'),
+        description: t('assignment.createError'),
         variant: 'destructive',
       });
     } finally {
@@ -204,13 +206,13 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
     <div className="space-y-6">
       {/* Assignment Configuration */}
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Assignment Details</h3>
+        <h3 className="text-lg font-semibold">{t('assignment.details')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Assign to Staff</label>
+            <label className="text-sm font-medium">{t('assignment.assignToStaff')}</label>
             <Select value={selectedStaff} onValueChange={setSelectedStaff}>
               <SelectTrigger>
-                <SelectValue placeholder="Select housekeeping staff" />
+                <SelectValue placeholder={t('assignment.selectStaff')} />
               </SelectTrigger>
               <SelectContent>
                 {staff.map((member) => (
@@ -223,58 +225,29 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Assignment Type</label>
-            <Select value={assignmentType} onValueChange={(value) => setAssignmentType(value as 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning')}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="daily_cleaning">Daily Cleaning</SelectItem>
-                <SelectItem value="checkout_cleaning">Checkout Room</SelectItem>
-                <SelectItem value="deep_cleaning">Deep Cleaning</SelectItem>
-                <SelectItem value="maintenance">Maintenance</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Priority</label>
-            <Select value={priority.toString()} onValueChange={(v) => setPriority(parseInt(v))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">Low Priority</SelectItem>
-                <SelectItem value="2">Medium Priority</SelectItem>
-                <SelectItem value="3">High Priority</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Estimated Duration (minutes)</label>
+            <label className="text-sm font-medium">{t('assignment.estimatedDuration')}</label>
             <Select value={estimatedDuration.toString()} onValueChange={(v) => setEstimatedDuration(parseInt(v))}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="15">15 minutes</SelectItem>
-                <SelectItem value="30">30 minutes</SelectItem>
-                <SelectItem value="45">45 minutes</SelectItem>
-                <SelectItem value="60">1 hour</SelectItem>
-                <SelectItem value="90">1.5 hours</SelectItem>
-                <SelectItem value="120">2 hours</SelectItem>
+                <SelectItem value="15">{t('assignment.duration.15min')}</SelectItem>
+                <SelectItem value="30">{t('assignment.duration.30min')}</SelectItem>
+                <SelectItem value="45">{t('assignment.duration.45min')}</SelectItem>
+                <SelectItem value="60">{t('assignment.duration.1hour')}</SelectItem>
+                <SelectItem value="90">{t('assignment.duration.1hour30min')}</SelectItem>
+                <SelectItem value="120">{t('assignment.duration.2hours')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">Notes (Optional)</label>
+          <label className="text-sm font-medium">{t('assignment.notes')}</label>
           <Textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Any special instructions or notes for the housekeeper..."
+            placeholder={t('assignment.notesPlaceholder')}
             rows={3}
           />
         </div>
@@ -283,13 +256,13 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       {/* Room Selection */}
       <div className="space-y-4">
         <div className="flex justify-between items-center">
-          <h3 className="text-lg font-semibold">Select Rooms ({selectedRooms.length} selected)</h3>
+          <h3 className="text-lg font-semibold">{t('assignment.selectRooms')} ({selectedRooms.length} {t('assignment.selected')})</h3>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={selectAllRooms}>
-              Select All
+              {t('assignment.selectAll')}
             </Button>
             <Button size="sm" variant="outline" onClick={clearSelection}>
-              Clear All
+              {t('assignment.clearAll')}
             </Button>
           </div>
         </div>
@@ -307,7 +280,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                 <div className="mb-4">
                   <h4 className="font-medium text-orange-600 mb-2 flex items-center">
                     <LogOut className="h-4 w-4 mr-1" />
-                    Checkout Rooms ({checkout.length})
+                    {t('assignment.checkoutRooms')} ({checkout.length})
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {checkout.map((room) => (
@@ -326,7 +299,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                           </div>
                           <div className="text-xs text-orange-600 mt-1 flex items-center">
                             <LogOut className="h-3 w-3 mr-1" />
-                            Checkout Room
+                            {t('assignment.checkoutRoom')}
                             {room.guest_count && room.guest_count > 0 && (
                               <span className="ml-2 flex items-center">
                                 <User className="h-3 w-3 mr-1" />
@@ -346,7 +319,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                 <div>
                   <h4 className="font-medium text-blue-600 mb-2 flex items-center">
                     <User className="h-4 w-4 mr-1" />
-                    Daily Cleaning Rooms ({daily.length})
+                    {t('assignment.dailyCleaningRooms')} ({daily.length})
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {daily.map((room) => (
@@ -365,7 +338,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                           </div>
                           <div className="text-xs text-blue-600 mt-1 flex items-center">
                             <User className="h-3 w-3 mr-1" />
-                            Daily Cleaning
+                            {t('assignment.dailyCleaning')}
                             {room.guest_count && room.guest_count > 0 && (
                               <span className="ml-2 flex items-center">
                                 <User className="h-3 w-3 mr-1" />
@@ -391,7 +364,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           disabled={loading || !selectedStaff || selectedRooms.length === 0}
           size="lg"
         >
-          {loading ? 'Creating Assignments...' : `Assign ${selectedRooms.length} Room(s)`}
+          {loading ? t('assignment.creating') : `${t('assignment.assign')} ${selectedRooms.length} ${t('assignment.rooms')}`}
         </Button>
       </div>
     </div>
