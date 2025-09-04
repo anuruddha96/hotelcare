@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Building, Clock, AlertCircle } from 'lucide-react';
+import { Building, Clock, AlertCircle, UserX, User } from 'lucide-react';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface RoomAssignmentDialogProps {
   onAssignmentCreated: () => void;
@@ -22,6 +23,8 @@ interface Room {
   status: string;
   room_name: string;
   floor_number: number;
+  checkout_time?: string;
+  is_checkout_room?: boolean;
 }
 
 interface HousekeepingStaff {
@@ -32,6 +35,7 @@ interface HousekeepingStaff {
 
 export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: RoomAssignmentDialogProps) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<HousekeepingStaff[]>([]);
   const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
@@ -56,7 +60,16 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
         .order('room_number');
 
       if (error) throw error;
-      setRooms(data || []);
+      
+      // For now, we'll determine checkout rooms based on room status
+      // Later this will be updated when the database schema includes checkout data
+      const roomsWithCheckoutInfo = (data || []).map(room => ({
+        ...room,
+        is_checkout_room: false, // Default to daily cleaning for now
+        checkout_time: undefined
+      }));
+      
+      setRooms(roomsWithCheckoutInfo);
     } catch (error) {
       console.error('Error fetching rooms:', error);
       toast.error('Failed to load rooms');
@@ -191,15 +204,15 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       {/* Assignment Configuration */}
       <Card>
         <CardHeader>
-          <CardTitle>Assignment Details</CardTitle>
+          <CardTitle>{t('rooms.assignmentDetails') || 'Assignment Details'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Assign to Staff</label>
+              <label className="text-sm font-medium">{t('rooms.assignToStaff') || 'Assign to Staff'}</label>
               <Select value={selectedStaff} onValueChange={setSelectedStaff}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select housekeeping staff" />
+                  <SelectValue placeholder={t('rooms.selectStaff') || 'Select housekeeping staff'} />
                 </SelectTrigger>
                 <SelectContent>
                   {staff.map((member) => (
@@ -212,16 +225,16 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Assignment Type</label>
+              <label className="text-sm font-medium">{t('rooms.assignmentType') || 'Assignment Type'}</label>
               <Select value={assignmentType} onValueChange={(value) => setAssignmentType(value as 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning')}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="daily_cleaning">Daily Cleaning</SelectItem>
-                  <SelectItem value="checkout_cleaning">Checkout Cleaning</SelectItem>
-                  <SelectItem value="deep_cleaning">Deep Cleaning</SelectItem>
-                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                  <SelectItem value="daily_cleaning">{t('rooms.dailyCleaningRoom')}</SelectItem>
+                  <SelectItem value="checkout_cleaning">{t('rooms.checkoutRoom')}</SelectItem>
+                  <SelectItem value="deep_cleaning">{t('rooms.deepCleaning') || 'Deep Cleaning'}</SelectItem>
+                  <SelectItem value="maintenance">{t('rooms.maintenance') || 'Maintenance'}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -274,13 +287,13 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       <Card>
         <CardHeader>
           <div className="flex justify-between items-center">
-            <CardTitle>Select Rooms ({selectedRooms.length} selected)</CardTitle>
+            <CardTitle>{t('rooms.selectRooms') || 'Select Rooms'} ({selectedRooms.length} {t('rooms.selected') || 'selected'})</CardTitle>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={selectAllRooms}>
-                Select All
+                {t('rooms.selectAll') || 'Select All'}
               </Button>
               <Button size="sm" variant="outline" onClick={clearSelection}>
-                Clear All
+                {t('rooms.clearAll') || 'Clear All'}
               </Button>
             </div>
           </div>
@@ -312,11 +325,27 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                           >
                             {room.status}
                           </Badge>
+                          {room.is_checkout_room ? (
+                            <Badge variant="secondary" className="text-xs">
+                              <UserX className="h-3 w-3 mr-1" />
+                              {t('rooms.checkoutRoom')}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs">
+                              <User className="h-3 w-3 mr-1" />
+                              {t('rooms.dailyCleaningRoom')}
+                            </Badge>
+                          )}
                         </div>
                         {room.room_name && (
                           <p className="text-xs text-muted-foreground">{room.room_name}</p>
                         )}
                         <p className="text-xs text-muted-foreground">Floor {room.floor_number}</p>
+                        {room.is_checkout_room && room.checkout_time && (
+                          <p className="text-xs text-orange-600 font-medium">
+                            {t('rooms.checkoutTime')}: {room.checkout_time}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -334,7 +363,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           disabled={loading || !selectedStaff || selectedRooms.length === 0}
           size="lg"
         >
-          {loading ? 'Creating Assignments...' : `Assign ${selectedRooms.length} Room(s)`}
+          {loading ? (t('rooms.creatingAssignments') || 'Creating Assignments...') : `${t('rooms.assign') || 'Assign'} ${selectedRooms.length} ${t('rooms.rooms') || 'Room(s)'}`}
         </Button>
       </div>
     </div>

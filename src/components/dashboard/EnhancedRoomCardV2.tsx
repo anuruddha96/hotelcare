@@ -17,6 +17,7 @@ import {
   UserX,
   Brush
 } from 'lucide-react';
+import { useTranslation } from '@/hooks/useTranslation';
 import { MobileOptimizedCard } from './MobileOptimizedCard';
 import { format } from 'date-fns';
 
@@ -46,6 +47,8 @@ interface Room {
   };
   status_changed_at?: string;
   notes?: string;
+  checkout_time?: string;
+  is_checkout_room?: boolean;
   minibar_usage?: Array<{
     id: string;
     quantity_used: number;
@@ -71,6 +74,7 @@ interface EnhancedRoomCardV2Props {
 }
 
 export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
+  const { t } = useTranslation();
   const getStatusColor = (status: string) => {
     const colors = {
       clean: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
@@ -252,6 +256,20 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
             <Badge variant="secondary" className="text-xs">
               <Droplet className="h-3 w-3 mr-1" />
               €{getMinibarValue().toFixed(2)}
+            </Badge>
+          )}
+
+          {/* Room Type Badge */}
+          {room.is_checkout_room ? (
+            <Badge variant="secondary" className="text-xs">
+              <UserX className="h-3 w-3 mr-1" />
+              {t('rooms.checkoutRoom')}
+              {room.checkout_time && <span className="ml-1">({room.checkout_time})</span>}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs">
+              <User className="h-3 w-3 mr-1" />
+              {t('rooms.dailyCleaningRoom')}
             </Badge>
           )}
 

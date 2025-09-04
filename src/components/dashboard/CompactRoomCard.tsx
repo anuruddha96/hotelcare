@@ -1,7 +1,8 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, AlertTriangle, Wrench, XCircle, MapPin } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Wrench, XCircle, MapPin, UserX, User } from 'lucide-react';
+import { useTranslation } from '@/hooks/useTranslation';
 import { MobileOptimizedCard } from './MobileOptimizedCard';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -18,7 +19,8 @@ interface Room {
   last_cleaned_by?: {
     full_name: string;
   };
-  notes?: string;
+  checkout_time?: string;
+  is_checkout_room?: boolean;
   minibar_usage?: Array<{
     id: string;
     quantity_used: number;
@@ -45,6 +47,7 @@ interface CompactRoomCardProps {
 
 export function CompactRoomCard({ room, onClick }: CompactRoomCardProps) {
   const isMobile = useIsMobile();
+  const { t } = useTranslation();
   
   const getStatusColor = (status: string) => {
     const colors = {
@@ -147,6 +150,20 @@ export function CompactRoomCard({ room, onClick }: CompactRoomCardProps) {
 
         {/* Bottom Indicators */}
         <div className="flex flex-wrap gap-1">
+          {/* Room Type Indicator */}
+          {room.is_checkout_room ? (
+            <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
+              <UserX className="h-2.5 w-2.5 mr-1" />
+              {t('rooms.checkoutRoom')}
+              {room.checkout_time && <span className="ml-1">({room.checkout_time})</span>}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs px-1.5 py-0.5">
+              <User className="h-2.5 w-2.5 mr-1" />
+              {t('rooms.dailyCleaningRoom')}
+            </Badge>
+          )}
+
           {hasActiveIssues && (
             <Badge variant="destructive" className="text-xs px-1.5 py-0.5">
               <AlertTriangle className="h-2.5 w-2.5 mr-1" />
