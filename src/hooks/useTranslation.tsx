@@ -514,7 +514,11 @@ export const useTranslation = () => {
     return {
       language: 'en' as const,
       setLanguage: () => {},
-      t: (key: string) => key, // Return the key as fallback
+      t: (key: string) => {
+        // Extract the readable part from translation keys
+        const parts = key.split('.');
+        return parts[parts.length - 1].replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+      },
     };
   }
   return context;

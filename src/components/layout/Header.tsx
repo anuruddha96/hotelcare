@@ -123,16 +123,16 @@ export function Header() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setProfileDialogOpen(true)}>
                 <User className="mr-2 h-4 w-4" />
-                {t('common.profile' as any) || 'Profile'}
+                Profile
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}>
                 <Settings className="mr-2 h-4 w-4" />
-                {t('common.settings' as any) || 'Settings'}
+                Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => signOut()}>
                 <LogOut className="mr-2 h-4 w-4" />
-                {t('common.logout' as any) || 'Log out'}
+                Log out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
