@@ -180,7 +180,7 @@ export function PMSUpload() {
           // Find the room by extracted number
           const { data: rooms, error: roomError } = await supabase
             .from('rooms')
-            .select('id, status, room_number, room_type')
+            .select('id, status, room_number, room_type, is_checkout_room')
             .eq('room_number', roomNumber);
 
           if (roomError || !rooms || rooms.length === 0) {
@@ -244,17 +244,25 @@ export function PMSUpload() {
           console.log(`[PMS] Room ${roomNumber}: Status change ${currentStatus} -> ${newStatus}`);
 
           // Update room status and checkout information
-          if (currentStatus !== newStatus || isCheckout) {
+          const updateData: any = { 
+            status: newStatus,
+            notes: row.Note || null,
+            is_checkout_room: isCheckout,
+            guest_count: row.People || 0,
+            updated_at: new Date().toISOString()
+          };
+
+          if (isCheckout && row.Departure) {
+            updateData.checkout_time = new Date().toISOString();
+          } else if (!isCheckout) {
+            updateData.checkout_time = null;
+            updateData.is_checkout_room = false;
+          }
+
+          if (currentStatus !== newStatus || room.is_checkout_room !== isCheckout) {
             const { error: updateError } = await supabase
               .from('rooms')
-              .update({ 
-                status: newStatus,
-                notes: row.Note || null,
-                is_checkout_room: isCheckout,
-                checkout_time: isCheckout && row.Departure ? new Date().toISOString() : null,
-                guest_count: row.People || 0,
-                updated_at: new Date().toISOString()
-              })
+              .update(updateData)
               .eq('id', room.id);
 
             if (!updateError) {

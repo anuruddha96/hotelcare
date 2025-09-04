@@ -529,7 +529,7 @@ export function RoomManagement() {
             <SelectTrigger className="w-full sm:w-48">
               <SelectValue placeholder="All Status" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="bg-white">
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="clean">Clean</SelectItem>
               <SelectItem value="dirty">Dirty</SelectItem>
@@ -541,7 +541,7 @@ export function RoomManagement() {
             <SelectTrigger className="w-full sm:w-48">
               <SelectValue placeholder="Room Type" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="bg-white">
               <SelectItem value="all">All Types</SelectItem>
               <SelectItem value="checkout">Checkout Rooms</SelectItem>
               <SelectItem value="daily">Daily Cleaning Rooms</SelectItem>
