@@ -219,6 +219,79 @@ const translations = {
     'language.changed': 'Idioma Cambiado',
     'language.switchedTo': 'Idioma cambiado a',
   },
+  
+  vi: {
+    // Dashboard
+    'dashboard.title': 'Bảng điều khiển quản lý khách sạn',
+    'dashboard.subtitle': 'Quản lý mọi yêu cầu dịch vụ của RD Hotels',
+    'dashboard.tickets': 'Phiếu',
+    'dashboard.rooms': 'Phòng',
+    'dashboard.reports': 'Báo cáo',
+    'dashboard.manageUsers': 'Quản lý người dùng',
+    'dashboard.newTicket': 'Tạo phiếu',
+
+    // Tickets
+    'tickets.total': 'Tổng',
+    'tickets.open': 'Mở',
+    'tickets.inProgress': 'Đang xử lý',
+    'tickets.completed': 'Hoàn thành',
+    'tickets.search': 'Tìm kiếm phiếu...',
+    'tickets.allStatus': 'Tất cả trạng thái',
+    'tickets.allPriority': 'Tất cả mức ưu tiên',
+    'tickets.priority.urgent': 'Khẩn cấp',
+    'tickets.priority.high': 'Cao',
+    'tickets.priority.medium': 'Trung bình',
+    'tickets.priority.low': 'Thấp',
+
+    // Room Management
+    'rooms.title': 'Quản lý phòng',
+    'rooms.subtitle': 'Theo dõi và quản lý trạng thái phòng khách sạn',
+    'rooms.search': 'Tìm theo số phòng hoặc khách sạn...',
+    'rooms.addRoom': 'Thêm phòng',
+    'rooms.minibarSettings': 'Cài đặt minibar',
+    'rooms.allHotels': 'Tất cả khách sạn',
+    'rooms.allStatus': 'Tất cả trạng thái',
+    'rooms.clean': 'Sạch',
+    'rooms.dirty': 'Bẩn',
+    'rooms.maintenance': 'Bảo trì',
+    'rooms.outOfOrder': 'Hỏng',
+
+    // Room Status
+    'room.status.clean': 'Sạch',
+    'room.status.dirty': 'Bẩn',
+    'room.status.maintenance': 'Bảo trì',
+    'room.status.out_of_order': 'Hỏng',
+
+    // Create Room
+    'createRoom.title': 'Tạo phòng mới',
+    'createRoom.hotel': 'Khách sạn',
+    'createRoom.roomName': 'Tên phòng',
+    'createRoom.roomNumber': 'Số phòng',
+    'createRoom.roomType': 'Loại phòng',
+    'createRoom.floorNumber': 'Tầng',
+    'createRoom.create': 'Tạo phòng',
+
+    // Common
+    'common.loading': 'Đang tải...',
+    'common.save': 'Lưu',
+    'common.cancel': 'Hủy',
+    'common.close': 'Đóng',
+    'common.edit': 'Sửa',
+    'common.delete': 'Xóa',
+    'common.search': 'Tìm kiếm',
+    'common.filter': 'Lọc',
+    'common.status': 'Trạng thái',
+    'common.priority': 'Ưu tiên',
+    'common.hotel': 'Khách sạn',
+    'common.room': 'Phòng',
+    'common.profile': 'Hồ sơ',
+    'common.settings': 'Cài đặt',
+    'common.logout': 'Đăng xuất',
+
+    // Language
+    'language.changed': 'Đã đổi ngôn ngữ',
+    'language.switchedTo': 'Chuyển sang',
+  },
 };
 
 type Language = keyof typeof translations;

@@ -7,10 +7,12 @@ const languages = [
   { code: 'en', name: 'English', flag: '🇺🇸' },
   { code: 'hu', name: 'Magyar', flag: '🇭🇺' },
   { code: 'es', name: 'Español', flag: '🇪🇸' },
+  { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳' },
 ];
 
 export function LanguageSwitcher() {
   const { language, setLanguage, t } = useTranslation();
+  const current = languages.find(l => l.code === language) || languages[0];
 
   const handleLanguageChange = (langCode: string) => {
     setLanguage(langCode as any);
@@ -26,8 +28,11 @@ export function LanguageSwitcher() {
   return (
     <div className="flex items-center gap-2">
       <Select value={language} onValueChange={handleLanguageChange}>
-        <SelectTrigger className="w-[140px]">
-          <SelectValue />
+        <SelectTrigger aria-label="Language" className="w-[160px] sm:w-[200px]">
+          <div className="flex items-center gap-2 truncate">
+            <span>{current.flag}</span>
+            <span className="truncate">{current.name}</span>
+          </div>
         </SelectTrigger>
         <SelectContent>
           {languages.map((lang) => (
