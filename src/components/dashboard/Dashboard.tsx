@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { TicketCard } from './TicketCard';
 import { CreateTicketDialog } from './CreateTicketDialog';
@@ -43,6 +44,7 @@ interface Ticket {
 
 export function Dashboard() {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -199,10 +201,10 @@ export function Dashboard() {
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
-                {profile?.assigned_hotel || 'Hotel Care Hub'}
+                {profile?.assigned_hotel || t('dashboard.title')}
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground">
-                {profile?.assigned_hotel ? `${profile.assigned_hotel} Management System` : 'Complete hotel management system'}
+                {profile?.assigned_hotel ? `${profile.assigned_hotel} Management System` : t('dashboard.subtitle')}
               </p>
             </div>
             
@@ -211,7 +213,7 @@ export function Dashboard() {
               <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
                 <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
                   <Ticket className="h-4 w-4" />
-                  <span>Tickets</span>
+                  <span>{t('dashboard.tickets')}</span>
                 </TabsTrigger>
                 <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
                   <Users className="h-4 w-4" />
@@ -222,11 +224,11 @@ export function Dashboard() {
               <TabsList className="grid w-full max-w-lg grid-cols-3 h-10 sm:h-12">
                 <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
                   <Ticket className="h-4 w-4" />
-                  <span>Tickets</span>
+                  <span>{t('dashboard.tickets')}</span>
                 </TabsTrigger>
                 <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
                   <Home className="h-4 w-4" />
-                  <span>Rooms</span>
+                  <span>{t('dashboard.rooms')}</span>
                 </TabsTrigger>
                 <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
                   <Users className="h-4 w-4" />
@@ -319,19 +321,19 @@ export function Dashboard() {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">Total</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.total')}</p>
           <p className="text-xl sm:text-2xl font-bold">{counts.total}</p>
         </div>
         <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">Open</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.open')}</p>
           <p className="text-xl sm:text-2xl font-bold text-blue-600">{counts.open}</p>
         </div>
         <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">In Progress</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.inProgress')}</p>
           <p className="text-xl sm:text-2xl font-bold text-yellow-600">{counts.inProgress}</p>
         </div>
         <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">Completed</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.completed')}</p>
           <p className="text-xl sm:text-2xl font-bold text-green-600">{counts.completed}</p>
         </div>
       </div>
@@ -341,7 +343,7 @@ export function Dashboard() {
         <div className="relative flex-1 p-3 bg-gradient-to-r from-primary/5 to-primary/10 rounded-lg border border-primary/20 shadow-sm">
           <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 h-4 w-4 text-primary" />
           <Input
-            placeholder="🔍 Search tickets..."
+            placeholder={`🔍 ${t('tickets.search')}`}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10 h-9 sm:h-10 text-sm bg-background/80 border-primary/30 focus:border-primary focus:ring-primary/20"
@@ -355,10 +357,10 @@ export function Dashboard() {
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="all">{t('tickets.allStatus')}</SelectItem>
+              <SelectItem value="open">{t('tickets.open')}</SelectItem>
+              <SelectItem value="in_progress">{t('tickets.inProgress')}</SelectItem>
+              <SelectItem value="completed">{t('tickets.completed')}</SelectItem>
             </SelectContent>
           </Select>
           
@@ -367,11 +369,11 @@ export function Dashboard() {
               <SelectValue placeholder="Priority" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Priority</SelectItem>
-              <SelectItem value="urgent">Urgent</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="all">{t('tickets.allPriority')}</SelectItem>
+              <SelectItem value="urgent">{t('tickets.priority.urgent')}</SelectItem>
+              <SelectItem value="high">{t('tickets.priority.high')}</SelectItem>
+              <SelectItem value="medium">{t('tickets.priority.medium')}</SelectItem>
+              <SelectItem value="low">{t('tickets.priority.low')}</SelectItem>
             </SelectContent>
           </Select>
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +20,7 @@ import {
 
 export function Header() {
   const { profile, user, signOut } = useAuth();
+  const { t } = useTranslation();
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
 
@@ -55,14 +57,25 @@ export function Header() {
   };
 
   return (
-    <header className="bg-background border-b border-border sticky top-0 z-50">
+    <header className="bg-gradient-to-r from-background via-background to-primary/5 border-b border-border/50 backdrop-blur-sm sticky top-0 z-50 shadow-sm">
       <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
         <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
-          <img 
-            src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png" 
-            alt="RD Hotels Logo" 
-            className="h-10 sm:h-12 w-auto object-contain"
-          />
+          <div className="relative group cursor-pointer">
+            <div className="absolute -inset-2 bg-gradient-to-r from-primary/20 to-rd-blue/20 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-300 blur-sm"></div>
+            <div className="relative flex items-center gap-3 p-2 rounded-lg bg-gradient-to-r from-primary/10 to-rd-blue/10 border border-primary/20 shadow-sm">
+              <img 
+                src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png" 
+                alt="RD Hotels Logo" 
+                className="h-8 sm:h-10 w-auto object-contain drop-shadow-md"
+              />
+              <div className="hidden sm:block">
+                <h1 className="text-lg font-bold bg-gradient-to-r from-primary to-rd-blue bg-clip-text text-transparent">
+                  RD HOTELS
+                </h1>
+                <p className="text-xs text-muted-foreground">Hotel Care Hub</p>
+              </div>
+            </div>
+          </div>
         </div>
         
         <div className="flex items-center gap-2 sm:gap-4">
@@ -115,16 +128,16 @@ export function Header() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setProfileDialogOpen(true)}>
                 <User className="mr-2 h-4 w-4" />
-                Profile
+                {t('common.profile' as any) || 'Profile'}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}>
                 <Settings className="mr-2 h-4 w-4" />
-                Settings
+                {t('common.settings' as any) || 'Settings'}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => signOut()}>
                 <LogOut className="mr-2 h-4 w-4" />
-                Log out
+                {t('common.logout' as any) || 'Log out'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

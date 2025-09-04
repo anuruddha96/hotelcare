@@ -65,6 +65,9 @@ const translations = {
     'common.priority': 'Priority',
     'common.hotel': 'Hotel',
     'common.room': 'Room',
+    'common.profile': 'Profile',
+    'common.settings': 'Settings',
+    'common.logout': 'Log out',
     
     // Language
     'language.changed': 'Language Changed',
@@ -135,6 +138,9 @@ const translations = {
     'common.priority': 'Prioritás',
     'common.hotel': 'Szálloda',
     'common.room': 'Szoba',
+    'common.profile': 'Profil',
+    'common.settings': 'Beállítások',
+    'common.logout': 'Kijelentkezés',
     
     // Language
     'language.changed': 'Nyelv megváltoztatva',
@@ -205,6 +211,9 @@ const translations = {
     'common.priority': 'Prioridad',
     'common.hotel': 'Hotel',
     'common.room': 'Habitación',
+    'common.profile': 'Perfil',
+    'common.settings': 'Configuración',
+    'common.logout': 'Cerrar sesión',
     
     // Language
     'language.changed': 'Idioma Cambiado',
