@@ -483,7 +483,7 @@ interface TranslationContextType {
   t: (key: TranslationKey) => string;
 }
 
-const TranslationContext = createContext<TranslationContextType>({} as TranslationContextType);
+const TranslationContext = createContext<TranslationContextType | null>(null);
 
 export function TranslationProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>(() => {
