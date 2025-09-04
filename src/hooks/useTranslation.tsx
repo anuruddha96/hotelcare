@@ -72,6 +72,35 @@ const translations = {
     // Language
     'language.changed': 'Language Changed',
     'language.switchedTo': 'Language switched to',
+    
+    // PMS Upload
+    'pms.title': 'PMS Data Upload',
+    'pms.subtitle': 'Upload Excel file from your PMS system to automatically update room statuses and create cleaning assignments',
+    'pms.dragDrop': 'Drag & drop your PMS export file here, or click to browse',
+    'pms.dropHere': 'Drop your PMS file here',
+    'pms.releaseToUpload': 'Release to upload your file',
+    'pms.processing': 'Processing PMS data...',
+    'pms.backgroundUpload': 'Running in background',
+    'pms.uploadComplete': 'Upload Complete',
+    'pms.roomsProcessed': 'Rooms Processed',
+    'pms.statusesUpdated': 'Statuses Updated',
+    'pms.tasksAssigned': 'Tasks Assigned',
+    'pms.checkoutRooms': 'Checkout Rooms',
+    'pms.dailyCleaningRooms': 'Daily Cleaning Rooms',
+    'pms.issuesFound': 'Issues Found',
+    'pms.uploadAnother': 'Upload Another File',
+    'pms.checkoutToday': 'Checkout Today',
+    'pms.stayingGuests': 'Staying Guests',
+    'pms.departureTime': 'Departure',
+    
+    // Housekeeping
+    'housekeeping.myTasks': 'My Tasks',
+    'housekeeping.quickAssign': 'Quick Assign',
+    'housekeeping.pmsUpload': 'PMS Upload',
+    'housekeeping.performance': 'Performance',
+    'housekeeping.staff': 'Staff',
+    'housekeeping.teamView': 'Team View',
+    'housekeeping.accessRestricted': 'Access restricted to housekeeping staff and managers',
   },
   
   hu: {
@@ -145,6 +174,35 @@ const translations = {
     // Language
     'language.changed': 'Nyelv megváltoztatva',
     'language.switchedTo': 'Nyelv váltva erre:',
+    
+    // PMS Upload
+    'pms.title': 'PMS Adatok Feltöltése',
+    'pms.subtitle': 'Töltse fel az Excel fájlt a PMS rendszeréből a szobák állapotának automatikus frissítéséhez és takarítási feladatok létrehozásához',
+    'pms.dragDrop': 'Húzza ide a PMS export fájlt, vagy kattintson a tallózáshoz',
+    'pms.dropHere': 'Dobja ide a PMS fájlt',
+    'pms.releaseToUpload': 'Engedje el a feltöltéshez',
+    'pms.processing': 'PMS adatok feldolgozása...',
+    'pms.backgroundUpload': 'Háttérben fut',
+    'pms.uploadComplete': 'Feltöltés kész',
+    'pms.roomsProcessed': 'Feldolgozott szobák',
+    'pms.statusesUpdated': 'Frissített állapotok',
+    'pms.tasksAssigned': 'Hozzárendelt feladatok',
+    'pms.checkoutRooms': 'Kijelentkezős szobák',
+    'pms.dailyCleaningRooms': 'Napi takarítás szobák',
+    'pms.issuesFound': 'Talált problémák',
+    'pms.uploadAnother': 'Másik fájl feltöltése',
+    'pms.checkoutToday': 'Ma kijelentkezik',
+    'pms.stayingGuests': 'Maradó vendégek',
+    'pms.departureTime': 'Távozás',
+    
+    // Housekeeping
+    'housekeeping.myTasks': 'Feladataim',
+    'housekeeping.quickAssign': 'Gyors hozzárendelés',
+    'housekeeping.pmsUpload': 'PMS feltöltés',
+    'housekeeping.performance': 'Teljesítmény',
+    'housekeeping.staff': 'Személyzet',
+    'housekeeping.teamView': 'Csapat nézet',
+    'housekeeping.accessRestricted': 'Hozzáférés korlátozott takarítószemélyzetre és vezetőkre',
   },
   
   es: {
@@ -218,6 +276,35 @@ const translations = {
     // Language
     'language.changed': 'Idioma Cambiado',
     'language.switchedTo': 'Idioma cambiado a',
+    
+    // PMS Upload
+    'pms.title': 'Carga de Datos PMS',
+    'pms.subtitle': 'Sube archivo Excel desde tu sistema PMS para actualizar automáticamente estados de habitaciones y crear asignaciones de limpieza',
+    'pms.dragDrop': 'Arrastra y suelta tu archivo de exportación PMS aquí, o haz clic para navegar',
+    'pms.dropHere': 'Suelta tu archivo PMS aquí',
+    'pms.releaseToUpload': 'Suelta para subir tu archivo',
+    'pms.processing': 'Procesando datos PMS...',
+    'pms.backgroundUpload': 'Ejecutándose en segundo plano',
+    'pms.uploadComplete': 'Carga Completa',
+    'pms.roomsProcessed': 'Habitaciones Procesadas',
+    'pms.statusesUpdated': 'Estados Actualizados',
+    'pms.tasksAssigned': 'Tareas Asignadas',
+    'pms.checkoutRooms': 'Habitaciones de Salida',
+    'pms.dailyCleaningRooms': 'Habitaciones Limpieza Diaria',
+    'pms.issuesFound': 'Problemas Encontrados',
+    'pms.uploadAnother': 'Subir Otro Archivo',
+    'pms.checkoutToday': 'Salida Hoy',
+    'pms.stayingGuests': 'Huéspedes que se Quedan',
+    'pms.departureTime': 'Salida',
+    
+    // Housekeeping
+    'housekeeping.myTasks': 'Mis Tareas',
+    'housekeeping.quickAssign': 'Asignación Rápida',
+    'housekeeping.pmsUpload': 'Subida PMS',
+    'housekeeping.performance': 'Rendimiento',
+    'housekeeping.staff': 'Personal',
+    'housekeeping.teamView': 'Vista de Equipo',
+    'housekeeping.accessRestricted': 'Acceso restringido al personal de limpieza y gerentes',
   },
   
   vi: {
@@ -291,6 +378,35 @@ const translations = {
     // Language
     'language.changed': 'Đã đổi ngôn ngữ',
     'language.switchedTo': 'Chuyển sang',
+    
+    // PMS Upload
+    'pms.title': 'Tải lên dữ liệu PMS',
+    'pms.subtitle': 'Tải file Excel từ hệ thống PMS để tự động cập nhật trạng thái phòng và tạo phân công dọn phòng',
+    'pms.dragDrop': 'Kéo thả file xuất PMS vào đây, hoặc nhấp để duyệt',
+    'pms.dropHere': 'Thả file PMS vào đây',
+    'pms.releaseToUpload': 'Thả để tải lên file',
+    'pms.processing': 'Đang xử lý dữ liệu PMS...',
+    'pms.backgroundUpload': 'Chạy ngầm',
+    'pms.uploadComplete': 'Tải lên hoàn tất',
+    'pms.roomsProcessed': 'Phòng đã xử lý',
+    'pms.statusesUpdated': 'Trạng thái đã cập nhật',
+    'pms.tasksAssigned': 'Công việc đã giao',
+    'pms.checkoutRooms': 'Phòng trả',
+    'pms.dailyCleaningRooms': 'Phòng dọn hàng ngày',
+    'pms.issuesFound': 'Vấn đề tìm thấy',
+    'pms.uploadAnother': 'Tải file khác',
+    'pms.checkoutToday': 'Trả phòng hôm nay',
+    'pms.stayingGuests': 'Khách ở lại',
+    'pms.departureTime': 'Giờ trả phòng',
+    
+    // Housekeeping
+    'housekeeping.myTasks': 'Công việc của tôi',
+    'housekeeping.quickAssign': 'Giao nhanh',
+    'housekeeping.pmsUpload': 'Tải PMS',
+    'housekeeping.performance': 'Hiệu suất',
+    'housekeeping.staff': 'Nhân viên',
+    'housekeeping.teamView': 'Xem nhóm',
+    'housekeeping.accessRestricted': 'Quyền truy cập hạn chế cho nhân viên dọn phòng và quản lý',
   },
 };
 

@@ -7,6 +7,8 @@ import { Progress } from '@/components/ui/progress';
 import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
+import { useTranslation } from '@/hooks/useTranslation';
+import { CheckoutRoomsView } from './CheckoutRoomsView';
 import * as XLSX from 'xlsx';
 
 interface PMSData {
@@ -23,9 +25,12 @@ interface PMSData {
 }
 
 export function PMSUpload() {
+  const { t } = useTranslation();
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [backgroundUpload, setBackgroundUpload] = useState(false);
+  const [checkoutRooms, setCheckoutRooms] = useState<any[]>([]);
+  const [dailyCleaningRooms, setDailyCleaningRooms] = useState<any[]>([]);
   const [results, setResults] = useState<{
     processed: number;
     updated: number;
@@ -161,6 +166,8 @@ export function PMSUpload() {
       
       // Process the data
       const processed = { processed: 0, updated: 0, assigned: 0, errors: [] as string[] };
+      const checkoutRoomsList: any[] = [];
+      const dailyCleaningRoomsList: any[] = [];
 
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
@@ -173,7 +180,7 @@ export function PMSUpload() {
           // Find the room by extracted number
           const { data: rooms, error: roomError } = await supabase
             .from('rooms')
-            .select('id, status, room_number')
+            .select('id, status, room_number, room_type')
             .eq('room_number', roomNumber);
 
           if (roomError || !rooms || rooms.length === 0) {
@@ -193,12 +200,38 @@ export function PMSUpload() {
           // Determine new status based on PMS data
           let newStatus = 'clean';
           let needsCleaning = false;
+          let isCheckout = false;
 
           if (row.Occupied === 'Yes' && row.Departure) {
             // Checkout room - needs checkout cleaning
             newStatus = 'dirty';
             needsCleaning = true;
+            isCheckout = true;
             console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Occupied: ${row.Occupied}, Departure: ${row.Departure})`);
+            
+            // Add to checkout rooms list
+            checkoutRoomsList.push({
+              roomNumber,
+              roomType: room.room_type,
+              departureTime: row.Departure,
+              guestCount: row.People || 0,
+              status: 'checkout',
+              notes: row.Note
+            });
+          } else if (row.Occupied === 'Yes' && !row.Departure) {
+            // Daily cleaning room
+            needsCleaning = true;
+            newStatus = 'dirty';
+            console.log(`[PMS] Room ${roomNumber}: Daily cleaning needed (Occupied: ${row.Occupied}, no departure)`);
+            
+            // Add to daily cleaning rooms list
+            dailyCleaningRoomsList.push({
+              roomNumber,
+              roomType: room.room_type,
+              guestCount: row.People || 0,
+              status: 'daily_cleaning',
+              notes: row.Note
+            });
           } else if (row.Status === 'untidy' || row.Status === 'dirty') {
             // Room marked as dirty in PMS
             newStatus = 'dirty';
@@ -228,8 +261,8 @@ export function PMSUpload() {
 
           // Auto-assign cleaning if needed
           if (needsCleaning) {
-            const assignmentType = row.Departure ? 'checkout_cleaning' : 'daily_cleaning';
-            const priority = row.Departure ? 2 : 1; // Higher priority for checkout
+            const assignmentType = isCheckout ? 'checkout_cleaning' : 'daily_cleaning';
+            const priority = isCheckout ? 2 : 1; // Higher priority for checkout
 
             // Check if already assigned for today
             const { data: existingAssignments } = await supabase
@@ -277,6 +310,8 @@ export function PMSUpload() {
 
       setProgress(100);
       setResults(processed);
+      setCheckoutRooms(checkoutRoomsList);
+      setDailyCleaningRooms(dailyCleaningRoomsList);
       setBackgroundUpload(false);
       
       // Show completion notification
@@ -343,10 +378,10 @@ export function PMSUpload() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileSpreadsheet className="h-5 w-5" />
-          PMS Data Upload
+          {t('pms.title')}
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Upload Excel file from your PMS system to automatically update room statuses and create cleaning assignments
+          {t('pms.subtitle')}
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -366,12 +401,12 @@ export function PMSUpload() {
               }`} />
               <div className="space-y-2">
                 <h3 className="font-medium">
-                  {isDragActive ? 'Drop your PMS file here' : 'Upload PMS Excel File'}
+                  {isDragActive ? t('pms.dropHere') : t('pms.title')}
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   {isDragActive 
-                    ? 'Release to upload your file'
-                    : 'Drag & drop your PMS export file here, or click to browse'
+                    ? t('pms.releaseToUpload')
+                    : t('pms.dragDrop')
                   }
                 </p>
               </div>
@@ -383,10 +418,10 @@ export function PMSUpload() {
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5 animate-pulse" />
-              <span>Processing PMS data...</span>
+              <span>{t('pms.processing')}</span>
               {backgroundUpload && (
                 <Badge variant="secondary" className="ml-2">
-                  Running in background
+                  {t('pms.backgroundUpload')}
                 </Badge>
               )}
             </div>
@@ -408,21 +443,21 @@ export function PMSUpload() {
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-green-600">
               <CheckCircle className="h-5 w-5" />
-              <span className="font-medium">Upload Complete</span>
+              <span className="font-medium">{t('pms.uploadComplete')}</span>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="text-center p-4 bg-blue-50 rounded-lg">
                 <div className="text-2xl font-bold text-blue-600">{results.processed}</div>
-                <div className="text-sm text-blue-600">Rooms Processed</div>
+                <div className="text-sm text-blue-600">{t('pms.roomsProcessed')}</div>
               </div>
               <div className="text-center p-4 bg-green-50 rounded-lg">
                 <div className="text-2xl font-bold text-green-600">{results.updated}</div>
-                <div className="text-sm text-green-600">Statuses Updated</div>
+                <div className="text-sm text-green-600">{t('pms.statusesUpdated')}</div>
               </div>
               <div className="text-center p-4 bg-orange-50 rounded-lg">
                 <div className="text-2xl font-bold text-orange-600">{results.assigned}</div>
-                <div className="text-sm text-orange-600">Tasks Assigned</div>
+                <div className="text-sm text-orange-600">{t('pms.tasksAssigned')}</div>
               </div>
             </div>
 
@@ -430,7 +465,7 @@ export function PMSUpload() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-orange-600">
                   <AlertTriangle className="h-4 w-4" />
-                  <span className="font-medium">Issues Found ({results.errors.length})</span>
+                  <span className="font-medium">{t('pms.issuesFound')} ({results.errors.length})</span>
                 </div>
                 <div className="max-h-32 overflow-y-auto space-y-1">
                   {results.errors.map((error, index) => (
@@ -443,12 +478,26 @@ export function PMSUpload() {
             )}
 
             <Button 
-              onClick={() => setResults(null)}
+              onClick={() => {
+                setResults(null);
+                setCheckoutRooms([]);
+                setDailyCleaningRooms([]);
+              }}
               variant="outline" 
               className="w-full"
             >
-              Upload Another File
+              {t('pms.uploadAnother')}
             </Button>
+          </div>
+        )}
+
+        {/* Checkout Rooms Visibility */}
+        {(checkoutRooms.length > 0 || dailyCleaningRooms.length > 0) && (
+          <div className="mt-6">
+            <CheckoutRoomsView 
+              checkoutRooms={checkoutRooms} 
+              dailyCleaningRooms={dailyCleaningRooms} 
+            />
           </div>
         )}
       </CardContent>

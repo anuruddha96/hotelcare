@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
@@ -12,6 +13,7 @@ import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus } from 'lucide-rea
 
 export function HousekeepingTab() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [userRole, setUserRole] = useState<string>('');
   const [activeTab, setActiveTab] = useState('assignments');
 
@@ -41,7 +43,7 @@ export function HousekeepingTab() {
   if (!canAccessHousekeeping) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <p>Access restricted to housekeeping staff and managers</p>
+        <p>{t('housekeeping.accessRestricted')}</p>
       </div>
     );
   }
@@ -61,8 +63,8 @@ export function HousekeepingTab() {
             className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
           >
             <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="hidden xs:inline">My Tasks</span>
-            <span className="xs:hidden">Tasks</span>
+            <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
+            <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
           </TabsTrigger>
           {hasManagerAccess && (
             <>
@@ -71,40 +73,40 @@ export function HousekeepingTab() {
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <Zap className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Quick Assign</span>
-                <span className="xs:hidden">Assign</span>
+                <span className="hidden xs:inline">{t('housekeeping.quickAssign')}</span>
+                <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="pms-upload" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <Upload className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">PMS Upload</span>
-                <span className="xs:hidden">Upload</span>
+                <span className="hidden xs:inline">{t('housekeeping.pmsUpload')}</span>
+                <span className="xs:hidden">{t('housekeeping.pmsUpload')}</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="performance" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Performance</span>
-                <span className="xs:hidden">Stats</span>
+                <span className="hidden xs:inline">{t('housekeeping.performance')}</span>
+                <span className="xs:hidden">{t('housekeeping.performance')}</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="staff-management" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Staff</span>
-                <span className="xs:hidden">Staff</span>
+                <span className="hidden xs:inline">{t('housekeeping.staff')}</span>
+                <span className="xs:hidden">{t('housekeeping.staff')}</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="manage" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Team View</span>
-                <span className="xs:hidden">Team</span>
+                <span className="hidden xs:inline">{t('housekeeping.teamView')}</span>
+                <span className="xs:hidden">{t('housekeeping.teamView')}</span>
               </TabsTrigger>
             </>
           )}
