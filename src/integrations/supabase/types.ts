@@ -414,10 +414,13 @@ export type Database = {
       rooms: {
         Row: {
           bed_type: string | null
+          checkout_time: string | null
           created_at: string
           floor_number: number | null
+          guest_count: number | null
           hotel: string
           id: string
+          is_checkout_room: boolean | null
           last_cleaned_at: string | null
           last_cleaned_by: string | null
           notes: string | null
@@ -429,10 +432,13 @@ export type Database = {
         }
         Insert: {
           bed_type?: string | null
+          checkout_time?: string | null
           created_at?: string
           floor_number?: number | null
+          guest_count?: number | null
           hotel: string
           id?: string
+          is_checkout_room?: boolean | null
           last_cleaned_at?: string | null
           last_cleaned_by?: string | null
           notes?: string | null
@@ -444,10 +450,13 @@ export type Database = {
         }
         Update: {
           bed_type?: string | null
+          checkout_time?: string | null
           created_at?: string
           floor_number?: number | null
+          guest_count?: number | null
           hotel?: string
           id?: string
+          is_checkout_room?: boolean | null
           last_cleaned_at?: string | null
           last_cleaned_by?: string | null
           notes?: string | null

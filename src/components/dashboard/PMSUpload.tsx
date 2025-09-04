@@ -243,13 +243,16 @@ export function PMSUpload() {
 
           console.log(`[PMS] Room ${roomNumber}: Status change ${currentStatus} -> ${newStatus}`);
 
-          // Update room status if changed
-          if (currentStatus !== newStatus) {
+          // Update room status and checkout information
+          if (currentStatus !== newStatus || isCheckout) {
             const { error: updateError } = await supabase
               .from('rooms')
               .update({ 
                 status: newStatus,
                 notes: row.Note || null,
+                is_checkout_room: isCheckout,
+                checkout_time: isCheckout && row.Departure ? new Date().toISOString() : null,
+                guest_count: row.People || 0,
                 updated_at: new Date().toISOString()
               })
               .eq('id', room.id);

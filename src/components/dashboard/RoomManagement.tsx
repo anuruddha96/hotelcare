@@ -69,6 +69,9 @@ interface RoomWithTickets extends Room {
       price: number;
     };
   }>;
+  is_checkout_room?: boolean;
+  checkout_time?: string;
+  guest_count?: number;
 }
 
 export function RoomManagement() {
@@ -114,14 +117,14 @@ export function RoomManagement() {
 
       if (profile?.role === 'admin' || profile?.role === 'manager') {
         const res = await base
-          .select('* , last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)' as any)
+          .select('*, is_checkout_room, checkout_time, guest_count, last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)' as any)
           .order('hotel', { ascending: true })
           .order('room_number', { ascending: true });
         roomsData = res.data;
         error = res.error;
       } else {
         const res = await base
-          .select('*')
+          .select('*, is_checkout_room, checkout_time, guest_count')
           .order('hotel', { ascending: true })
           .order('room_number', { ascending: true });
         roomsData = res.data;
@@ -305,27 +308,38 @@ export function RoomManagement() {
     }
   };
 
-  const filteredRooms = rooms.filter(room => {
-    const matchesSearch = 
+  // Filter rooms based on search query and filters
+  const filteredRooms = rooms.filter((room) => {
+    const matchesSearch = searchQuery === '' || 
       room.room_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
       room.hotel.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (room.room_name && room.room_name.toLowerCase().includes(searchQuery.toLowerCase()));
     
-    const matchesHotel = selectedHotel === 'all' || room.hotel === selectedHotel;
-    const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
-    const matchesActiveFilter = !activeStatusFilter || room.status === activeStatusFilter;
+    const matchesHotel = selectedHotel === '' || room.hotel === selectedHotel;
+    const matchesStatus = statusFilter === '' || room.status === statusFilter;
     
-    return matchesSearch && matchesHotel && matchesStatus && matchesActiveFilter;
+    return matchesSearch && matchesHotel && matchesStatus;
   });
 
-  // Group rooms by hotel and sort by room number
-  const groupedRooms = filteredRooms.reduce((acc, room) => {
-    if (!acc[room.hotel]) {
-      acc[room.hotel] = [];
+  // Add room type filter state
+  const [roomTypeFilter, setRoomTypeFilter] = React.useState<'all' | 'checkout' | 'daily'>('all');
+  
+  // Apply room type filter
+  const finalFilteredRooms = filteredRooms.filter((room) => {
+    if (roomTypeFilter === 'all') return true;
+    if (roomTypeFilter === 'checkout') return room.is_checkout_room;
+    if (roomTypeFilter === 'daily') return !room.is_checkout_room;
+    return true;
+  });
+
+  // Group rooms by hotel for better organization
+  const groupedRooms = finalFilteredRooms.reduce((groups, room) => {
+    if (!groups[room.hotel]) {
+      groups[room.hotel] = [];
     }
-    acc[room.hotel].push(room);
-    return acc;
-  }, {} as Record<string, typeof filteredRooms>);
+    groups[room.hotel].push(room);
+    return groups;
+  }, {} as Record<string, RoomWithTickets[]>);
 
   // Sort rooms within each hotel by room number
   Object.keys(groupedRooms).forEach(hotel => {
@@ -500,38 +514,41 @@ export function RoomManagement() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-col gap-4">
-          <div className="relative flex-1 p-3 bg-gradient-to-r from-primary/5 to-accent/5 rounded-lg border border-primary/20 shadow-sm">
-            <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 h-4 w-4 text-primary/70" />
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+          <div className="flex-1">
             <Input
-              placeholder={t('rooms.search')}
+              placeholder="Search by room number or hotel..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-background/90 border-2 border-primary/30 focus:border-primary focus:ring-2 focus:ring-primary/20 focus:shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)] transition-all duration-300"
+              className="w-full"
             />
           </div>
-          
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="flex-1 sm:flex-initial">
-              <HotelFilter value={selectedHotel} onValueChange={setSelectedHotel} />
-            </div>
-            
-            <div className="flex-1 sm:flex-initial">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-[140px]">
-                  <SelectValue placeholder={t('common.status')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('rooms.allStatus')}</SelectItem>
-                  <SelectItem value="clean">{t('rooms.clean')}</SelectItem>
-                  <SelectItem value="dirty">{t('rooms.dirty')}</SelectItem>
-                  <SelectItem value="maintenance">{t('rooms.maintenance')}</SelectItem>
-                  <SelectItem value="out_of_order">{t('rooms.outOfOrder')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          <HotelFilter 
+            value={selectedHotel}
+            onValueChange={setSelectedHotel}
+          />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All Status</SelectItem>
+              <SelectItem value="clean">Clean</SelectItem>
+              <SelectItem value="dirty">Dirty</SelectItem>
+              <SelectItem value="maintenance">Maintenance</SelectItem>
+              <SelectItem value="out_of_order">Out of Order</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={roomTypeFilter} onValueChange={(value: 'all' | 'checkout' | 'daily') => setRoomTypeFilter(value)}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Room Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="checkout">Checkout Rooms</SelectItem>
+              <SelectItem value="daily">Daily Cleaning Rooms</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Room Stats */}
@@ -572,7 +589,7 @@ export function RoomManagement() {
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
           </div>
-        ) : filteredRooms.length === 0 ? (
+        ) : finalFilteredRooms.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-muted-foreground">No rooms found</p>
           </div>
@@ -617,7 +634,7 @@ export function RoomManagement() {
                     ? 'grid-cols-2 sm:grid-cols-3' 
                     : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
                 }`}>
-                  {filteredRooms.map((room) => (
+                  {finalFilteredRooms.map((room) => (
                     isMobile ? (
                       <CompactRoomCard 
                         key={room.id} 

@@ -4,12 +4,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
-import { Building, Clock, AlertCircle, UserX, User } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
+import { MapPin, User, Clock, Calendar, LogOut } from 'lucide-react';
 
 interface RoomAssignmentDialogProps {
   onAssignmentCreated: () => void;
@@ -21,10 +19,11 @@ interface Room {
   room_number: string;
   hotel: string;
   status: string;
-  room_name: string;
-  floor_number: number;
+  room_name?: string;
+  floor_number?: number;
+  is_checkout_room: boolean;
   checkout_time?: string;
-  is_checkout_room?: boolean;
+  guest_count?: number;
 }
 
 interface HousekeepingStaff {
@@ -36,6 +35,7 @@ interface HousekeepingStaff {
 export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: RoomAssignmentDialogProps) {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const { toast } = useToast();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<HousekeepingStaff[]>([]);
   const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
@@ -55,24 +55,20 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
     try {
       const { data, error } = await supabase
         .from('rooms')
-        .select('id, room_number, hotel, status, room_name, floor_number')
+        .select('id, room_number, hotel, status, room_name, floor_number, is_checkout_room, checkout_time, guest_count')
+        .eq('status', 'dirty')
         .order('hotel')
         .order('room_number');
 
       if (error) throw error;
-      
-      // For now, we'll determine checkout rooms based on room status
-      // Later this will be updated when the database schema includes checkout data
-      const roomsWithCheckoutInfo = (data || []).map(room => ({
-        ...room,
-        is_checkout_room: false, // Default to daily cleaning for now
-        checkout_time: undefined
-      }));
-      
-      setRooms(roomsWithCheckoutInfo);
+      setRooms(data || []);
     } catch (error) {
       console.error('Error fetching rooms:', error);
-      toast.error('Failed to load rooms');
+      toast({
+        title: 'Error',
+        description: 'Failed to load rooms',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -88,7 +84,11 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       setStaff(data || []);
     } catch (error) {
       console.error('Error fetching staff:', error);
-      toast.error('Failed to load housekeeping staff');
+      toast({
+        title: 'Error',
+        description: 'Failed to load housekeeping staff',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -110,7 +110,11 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
   const createAssignments = async () => {
     if (!selectedStaff || selectedRooms.length === 0) {
-      toast.error('Please select staff and at least one room');
+      toast({
+        title: 'Error',
+        description: 'Please select staff and at least one room',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -159,7 +163,10 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
         }
       }
 
-      toast.success(`Successfully assigned ${selectedRooms.length} rooms to ${selectedStaffMember?.full_name}`);
+      toast({
+        title: 'Success',
+        description: `Successfully assigned ${selectedRooms.length} rooms to ${selectedStaffMember?.full_name}`,
+      });
       onAssignmentCreated();
       
       // Reset form
@@ -170,191 +177,212 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       setEstimatedDuration(30);
     } catch (error) {
       console.error('Error creating assignments:', error);
-      toast.error('Failed to create assignments');
+      toast({
+        title: 'Error',
+        description: 'Failed to create assignments',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const getRoomStatusColor = (status: string) => {
-    switch (status) {
-      case 'clean':
-        return 'text-green-600';
-      case 'dirty':
-        return 'text-red-600';
-      case 'out_of_order':
-        return 'text-gray-600';
-      case 'maintenance':
-        return 'text-orange-600';
-      default:
-        return 'text-gray-600';
-    }
-  };
-
+  // Group rooms by hotel and type
   const groupedRooms = rooms.reduce((groups, room) => {
     if (!groups[room.hotel]) {
-      groups[room.hotel] = [];
+      groups[room.hotel] = { checkout: [], daily: [] };
     }
-    groups[room.hotel].push(room);
+    if (room.is_checkout_room) {
+      groups[room.hotel].checkout.push(room);
+    } else {
+      groups[room.hotel].daily.push(room);
+    }
     return groups;
-  }, {} as Record<string, Room[]>);
+  }, {} as Record<string, { checkout: Room[]; daily: Room[] }>);
 
   return (
     <div className="space-y-6">
       {/* Assignment Configuration */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('rooms.assignmentDetails') || 'Assignment Details'}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t('rooms.assignToStaff') || 'Assign to Staff'}</label>
-              <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t('rooms.selectStaff') || 'Select housekeeping staff'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {staff.map((member) => (
-                    <SelectItem key={member.id} value={member.id}>
-                      {member.full_name} {member.nickname && `(${member.nickname})`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t('rooms.assignmentType') || 'Assignment Type'}</label>
-              <Select value={assignmentType} onValueChange={(value) => setAssignmentType(value as 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning')}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily_cleaning">{t('rooms.dailyCleaningRoom')}</SelectItem>
-                  <SelectItem value="checkout_cleaning">{t('rooms.checkoutRoom')}</SelectItem>
-                  <SelectItem value="deep_cleaning">{t('rooms.deepCleaning') || 'Deep Cleaning'}</SelectItem>
-                  <SelectItem value="maintenance">{t('rooms.maintenance') || 'Maintenance'}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Priority</label>
-              <Select value={priority.toString()} onValueChange={(v) => setPriority(parseInt(v))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">Low Priority</SelectItem>
-                  <SelectItem value="2">Medium Priority</SelectItem>
-                  <SelectItem value="3">High Priority</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Estimated Duration (minutes)</label>
-              <Select value={estimatedDuration.toString()} onValueChange={(v) => setEstimatedDuration(parseInt(v))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="15">15 minutes</SelectItem>
-                  <SelectItem value="30">30 minutes</SelectItem>
-                  <SelectItem value="45">45 minutes</SelectItem>
-                  <SelectItem value="60">1 hour</SelectItem>
-                  <SelectItem value="90">1.5 hours</SelectItem>
-                  <SelectItem value="120">2 hours</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">Assignment Details</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Assign to Staff</label>
+            <Select value={selectedStaff} onValueChange={setSelectedStaff}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select housekeeping staff" />
+              </SelectTrigger>
+              <SelectContent>
+                {staff.map((member) => (
+                  <SelectItem key={member.id} value={member.id}>
+                    {member.full_name} {member.nickname && `(${member.nickname})`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Notes (Optional)</label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any special instructions or notes for the housekeeper..."
-              rows={3}
-            />
+            <label className="text-sm font-medium">Assignment Type</label>
+            <Select value={assignmentType} onValueChange={(value) => setAssignmentType(value as 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning')}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="daily_cleaning">Daily Cleaning</SelectItem>
+                <SelectItem value="checkout_cleaning">Checkout Room</SelectItem>
+                <SelectItem value="deep_cleaning">Deep Cleaning</SelectItem>
+                <SelectItem value="maintenance">Maintenance</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        </CardContent>
-      </Card>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Priority</label>
+            <Select value={priority.toString()} onValueChange={(v) => setPriority(parseInt(v))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Low Priority</SelectItem>
+                <SelectItem value="2">Medium Priority</SelectItem>
+                <SelectItem value="3">High Priority</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Estimated Duration (minutes)</label>
+            <Select value={estimatedDuration.toString()} onValueChange={(v) => setEstimatedDuration(parseInt(v))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="45">45 minutes</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+                <SelectItem value="90">1.5 hours</SelectItem>
+                <SelectItem value="120">2 hours</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Notes (Optional)</label>
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any special instructions or notes for the housekeeper..."
+            rows={3}
+          />
+        </div>
+      </div>
 
       {/* Room Selection */}
-      <Card>
-        <CardHeader>
-          <div className="flex justify-between items-center">
-            <CardTitle>{t('rooms.selectRooms') || 'Select Rooms'} ({selectedRooms.length} {t('rooms.selected') || 'selected'})</CardTitle>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={selectAllRooms}>
-                {t('rooms.selectAll') || 'Select All'}
-              </Button>
-              <Button size="sm" variant="outline" onClick={clearSelection}>
-                {t('rooms.clearAll') || 'Clear All'}
-              </Button>
-            </div>
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-semibold">Select Rooms ({selectedRooms.length} selected)</h3>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={selectAllRooms}>
+              Select All
+            </Button>
+            <Button size="sm" variant="outline" onClick={clearSelection}>
+              Clear All
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4 max-h-96 overflow-y-auto">
-            {Object.entries(groupedRooms).map(([hotel, hotelRooms]) => (
-              <div key={hotel} className="space-y-2">
-                <div className="flex items-center gap-2 font-medium text-sm">
-                  <Building className="h-4 w-4" />
-                  {hotel}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pl-6">
-                  {hotelRooms.map((room) => (
-                    <div
-                      key={room.id}
-                      className="flex items-center space-x-2 p-2 border rounded-md hover:bg-muted/50"
-                    >
-                      <Checkbox
-                        checked={selectedRooms.includes(room.id)}
-                        onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">Room {room.room_number}</span>
-                          <Badge
-                            variant="outline"
-                            className={getRoomStatusColor(room.status)}
-                          >
-                            {room.status}
-                          </Badge>
-                          {room.is_checkout_room ? (
-                            <Badge variant="secondary" className="text-xs">
-                              <UserX className="h-3 w-3 mr-1" />
-                              {t('rooms.checkoutRoom')}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-xs">
-                              <User className="h-3 w-3 mr-1" />
-                              {t('rooms.dailyCleaningRoom')}
-                            </Badge>
-                          )}
+        </div>
+
+        <div className="space-y-6 max-h-96 overflow-y-auto">
+          {Object.entries(groupedRooms).map(([hotel, { checkout, daily }]) => (
+            <div key={hotel} className="border rounded-lg p-4">
+              <h3 className="font-semibold mb-4 flex items-center">
+                <MapPin className="h-4 w-4 mr-2" />
+                {hotel} ({checkout.length + daily.length} rooms)
+              </h3>
+              
+              {/* Checkout Rooms */}
+              {checkout.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="font-medium text-orange-600 mb-2 flex items-center">
+                    <LogOut className="h-4 w-4 mr-1" />
+                    Checkout Rooms ({checkout.length})
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {checkout.map((room) => (
+                      <label key={room.id} className="flex items-center space-x-3 p-3 border border-orange-200 bg-orange-50 rounded-lg cursor-pointer hover:bg-orange-100">
+                        <Checkbox
+                          checked={selectedRooms.includes(room.id)}
+                          onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">Room {room.room_number}</span>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
+                            {room.floor_number && ` • Floor ${room.floor_number}`}
+                          </div>
+                          <div className="text-xs text-orange-600 mt-1 flex items-center">
+                            <LogOut className="h-3 w-3 mr-1" />
+                            Checkout Room
+                            {room.guest_count && room.guest_count > 0 && (
+                              <span className="ml-2 flex items-center">
+                                <User className="h-3 w-3 mr-1" />
+                                {room.guest_count}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        {room.room_name && (
-                          <p className="text-xs text-muted-foreground">{room.room_name}</p>
-                        )}
-                        <p className="text-xs text-muted-foreground">Floor {room.floor_number}</p>
-                        {room.is_checkout_room && room.checkout_time && (
-                          <p className="text-xs text-orange-600 font-medium">
-                            {t('rooms.checkoutTime')}: {room.checkout_time}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              )}
+
+              {/* Daily Cleaning Rooms */}
+              {daily.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-blue-600 mb-2 flex items-center">
+                    <User className="h-4 w-4 mr-1" />
+                    Daily Cleaning Rooms ({daily.length})
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {daily.map((room) => (
+                      <label key={room.id} className="flex items-center space-x-3 p-3 border border-blue-200 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100">
+                        <Checkbox
+                          checked={selectedRooms.includes(room.id)}
+                          onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">Room {room.room_number}</span>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
+                            {room.floor_number && ` • Floor ${room.floor_number}`}
+                          </div>
+                          <div className="text-xs text-blue-600 mt-1 flex items-center">
+                            <User className="h-3 w-3 mr-1" />
+                            Daily Cleaning
+                            {room.guest_count && room.guest_count > 0 && (
+                              <span className="ml-2 flex items-center">
+                                <User className="h-3 w-3 mr-1" />
+                                {room.guest_count}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Create Button */}
       <div className="flex justify-end">
@@ -363,7 +391,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           disabled={loading || !selectedStaff || selectedRooms.length === 0}
           size="lg"
         >
-          {loading ? (t('rooms.creatingAssignments') || 'Creating Assignments...') : `${t('rooms.assign') || 'Assign'} ${selectedRooms.length} ${t('rooms.rooms') || 'Room(s)'}`}
+          {loading ? 'Creating Assignments...' : `Assign ${selectedRooms.length} Room(s)`}
         </Button>
       </div>
     </div>
