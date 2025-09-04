@@ -5,6 +5,7 @@ import { CheckCircle2, AlertTriangle, Wrench, XCircle, MapPin, UserX, User } fro
 import { useTranslation } from '@/hooks/useTranslation';
 import { MobileOptimizedCard } from './MobileOptimizedCard';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { format } from 'date-fns';
 
 interface Room {
   id: string;
@@ -155,7 +156,11 @@ export function CompactRoomCard({ room, onClick }: CompactRoomCardProps) {
             <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
               <UserX className="h-2.5 w-2.5 mr-1" />
               {t('rooms.checkoutRoom')}
-              {room.checkout_time && <span className="ml-1">({room.checkout_time})</span>}
+              {room.checkout_time && (
+                <span className="ml-1">
+                  {format(new Date(room.checkout_time), 'MMM d, HH:mm')}
+                </span>
+              )}
             </Badge>
           ) : (
             <Badge variant="outline" className="text-xs px-1.5 py-0.5">

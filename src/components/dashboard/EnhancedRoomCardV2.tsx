@@ -264,7 +264,11 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
             <Badge variant="secondary" className="text-xs">
               <UserX className="h-3 w-3 mr-1" />
               {t('rooms.checkoutRoom')}
-              {room.checkout_time && <span className="ml-1">({room.checkout_time})</span>}
+              {room.checkout_time && (
+                <span className="ml-1">
+                  {format(new Date(room.checkout_time), 'MMM d, HH:mm')}
+                </span>
+              )}
             </Badge>
           ) : (
             <Badge variant="outline" className="text-xs">
