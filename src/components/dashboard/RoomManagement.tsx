@@ -82,7 +82,8 @@ export function RoomManagement() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHotel, setSelectedHotel] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [roomTypeFilter, setRoomTypeFilter] = useState<'all' | 'checkout' | 'daily'>('all');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
   const [minibarDialogOpen, setMinibarDialogOpen] = useState(false);
@@ -315,14 +316,11 @@ export function RoomManagement() {
       room.hotel.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (room.room_name && room.room_name.toLowerCase().includes(searchQuery.toLowerCase()));
     
-    const matchesHotel = selectedHotel === '' || room.hotel === selectedHotel;
-    const matchesStatus = statusFilter === '' || room.status === statusFilter;
+    const matchesHotel = selectedHotel === 'all' || room.hotel === selectedHotel;
+    const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
     
     return matchesSearch && matchesHotel && matchesStatus;
   });
-
-  // Add room type filter state
-  const [roomTypeFilter, setRoomTypeFilter] = React.useState<'all' | 'checkout' | 'daily'>('all');
   
   // Apply room type filter
   const finalFilteredRooms = filteredRooms.filter((room) => {
@@ -532,7 +530,7 @@ export function RoomManagement() {
               <SelectValue placeholder="All Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Status</SelectItem>
+              <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="clean">Clean</SelectItem>
               <SelectItem value="dirty">Dirty</SelectItem>
               <SelectItem value="maintenance">Maintenance</SelectItem>
