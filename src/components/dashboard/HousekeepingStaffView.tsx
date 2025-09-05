@@ -43,10 +43,6 @@ export function HousekeepingStaffView() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
 
-  // For mobile users, use the mobile-optimized component
-  if (isMobile) {
-    return <MobileHousekeepingView />;
-  }
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
@@ -86,6 +82,10 @@ export function HousekeepingStaffView() {
       supabase.removeChannel(channel);
     };
   }, [user?.id, selectedDate]);
+
+  if (isMobile) {
+    return <MobileHousekeepingView />;
+  }
 
   const fetchAssignments = async () => {
     if (!user?.id) return;
