@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { Navigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
-import { Eye, EyeOff, Shield, Zap, Users, BarChart3 } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function Auth() {
   const { signIn, signUp, user, loading } = useAuth();
@@ -128,45 +128,16 @@ export default function Auth() {
           
           {/* Left Side - Hero Content */}
           <div className="text-center lg:text-left space-y-8 animate-fade-in-up">
-            <div className="space-y-4">
-              <div className="inline-flex items-center space-x-2 bg-primary/10 text-primary px-4 py-2 rounded-full text-sm font-medium animate-pulse-slow">
-                <Shield className="w-4 h-4" />
-                <span>Secure Hotel Management</span>
-              </div>
-              
-              <h1 className="text-4xl md:text-6xl font-bold leading-tight">
+            <div className="space-y-6">
+              <h1 className="text-5xl md:text-7xl font-bold leading-tight">
                 <span className="bg-gradient-to-r from-primary via-primary to-blue-600 bg-clip-text text-transparent">
-                  RD Hotels
+                  Welcome
                 </span>
-                <br />
-                <span className="text-foreground/80">Dashboard</span>
               </h1>
               
-              <p className="text-xl text-muted-foreground max-w-lg">
-                Streamline operations, manage staff, and deliver exceptional guest experiences
+              <p className="text-lg text-muted-foreground/80 max-w-sm">
+                Sign in to continue
               </p>
-            </div>
-
-            {/* Feature Icons */}
-            <div className="grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0">
-              <div className="text-center group">
-                <div className="w-12 h-12 mx-auto mb-2 bg-primary/10 rounded-full flex items-center justify-center group-hover:bg-primary/20 transition-colors animate-scale-in">
-                  <Users className="w-6 h-6 text-primary" />
-                </div>
-                <p className="text-sm text-muted-foreground">Staff Management</p>
-              </div>
-              <div className="text-center group">
-                <div className="w-12 h-12 mx-auto mb-2 bg-primary/10 rounded-full flex items-center justify-center group-hover:bg-primary/20 transition-colors animate-scale-in" style={{animationDelay: '0.1s'}}>
-                  <Zap className="w-6 h-6 text-primary" />
-                </div>
-                <p className="text-sm text-muted-foreground">Quick Actions</p>
-              </div>
-              <div className="text-center group">
-                <div className="w-12 h-12 mx-auto mb-2 bg-primary/10 rounded-full flex items-center justify-center group-hover:bg-primary/20 transition-colors animate-scale-in" style={{animationDelay: '0.2s'}}>
-                  <BarChart3 className="w-6 h-6 text-primary" />
-                </div>
-                <p className="text-sm text-muted-foreground">Analytics</p>
-              </div>
             </div>
           </div>
 
