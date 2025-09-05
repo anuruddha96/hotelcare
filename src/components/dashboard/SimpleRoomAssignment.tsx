@@ -70,8 +70,16 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
   };
 
   const handleQuickAssign = async (type: 'daily_cleaning' | 'checkout_cleaning') => {
+    console.log('handleQuickAssign called', { type, selectedStaff, selectedRooms, user });
+    
     if (!selectedStaff) {
       toast.error('Please select a housekeeper first');
+      return;
+    }
+
+    if (!user?.id) {
+      console.error('User ID is missing:', user);
+      toast.error('User not properly authenticated. Please refresh the page.');
       return;
     }
 
@@ -92,13 +100,15 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
       ).map(roomId => ({
         room_id: roomId,
         assigned_to: selectedStaff,
-        assigned_by: user?.id,
+        assigned_by: user.id,
         assignment_date: selectedDate,
         assignment_type: type,
         priority: type === 'checkout_cleaning' ? 2 : 1,
         estimated_duration: type === 'checkout_cleaning' ? 45 : 30,
         notes: `Quick assignment - ${type.replace('_', ' ')}`
       }));
+
+      console.log('Creating assignments:', assignments);
 
       const { error } = await supabase
         .from('room_assignments')

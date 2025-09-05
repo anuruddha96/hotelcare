@@ -75,21 +75,31 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
   const clearAll = () => setSelectedRooms([]);
 
   const assignSelectedRooms = async () => {
+    console.log('assignSelectedRooms called', { selectedStaff, selectedRooms, user });
+    
     if (!selectedStaff) return toast.error('Please select a housekeeper first');
     if (selectedRooms.length === 0) return toast.error('Select at least one room');
+    
+    if (!user?.id) {
+      console.error('User ID is missing:', user);
+      toast.error('User not properly authenticated. Please refresh the page.');
+      return;
+    }
 
     setLoading(true);
     try {
       const assignments = selectedRooms.map(roomId => ({
         room_id: roomId,
         assigned_to: selectedStaff,
-        assigned_by: user?.id as string,
+        assigned_by: user.id,
         assignment_date: selectedDate,
         assignment_type: 'daily_cleaning' as const,
         priority: 1,
         estimated_duration: 30,
         notes: 'Quick assignment - selected rooms'
       }));
+
+      console.log('Creating assignments:', assignments);
 
       const { error } = await supabase
         .from('room_assignments')

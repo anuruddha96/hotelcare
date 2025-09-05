@@ -165,10 +165,23 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
   };
 
   const createAssignments = async () => {
+    console.log('createAssignments called', { selectedStaff, selectedRooms, user });
+    
     if (!selectedStaff || selectedRooms.length === 0) {
+      console.log('Validation failed: missing staff or rooms', { selectedStaff, selectedRoomsCount: selectedRooms.length });
       toast({
         title: t('common.error'),
         description: t('assignment.selectStaffAndRooms'),
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!user?.id) {
+      console.error('User ID is missing:', user);
+      toast({
+        title: 'Error',
+        description: 'User not properly authenticated. Please refresh the page.',
         variant: 'destructive',
       });
       return;
@@ -184,7 +197,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
         return {
           room_id: roomId,
           assigned_to: selectedStaff,
-          assigned_by: user?.id,
+          assigned_by: user.id,
           assignment_date: selectedDate,
           assignment_type: assignmentType,
           priority: 2, // Standard priority for all housekeeping tasks
@@ -192,6 +205,8 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           notes: notes.trim() || null
         };
       });
+
+      console.log('Creating assignments:', assignments);
 
       const { error } = await supabase
         .from('room_assignments')
