@@ -107,7 +107,6 @@ export function HousekeepingStaffView() {
         `)
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate)
-        .order('status', { ascending: true }) // assigned first, then in_progress, then completed
         .order('priority', { ascending: false })
         .order('created_at', { ascending: true });
 
@@ -118,16 +117,13 @@ export function HousekeepingStaffView() {
 
       const { data, error } = await query;
 
-      if (error) throw error;
-      
-      let filteredData = data || [];
-      
-      // If no specific filter, exclude completed tasks for cleaner view
-      if (!statusFilter) {
-        filteredData = filteredData.filter((a: any) => a.status !== 'completed');
+      if (error) {
+        console.error('Database query error:', error);
+        throw error;
       }
       
-      setAssignments(filteredData);
+      console.log('Fetched assignments:', data);
+      setAssignments(data || []);
     } catch (error) {
       console.error('Error fetching assignments:', error);
       toast.error('Failed to load assignments');
