@@ -117,100 +117,113 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden gradient-mesh">
-      {/* Floating Background Elements */}
-      <div className="floating-element w-72 h-72 -top-36 -left-36 animate-float"></div>
-      <div className="floating-element w-96 h-96 -bottom-48 -right-48 animate-float"></div>
-      <div className="floating-element w-64 h-64 top-1/4 -right-32 animate-float"></div>
-      
+    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50">
       <div className="min-h-screen flex items-center justify-center p-4 relative z-10">
-        <div className="w-full max-w-6xl grid lg:grid-cols-1 gap-12 items-center justify-center">
+        <div className="w-full max-w-lg">
           
-          {/* Login Card - Centered */}
-          <div className="flex justify-center animate-slide-in">
-            <Card className="w-full max-w-md lg:max-w-lg xl:max-w-xl glass-card hover-lift animate-glow">
-              <CardHeader className="text-center space-y-6 pb-8 px-6 lg:px-8 xl:px-10">
-                <div className="mx-auto w-16 h-16 lg:w-20 lg:h-20 bg-primary/10 rounded-2xl flex items-center justify-center animate-float">
-                  <img 
-                    src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
-                    alt="RD Hotels" 
-                    className="w-10 h-10 lg:w-12 lg:h-12 object-contain"
+          {/* Header Section */}
+          <div className="text-center mb-8 space-y-6">
+            <div className="mx-auto w-20 h-20 bg-white rounded-2xl shadow-lg flex items-center justify-center">
+              <img 
+                src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
+                alt="RD Hotels" 
+                className="w-12 h-12 object-contain"
+              />
+            </div>
+            
+            <div className="space-y-3">
+              <h1 className="text-3xl lg:text-4xl font-bold text-slate-700">
+                Hotel Management Dashboard
+              </h1>
+              <p className="text-slate-600 text-base lg:text-lg max-w-md mx-auto leading-relaxed">
+                Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
+              </p>
+            </div>
+          </div>
+
+          {/* Login Card */}
+          <Card className="w-full bg-white/80 backdrop-blur-sm border-0 shadow-xl">
+            {/* Tab Navigation */}
+            <div className="border-b border-slate-200">
+              <div className="flex">
+                <button className="flex-1 py-4 px-6 text-center font-medium text-blue-600 border-b-2 border-blue-600 bg-blue-50/50">
+                  Sign In
+                </button>
+                <button className="flex-1 py-4 px-6 text-center font-medium text-slate-500 border-b-2 border-transparent hover:text-slate-700">
+                  Sign Up
+                </button>
+              </div>
+            </div>
+            
+            <CardContent className="p-6 lg:p-8">
+              <form onSubmit={handleSignIn} className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="signin-email" className="text-sm lg:text-base font-medium text-slate-700">
+                    Email or Username
+                  </Label>
+                  <Input
+                    id="signin-email"
+                    name="email"
+                    type="text"
+                    required
+                    placeholder="Enter your email or username"
+                    className="h-12 lg:h-14 text-base border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </div>
-                <div className="space-y-2">
-                  <CardTitle className="text-2xl lg:text-3xl font-bold text-foreground">
-                    Welcome to RD Hotels
-                  </CardTitle>
-                  <p className="text-sm lg:text-base text-muted-foreground">
-                    Sign in to access your dashboard
-                  </p>
-                </div>
-              </CardHeader>
-              
-              <CardContent className="space-y-6 px-6 lg:px-8 xl:px-10 pb-8">
-                <form onSubmit={handleSignIn} className="space-y-5">
-                  <div className="space-y-2">
-                    <Label htmlFor="signin-email" className="text-sm lg:text-base font-medium">Email or Username</Label>
-                    <Input
-                      id="signin-email"
-                      name="email"
-                      type="text"
-                      required
-                      placeholder="Enter your credentials"
-                      className="h-12 lg:h-14 text-base focus-ring modern-button"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signin-password" className="text-sm lg:text-base font-medium">Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="signin-password"
-                        name="password"
-                        type={showPassword ? "text" : "password"}
-                        required
-                        placeholder="Enter your password"
-                        className="h-12 lg:h-14 text-base pr-12 focus-ring"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-0 top-0 h-12 lg:h-14 px-3 hover:bg-transparent"
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? (
-                          <EyeOff className="h-5 w-5 text-muted-foreground" />
-                        ) : (
-                          <Eye className="h-5 w-5 text-muted-foreground" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                  
-                  <Button 
-                    type="submit" 
-                    className="w-full h-12 lg:h-14 text-base lg:text-lg font-medium modern-button bg-gradient-to-r from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90" 
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <div className="flex items-center space-x-2">
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>Signing In...</span>
-                      </div>
-                    ) : (
-                      'Sign In'
-                    )}
-                  </Button>
-                </form>
                 
+                <div className="space-y-2">
+                  <Label htmlFor="signin-password" className="text-sm lg:text-base font-medium text-slate-700">
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="signin-password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      required
+                      placeholder="Enter your password"
+                      className="h-12 lg:h-14 text-base pr-12 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-12 lg:h-14 px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-5 w-5 text-slate-400" />
+                      ) : (
+                        <Eye className="h-5 w-5 text-slate-400" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                
+                <Button 
+                  type="submit" 
+                  className="w-full h-12 lg:h-14 text-base lg:text-lg font-medium bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white border-0" 
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Signing In...</span>
+                    </div>
+                  ) : (
+                    'Sign In'
+                  )}
+                </Button>
+              </form>
+              
+              <div className="mt-6 text-center">
                 <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
                   <DialogTrigger asChild>
-                    <Button variant="ghost" className="w-full text-sm text-muted-foreground hover:text-foreground">
-                      Forgot your password?
+                    <Button variant="ghost" className="text-sm lg:text-base text-slate-600 hover:text-blue-600 hover:bg-transparent p-0">
+                      Forgot Password / Resend Verification
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="w-[95vw] max-w-md glass-card">
+                  <DialogContent className="w-[95vw] max-w-md bg-white/95 backdrop-blur-sm">
                     <DialogHeader>
                       <DialogTitle>Reset Password</DialogTitle>
                       <DialogDescription>
@@ -227,10 +240,14 @@ export default function Auth() {
                           type="email"
                           required
                           placeholder="your@email.com"
-                          className="h-11 focus-ring"
+                          className="h-11 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                         />
                       </div>
-                      <Button type="submit" className="w-full modern-button" disabled={resetLoading}>
+                      <Button 
+                        type="submit" 
+                        className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700" 
+                        disabled={resetLoading}
+                      >
                         {resetLoading ? (
                           <div className="flex items-center space-x-2">
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -243,9 +260,9 @@ export default function Auth() {
                     </form>
                   </DialogContent>
                 </Dialog>
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
