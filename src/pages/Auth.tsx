@@ -131,12 +131,16 @@ export default function Auth() {
             <div className="space-y-6">
               <h1 className="text-5xl md:text-7xl font-bold leading-tight">
                 <span className="bg-gradient-to-r from-primary via-primary to-blue-600 bg-clip-text text-transparent">
-                  Welcome
+                  Hotel
+                </span>
+                <br />
+                <span className="text-2xl md:text-4xl text-muted-foreground font-normal">
+                  Management System
                 </span>
               </h1>
               
-              <p className="text-lg text-muted-foreground/80 max-w-sm">
-                Sign in to continue
+              <p className="text-lg text-muted-foreground/70 max-w-md leading-relaxed">
+                Streamline operations and enhance guest experiences with our comprehensive management platform
               </p>
             </div>
           </div>
@@ -152,9 +156,14 @@ export default function Auth() {
                     className="w-10 h-10 object-contain"
                   />
                 </div>
-                <CardTitle className="text-2xl font-bold text-foreground">
-                  Welcome Back
-                </CardTitle>
+                <div className="space-y-2">
+                  <CardTitle className="text-2xl font-bold text-foreground">
+                    Welcome to RD Hotels
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Sign in to access your dashboard
+                  </p>
+                </div>
               </CardHeader>
               
               <CardContent className="space-y-6">
