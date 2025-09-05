@@ -72,11 +72,19 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
   const fetchStaff = async () => {
     try {
-      const { data, error } = await supabase
+      // Get current user's role first
+      const { data: currentUser, error: userError } = await supabase
         .from('profiles')
-        .select('id, full_name, nickname')
-        .eq('role', 'housekeeping')
-        .order('full_name');
+        .select('role')
+        .eq('id', user?.id)
+        .single();
+      
+      if (userError) throw userError;
+      
+      // Use the secure function to get assignable staff
+      const { data, error } = await supabase.rpc('get_assignable_staff_secure', {
+        requesting_user_role: currentUser?.role
+      });
 
       if (error) throw error;
       setStaff(data || []);

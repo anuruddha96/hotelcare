@@ -45,13 +45,14 @@ export function MobileHousekeepingView() {
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | null>(null);
 
   useEffect(() => {
     if (user?.id) {
       fetchAssignments();
       fetchSummary();
     }
-  }, [user?.id, selectedDate]);
+  }, [user?.id, selectedDate, statusFilter]);
 
   // Real-time subscription for assignment updates
   useEffect(() => {
@@ -83,7 +84,7 @@ export function MobileHousekeepingView() {
     if (!user?.id) return;
     
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('room_assignments')
         .select(`
           *,
@@ -100,8 +101,23 @@ export function MobileHousekeepingView() {
         .order('priority', { ascending: false })
         .order('created_at', { ascending: true });
 
+      // Apply status filter if set
+      if (statusFilter && statusFilter !== 'total') {
+        query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
+      }
+
+      const { data, error } = await query;
+
       if (error) throw error;
-      setAssignments((data || []).filter((a: any) => a.status !== 'completed'));
+      
+      let filteredData = data || [];
+      
+      // If no specific filter, exclude completed tasks for cleaner view  
+      if (!statusFilter) {
+        filteredData = filteredData.filter((a: any) => a.status !== 'completed');
+      }
+      
+      setAssignments(filteredData);
     } catch (error) {
       console.error('Error fetching assignments:', error);
       toast.error('Failed to load assignments');
@@ -184,9 +200,16 @@ export function MobileHousekeepingView() {
         </CardContent>
       </Card>
 
-      {/* Summary Cards - Mobile Grid */}
+      {/* Summary Cards - Mobile Grid with Clickable Filters */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-blue-200 dark:border-blue-800">
+        <Card 
+          className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+            statusFilter === 'total' 
+              ? 'ring-2 ring-blue-500 bg-blue-100 shadow-lg border-blue-500' 
+              : 'bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-blue-200 dark:border-blue-800 hover:shadow-md'
+          }`}
+          onClick={() => setStatusFilter(statusFilter === 'total' ? null : 'total')}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <CheckCircle className="h-4 w-4 text-blue-600" />
@@ -198,7 +221,14 @@ export function MobileHousekeepingView() {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 border-green-200 dark:border-green-800">
+        <Card 
+          className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+            statusFilter === 'completed' 
+              ? 'ring-2 ring-green-500 bg-green-100 shadow-lg border-green-500' 
+              : 'bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 border-green-200 dark:border-green-800 hover:shadow-md'
+          }`}
+          onClick={() => setStatusFilter(statusFilter === 'completed' ? null : 'completed')}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <CheckCircle className="h-4 w-4 text-green-600" />
@@ -210,7 +240,14 @@ export function MobileHousekeepingView() {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950 dark:to-amber-900 border-amber-200 dark:border-amber-800">
+        <Card 
+          className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+            statusFilter === 'in_progress' 
+              ? 'ring-2 ring-amber-500 bg-amber-100 shadow-lg border-amber-500' 
+              : 'bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950 dark:to-amber-900 border-amber-200 dark:border-amber-800 hover:shadow-md'
+          }`}
+          onClick={() => setStatusFilter(statusFilter === 'in_progress' ? null : 'in_progress')}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-amber-600" />
@@ -222,7 +259,14 @@ export function MobileHousekeepingView() {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 border-orange-200 dark:border-orange-800">
+        <Card 
+          className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+            statusFilter === 'assigned' 
+              ? 'ring-2 ring-orange-500 bg-orange-100 shadow-lg border-orange-500' 
+              : 'bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 border-orange-200 dark:border-orange-800 hover:shadow-md'
+          }`}
+          onClick={() => setStatusFilter(statusFilter === 'assigned' ? null : 'assigned')}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-orange-600" />
@@ -258,13 +302,19 @@ export function MobileHousekeepingView() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {assignments.map((assignment) => (
-              <AssignedRoomCard
-                key={assignment.id}
-                assignment={assignment}
-                onStatusUpdate={handleStatusUpdate}
-              />
-            ))}
+            {assignments
+              .sort((a, b) => {
+                // Sort order: assigned > in_progress > completed to keep working items visible
+                const statusOrder = { 'assigned': 0, 'in_progress': 1, 'completed': 2, 'cancelled': 3 };
+                return (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0);
+              })
+              .map((assignment) => (
+                <AssignedRoomCard
+                  key={assignment.id}
+                  assignment={assignment}
+                  onStatusUpdate={handleStatusUpdate}
+                />
+              ))}
           </div>
         )}
       </div>

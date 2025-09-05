@@ -68,7 +68,9 @@ export function Header() {
             />
             <div className="hidden sm:flex flex-col">
               <span className="text-base font-semibold tracking-tight">RD Hotels</span>
-              <span className="text-xs text-muted-foreground">Hotel Care Hub</span>
+              <span className="text-xs text-muted-foreground">
+                {profile?.assigned_hotel || 'Hotel Care Hub'}
+              </span>
             </div>
           </div>
         </div>
@@ -87,12 +89,19 @@ export function Header() {
           )}
           
           {profile && (
-            <Badge 
-              variant="secondary" 
-              className="text-xs sm:text-sm hidden sm:inline-flex"
-            >
-              {getRoleLabel(profile.role)}
-            </Badge>
+            <div className="flex flex-col items-end gap-1">
+              <Badge 
+                variant="secondary" 
+                className="text-xs sm:text-sm hidden sm:inline-flex"
+              >
+                {getRoleLabel(profile.role)}
+              </Badge>
+              {profile.assigned_hotel && (
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  {profile.assigned_hotel}
+                </span>
+              )}
+            </div>
           )}
           
           <DropdownMenu>

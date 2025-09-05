@@ -192,12 +192,29 @@ export function Dashboard() {
 
   const counts = getTicketCounts();
 
+  const getDefaultTab = (role?: string) => {
+    if (!role) return "rooms";
+    
+    switch (role) {
+      case 'housekeeping':
+      case 'housekeeping_manager':
+        return "housekeeping";
+      case 'maintenance':
+        return "tickets";
+      case 'reception':
+      case 'front_office':
+        return "rooms";
+      default:
+        return "rooms";
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <AutoAssignmentService />
       
       <div className="container mx-auto px-4 py-6">
-        <Tabs defaultValue={profile?.role && ['housekeeping', 'maintenance'].includes(profile.role) ? "tickets" : "rooms"} className="space-y-6">
+        <Tabs defaultValue={getDefaultTab(profile?.role)} className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">

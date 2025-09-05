@@ -322,12 +322,15 @@ export function RoomManagement() {
     return matchesSearch && matchesHotel && matchesStatus;
   });
   
-  // Apply room type filter
+  // Apply room type filter and active status filter
   const finalFilteredRooms = filteredRooms.filter((room) => {
-    if (roomTypeFilter === 'all') return true;
-    if (roomTypeFilter === 'checkout') return room.is_checkout_room;
-    if (roomTypeFilter === 'daily') return !room.is_checkout_room;
-    return true;
+    const matchesType = roomTypeFilter === 'all' || 
+      (roomTypeFilter === 'checkout' && room.is_checkout_room) ||
+      (roomTypeFilter === 'daily' && !room.is_checkout_room);
+    
+    const matchesActiveFilter = !activeStatusFilter || room.status === activeStatusFilter;
+    
+    return matchesType && matchesActiveFilter;
   });
 
   // Group rooms by hotel for better organization
@@ -353,9 +356,11 @@ export function RoomManagement() {
 
   const handleStatusFilterClick = (status: string) => {
     if (activeStatusFilter === status) {
-      setActiveStatusFilter(null); // Reset filter if same status clicked
+      setActiveStatusFilter(null);
+      setStatusFilter('all'); // Reset the main filter
     } else {
-      setActiveStatusFilter(status); // Set new filter
+      setActiveStatusFilter(status);
+      setStatusFilter(status); // Apply the filter
     }
   };
 

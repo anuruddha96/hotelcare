@@ -31,14 +31,14 @@ export function HousekeepingTab() {
     fetchUserRole();
   }, [user?.id]);
 
-  // Full management access: admin, top_management, manager, housekeeping_manager, reception
-  const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'reception'].includes(userRole);
+  // Full management access: admin, top_management, manager, housekeeping_manager, marketing, control_finance, hr, front_office
+  const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
   
-  // Can view housekeeping section: all staff with manager access + housekeeping + maintenance (read-only)
-  const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'maintenance'].includes(userRole);
+  // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
+  const canAccessHousekeeping = hasManagerAccess || ['housekeeping'].includes(userRole);
   
-  // Read-only access for minor staff
-  const isReadOnlyAccess = ['housekeeping', 'maintenance'].includes(userRole) && !hasManagerAccess;
+  // Read-only access for housekeeping staff only
+  const isReadOnlyAccess = ['housekeeping'].includes(userRole) && !hasManagerAccess;
 
   if (!canAccessHousekeeping) {
     return (
