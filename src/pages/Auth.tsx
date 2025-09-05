@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Navigate } from 'react-router-dom';
@@ -20,8 +21,8 @@ export default function Auth() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center gradient-mesh">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-primary border-t-transparent animate-glow"></div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
@@ -117,156 +118,130 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50">
-      <div className="min-h-screen flex items-center justify-center p-4 relative z-10">
-        <div className="w-full max-w-2xl">
-          
-          {/* Header Section */}
-          <div className="text-center mb-8 space-y-6">
-            <div className="mx-auto w-20 h-20 bg-white rounded-2xl shadow-lg flex items-center justify-center">
-              <img 
-                src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
-                alt="RD Hotels" 
-                className="w-12 h-12 object-contain"
-              />
-            </div>
-            
-            <div className="space-y-3">
-              <h1 className="text-3xl lg:text-4xl font-bold">
-                <span className="text-slate-700">Welcome to </span>
-                <span className="text-slate-700">RD </span>
-                <span className="text-blue-500">Hotels</span>
-              </h1>
-              <p className="text-slate-600 text-base lg:text-lg max-w-2xl mx-auto leading-relaxed">
-                Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
-              </p>
-            </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
+      <Card className="w-full max-w-sm sm:max-w-lg shadow-2xl border-0">
+        <CardHeader className="text-center space-y-3 sm:space-y-4 pb-4 sm:pb-6">
+          <div className="mx-auto w-24 h-16 sm:w-32 sm:h-20 flex items-center justify-center">
+            <img 
+              src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
+              alt="RD Hotels Logo" 
+              className="max-w-full max-h-full object-contain"
+            />
           </div>
-
-          {/* Login Card */}
-          <Card className="w-full bg-white/80 backdrop-blur-sm border-0 shadow-xl">
-            {/* Tab Navigation */}
-            <div className="border-b border-slate-200">
-              <div className="flex">
-                <button className="flex-1 py-4 px-6 text-center font-medium text-slate-700 border-b-2 border-blue-500 bg-blue-50/50">
-                  Sign In
-                </button>
-                <button className="flex-1 py-4 px-6 text-center font-medium text-slate-500 border-b-2 border-transparent hover:text-slate-700">
-                  Sign Up
-                </button>
-              </div>
-            </div>
+          <CardTitle className="text-xl sm:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
+            Hotel Management Dashboard
+          </CardTitle>
+          <CardDescription className="text-sm sm:text-base px-2 sm:px-0">
+            Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 sm:px-6">
+          <div className="w-full">
+            <h3 className="text-lg font-semibold text-center mb-4">Sign In</h3>
             
-            <CardContent className="p-8 lg:p-10">
-              <form onSubmit={handleSignIn} className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="signin-email" className="text-sm lg:text-base font-medium text-slate-700">
-                    Email or Username
-                  </Label>
-                  <Input
-                    id="signin-email"
-                    name="email"
-                    type="text"
-                    required
-                    placeholder="Enter your email or username"
-                    className="h-12 lg:h-14 text-base border-slate-200 focus:border-blue-400 focus:ring-blue-400"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="signin-password" className="text-sm lg:text-base font-medium text-slate-700">
-                    Password
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="signin-password"
-                      name="password"
-                      type={showPassword ? "text" : "password"}
-                      required
-                      placeholder="Enter your password"
-                      className="h-12 lg:h-14 text-base pr-12 border-slate-200 focus:border-blue-400 focus:ring-blue-400"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-12 lg:h-14 px-3 hover:bg-transparent"
-                      onClick={() => setShowPassword(!showPassword)}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-5 w-5 text-slate-400" />
-                      ) : (
-                        <Eye className="h-5 w-5 text-slate-400" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                
-                <Button 
-                  type="submit" 
-                  className="w-full h-12 lg:h-14 text-base lg:text-lg font-medium bg-blue-400 hover:bg-blue-500 text-white border-0" 
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Signing In...</span>
-                    </div>
-                  ) : (
-                    'Sign In'
-                  )}
-                </Button>
-              </form>
-              
-              <div className="mt-6 text-center">
-                <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="ghost" className="text-sm lg:text-base text-slate-600 hover:text-blue-600 hover:bg-transparent p-0">
-                      Forgot Password / Resend Verification
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="w-[95vw] max-w-md bg-white/95 backdrop-blur-sm">
-                    <DialogHeader>
-                      <DialogTitle>Reset Password</DialogTitle>
-                      <DialogDescription>
-                        Enter your email to receive a password reset link
-                      </DialogDescription>
-                    </DialogHeader>
-                    
-                    <form onSubmit={handleForgotPassword} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="reset-email">Email Address</Label>
-                        <Input
-                          id="reset-email"
-                          name="reset-email"
-                          type="email"
-                          required
-                          placeholder="your@email.com"
-                          className="h-11 border-slate-200 focus:border-blue-400 focus:ring-blue-400"
-                        />
-                      </div>
-                      <Button 
-                        type="submit" 
-                        className="w-full bg-blue-400 hover:bg-blue-500" 
-                        disabled={resetLoading}
-                      >
-                        {resetLoading ? (
-                          <div className="flex items-center space-x-2">
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            <span>Sending...</span>
-                          </div>
-                        ) : (
-                          'Send Reset Link'
-                        )}
-                      </Button>
-                    </form>
-                  </DialogContent>
-                </Dialog>
+            <form onSubmit={handleSignIn} className="space-y-3 sm:space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="signin-email" className="text-sm">Email or Username</Label>
+                <Input
+                  id="signin-email"
+                  name="email"
+                  type="text"
+                  required
+                  placeholder="Enter your email or username"
+                  className="h-9 sm:h-10"
+                />
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+              <div className="space-y-2">
+                <Label htmlFor="signin-password" className="text-sm">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="signin-password"
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    required
+                    placeholder="Enter your password"
+                    className="h-9 sm:h-10 pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-9 sm:h-10 px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <Button type="submit" className="w-full h-9 sm:h-10 text-sm" disabled={isLoading}>
+                {isLoading ? 'Signing In...' : 'Sign In'}
+              </Button>
+              
+              <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="sm" className="w-full mt-2 h-8 text-xs sm:text-sm">
+                    Forgot Password / Resend Verification
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="w-[95vw] max-w-sm sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="text-lg sm:text-xl">Reset Password or Resend Verification</DialogTitle>
+                    <DialogDescription className="text-sm">
+                      Choose an option to reset your password or resend email verification.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Tabs defaultValue="reset" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2 h-8 sm:h-10">
+                      <TabsTrigger value="reset" className="text-xs sm:text-sm">Reset Password</TabsTrigger>
+                      <TabsTrigger value="resend" className="text-xs sm:text-sm">Resend Verification</TabsTrigger>
+                    </TabsList>
+                    
+                    <TabsContent value="reset">
+                      <form onSubmit={handleForgotPassword} className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="reset-email">Email</Label>
+                          <Input
+                            id="reset-email"
+                            name="reset-email"
+                            type="email"
+                            required
+                            placeholder="Enter your email"
+                          />
+                        </div>
+                        <Button type="submit" className="w-full" disabled={resetLoading}>
+                          {resetLoading ? 'Sending...' : 'Send Reset Link'}
+                        </Button>
+                      </form>
+                    </TabsContent>
+                    
+                    <TabsContent value="resend">
+                      <form onSubmit={handleResendVerification} className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="resend-email">Email</Label>
+                          <Input
+                            id="resend-email"
+                            name="resend-email"
+                            type="email"
+                            required
+                            placeholder="Enter your email"
+                          />
+                        </div>
+                        <Button type="submit" className="w-full" disabled={resetLoading}>
+                          {resetLoading ? 'Sending...' : 'Resend Verification'}
+                        </Button>
+                      </form>
+                    </TabsContent>
+                  </Tabs>
+                </DialogContent>
+              </Dialog>
+            </form>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
