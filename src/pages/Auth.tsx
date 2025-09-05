@@ -128,41 +128,41 @@ export default function Auth() {
           
           {/* Login Card - Centered */}
           <div className="flex justify-center animate-slide-in">
-            <Card className="w-full max-w-md glass-card hover-lift animate-glow">
-              <CardHeader className="text-center space-y-6 pb-6">
-                <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center animate-float">
+            <Card className="w-full max-w-md lg:max-w-lg xl:max-w-xl glass-card hover-lift animate-glow">
+              <CardHeader className="text-center space-y-6 pb-8 px-6 lg:px-8 xl:px-10">
+                <div className="mx-auto w-16 h-16 lg:w-20 lg:h-20 bg-primary/10 rounded-2xl flex items-center justify-center animate-float">
                   <img 
                     src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
                     alt="RD Hotels" 
-                    className="w-10 h-10 object-contain"
+                    className="w-10 h-10 lg:w-12 lg:h-12 object-contain"
                   />
                 </div>
                 <div className="space-y-2">
-                  <CardTitle className="text-2xl font-bold text-foreground">
+                  <CardTitle className="text-2xl lg:text-3xl font-bold text-foreground">
                     Welcome to RD Hotels
                   </CardTitle>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm lg:text-base text-muted-foreground">
                     Sign in to access your dashboard
                   </p>
                 </div>
               </CardHeader>
               
-              <CardContent className="space-y-6">
-                <form onSubmit={handleSignIn} className="space-y-4">
+              <CardContent className="space-y-6 px-6 lg:px-8 xl:px-10 pb-8">
+                <form onSubmit={handleSignIn} className="space-y-5">
                   <div className="space-y-2">
-                    <Label htmlFor="signin-email" className="text-sm font-medium">Email or Username</Label>
+                    <Label htmlFor="signin-email" className="text-sm lg:text-base font-medium">Email or Username</Label>
                     <Input
                       id="signin-email"
                       name="email"
                       type="text"
                       required
                       placeholder="Enter your credentials"
-                      className="h-12 focus-ring modern-button"
+                      className="h-12 lg:h-14 text-base focus-ring modern-button"
                     />
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="signin-password" className="text-sm font-medium">Password</Label>
+                    <Label htmlFor="signin-password" className="text-sm lg:text-base font-medium">Password</Label>
                     <div className="relative">
                       <Input
                         id="signin-password"
@@ -170,13 +170,13 @@ export default function Auth() {
                         type={showPassword ? "text" : "password"}
                         required
                         placeholder="Enter your password"
-                        className="h-12 pr-12 focus-ring"
+                        className="h-12 lg:h-14 text-base pr-12 focus-ring"
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="absolute right-0 top-0 h-12 px-3 hover:bg-transparent"
+                        className="absolute right-0 top-0 h-12 lg:h-14 px-3 hover:bg-transparent"
                         onClick={() => setShowPassword(!showPassword)}
                       >
                         {showPassword ? (
@@ -190,7 +190,7 @@ export default function Auth() {
                   
                   <Button 
                     type="submit" 
-                    className="w-full h-12 text-base font-medium modern-button bg-gradient-to-r from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90" 
+                    className="w-full h-12 lg:h-14 text-base lg:text-lg font-medium modern-button bg-gradient-to-r from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90" 
                     disabled={isLoading}
                   >
                     {isLoading ? (
