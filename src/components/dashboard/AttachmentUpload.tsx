@@ -16,7 +16,7 @@ interface AttachmentUploadProps {
   className?: string;
 }
 
-interface AttachmentFile {
+export interface AttachmentFile {
   file: File;
   preview?: string;
   type: 'image' | 'document';
@@ -76,6 +76,12 @@ export function AttachmentUpload({
     }
 
     setAttachments(prev => [...prev, ...newFiles]);
+    // For ticket creation, we pass the file objects; for comments, we pass empty array until upload
+    if (ticketId) {
+      onAttachmentsChange([]); // Will be updated after upload
+    } else {
+      // For ticket creation, we can't pass strings yet, so we'll handle this differently
+    }
   };
 
   const uploadAttachments = async (): Promise<string[]> => {
@@ -134,7 +140,11 @@ export function AttachmentUpload({
   };
 
   const removeAttachment = (index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
+    const newAttachments = attachments.filter((_, i) => i !== index);
+    setAttachments(newAttachments);
+    // Only update parent if we have uploaded URLs
+    const uploadedUrls = newAttachments.filter(att => att.uploaded && att.url).map(att => att.url!);
+    onAttachmentsChange(uploadedUrls);
   };
 
   const getFileIcon = (attachment: AttachmentFile) => {

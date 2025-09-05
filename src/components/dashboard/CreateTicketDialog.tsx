@@ -15,10 +15,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { AttachmentUpload } from './AttachmentUpload';
+import { AttachmentUpload, AttachmentFile } from './AttachmentUpload';
 import { toast } from '@/hooks/use-toast';
 import { hotels } from './HotelFilter';
-import { Lightbulb, Star, Zap, AlertTriangle, Wrench, Droplet, Thermometer, Bed, Wifi, Utensils } from 'lucide-react';
+import { useTranslation } from '@/hooks/useTranslation';
+import { Lightbulb, Star, Zap, AlertTriangle, Wrench, Droplet, Thermometer, Bed, Wifi, Utensils, Languages } from 'lucide-react';
 
 interface CreateTicketDialogProps {
   open: boolean;
@@ -85,13 +86,15 @@ const priorityConfig = {
 
 export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: CreateTicketDialogProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
-  const [attachments, setAttachments] = useState<string[]>([]);
-  const [createdTicketId, setCreatedTicketId] = useState<string | null>(null);
   const [canCreateTickets, setCanCreateTickets] = useState(true);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const attachmentUploadRef = useRef<{ uploadAttachments: () => Promise<string[]> }>(null);
+  const [showTranslation, setShowTranslation] = useState(false);
+  const [originalTitle, setOriginalTitle] = useState('');
+  const [originalDescription, setOriginalDescription] = useState('');
+  const attachmentUploadRef = useRef<any>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -123,6 +126,54 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     }
   }, [open, profile?.id]);
 
+  // Auto-translate text
+  const translateText = async (text: string, targetLanguage: string) => {
+    if (!text.trim() || targetLanguage === 'en') return text;
+    
+    try {
+      // Simple translation mapping for supported languages
+      const translations: { [key: string]: { [key: string]: string } } = {
+        hu: {
+          'air conditioning not working': 'légkondicionáló nem működik',
+          'tv not functioning': 'TV nem működik',
+          'light bulbs burned out': 'égő kiégett',
+          'wifi connection problems': 'WiFi kapcsolati problémák',
+          'leaky faucet': 'csöpögő csap',
+          'toilet not flushing': 'WC nem húz',
+          'hot water not working': 'melegvíz nem működik',
+        },
+        es: {
+          'air conditioning not working': 'aire acondicionado no funciona',
+          'tv not functioning': 'TV no funciona',
+          'light bulbs burned out': 'bombillas fundidas',
+          'wifi connection problems': 'problemas de conexión WiFi',
+          'leaky faucet': 'grifo que gotea',
+          'toilet not flushing': 'inodoro no descarga',
+          'hot water not working': 'agua caliente no funciona',
+        },
+        vi: {
+          'air conditioning not working': 'điều hòa không hoạt động',
+          'tv not functioning': 'TV không hoạt động',
+          'light bulbs burned out': 'bóng đèn cháy',
+          'wifi connection problems': 'vấn đề kết nối WiFi',
+          'leaky faucet': 'vòi nước bị rò rỉ',
+          'toilet not flushing': 'toilet không xả nước',
+          'hot water not working': 'nước nóng không hoạt động',
+        }
+      };
+
+      const langMap = translations[targetLanguage];
+      if (langMap && langMap[text.toLowerCase()]) {
+        return langMap[text.toLowerCase()];
+      }
+      
+      return text; // Return original if no translation found
+    } catch (error) {
+      console.error('Translation error:', error);
+      return text;
+    }
+  };
+
   // Check if user can select any hotel or only their assigned one
   const canSelectAnyHotel = profile?.role === 'admin' || profile?.role === 'top_management';
   
@@ -132,14 +183,14 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     : hotels.filter(h => h.id !== 'all' && (profile?.assigned_hotel ? h.name === profile.assigned_hotel : true));
 
   const departments = [
-    { value: 'maintenance', label: 'Maintenance' },
-    { value: 'housekeeping', label: 'Housekeeping' },
-    { value: 'reception', label: 'Reception' },
-    { value: 'marketing', label: 'Marketing' },
-    { value: 'back_office', label: 'Back Office' },
-    { value: 'control', label: 'Control' },
-    { value: 'finance', label: 'Finance' },
-    { value: 'top_management', label: 'Top Management' },
+    { value: 'maintenance', label: t('tickets.department.maintenance') },
+    { value: 'housekeeping', label: t('tickets.department.housekeeping') },
+    { value: 'reception', label: t('tickets.department.reception') },
+    { value: 'marketing', label: t('tickets.department.marketing') },
+    { value: 'back_office', label: t('tickets.department.backOffice') },
+    { value: 'control', label: t('tickets.department.control') },
+    { value: 'finance', label: t('tickets.department.finance') },
+    { value: 'top_management', label: t('tickets.department.topManagement') },
   ];
 
   // Filter issues based on search term
@@ -156,7 +207,10 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
     setLoading(true);
     try {
-      // First, create the ticket
+      // Get attachments from the ref
+      const attachments = attachmentUploadRef.current?.getAttachments() || [];
+      
+      // First, create the ticket without attachments
       const { data: ticketData, error: ticketError } = await supabase
         .from('tickets')
         .insert({
@@ -168,21 +222,43 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
           hotel: formData.hotel,
           created_by: profile.id,
           ticket_number: '', // Will be auto-generated by trigger
-          attachment_urls: attachments.length > 0 ? attachments : null,
+          original_title: originalTitle || formData.title,
+          original_description: originalDescription || formData.description,
         })
         .select()
         .single();
 
       if (ticketError) throw ticketError;
 
-      // Set the created ticket ID for attachments
-      if (ticketData) {
-        setCreatedTicketId(ticketData.id);
+      let uploadedAttachmentUrls: string[] = [];
+
+      // If there are attachments, upload them now using the ticket ID
+      if (attachments.length > 0 && ticketData) {
+        try {
+          uploadedAttachmentUrls = await uploadAttachmentsToStorage(ticketData.id, attachments);
+          
+          // Update the ticket with attachment URLs
+          const { error: updateError } = await supabase
+            .from('tickets')
+            .update({ 
+              attachment_urls: uploadedAttachmentUrls.length > 0 ? uploadedAttachmentUrls : null 
+            })
+            .eq('id', ticketData.id);
+
+          if (updateError) throw updateError;
+        } catch (uploadError) {
+          console.error('Attachment upload error:', uploadError);
+          toast({
+            title: t('common.warning'),
+            description: t('tickets.attachmentUploadFailed'),
+            variant: 'destructive',
+          });
+        }
       }
 
       toast({
-        title: 'Success',
-        description: 'Ticket created successfully',
+        title: t('common.success'),
+        description: t('tickets.createSuccess'),
       });
 
       // Reset form
@@ -194,16 +270,17 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
         department: '',
         hotel: profile?.assigned_hotel || '',
       });
-      setAttachments([]);
-      setCreatedTicketId(null);
       setSearchTerm('');
       setShowSuggestions(false);
+      setShowTranslation(false);
+      setOriginalTitle('');
+      setOriginalDescription('');
       
       onTicketCreated();
       onOpenChange(false);
     } catch (error: any) {
       toast({
-        title: 'Error',
+        title: t('common.error'),
         description: error.message,
         variant: 'destructive',
       });
@@ -212,14 +289,65 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     }
   };
 
-  const handleAttachmentsChange = (newAttachments: string[]) => {
-    setAttachments(newAttachments);
+  // Helper function to upload attachments to storage
+  const uploadAttachmentsToStorage = async (ticketId: string, attachmentFiles: AttachmentFile[]): Promise<string[]> => {
+    const uploadedUrls: string[] = [];
+
+    for (const attachment of attachmentFiles) {
+      if (attachment.file) {
+        try {
+          const fileExt = attachment.file.name.split('.').pop();
+          const fileName = `${ticketId}/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+
+          const { data, error } = await supabase.storage
+            .from('ticket-attachments')
+            .upload(fileName, attachment.file, {
+              cacheControl: '3600',
+              upsert: false
+            });
+
+          if (error) throw error;
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('ticket-attachments')
+            .getPublicUrl(data.path);
+
+          uploadedUrls.push(publicUrl);
+        } catch (error) {
+          console.error('Individual file upload error:', error);
+        }
+      }
+    }
+
+    return uploadedUrls;
   };
 
-  const handleTitleChange = (value: string) => {
+  const handleTitleChange = async (value: string) => {
     setFormData({ ...formData, title: value });
     setSearchTerm(value);
     setShowSuggestions(value.length > 0);
+    
+    // Auto-translate if enabled and user language is not English
+    if (showTranslation && value && !originalTitle) {
+      setOriginalTitle(value);
+      const translated = await translateText(value, 'en');
+      if (translated !== value) {
+        setFormData({ ...formData, title: translated });
+      }
+    }
+  };
+
+  const handleDescriptionChange = async (value: string) => {
+    setFormData({ ...formData, description: value });
+    
+    // Auto-translate if enabled and user language is not English
+    if (showTranslation && value && !originalDescription) {
+      setOriginalDescription(value);
+      const translated = await translateText(value, 'en');
+      if (translated !== value) {
+        setFormData({ ...formData, description: translated });
+      }
+    }
   };
 
   const selectSuggestion = (suggestion: string) => {
@@ -234,10 +362,10 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Star className="h-5 w-5 text-primary" />
-            Create New Ticket
+            {t('tickets.createTitle')}
           </DialogTitle>
           <DialogDescription className="text-sm">
-            Submit a new maintenance request for hotel staff to review and address.
+            {t('tickets.createDescription')}
           </DialogDescription>
         </DialogHeader>
         
@@ -245,33 +373,56 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
           <div className="p-6 text-center">
             <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">
-              You do not have permission to create tickets. Please contact your administrator.
+              {t('tickets.noPermission')}
             </p>
             <Button 
               onClick={() => onOpenChange(false)} 
               className="mt-4"
               variant="outline"
             >
-              Close
+              {t('common.close')}
             </Button>
           </div>
         ) : (
           <div className="flex-1 overflow-auto">
             <form onSubmit={handleSubmit} className="space-y-6 p-1">
+              {/* Auto-translate toggle */}
+              <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Languages className="h-4 w-4 text-primary" />
+                  <Label className="text-sm font-medium">{t('tickets.autoTranslate')}</Label>
+                </div>
+                <Button
+                  type="button"
+                  variant={showTranslation ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowTranslation(!showTranslation)}
+                >
+                  {showTranslation ? t('common.on') : t('common.off')}
+                </Button>
+              </div>
+
               {/* Title with Smart Suggestions */}
               <div className="space-y-2 relative">
                 <Label htmlFor="title" className="flex items-center gap-2">
                   <Lightbulb className="h-4 w-4" />
-                  Title
+                  {t('tickets.title')}
                 </Label>
                 <Input
                   id="title"
                   value={formData.title}
                   onChange={(e) => handleTitleChange(e.target.value)}
-                  placeholder="Start typing to see suggestions..."
+                  placeholder={t('tickets.titlePlaceholder')}
                   required
                   className="transition-all duration-200 focus:ring-2 focus:ring-primary/20"
                 />
+                
+                {/* Show original text if translated */}
+                {showTranslation && originalTitle && originalTitle !== formData.title && (
+                  <div className="text-xs text-muted-foreground p-2 bg-muted/30 rounded">
+                    <strong>{t('tickets.original')}:</strong> {originalTitle}
+                  </div>
+                )}
                 
                 {/* Smart Suggestions */}
                 {showSuggestions && filteredIssues.length > 0 && (
@@ -280,7 +431,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                       <div className="p-3 bg-primary/5 border-b">
                         <p className="text-xs font-medium text-primary flex items-center gap-1">
                           <Star className="h-3 w-3" />
-                          Common Issues - Click to Select
+                          {t('tickets.commonIssues')}
                         </p>
                       </div>
                       {filteredIssues.map((category) => (
@@ -310,19 +461,19 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="room_number">Room Number</Label>
+                  <Label htmlFor="room_number">{t('tickets.roomNumber')}</Label>
                   <Input
                     id="room_number"
                     value={formData.room_number}
                     onChange={(e) => setFormData({ ...formData, room_number: e.target.value })}
-                    placeholder="e.g. 101, Lobby, Kitchen"
+                    placeholder={t('tickets.roomNumberPlaceholder')}
                     required
                     className="transition-all duration-200 focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="priority">Priority Level</Label>
+                  <Label htmlFor="priority">{t('tickets.priority')}</Label>
                   <Select 
                     value={formData.priority} 
                     onValueChange={(value: 'low' | 'medium' | 'high' | 'urgent') => 
@@ -338,8 +489,8 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                           <div className="flex items-center gap-2">
                             <div className={`w-3 h-3 rounded-full ${config.color}`} />
                             <div>
-                              <div className="font-medium">{config.label}</div>
-                              <div className="text-xs text-muted-foreground">{config.description}</div>
+                              <div className="font-medium">{t(`tickets.priority.${key}`)}</div>
+                              <div className="text-xs text-muted-foreground">{t(`tickets.priority.${key}Description`)}</div>
                             </div>
                           </div>
                         </SelectItem>
@@ -351,13 +502,13 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="department">Department</Label>
+                  <Label htmlFor="department">{t('tickets.department.label')}</Label>
                   <Select 
                     value={formData.department} 
                     onValueChange={(value) => setFormData({ ...formData, department: value })}
                   >
                     <SelectTrigger className="transition-all duration-200 focus:ring-2 focus:ring-primary/20">
-                      <SelectValue placeholder="Select Department" />
+                      <SelectValue placeholder={t('tickets.department.placeholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {departments.map((dept) => (
@@ -371,10 +522,10 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
                 <div className="space-y-2">
                   <Label htmlFor="hotel">
-                    Hotel
+                    {t('tickets.hotel')}
                     {profile?.assigned_hotel && !canSelectAnyHotel && (
                       <Badge variant="secondary" className="ml-2 text-xs">
-                        Assigned: {profile.assigned_hotel}
+                        {t('tickets.assigned')}: {profile.assigned_hotel}
                       </Badge>
                     )}
                   </Label>
@@ -384,7 +535,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                     disabled={!canSelectAnyHotel && !!profile?.assigned_hotel}
                   >
                     <SelectTrigger className="transition-all duration-200 focus:ring-2 focus:ring-primary/20">
-                      <SelectValue placeholder="Select Hotel" />
+                      <SelectValue placeholder={t('tickets.hotelPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {availableHotels.map((hotel) => (
@@ -398,22 +549,29 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">{t('tickets.description')}</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Please provide detailed information about the issue, including any relevant details that will help our maintenance team resolve it quickly..."
+                  onChange={(e) => handleDescriptionChange(e.target.value)}
+                  placeholder={t('tickets.descriptionPlaceholder')}
                   rows={4}
                   required
                   className="transition-all duration-200 focus:ring-2 focus:ring-primary/20 resize-none"
                 />
+                
+                {/* Show original description if translated */}
+                {showTranslation && originalDescription && originalDescription !== formData.description && (
+                  <div className="text-xs text-muted-foreground p-2 bg-muted/30 rounded">
+                    <strong>{t('tickets.original')}:</strong> {originalDescription}
+                  </div>
+                )}
               </div>
 
               {/* Attachment Upload */}
               <AttachmentUpload
-                ticketId={createdTicketId}
-                onAttachmentsChange={handleAttachmentsChange}
+                ref={attachmentUploadRef}
+                onAttachmentsChange={() => {}}
                 maxFiles={5}
               />
 
@@ -425,7 +583,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                   disabled={loading}
                   className="transition-all duration-200"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button 
                   type="submit" 
@@ -435,12 +593,12 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                   {loading ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                      Creating...
+                      {t('tickets.creating')}
                     </>
                   ) : (
                     <>
                       <Star className="h-4 w-4 mr-2" />
-                      Create Ticket
+                      {t('tickets.create')}
                     </>
                   )}
                 </Button>
