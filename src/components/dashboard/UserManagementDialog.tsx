@@ -229,7 +229,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
 
   const handleDeleteUser = async (userId: string, userName: string) => {
     try {
-      // Use the new secure function instead of admin API
+      // Use the original delete function for now
       const { data, error } = await supabase.rpc('delete_user_profile', {
         p_user_id: userId
       });
