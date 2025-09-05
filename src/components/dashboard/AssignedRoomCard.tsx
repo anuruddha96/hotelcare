@@ -162,22 +162,22 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   };
 
   return (
-    <Card className={`hover:shadow-md transition-all duration-200 ${assignment.status === 'completed' ? 'opacity-75' : ''}`}>
-      <CardHeader className="pb-3">
+    <Card className={`group hover:shadow-lg transition-all duration-300 border-0 bg-gradient-to-r ${assignment.status === 'completed' ? 'opacity-75 from-slate-50 to-slate-100' : 'from-white to-slate-50'} shadow-md`}>
+      <CardHeader className="pb-4">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-3">
-            <CardTitle className="text-xl font-bold text-foreground">
+            <CardTitle className="text-2xl font-bold text-slate-800">
               Room {assignment.rooms?.room_number || 'N/A'}
             </CardTitle>
             <Badge 
-              className={`${getStatusColor(assignment.status)} font-medium px-3 py-1 text-xs uppercase tracking-wide`}
+              className={`${getStatusColor(assignment.status)} font-semibold px-4 py-2 text-sm uppercase tracking-wide rounded-full shadow-sm`}
             >
               {assignment.status === 'in_progress' ? 'In Progress' : assignment.status.replace('_', ' ')}
             </Badge>
             {assignment.priority > 1 && (
               <Badge 
                 variant="outline" 
-                className={`${getPriorityColor(assignment.priority)} font-medium px-3 py-1 text-xs border-2`}
+                className={`${getPriorityColor(assignment.priority)} font-semibold px-4 py-2 text-sm border-2 rounded-full shadow-sm`}
               >
                 {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
               </Badge>
@@ -185,40 +185,54 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           </div>
           <Badge 
             variant="outline" 
-            className="bg-slate-100 text-slate-700 border-slate-300 font-medium px-3 py-1 text-xs"
+            className="bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold px-4 py-2 text-sm rounded-full hover:bg-indigo-100 transition-colors"
           >
             {getAssignmentTypeLabel(assignment.assignment_type)}
           </Badge>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         {/* Room Details */}
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-            <span>{assignment.rooms?.hotel ?? 'Unknown Hotel'}</span>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+            <MapPin className="h-5 w-5 text-slate-500" />
+            <div>
+              <p className="text-sm font-medium text-slate-600">Hotel</p>
+              <p className="text-lg font-semibold text-slate-800">{assignment.rooms?.hotel || 'Unknown Hotel'}</p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <BedDouble className="h-4 w-4 text-muted-foreground" />
-            <span>
-              {assignment.rooms?.floor_number !== undefined && assignment.rooms?.floor_number !== null 
-                ? `Floor ${assignment.rooms.floor_number}` 
-                : 'Floor info unavailable'
-              }
-            </span>
+          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+            <BedDouble className="h-5 w-5 text-slate-500" />
+            <div>
+              <p className="text-sm font-medium text-slate-600">Floor</p>
+              <p className="text-lg font-semibold text-slate-800">
+                {assignment.rooms?.floor_number !== undefined && assignment.rooms?.floor_number !== null 
+                  ? `Floor ${assignment.rooms.floor_number}` 
+                  : 'Floor info unavailable'
+                }
+              </p>
+            </div>
           </div>
           {assignment.rooms?.room_name && (
-            <div className="col-span-2">
-              <span className="font-medium">{assignment.rooms.room_name}</span>
+            <div className="col-span-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm font-medium text-blue-600">Room Name</p>
+              <p className="text-lg font-semibold text-blue-800">{assignment.rooms.room_name}</p>
             </div>
           )}
           {assignment.estimated_duration && (
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span>{assignment.estimated_duration} min</span>
+            <div className="col-span-2 flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <div className="flex items-center gap-3">
+                <Clock className="h-5 w-5 text-amber-600" />
+                <div>
+                  <p className="text-sm font-medium text-amber-600">Estimated Time</p>
+                  <p className="text-lg font-semibold text-amber-800">{assignment.estimated_duration} minutes</p>
+                </div>
+              </div>
               {assignment.status === 'in_progress' && assignment.started_at && (
-                <TimerComponent startedAt={assignment.started_at} />
+                <div className="bg-white px-3 py-2 rounded-md shadow-sm border border-amber-300">
+                  <TimerComponent startedAt={assignment.started_at} />
+                </div>
               )}
             </div>
           )}
@@ -226,8 +240,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         {/* Assignment Notes */}
         {assignment.notes && (
-          <div className="p-3 bg-muted rounded-md">
-            <p className="text-sm">
+          <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+            <h4 className="font-semibold text-blue-800 mb-2">Assignment Notes</h4>
+            <p className="text-sm text-blue-700 leading-relaxed">
               {shouldTranslateContent(language) 
                 ? translateText(assignment.notes, language)
                 : assignment.notes
@@ -237,53 +252,68 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         )}
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-3">
           {assignment.status === 'assigned' && (
             <Button
-              size="sm"
+              size="lg"
               onClick={() => updateAssignmentStatus('in_progress')}
               disabled={loading}
-              className="flex items-center gap-2"
+              className="flex items-center gap-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
             >
-              <Play className="h-4 w-4" />
+              <Play className="h-5 w-5" />
               {t('housekeeping.start')}
             </Button>
           )}
           
           {assignment.status === 'in_progress' && (
             <Button
-              size="sm"
+              size="lg"
               onClick={() => updateAssignmentStatus('completed')}
               disabled={loading}
-              className="flex items-center gap-2"
+              className="flex items-center gap-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
             >
-              <CheckCircle className="h-4 w-4" />
+              <CheckCircle className="h-5 w-5" />
               {t('housekeeping.complete')}
             </Button>
           )}
 
           <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" variant="outline" className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4" />
+              <Button 
+                size="lg" 
+                variant="outline" 
+                className="flex items-center gap-3 border-2 border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400 font-semibold px-6 py-3 rounded-xl shadow-md hover:shadow-lg transition-all duration-200"
+              >
+                <MessageSquare className="h-5 w-5" />
                 {t('housekeeping.addNote')}
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>{t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number || 'N/A'}</DialogTitle>
+                <DialogTitle className="text-xl font-bold text-slate-800">
+                  {t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number || 'N/A'}
+                </DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <Textarea
                   placeholder={t('housekeeping.enterNote')}
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
+                  className="min-h-[100px] border-2 border-slate-200 focus:border-blue-400 rounded-lg"
                 />
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
+                <div className="flex justify-end gap-3">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setNoteDialogOpen(false)}
+                    className="border-2 border-slate-300 text-slate-700 hover:bg-slate-50 px-6 py-2 rounded-lg font-semibold"
+                  >
                     {t('common.cancel')}
                   </Button>
-                  <Button onClick={addNote} disabled={!newNote.trim()}>
+                  <Button 
+                    onClick={addNote} 
+                    disabled={!newNote.trim()}
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-6 py-2 rounded-lg font-semibold shadow-md hover:shadow-lg transition-all"
+                  >
                     {t('housekeeping.addNote')}
                   </Button>
                 </div>
@@ -293,9 +323,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
           {assignment.rooms && (
             <Button 
-              size="sm" 
+              size="lg" 
               variant="outline"
               onClick={() => setRoomDetailOpen(true)}
+              className="flex items-center gap-3 border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50 hover:border-indigo-400 font-semibold px-6 py-3 rounded-xl shadow-md hover:shadow-lg transition-all duration-200"
             >
               {t('housekeeping.roomDetails')}
             </Button>
@@ -304,11 +335,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         {/* Room Status Indicator */}
         {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
-          <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
-            <AlertTriangle className="h-4 w-4 text-yellow-600" />
-            <span className="text-sm text-yellow-800">
-              {t('housekeeping.roomStatus')} {assignment.rooms.status}
-            </span>
+          <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-yellow-50 to-amber-50 border-2 border-yellow-200 rounded-lg shadow-sm">
+            <AlertTriangle className="h-5 w-5 text-yellow-600" />
+            <div>
+              <p className="text-sm font-medium text-yellow-600">Room Status Alert</p>
+              <p className="text-lg font-semibold text-yellow-800 capitalize">
+                {t('housekeeping.roomStatus')} {assignment.rooms.status}
+              </p>
+            </div>
           </div>
         )}
       </CardContent>

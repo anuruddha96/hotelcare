@@ -97,7 +97,7 @@ export function HousekeepingStaffView() {
         .from('room_assignments')
         .select(`
           *,
-          rooms (
+          rooms:room_id (
             room_number,
             hotel,
             status,
@@ -108,7 +108,7 @@ export function HousekeepingStaffView() {
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate)
         .order('priority', { ascending: false })
-        .order('status', { ascending: true }) // Keep assigned first, then in_progress, then completed
+        .order('status', { ascending: true })
         .order('created_at', { ascending: true });
 
       // Apply status filter if set
