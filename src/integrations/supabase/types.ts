@@ -765,6 +765,19 @@ export type Database = {
         Args: { _user_id: string }
         Returns: boolean
       }
+      update_user_credentials: {
+        Args: {
+          p_assigned_hotel?: string
+          p_email?: string
+          p_full_name?: string
+          p_nickname?: string
+          p_phone_number?: string
+          p_role?: Database["public"]["Enums"]["user_role"]
+          p_send_password_reset?: boolean
+          p_user_id: string
+        }
+        Returns: Json
+      }
       user_can_view_ticket: {
         Args: { ticket_id: string }
         Returns: boolean
