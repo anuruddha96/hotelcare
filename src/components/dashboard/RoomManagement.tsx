@@ -390,9 +390,9 @@ export function RoomManagement() {
             <h2 className="text-2xl font-bold text-foreground">{t('rooms.title')}</h2>
             <p className="text-muted-foreground">{t('rooms.subtitle')}</p>
             {profile?.assigned_hotel && !['admin', 'top_management'].includes(profile.role || '') && (
-              <div className="mt-2 flex items-center gap-2 px-3 py-1 bg-primary/10 border border-primary/20 rounded-full">
+              <div className="mt-2 flex items-center gap-2 px-4 py-2 bg-primary/15 border border-primary/30 rounded-full shadow-sm">
                 <MapPin className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium text-primary">{profile.assigned_hotel}</span>
+                <span className="text-sm sm:text-base font-semibold text-primary">{profile.assigned_hotel}</span>
               </div>
             )}
           </div>

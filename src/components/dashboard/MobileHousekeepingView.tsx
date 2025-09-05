@@ -90,7 +90,7 @@ export function MobileHousekeepingView() {
         .from('room_assignments')
         .select(`
           *,
-          rooms!inner (
+          rooms (
             room_number,
             hotel,
             status,

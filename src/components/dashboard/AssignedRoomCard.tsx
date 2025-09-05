@@ -87,7 +87,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       if (error) throw error;
       
       onStatusUpdate(assignment.id, newStatus);
-      toast.success(`Room ${assignment.rooms.room_number} marked as ${newStatus}${newStatus === 'completed' ? ' and status updated to clean' : ''}`);
+      const roomNum = assignment.rooms?.room_number ?? '—';
+      toast.success(`Room ${roomNum} marked as ${newStatus}${newStatus === 'completed' ? ' and status updated to clean' : ''}`);
     } catch (error) {
       console.error('Error updating assignment status:', error);
       toast.error('Failed to update status');
@@ -165,7 +166,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-3">
-            <CardTitle className="text-xl">Room {assignment.rooms.room_number}</CardTitle>
+            <CardTitle className="text-xl">Room {assignment.rooms?.room_number ?? '—'}</CardTitle>
             <Badge className={getStatusColor(assignment.status)}>
               {assignment.status.replace('_', ' ')}
             </Badge>
@@ -186,13 +187,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" />
-            <span>{assignment.rooms.hotel}</span>
+            <span>{assignment.rooms?.hotel ?? 'Unknown Hotel'}</span>
           </div>
           <div className="flex items-center gap-2">
             <BedDouble className="h-4 w-4 text-muted-foreground" />
-            <span>Floor {assignment.rooms.floor_number}</span>
+            <span>{assignment.rooms?.floor_number !== undefined && assignment.rooms?.floor_number !== null ? `Floor ${assignment.rooms.floor_number}` : '—'}</span>
           </div>
-          {assignment.rooms.room_name && (
+          {assignment.rooms?.room_name && (
             <div className="col-span-2">
               <span className="font-medium">{assignment.rooms.room_name}</span>
             </div>
@@ -275,17 +276,19 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </DialogContent>
           </Dialog>
 
-          <Button 
-            size="sm" 
-            variant="outline"
-            onClick={() => setRoomDetailOpen(true)}
-          >
-            {t('housekeeping.roomDetails')}
-          </Button>
+          {assignment.rooms && (
+            <Button 
+              size="sm" 
+              variant="outline"
+              onClick={() => setRoomDetailOpen(true)}
+            >
+              {t('housekeeping.roomDetails')}
+            </Button>
+          )}
         </div>
 
         {/* Room Status Indicator */}
-        {assignment.rooms.status !== 'clean' && (
+        {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
           <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
             <AlertTriangle className="h-4 w-4 text-yellow-600" />
             <span className="text-sm text-yellow-800">
@@ -295,7 +298,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         )}
       </CardContent>
 
-      {roomDetailOpen && (
+      {roomDetailOpen && assignment.rooms && (
         <RoomDetailDialog
           room={{
             id: assignment.room_id,
