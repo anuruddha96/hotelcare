@@ -209,12 +209,16 @@ export function Dashboard() {
     }
   };
 
+  const [activeTab, setActiveTab] = useState<string>(getDefaultTab(profile?.role));
+  useEffect(() => {
+    setActiveTab(getDefaultTab(profile?.role));
+  }, [profile?.role]);
   return (
     <div className="min-h-screen bg-background">
       <AutoAssignmentService />
       
       <div className="container mx-auto px-4 py-6">
-        <Tabs defaultValue={getDefaultTab(profile?.role)} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
@@ -223,37 +227,37 @@ export function Dashboard() {
               <p className="text-sm sm:text-base text-muted-foreground">
                 {profile?.assigned_hotel ? `${profile.assigned_hotel} Management System` : t('dashboard.subtitle')}
               </p>
-            </div>
-            
-            {/* Role-based navigation tabs */}
-            {profile?.role && ['housekeeping', 'maintenance'].includes(profile.role) ? (
-              <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
-                <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
-                  <Ticket className="h-4 w-4" />
-                  <span>{t('dashboard.tickets')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
-                  <Users className="h-4 w-4" />
-                  <span>Housekeeping</span>
-                </TabsTrigger>
-              </TabsList>
-            ) : (
-              <TabsList className="grid w-full max-w-lg grid-cols-3 h-10 sm:h-12">
-                <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
-                  <Ticket className="h-4 w-4" />
-                  <span>{t('dashboard.tickets')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
-                  <Home className="h-4 w-4" />
-                  <span>{t('dashboard.rooms')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
-                  <Users className="h-4 w-4" />
-                  <span>Housekeeping</span>
-                </TabsTrigger>
-              </TabsList>
-            )}
           </div>
+          
+          {/* Role-based navigation tabs */}
+          {profile?.role && ['housekeeping', 'maintenance'].includes(profile.role) ? (
+            <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
+              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+                <Ticket className="h-4 w-4" />
+                <span>{t('dashboard.tickets')}</span>
+              </TabsTrigger>
+              <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
+                <Users className="h-4 w-4" />
+                <span>Housekeeping</span>
+              </TabsTrigger>
+            </TabsList>
+          ) : (
+            <TabsList className="grid w-full max-w-lg grid-cols-3 h-10 sm:h-12">
+              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+                <Ticket className="h-4 w-4" />
+                <span>{t('dashboard.tickets')}</span>
+              </TabsTrigger>
+              <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
+                <Home className="h-4 w-4" />
+                <span>{t('dashboard.rooms')}</span>
+              </TabsTrigger>
+              <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
+                <Users className="h-4 w-4" />
+                <span>Housekeeping</span>
+              </TabsTrigger>
+            </TabsList>
+          )}
+        </div>
 
           <TabsContent value="tickets" className="space-y-6">
             {/* Ticket Management Header */}
