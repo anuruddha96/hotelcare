@@ -65,6 +65,7 @@ export function Dashboard() {
     'finance_manager', 'top_management_manager'
   ].includes(profile.role);
   
+  // Only admin and housekeeping_manager can access: Manage Users, Access Control, Ticket Permissions, Company Settings
   const canManageUsers = profile?.role === 'admin' || profile?.role === 'housekeeping_manager';
   
   const isManager = profile?.role && [
