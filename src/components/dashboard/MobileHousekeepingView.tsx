@@ -29,7 +29,7 @@ interface Assignment {
     status: string;
     room_name: string | null;
     floor_number: number | null;
-  };
+  } | null;
 }
 
 interface Summary {

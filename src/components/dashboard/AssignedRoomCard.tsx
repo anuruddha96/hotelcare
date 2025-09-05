@@ -37,7 +37,7 @@ interface AssignedRoomCardProps {
       status: string;
       room_name: string | null;
       floor_number: number | null;
-    };
+    } | null;
   };
   onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => void;
 }
@@ -256,7 +256,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>{t('housekeeping.addNoteTitle')} {assignment.rooms.room_number}</DialogTitle>
+                <DialogTitle>{t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number ?? '—'}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <Textarea

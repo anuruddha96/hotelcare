@@ -248,6 +248,21 @@ export function Dashboard() {
                 <span>{t('dashboard.tickets')}</span>
               </TabsTrigger>
             </TabsList>
+          ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
+            <TabsList className="grid w-full max-w-md grid-cols-3 h-10 sm:h-12">
+              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+                <Ticket className="h-4 w-4" />
+                <span>{t('dashboard.tickets')}</span>
+              </TabsTrigger>
+              <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
+                <Home className="h-4 w-4" />
+                <span>{t('dashboard.rooms')}</span>
+              </TabsTrigger>
+              <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
+                <Users className="h-4 w-4" />
+                <span>Housekeeping</span>
+              </TabsTrigger>
+            </TabsList>
           ) : (
             <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
               <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
