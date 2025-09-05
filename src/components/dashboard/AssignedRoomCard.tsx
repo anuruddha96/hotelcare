@@ -250,7 +250,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         {/* Assignment Notes */}
         {assignment.notes && (
           <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-            <h4 className="font-semibold text-blue-800 mb-2">Assignment Notes</h4>
+            <h4 className="font-semibold text-blue-800 mb-2">{t('housekeeping.assignmentNotes')}</h4>
             <p className="text-sm text-blue-700 leading-relaxed">
               {shouldTranslateContent(language) 
                 ? translateText(assignment.notes, language)

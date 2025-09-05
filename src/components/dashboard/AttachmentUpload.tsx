@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useImperativeHandle, forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,16 +25,29 @@ export interface AttachmentFile {
   url?: string;
 }
 
-export function AttachmentUpload({ 
+export interface AttachmentUploadRef {
+  uploadAttachments: () => Promise<string[]>;
+  getAttachments: () => AttachmentFile[];
+}
+
+export const AttachmentUpload = forwardRef<AttachmentUploadRef, AttachmentUploadProps>(({ 
   ticketId, 
   onAttachmentsChange, 
   maxFiles = 5,
   className 
-}: AttachmentUploadProps) {
+}, ref) => {
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    uploadAttachments: async () => {
+      if (!ticketId || attachments.length === 0) return [];
+      return await uploadAttachments();
+    },
+    getAttachments: () => attachments
+  }));
 
   const handleFileSelect = (files: FileList | null) => {
     if (!files) return;
@@ -75,12 +88,13 @@ export function AttachmentUpload({
       newFiles.push(attachment);
     }
 
-    setAttachments(prev => [...prev, ...newFiles]);
-    // For ticket creation, we pass the file objects; for comments, we pass empty array until upload
-    if (ticketId) {
-      onAttachmentsChange([]); // Will be updated after upload
-    } else {
-      // For ticket creation, we can't pass strings yet, so we'll handle this differently
+    const updatedAttachments = [...attachments, ...newFiles];
+    setAttachments(updatedAttachments);
+    
+    // For ticket creation workflow, we don't upload immediately
+    // Instead, we pass empty array and handle upload after ticket creation
+    if (!ticketId) {
+      onAttachmentsChange([]);
     }
   };
 
@@ -142,7 +156,8 @@ export function AttachmentUpload({
   const removeAttachment = (index: number) => {
     const newAttachments = attachments.filter((_, i) => i !== index);
     setAttachments(newAttachments);
-    // Only update parent if we have uploaded URLs
+    
+    // Update parent with currently uploaded URLs only
     const uploadedUrls = newAttachments.filter(att => att.uploaded && att.url).map(att => att.url!);
     onAttachmentsChange(uploadedUrls);
   };
@@ -286,4 +301,4 @@ export function AttachmentUpload({
       )}
     </div>
   );
-}
+});
