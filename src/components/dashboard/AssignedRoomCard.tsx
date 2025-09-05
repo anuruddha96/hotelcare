@@ -162,33 +162,35 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   };
 
   return (
-    <Card className="group bg-card border border-border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl">
+    <Card className="group bg-card border border-border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl w-full">
       <CardHeader className="pb-4">
-        <div className="flex justify-between items-start">
-          <div className="flex items-center gap-3">
-            <CardTitle className="text-2xl font-bold text-foreground">
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <CardTitle className="text-xl sm:text-2xl font-bold text-foreground truncate">
               Room {assignment.rooms?.room_number || 'N/A'}
             </CardTitle>
             <Badge 
-              className={`${getStatusColor(assignment.status)} font-semibold px-4 py-2 text-sm uppercase tracking-wide rounded-full shadow-sm`}
+              className={`${getStatusColor(assignment.status)} font-semibold px-3 py-1 text-xs uppercase tracking-wide rounded-full shadow-sm flex-shrink-0`}
             >
               {assignment.status === 'in_progress' ? 'In Progress' : assignment.status.replace('_', ' ')}
             </Badge>
+          </div>
+          <div className="flex flex-wrap gap-2">
             {assignment.priority > 1 && (
               <Badge 
                 variant="outline" 
-                className={`${getPriorityColor(assignment.priority)} font-semibold px-4 py-2 text-sm border-2 rounded-full shadow-sm`}
+                className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0`}
               >
                 {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
               </Badge>
             )}
+            <Badge 
+              variant="outline" 
+              className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full hover:bg-muted/80 transition-colors flex-shrink-0"
+            >
+              {getAssignmentTypeLabel(assignment.assignment_type)}
+            </Badge>
           </div>
-          <Badge 
-            variant="outline" 
-            className="bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold px-4 py-2 text-sm rounded-full hover:bg-indigo-100 transition-colors"
-          >
-            {getAssignmentTypeLabel(assignment.assignment_type)}
-          </Badge>
         </div>
       </CardHeader>
 

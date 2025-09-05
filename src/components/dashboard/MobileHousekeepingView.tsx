@@ -192,7 +192,7 @@ export function MobileHousekeepingView() {
   }
 
   return (
-    <div className="w-full px-4 py-4 space-y-4 min-h-screen">
+    <div className="w-full max-w-md mx-auto px-4 py-4 space-y-4 min-h-screen overflow-x-hidden">
       {/* Date Selector - Mobile Optimized */}
       <Card className="bg-gradient-to-r from-primary/5 to-accent/10 border-primary/20">
         <CardHeader className="pb-3">
