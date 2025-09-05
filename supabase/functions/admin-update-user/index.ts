@@ -69,90 +69,110 @@ serve(async (req: Request) => {
     // Service-role client for auth.admin operations
     const supabaseAdmin = createClient(supabaseUrl, serviceKey);
 
-    // Update auth user if email or password provided
-    if (new_email || new_password) {
-      console.log("Updating auth user for:", target_user_id);
-      
+    // Normalize inputs (treat empty strings as undefined)
+    const emailInput = new_email && new_email.trim().length > 0 ? new_email.trim() : undefined;
+    const passwordInput = new_password && new_password.trim().length > 0 ? new_password.trim() : undefined;
+    const fullNameInput = full_name && full_name.trim().length > 0 ? full_name.trim() : undefined;
+    const nicknameInput = nickname && nickname.trim().length > 0 ? nickname.trim() : undefined;
+
+    // Fetch target profile to use existing email if needed
+    const { data: targetProfile, error: targetProfileErr } = await supabase
+      .from('profiles')
+      .select('email, full_name, nickname')
+      .eq('id', target_user_id)
+      .maybeSingle();
+
+    if (targetProfileErr) {
+      return new Response(JSON.stringify({ error: targetProfileErr.message }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
+    const effectiveEmail = emailInput || targetProfile?.email;
+
+    // Update or create auth user if admin provided email/password or password alone
+    if (emailInput || passwordInput) {
+      console.log('Updating auth user for:', target_user_id);
+
       // First check if auth user exists
-      const { data: authUser, error: getUserErr } = await supabaseAdmin.auth.admin.getUserById(target_user_id);
-      
-      if (getUserErr || !authUser.user) {
-        // Auth user doesn't exist, create one if we have email and password
-        if (new_email && new_password) {
-          console.log("Creating new auth user with email:", new_email);
-          const { data: newAuthUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      const { data: authUserRes, error: getUserErr } = await supabaseAdmin.auth.admin.getUserById(target_user_id);
+
+      if (getUserErr || !authUserRes.user) {
+        // Create auth user when missing (requires password and an effective email)
+        if (passwordInput && effectiveEmail) {
+          console.log('Creating new auth user with email:', effectiveEmail);
+          const { error: createErr } = await supabaseAdmin.auth.admin.createUser({
             id: target_user_id,
-            email: new_email,
-            password: new_password,
+            email: effectiveEmail,
+            password: passwordInput,
             email_confirm: true,
             user_metadata: {
-              ...(full_name ? { full_name } : {}),
-              ...(nickname ? { username: nickname } : {}),
+              ...(fullNameInput ? { full_name: fullNameInput } : {}),
+              ...(nicknameInput ? { username: nicknameInput } : {}),
             },
           });
-          
+
           if (createErr) {
-            console.error("Error creating auth user:", createErr);
-            return new Response(JSON.stringify({ error: createErr.message }), {
+            const dup = (createErr.message || '').toLowerCase().includes('duplicate key') || (createErr.message || '').toLowerCase().includes('users_email_partial_key');
+            const msg = dup ? 'Email already in use by another account' : createErr.message;
+            console.error('Error creating auth user:', createErr);
+            return new Response(JSON.stringify({ error: msg }), {
               status: 400,
-              headers: { "Content-Type": "application/json", ...corsHeaders },
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
             });
           }
-          console.log("Auth user created successfully");
+          console.log('Auth user created successfully');
         } else {
-          console.log("Cannot create auth user without both email and password");
-          return new Response(JSON.stringify({ error: "Cannot update auth credentials without both email and password for new auth user" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json", ...corsHeaders },
-          });
+          console.log('Cannot create auth user without email and password; skipping auth creation and proceeding with profile update');
+          // Do not block profile updates if password not provided
+          // Admin can set a password later to enable login
         }
       } else {
         // Auth user exists, update it
-        console.log("Updating existing auth user");
-        const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
-          target_user_id,
-          {
-            ...(new_email ? { email: new_email } : {}),
-            ...(new_password ? { password: new_password } : {}),
-            // Optionally keep metadata in sync
-            ...(full_name || nickname
-              ? { user_metadata: { ...(full_name ? { full_name } : {}), ...(nickname ? { username: nickname } : {}) } }
-              : {}),
-          },
-        );
+        console.log('Updating existing auth user');
+        const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(target_user_id, {
+          ...(emailInput ? { email: emailInput } : {}),
+          ...(passwordInput ? { password: passwordInput } : {}),
+          ...(fullNameInput || nicknameInput
+            ? { user_metadata: { ...(fullNameInput ? { full_name: fullNameInput } : {}), ...(nicknameInput ? { username: nicknameInput } : {}) } }
+            : {}),
+        });
 
         if (updateErr) {
-          console.error("Error updating auth user:", updateErr);
-          return new Response(JSON.stringify({ error: updateErr.message }), {
+          const dup = (updateErr.message || '').toLowerCase().includes('duplicate key') || (updateErr.message || '').toLowerCase().includes('users_email_partial_key');
+          const msg = dup ? 'Email already in use by another account' : updateErr.message;
+          console.error('Error updating auth user:', updateErr);
+          return new Response(JSON.stringify({ error: msg }), {
             status: 400,
-            headers: { "Content-Type": "application/json", ...corsHeaders },
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
           });
         }
-        console.log("Auth user updated successfully");
+        console.log('Auth user updated successfully');
       }
     }
 
     // Update public profile for consistency (doesn't require service role)
     const updates: Record<string, any> = {};
-    if (new_email) updates.email = new_email;
-    if (full_name) updates.full_name = full_name;
-    if (nickname) updates.nickname = nickname;
+    if (emailInput) updates.email = emailInput;
+    if (fullNameInput) updates.full_name = fullNameInput;
+    if (nicknameInput) updates.nickname = nicknameInput;
 
-    console.log("Profile updates to apply:", updates);
+    console.log('Profile updates to apply:', updates);
     if (Object.keys(updates).length > 0) {
       const { error: profileErr } = await supabase
-        .from("profiles")
+        .from('profiles')
         .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq("id", target_user_id);
+        .eq('id', target_user_id);
 
       if (profileErr) {
-        console.error("Error updating profile:", profileErr);
+        console.error('Error updating profile:', profileErr);
         return new Response(JSON.stringify({ error: profileErr.message }), {
           status: 400,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
         });
       }
-      console.log("Profile updated successfully");
+      console.log('Profile updated successfully');
     }
 
     console.log("User update completed successfully");
