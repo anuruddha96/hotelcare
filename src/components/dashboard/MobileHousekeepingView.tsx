@@ -86,19 +86,10 @@ export function MobileHousekeepingView() {
     if (!user?.id) return;
     
     try {
+      // 1) Fetch assignments only (no nested join to avoid FK dependency)
       let query = supabase
         .from('room_assignments')
-        .select(`
-          *,
-          rooms (
-            room_number,
-            hotel,
-            status,
-            room_name,
-            floor_number,
-            bed_type
-          )
-        `)
+        .select('*')
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate)
         .order('priority', { ascending: false })
@@ -112,28 +103,29 @@ export function MobileHousekeepingView() {
       const { data, error } = await query;
 
       if (error) throw error;
-      
-      let assignmentsData = data || [];
-      
-      // If no specific filter, exclude completed tasks for cleaner view  
-      if (!statusFilter) {
-        assignmentsData = assignmentsData.filter((a: any) => a.status !== 'completed');
-      }
+      let assignmentsData: any[] = data || [];
 
-      // Backfill room details if nested join didn't return them
-      const missingRoomIds = assignmentsData.filter((a: any) => !a.rooms).map((a: any) => a.room_id);
-      if (missingRoomIds.length > 0) {
+      // 2) Always fetch room details in a separate query and merge
+      const roomIds = Array.from(new Set(assignmentsData.map((a: any) => a.room_id).filter(Boolean)));
+      if (roomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
           .select('id, room_number, hotel, status, room_name, floor_number, bed_type')
-          .in('id', missingRoomIds);
+          .in('id', roomIds);
         if (!roomsError && roomRows) {
           const roomMap = Object.fromEntries(roomRows.map((r: any) => [r.id, r]));
           assignmentsData = assignmentsData.map((a: any) => ({
             ...a,
-            rooms: a.rooms ?? roomMap[a.room_id] ?? null,
+            rooms: roomMap[a.room_id] ?? null,
           }));
+        } else {
+          console.warn('Rooms fetch error or empty:', roomsError);
         }
+      }
+
+      // If no specific filter, exclude completed tasks for cleaner view
+      if (!statusFilter) {
+        assignmentsData = assignmentsData.filter((a: any) => a.status !== 'completed');
       }
       
       setAssignments(assignmentsData);
