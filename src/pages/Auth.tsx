@@ -119,7 +119,7 @@ export default function Auth() {
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-50 to-blue-50">
       <div className="min-h-screen flex items-center justify-center p-4 relative z-10">
-        <div className="w-full max-w-lg">
+        <div className="w-full max-w-2xl">
           
           {/* Header Section */}
           <div className="text-center mb-8 space-y-6">
@@ -132,10 +132,12 @@ export default function Auth() {
             </div>
             
             <div className="space-y-3">
-              <h1 className="text-3xl lg:text-4xl font-bold text-slate-700">
-                Hotel Management Dashboard
+              <h1 className="text-3xl lg:text-4xl font-bold">
+                <span className="text-slate-700">Welcome to </span>
+                <span className="text-slate-700">RD </span>
+                <span className="text-blue-500">Hotels</span>
               </h1>
-              <p className="text-slate-600 text-base lg:text-lg max-w-md mx-auto leading-relaxed">
+              <p className="text-slate-600 text-base lg:text-lg max-w-2xl mx-auto leading-relaxed">
                 Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
               </p>
             </div>
@@ -146,7 +148,7 @@ export default function Auth() {
             {/* Tab Navigation */}
             <div className="border-b border-slate-200">
               <div className="flex">
-                <button className="flex-1 py-4 px-6 text-center font-medium text-blue-600 border-b-2 border-blue-600 bg-blue-50/50">
+                <button className="flex-1 py-4 px-6 text-center font-medium text-slate-700 border-b-2 border-blue-500 bg-blue-50/50">
                   Sign In
                 </button>
                 <button className="flex-1 py-4 px-6 text-center font-medium text-slate-500 border-b-2 border-transparent hover:text-slate-700">
@@ -155,8 +157,8 @@ export default function Auth() {
               </div>
             </div>
             
-            <CardContent className="p-6 lg:p-8">
-              <form onSubmit={handleSignIn} className="space-y-5">
+            <CardContent className="p-8 lg:p-10">
+              <form onSubmit={handleSignIn} className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="signin-email" className="text-sm lg:text-base font-medium text-slate-700">
                     Email or Username
@@ -167,7 +169,7 @@ export default function Auth() {
                     type="text"
                     required
                     placeholder="Enter your email or username"
-                    className="h-12 lg:h-14 text-base border-slate-200 focus:border-blue-500 focus:ring-blue-500"
+                    className="h-12 lg:h-14 text-base border-slate-200 focus:border-blue-400 focus:ring-blue-400"
                   />
                 </div>
                 
@@ -182,7 +184,7 @@ export default function Auth() {
                       type={showPassword ? "text" : "password"}
                       required
                       placeholder="Enter your password"
-                      className="h-12 lg:h-14 text-base pr-12 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
+                      className="h-12 lg:h-14 text-base pr-12 border-slate-200 focus:border-blue-400 focus:ring-blue-400"
                     />
                     <Button
                       type="button"
@@ -202,7 +204,7 @@ export default function Auth() {
                 
                 <Button 
                   type="submit" 
-                  className="w-full h-12 lg:h-14 text-base lg:text-lg font-medium bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white border-0" 
+                  className="w-full h-12 lg:h-14 text-base lg:text-lg font-medium bg-blue-400 hover:bg-blue-500 text-white border-0" 
                   disabled={isLoading}
                 >
                   {isLoading ? (
@@ -240,12 +242,12 @@ export default function Auth() {
                           type="email"
                           required
                           placeholder="your@email.com"
-                          className="h-11 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
+                          className="h-11 border-slate-200 focus:border-blue-400 focus:ring-blue-400"
                         />
                       </div>
                       <Button 
                         type="submit" 
-                        className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700" 
+                        className="w-full bg-blue-400 hover:bg-blue-500" 
                         disabled={resetLoading}
                       >
                         {resetLoading ? (
