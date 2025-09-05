@@ -124,29 +124,10 @@ export default function Auth() {
       <div className="floating-element w-64 h-64 top-1/4 -right-32 animate-float"></div>
       
       <div className="min-h-screen flex items-center justify-center p-4 relative z-10">
-        <div className="w-full max-w-6xl grid lg:grid-cols-2 gap-12 items-center">
+        <div className="w-full max-w-6xl grid lg:grid-cols-1 gap-12 items-center justify-center">
           
-          {/* Left Side - Hero Content */}
-          <div className="text-center lg:text-left space-y-8 animate-fade-in-up">
-            <div className="space-y-6">
-              <h1 className="text-5xl md:text-7xl font-bold leading-tight">
-                <span className="bg-gradient-to-r from-primary via-primary to-blue-600 bg-clip-text text-transparent">
-                  Hotel
-                </span>
-                <br />
-                <span className="text-2xl md:text-4xl text-muted-foreground font-normal">
-                  Management System
-                </span>
-              </h1>
-              
-              <p className="text-lg text-muted-foreground/70 max-w-md leading-relaxed">
-                Streamline operations and enhance guest experiences with our comprehensive management platform
-              </p>
-            </div>
-          </div>
-
-          {/* Right Side - Login Card */}
-          <div className="flex justify-center lg:justify-end animate-slide-in">
+          {/* Login Card - Centered */}
+          <div className="flex justify-center animate-slide-in">
             <Card className="w-full max-w-md glass-card hover-lift animate-glow">
               <CardHeader className="text-center space-y-6 pb-6">
                 <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center animate-float">
