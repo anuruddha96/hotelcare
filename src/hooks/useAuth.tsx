@@ -59,11 +59,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   console.log('Profile fetched:', profileData);
                   setProfile(profileData as any);
                 } else {
-                  console.warn('Profile not available, trying again...', profileError);
-                  // Instead of defaulting to maintenance, set profile to null and let the user see loading state
-                  // This prevents housekeepers from appearing as maintenance users
-                  console.error('Could not fetch user profile, setting profile to null');
-                  setProfile(null);
+                  console.warn('Profile not available, creating default profile...', profileError);
+                  try {
+                    const { data: upserted, error: upsertErr } = await supabase
+                      .from('profiles')
+                      .upsert({
+                        id: session.user.id,
+                        email: session.user.email!,
+                        full_name: (session.user.user_metadata as any)?.full_name || session.user.email?.split('@')[0] || 'New User',
+                        nickname: (session.user.user_metadata as any)?.username || session.user.email?.split('@')[0],
+                        role: 'housekeeping',
+                        assigned_hotel: (session.user.user_metadata as any)?.assigned_hotel || null,
+                        last_login: new Date().toISOString(),
+                      })
+                      .select()
+                      .maybeSingle();
+
+                    if (upsertErr) {
+                      console.error('Failed to create default profile:', upsertErr);
+                      setProfile(null);
+                    } else {
+                      console.log('Default profile created:', upserted);
+                      setProfile(upserted as any);
+                    }
+                  } catch (e) {
+                    console.error('Default profile creation exception:', e);
+                    setProfile(null);
+                  }
                 }
               } catch (error) {
                 console.error('Profile fetch error:', error);
@@ -97,11 +119,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.log('Profile fetched:', profileData);
                 setProfile(profileData as any);
               } else {
-                console.warn('Profile not available, trying again...', profileError);
-                // Instead of defaulting to maintenance, set profile to null and let the user see loading state
-                // This prevents housekeepers from appearing as maintenance users
-                console.error('Could not fetch user profile, setting profile to null');
-                setProfile(null);
+                console.warn('Profile not available, creating default profile...', profileError);
+                try {
+                  const { data: upserted, error: upsertErr } = await supabase
+                    .from('profiles')
+                    .upsert({
+                      id: session.user.id,
+                      email: session.user.email!,
+                      full_name: (session.user.user_metadata as any)?.full_name || session.user.email?.split('@')[0] || 'New User',
+                      nickname: (session.user.user_metadata as any)?.username || session.user.email?.split('@')[0],
+                      role: 'housekeeping',
+                      assigned_hotel: (session.user.user_metadata as any)?.assigned_hotel || null,
+                      last_login: new Date().toISOString(),
+                    })
+                    .select()
+                    .maybeSingle();
+
+                  if (upsertErr) {
+                    console.error('Failed to create default profile:', upsertErr);
+                    setProfile(null);
+                  } else {
+                    console.log('Default profile created:', upserted);
+                    setProfile(upserted as any);
+                  }
+                } catch (e) {
+                  console.error('Default profile creation exception:', e);
+                  setProfile(null);
+                }
               }
             } catch (error) {
               console.error('Profile fetch error:', error);
