@@ -24,6 +24,11 @@ interface Room {
   is_checkout_room: boolean;
   checkout_time?: string;
   guest_count?: number;
+  assignment?: {
+    assigned_to_name: string;
+    assignment_date: string;
+    status: string;
+  };
 }
 
 interface HousekeepingStaff {
@@ -47,7 +52,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
   useEffect(() => {
     fetchRooms();
     fetchStaff();
-  }, []);
+  }, [selectedDate]);
 
   const fetchRooms = async () => {
     try {
@@ -59,7 +64,51 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
         .order('room_number');
 
       if (error) throw error;
-      setRooms(data || []);
+
+      // Fetch existing assignments for the selected date
+      const { data: assignments, error: assignmentError } = await supabase
+        .from('room_assignments')
+        .select(`
+          room_id,
+          assignment_date,
+          status,
+          assigned_to
+        `)
+        .eq('assignment_date', selectedDate)
+        .in('status', ['assigned', 'in_progress']);
+
+      if (assignmentError) throw assignmentError;
+
+      // Get staff names for assignments
+      const assignedUserIds = assignments?.map(a => a.assigned_to).filter(Boolean) || [];
+      let staffNames: Record<string, string> = {};
+      
+      if (assignedUserIds.length > 0) {
+        const { data: staffData } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', assignedUserIds);
+        
+        staffNames = staffData?.reduce((acc, staff) => {
+          acc[staff.id] = staff.full_name;
+          return acc;
+        }, {} as Record<string, string>) || {};
+      }
+
+      // Map rooms with their assignment status
+      const roomsWithAssignments = (data || []).map(room => {
+        const assignment = assignments?.find(a => a.room_id === room.id);
+        return {
+          ...room,
+          assignment: assignment ? {
+            assigned_to_name: staffNames[assignment.assigned_to] || 'Unknown',
+            assignment_date: assignment.assignment_date,
+            status: assignment.status
+          } : undefined
+        };
+      });
+
+      setRooms(roomsWithAssignments);
     } catch (error) {
       console.error('Error fetching rooms:', error);
       toast({
@@ -107,7 +156,8 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
   };
 
   const selectAllRooms = () => {
-    setSelectedRooms(rooms.map(room => room.id));
+    const availableRooms = rooms.filter(room => !room.assignment);
+    setSelectedRooms(availableRooms.map(room => room.id));
   };
 
   const clearSelection = () => {
@@ -291,33 +341,45 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                     {t('assignment.checkoutRooms')} ({checkout.length})
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {checkout.map((room) => (
-                      <label key={room.id} className="flex items-center space-x-3 p-3 border border-orange-200 bg-orange-50 rounded-lg cursor-pointer hover:bg-orange-100">
-                        <Checkbox
-                          checked={selectedRooms.includes(room.id)}
-                          onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium">Room {room.room_number}</span>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
-                            {room.floor_number && ` • Floor ${room.floor_number}`}
-                          </div>
-                          <div className="text-xs text-orange-600 mt-1 flex items-center">
-                            <LogOut className="h-3 w-3 mr-1" />
-                            {t('assignment.checkoutRoom')}
-                            {room.guest_count && room.guest_count > 0 && (
-                              <span className="ml-2 flex items-center">
-                                <User className="h-3 w-3 mr-1" />
-                                {room.guest_count}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </label>
-                    ))}
+                     {checkout.map((room) => (
+                       <label key={room.id} className={`flex items-center space-x-3 p-3 border rounded-lg ${
+                         room.assignment 
+                           ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed' 
+                           : 'border-orange-200 bg-orange-50 cursor-pointer hover:bg-orange-100'
+                       }`}>
+                         <Checkbox
+                           checked={selectedRooms.includes(room.id)}
+                           onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
+                           disabled={!!room.assignment}
+                         />
+                         <div className="flex-1">
+                           <div className="flex items-center justify-between">
+                             <span className="font-medium">Room {room.room_number}</span>
+                           </div>
+                           <div className="text-sm text-muted-foreground">
+                             {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
+                             {room.floor_number && ` • Floor ${room.floor_number}`}
+                           </div>
+                           {room.assignment ? (
+                             <div className="text-xs text-red-600 mt-1 flex items-center">
+                               <User className="h-3 w-3 mr-1" />
+                               Already assigned to {room.assignment.assigned_to_name}
+                             </div>
+                           ) : (
+                             <div className="text-xs text-orange-600 mt-1 flex items-center">
+                               <LogOut className="h-3 w-3 mr-1" />
+                               {t('assignment.checkoutRoom')}
+                               {room.guest_count && room.guest_count > 0 && (
+                                 <span className="ml-2 flex items-center">
+                                   <User className="h-3 w-3 mr-1" />
+                                   {room.guest_count}
+                                 </span>
+                               )}
+                             </div>
+                           )}
+                         </div>
+                       </label>
+                     ))}
                   </div>
                 </div>
               )}
@@ -330,33 +392,45 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                     {t('assignment.dailyCleaningRooms')} ({daily.length})
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {daily.map((room) => (
-                      <label key={room.id} className="flex items-center space-x-3 p-3 border border-blue-200 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100">
-                        <Checkbox
-                          checked={selectedRooms.includes(room.id)}
-                          onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium">Room {room.room_number}</span>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
-                            {room.floor_number && ` • Floor ${room.floor_number}`}
-                          </div>
-                          <div className="text-xs text-blue-600 mt-1 flex items-center">
-                            <User className="h-3 w-3 mr-1" />
-                            {t('assignment.dailyCleaning')}
-                            {room.guest_count && room.guest_count > 0 && (
-                              <span className="ml-2 flex items-center">
-                                <User className="h-3 w-3 mr-1" />
-                                {room.guest_count}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </label>
-                    ))}
+                     {daily.map((room) => (
+                       <label key={room.id} className={`flex items-center space-x-3 p-3 border rounded-lg ${
+                         room.assignment 
+                           ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed' 
+                           : 'border-blue-200 bg-blue-50 cursor-pointer hover:bg-blue-100'
+                       }`}>
+                         <Checkbox
+                           checked={selectedRooms.includes(room.id)}
+                           onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
+                           disabled={!!room.assignment}
+                         />
+                         <div className="flex-1">
+                           <div className="flex items-center justify-between">
+                             <span className="font-medium">Room {room.room_number}</span>
+                           </div>
+                           <div className="text-sm text-muted-foreground">
+                             {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
+                             {room.floor_number && ` • Floor ${room.floor_number}`}
+                           </div>
+                           {room.assignment ? (
+                             <div className="text-xs text-red-600 mt-1 flex items-center">
+                               <User className="h-3 w-3 mr-1" />
+                               Already assigned to {room.assignment.assigned_to_name}
+                             </div>
+                           ) : (
+                             <div className="text-xs text-blue-600 mt-1 flex items-center">
+                               <User className="h-3 w-3 mr-1" />
+                               {t('assignment.dailyCleaning')}
+                               {room.guest_count && room.guest_count > 0 && (
+                                 <span className="ml-2 flex items-center">
+                                   <User className="h-3 w-3 mr-1" />
+                                   {room.guest_count}
+                                 </span>
+                               )}
+                             </div>
+                           )}
+                         </div>
+                       </label>
+                     ))}
                   </div>
                 </div>
               )}
