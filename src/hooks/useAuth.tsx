@@ -59,30 +59,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   console.log('Profile fetched:', profileData);
                   setProfile(profileData as any);
                 } else {
-                  console.warn('Profile not available, using secure role fallback', profileError);
-                  // Fallback: fetch role securely and build a minimal profile so role-based UI still works
-                  let roleFallback: any = undefined;
-                  try {
-                    const { data: roleData } = await supabase.rpc('get_user_role' as any, {
-                      user_id: session.user.id,
-                    });
-                    roleFallback = roleData || 'maintenance';
-                  } catch (e) {
-                    console.error('Fallback role fetch failed:', e);
-                    roleFallback = 'maintenance';
-                  }
-
-                  const minimalProfile = {
-                    id: session.user.id,
-                    email: session.user.email || '',
-                    full_name: (session.user.user_metadata as any)?.full_name || (session.user.email || 'User'),
-                    role: roleFallback,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    nickname: (session.user.user_metadata as any)?.nickname,
-                    profile_picture_url: (session.user.user_metadata as any)?.avatar_url,
-                  } as any;
-                  setProfile(minimalProfile);
+                  console.warn('Profile not available, trying again...', profileError);
+                  // Instead of defaulting to maintenance, set profile to null and let the user see loading state
+                  // This prevents housekeepers from appearing as maintenance users
+                  console.error('Could not fetch user profile, setting profile to null');
+                  setProfile(null);
                 }
               } catch (error) {
                 console.error('Profile fetch error:', error);
@@ -116,29 +97,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 console.log('Profile fetched:', profileData);
                 setProfile(profileData as any);
               } else {
-                console.warn('Profile not available, using secure role fallback', profileError);
-                let roleFallback: any = undefined;
-                try {
-                  const { data: roleData } = await supabase.rpc('get_user_role' as any, {
-                    user_id: session.user.id,
-                  });
-                  roleFallback = roleData || 'maintenance';
-                } catch (e) {
-                  console.error('Fallback role fetch failed:', e);
-                  roleFallback = 'maintenance';
-                }
-
-                const minimalProfile = {
-                  id: session.user.id,
-                  email: session.user.email || '',
-                  full_name: (session.user.user_metadata as any)?.full_name || (session.user.email || 'User'),
-                  role: roleFallback,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                  nickname: (session.user.user_metadata as any)?.nickname,
-                  profile_picture_url: (session.user.user_metadata as any)?.avatar_url,
-                } as any;
-                setProfile(minimalProfile);
+                console.warn('Profile not available, trying again...', profileError);
+                // Instead of defaulting to maintenance, set profile to null and let the user see loading state
+                // This prevents housekeepers from appearing as maintenance users
+                console.error('Could not fetch user profile, setting profile to null');
+                setProfile(null);
               }
             } catch (error) {
               console.error('Profile fetch error:', error);
