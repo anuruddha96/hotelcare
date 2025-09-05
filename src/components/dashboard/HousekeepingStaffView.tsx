@@ -97,18 +97,18 @@ export function HousekeepingStaffView() {
         .from('room_assignments')
         .select(`
           *,
-          rooms:room_id (
+          rooms (
             room_number,
             hotel,
             status,
             room_name,
-            floor_number
+            floor_number,
+            bed_type
           )
         `)
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate)
         .order('priority', { ascending: false })
-        .order('status', { ascending: true })
         .order('created_at', { ascending: true });
 
       // Apply status filter if set
@@ -124,7 +124,25 @@ export function HousekeepingStaffView() {
       }
       
       console.log('Fetched assignments:', data);
-      setAssignments(data || []);
+      let assignmentsData = data || [];
+
+      // Backfill room details if nested join didn't return them
+      const missingRoomIds = assignmentsData.filter((a: any) => !a.rooms).map((a: any) => a.room_id);
+      if (missingRoomIds.length > 0) {
+        const { data: roomRows, error: roomsError } = await supabase
+          .from('rooms')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type')
+          .in('id', missingRoomIds);
+        if (!roomsError && roomRows) {
+          const roomMap = Object.fromEntries(roomRows.map((r: any) => [r.id, r]));
+          assignmentsData = assignmentsData.map((a: any) => ({
+            ...a,
+            rooms: a.rooms ?? roomMap[a.room_id] ?? null,
+          }));
+        }
+      }
+
+      setAssignments(assignmentsData);
     } catch (error) {
       console.error('Error fetching assignments:', error);
       toast.error('Failed to load assignments');
@@ -152,23 +170,11 @@ export function HousekeepingStaffView() {
   };
 
   const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
-    setAssignments(prev => {
-      const updated = prev.map(assignment => 
-        assignment.id === assignmentId 
-          ? { ...assignment, status: newStatus }
-          : assignment
-      );
-      
-      // Sort to maintain order: assigned > in_progress > completed
-      return updated.sort((a, b) => {
-        const statusOrder = { 'assigned': 0, 'in_progress': 1, 'completed': 2, 'cancelled': 3 };
-        const aOrder = statusOrder[a.status] || 0;
-        const bOrder = statusOrder[b.status] || 0;
-        
-        if (aOrder !== bOrder) return aOrder - bOrder;
-        return b.priority - a.priority; // Higher priority first within same status
-      });
-    });
+    setAssignments(prev =>
+      prev.map(assignment =>
+        assignment.id === assignmentId ? { ...assignment, status: newStatus } : assignment
+      )
+    );
     fetchSummary(); // Refresh summary
   };
 
@@ -319,11 +325,6 @@ export function HousekeepingStaffView() {
         ) : (
           <div className="space-y-3">
             {assignments
-              .sort((a, b) => {
-                // Sort order: assigned > in_progress > completed to keep working items visible
-                const statusOrder = { 'assigned': 0, 'in_progress': 1, 'completed': 2, 'cancelled': 3 };
-                return (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0);
-              })
               .map((assignment) => (
                 <AssignedRoomCard
                   key={assignment.id}
