@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -40,7 +40,7 @@ interface Summary {
 }
 
 export function MobileHousekeepingView() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const isMobile = useIsMobile();
   const { t } = useTranslation();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -56,21 +56,36 @@ export function MobileHousekeepingView() {
     }
   }, [user?.id, selectedDate, statusFilter]);
 
-  // Real-time subscription for assignment updates
+  // Real-time subscription for assignment updates - only for new assignments or external changes
   useEffect(() => {
     if (!user?.id) return;
 
     const channel = supabase
-      .channel('assignment-updates')
+      .channel('assignment_changes')
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'room_assignments',
           filter: `assigned_to=eq.${user.id}`
         },
         () => {
+          console.log('New assignment received, refetching...');
+          fetchAssignments();
+          fetchSummary();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'room_assignments',
+          filter: `assigned_to=eq.${user.id}`
+        },
+        () => {
+          console.log('Assignment deleted, refetching...');
           fetchAssignments();
           fetchSummary();
         }
@@ -80,7 +95,7 @@ export function MobileHousekeepingView() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, selectedDate]);
+  }, [user?.id]);
 
   const fetchAssignments = async () => {
     if (!user?.id) return;
@@ -126,7 +141,20 @@ export function MobileHousekeepingView() {
             rooms: roomMap[a.room_id] ?? null,
           }));
           
-          console.log('Final assignments with rooms:', assignmentsData);
+      console.log('Final assignments with rooms:', assignmentsData);
+      
+      // Check for hotel assignment mismatches
+      const userHotel = profile?.assigned_hotel;
+      const mismatchedRooms = assignmentsData.filter((assignment: any) => {
+        const roomHotel = assignment.rooms?.hotel;
+        return userHotel && roomHotel && userHotel !== roomHotel;
+      });
+      
+      if (mismatchedRooms.length > 0) {
+        console.warn(`Hotel mismatch detected: ${profile?.full_name} is assigned to "${userHotel}" but has ${mismatchedRooms.length} room assignments for other hotels:`, 
+          mismatchedRooms.map((r: any) => ({ room: r.rooms?.room_number, hotel: r.rooms?.hotel }))
+        );
+      }
         } else {
           console.error('Rooms fetch error:', roomsError);
         }
@@ -164,11 +192,23 @@ export function MobileHousekeepingView() {
   };
 
   const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
-    setAssignments(prev =>
-      prev.map(assignment =>
-        assignment.id === assignmentId ? { ...assignment, status: newStatus } : assignment
-      )
-    );
+    setAssignments(prev => {
+      // Update the specific assignment while maintaining the original order
+      const updatedAssignments = prev.map(assignment => {
+        if (assignment.id === assignmentId) {
+          return { 
+            ...assignment, 
+            status: newStatus,
+            started_at: newStatus === 'in_progress' ? new Date().toISOString() : assignment.started_at,
+            completed_at: newStatus === 'completed' ? new Date().toISOString() : assignment.completed_at
+          };
+        }
+        return assignment;
+      });
+      
+      console.log('Local status update - maintaining order for assignment:', assignmentId, 'new status:', newStatus);
+      return updatedAssignments;
+    });
     fetchSummary();
   };
 
@@ -306,6 +346,27 @@ export function MobileHousekeepingView() {
           )}
         </div>
         
+        {/* Hotel Mismatch Warning */}
+        {profile && assignments.some(assignment => 
+          profile.assigned_hotel && assignment.rooms?.hotel && profile.assigned_hotel !== assignment.rooms.hotel
+        ) && (
+          <Card className="border-orange-200 bg-orange-50 dark:bg-orange-950 dark:border-orange-800">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-orange-600 dark:text-orange-400 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-orange-800 dark:text-orange-200 mb-1">
+                    Hotel Assignment Notice
+                  </p>
+                  <p className="text-xs text-orange-700 dark:text-orange-300">
+                    You're assigned to {profile.assigned_hotel} but have room assignments from other hotels. Please contact your manager if this seems incorrect.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {assignments.length === 0 ? (
           <Card className="text-center py-8">
             <CardContent>
