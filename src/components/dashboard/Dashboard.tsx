@@ -230,7 +230,7 @@ export function Dashboard() {
           </div>
           
           {/* Role-based navigation tabs */}
-          {profile?.role && ['housekeeping', 'maintenance'].includes(profile.role) ? (
+          {profile?.role === 'housekeeping' ? (
             <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
               <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
                 <Ticket className="h-4 w-4" />
@@ -238,11 +238,18 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
                 <Users className="h-4 w-4" />
-                <span>Housekeeping</span>
+                <span>My Tasks</span>
+              </TabsTrigger>
+            </TabsList>
+          ) : profile?.role === 'maintenance' ? (
+            <TabsList className="grid w-full max-w-md grid-cols-1 h-10 sm:h-12">
+              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+                <Ticket className="h-4 w-4" />
+                <span>{t('dashboard.tickets')}</span>
               </TabsTrigger>
             </TabsList>
           ) : (
-            <TabsList className="grid w-full max-w-lg grid-cols-3 h-10 sm:h-12">
+            <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
               <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
                 <Ticket className="h-4 w-4" />
                 <span>{t('dashboard.tickets')}</span>
@@ -250,10 +257,6 @@ export function Dashboard() {
               <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
                 <Home className="h-4 w-4" />
                 <span>{t('dashboard.rooms')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
-                <Users className="h-4 w-4" />
-                <span>Housekeeping</span>
               </TabsTrigger>
             </TabsList>
           )}
