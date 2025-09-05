@@ -403,9 +403,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         </DialogHeader>
 
         <Tabs defaultValue="users" className="w-full flex flex-col flex-1 min-h-0">
-            <TabsList className={`grid w-full ${currentUserRole === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
+          <TabsList className={`grid w-full ${['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
             <TabsTrigger value="users" className="text-xs sm:text-sm">All Users</TabsTrigger>
-            {currentUserRole === 'admin' && (
+            {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) && (
               <TabsTrigger value="create" className="text-xs sm:text-sm">Create User</TabsTrigger>
             )}
           </TabsList>
