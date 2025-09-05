@@ -34,6 +34,7 @@ interface Profile {
   id: string;
   email: string;
   full_name: string;
+  nickname?: string;
   phone_number?: string;
   role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager';
   created_at: string;
@@ -57,6 +58,17 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     role: 'housekeeping' as const,
     assigned_hotel: '',
   });
+  const [editUserData, setEditUserData] = useState({
+    id: '',
+    full_name: '',
+    nickname: '',
+    email: '',
+    password: '',
+    phone_number: '',
+    role: 'housekeeping' as Profile['role'],
+    assigned_hotel: '',
+  });
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [hotels, setHotels] = useState<any[]>([]);
 
@@ -257,6 +269,80 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     }
   };
 
+  const handleEditUser = (user: Profile) => {
+    setEditUserData({
+      id: user.id,
+      full_name: user.full_name,
+      nickname: user.nickname || '',
+      email: user.email,
+      password: '',
+      phone_number: user.phone_number || '',
+      role: user.role,
+      assigned_hotel: user.assigned_hotel || '',
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateUser = async () => {
+    if (!editUserData.id) return;
+    
+    setLoading(true);
+    try {
+      // Update profile information
+      const profileUpdates: any = {
+        full_name: editUserData.full_name,
+        nickname: editUserData.nickname || null,
+        email: editUserData.email,
+        phone_number: editUserData.phone_number || null,
+        role: editUserData.role,
+        assigned_hotel: editUserData.assigned_hotel === 'none' ? null : editUserData.assigned_hotel || null,
+      };
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update(profileUpdates)
+        .eq('id', editUserData.id);
+
+      if (profileError) throw profileError;
+
+      // Update password if provided
+      if (editUserData.password) {
+        // For now, we'll just show a message that password needs to be reset via email
+        // since we can't update auth.users password directly from client
+        toast({
+          title: 'Password Reset Required',
+          description: 'Profile updated successfully. The user will need to reset their password via email.',
+        });
+      } else {
+        toast({
+          title: 'Success',
+          description: 'User profile updated successfully',
+        });
+      }
+
+      fetchUsers();
+      setEditDialogOpen(false);
+      setEditUserData({
+        id: '',
+        full_name: '',
+        nickname: '',
+        email: '',
+        password: '',
+        phone_number: '',
+        role: 'housekeeping',
+        assigned_hotel: '',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getRoleColor = (role: string) => {
     switch (role) {
       case 'admin': return 'bg-red-500 text-white';
@@ -311,9 +397,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         </DialogHeader>
 
         <Tabs defaultValue="users" className="w-full flex flex-col flex-1 min-h-0">
-          <TabsList className={`grid w-full ${['admin', 'housekeeping_manager'].includes(currentUserRole) ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
+            <TabsList className={`grid w-full ${currentUserRole === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
             <TabsTrigger value="users" className="text-xs sm:text-sm">All Users</TabsTrigger>
-            {['admin', 'housekeeping_manager'].includes(currentUserRole) && (
+            {currentUserRole === 'admin' && (
               <TabsTrigger value="create" className="text-xs sm:text-sm">Create User</TabsTrigger>
             )}
           </TabsList>
@@ -355,15 +441,27 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             {getRoleLabel(user.role)}
                           </Badge>
                           <div className="flex items-center gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedUser(user)}
-                              className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                            >
-                              <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                              <span className="hidden sm:inline sm:ml-1">Edit</span>
-                            </Button>
+                            {currentUserRole === 'admin' ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleEditUser(user)}
+                                className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
+                              >
+                                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline sm:ml-1">Edit</span>
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSelectedUser(user)}
+                                className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
+                              >
+                                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                                <span className="hidden sm:inline sm:ml-1">Role</span>
+                              </Button>
+                            )}
                             
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -407,7 +505,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
             )}
           </TabsContent>
 
-          {['admin', 'housekeeping_manager'].includes(currentUserRole) && (
+          {currentUserRole === 'admin' && (
             <TabsContent value="create" className="flex-1 min-h-0 overflow-auto">
             <Card>
               <CardHeader className="flex-shrink-0">
@@ -483,40 +581,34 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                            <SelectValue />
                          </SelectTrigger>
                          <SelectContent>
-                            {/* Only admins and housekeeping managers can create users */}
-                            {currentUserRole === 'admin' && (
-                              <>
-                                <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                                <SelectItem value="reception">Reception</SelectItem>
-                                <SelectItem value="maintenance">Maintenance</SelectItem>
-                                <SelectItem value="marketing">Marketing</SelectItem>
-                                <SelectItem value="control_finance">Control & Finance</SelectItem>
-                                <SelectItem value="hr">HR</SelectItem>
-                                <SelectItem value="front_office">Front Office</SelectItem>
-                                <SelectItem value="manager">Manager</SelectItem>
-                                <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
-                                <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
-                                <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
-                                <SelectItem value="reception_manager">Reception Manager</SelectItem>
-                                <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
-                                <SelectItem value="control_manager">Control Manager</SelectItem>
-                                <SelectItem value="finance_manager">Finance Manager</SelectItem>
-                                <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
-                                <SelectItem value="admin">Admin</SelectItem>
-                                <SelectItem value="top_management">Top Management</SelectItem>
-                              </>
-                            )}
-                            
-                            {currentUserRole === 'housekeeping_manager' && (
-                              <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                            )}
-                         </SelectContent>
-                       </Select>
-                       <p className="text-xs text-muted-foreground">
-                         {currentUserRole === 'housekeeping_manager' && 'You can only create housekeeping staff profiles'}
-                         {(currentUserRole === 'admin' || currentUserRole === 'top_management') && 'You can create any user role'}
-                         {(!['admin', 'top_management', 'housekeeping_manager'].includes(currentUserRole)) && 'Available roles based on your permissions'}
-                       </p>
+                             {/* Only admins can create users */}
+                             {currentUserRole === 'admin' && (
+                               <>
+                                 <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                                 <SelectItem value="reception">Reception</SelectItem>
+                                 <SelectItem value="maintenance">Maintenance</SelectItem>
+                                 <SelectItem value="marketing">Marketing</SelectItem>
+                                 <SelectItem value="control_finance">Control & Finance</SelectItem>
+                                 <SelectItem value="hr">HR</SelectItem>
+                                 <SelectItem value="front_office">Front Office</SelectItem>
+                                 <SelectItem value="manager">Manager</SelectItem>
+                                 <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
+                                 <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
+                                 <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
+                                 <SelectItem value="reception_manager">Reception Manager</SelectItem>
+                                 <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
+                                 <SelectItem value="control_manager">Control Manager</SelectItem>
+                                 <SelectItem value="finance_manager">Finance Manager</SelectItem>
+                                 <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                                 <SelectItem value="admin">Admin</SelectItem>
+                                 <SelectItem value="top_management">Top Management</SelectItem>
+                               </>
+                             )}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {currentUserRole === 'admin' && 'You can create any user role'}
+                        </p>
                      </div>
 
                     <div className="space-y-2">
@@ -641,6 +733,130 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     To modify ticket creation permissions for this user, use the Admin Settings → Ticket Permissions menu.
                   </div>
                 </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+        
+        {/* Admin-only User Edit Dialog */}
+        {currentUserRole === 'admin' && (
+          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Edit User Details</DialogTitle>
+                <DialogDescription>
+                  Update user information and credentials (Admin only)
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit_full_name">Full Name</Label>
+                  <Input
+                    id="edit_full_name"
+                    value={editUserData.full_name}
+                    onChange={(e) => setEditUserData({ ...editUserData, full_name: e.target.value })}
+                    placeholder="Enter full name"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="edit_nickname">Username/Nickname</Label>
+                  <Input
+                    id="edit_nickname"
+                    value={editUserData.nickname}
+                    onChange={(e) => setEditUserData({ ...editUserData, nickname: e.target.value })}
+                    placeholder="Enter username"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="edit_email">Email</Label>
+                  <Input
+                    id="edit_email"
+                    type="email"
+                    value={editUserData.email}
+                    onChange={(e) => setEditUserData({ ...editUserData, email: e.target.value })}
+                    placeholder="Enter email"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="edit_phone">Phone Number</Label>
+                  <Input
+                    id="edit_phone"
+                    value={editUserData.phone_number}
+                    onChange={(e) => setEditUserData({ ...editUserData, phone_number: e.target.value })}
+                    placeholder="Enter phone number"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="edit_role">Role</Label>
+                  <Select value={editUserData.role} onValueChange={(value) => setEditUserData({ ...editUserData, role: value as Profile['role'] })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                      <SelectItem value="reception">Reception</SelectItem>
+                      <SelectItem value="maintenance">Maintenance</SelectItem>
+                      <SelectItem value="marketing">Marketing</SelectItem>
+                      <SelectItem value="control_finance">Control & Finance</SelectItem>
+                      <SelectItem value="hr">HR</SelectItem>
+                      <SelectItem value="front_office">Front Office</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
+                      <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
+                      <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
+                      <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
+                      <SelectItem value="reception_manager">Reception Manager</SelectItem>
+                      <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
+                      <SelectItem value="control_manager">Control Manager</SelectItem>
+                      <SelectItem value="finance_manager">Finance Manager</SelectItem>
+                      <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="top_management">Top Management</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="edit_hotel">Assigned Hotel</Label>
+                  <Select value={editUserData.assigned_hotel} onValueChange={(value) => setEditUserData({ ...editUserData, assigned_hotel: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select hotel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">All Hotels</SelectItem>
+                      {hotels.map((hotel) => (
+                        <SelectItem key={hotel.id} value={hotel.name}>{hotel.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="edit_password">New Password (Optional)</Label>
+                  <Input
+                    id="edit_password"
+                    type="password"
+                    value={editUserData.password}
+                    onChange={(e) => setEditUserData({ ...editUserData, password: e.target.value })}
+                    placeholder="Leave blank to keep current password"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Note: Password changes require the user to reset via email for security
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex justify-end gap-2 mt-6">
+                <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={loading}>
+                  Cancel
+                </Button>
+                <Button onClick={handleUpdateUser} disabled={loading}>
+                  {loading ? 'Updating...' : 'Update User'}
+                </Button>
               </div>
             </DialogContent>
           </Dialog>
