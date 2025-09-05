@@ -172,7 +172,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <Badge 
               className={`${getStatusColor(assignment.status)} font-semibold px-3 py-1 text-xs uppercase tracking-wide rounded-full shadow-sm flex-shrink-0`}
             >
-              {assignment.status === 'in_progress' ? 'In Progress' : assignment.status.replace('_', ' ')}
+              {assignment.status === 'in_progress' 
+                ? t('housekeeping.inProgress')
+                : assignment.status === 'completed'
+                ? t('housekeeping.completed')
+                : assignment.status === 'assigned'
+                ? t('housekeeping.waiting')
+                : assignment.status.replace('_', ' ')
+              }
             </Badge>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -272,7 +279,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               size="lg"
               onClick={() => updateAssignmentStatus('completed')}
               disabled={loading}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
             >
               <CheckCircle className="h-5 w-5" />
               {t('housekeeping.complete')}

@@ -106,9 +106,7 @@ export function MobileHousekeepingView() {
         .from('room_assignments')
         .select('*')
         .eq('assigned_to', user.id)
-        .eq('assignment_date', selectedDate)
-        .order('priority', { ascending: false })
-        .order('created_at', { ascending: true });
+        .eq('assignment_date', selectedDate);
 
       // Apply status filter if set
       if (statusFilter && statusFilter !== 'total') {
@@ -146,6 +144,27 @@ export function MobileHousekeepingView() {
           console.error('Rooms fetch error:', roomsError);
         }
       }
+
+      // Sort assignments by status priority: in_progress first, then assigned, then completed
+      assignmentsData.sort((a, b) => {
+        const statusPriority = {
+          'in_progress': 1,
+          'assigned': 2,
+          'completed': 3,
+          'cancelled': 4
+        };
+        
+        // First sort by status
+        const statusDiff = statusPriority[a.status] - statusPriority[b.status];
+        if (statusDiff !== 0) return statusDiff;
+        
+        // Then by priority (higher priority first)
+        const priorityDiff = b.priority - a.priority;
+        if (priorityDiff !== 0) return priorityDiff;
+        
+        // Finally by created_at (older first)
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
 
       // If no specific filter, exclude completed tasks for cleaner view
       if (!statusFilter) {
@@ -201,10 +220,10 @@ export function MobileHousekeepingView() {
 
   const getAssignmentTypeLabel = (type: string) => {
     switch (type) {
-      case 'daily_cleaning': return 'Daily Clean';
-      case 'checkout_cleaning': return 'Checkout Clean';
-      case 'maintenance': return 'Maintenance';
-      case 'deep_cleaning': return 'Deep Clean';
+      case 'daily_cleaning': return t('housekeeping.assignmentType.dailyClean');
+      case 'checkout_cleaning': return t('housekeeping.assignmentType.checkoutClean');
+      case 'maintenance': return t('housekeeping.assignmentType.maintenance');
+      case 'deep_cleaning': return t('housekeeping.assignmentType.deepClean');
       default: return type;
     }
   };

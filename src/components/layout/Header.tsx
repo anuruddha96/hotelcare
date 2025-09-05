@@ -42,16 +42,17 @@ export function Header() {
 
   const getRoleLabel = (role: string) => {
     switch (role) {
-      case 'housekeeping': return 'Housekeeping';
-      case 'reception': return 'Reception';
-      case 'maintenance': return 'Maintenance';
-      case 'manager': return 'Manager';
-      case 'admin': return 'Admin';
-      case 'marketing': return 'Marketing';
-      case 'control_finance': return 'Control & Finance';
-      case 'hr': return 'HR';
-      case 'front_office': return 'Front Office';
-      case 'top_management': return 'Top Management';
+      case 'housekeeping': return t('roles.housekeeping');
+      case 'housekeeping_manager': return t('roles.housekeepingManager');
+      case 'reception': return t('roles.reception');
+      case 'maintenance': return t('roles.maintenance');
+      case 'manager': return t('roles.manager');
+      case 'admin': return t('roles.admin');
+      case 'marketing': return t('roles.marketing');
+      case 'control_finance': return t('roles.controlFinance');
+      case 'hr': return t('roles.hr');
+      case 'front_office': return t('roles.frontOffice');
+      case 'top_management': return t('roles.topManagement');
       default: return role;
     }
   };
@@ -132,16 +133,16 @@ export function Header() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setProfileDialogOpen(true)}>
                 <User className="mr-2 h-4 w-4" />
-                Profile
+                {t('common.profile')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}>
                 <Settings className="mr-2 h-4 w-4" />
-                Settings
+                {t('common.settings')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => signOut()}>
                 <LogOut className="mr-2 h-4 w-4" />
-                Log out
+                {t('common.logout')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -172,6 +172,19 @@ const translations = {
     // Common
     'common.error': 'Error',
     'common.success': 'Success',
+    
+    // Roles
+    'roles.housekeeping': 'Housekeeping',
+    'roles.housekeepingManager': 'Housekeeping Manager',
+    'roles.reception': 'Reception',
+    'roles.maintenance': 'Maintenance',
+    'roles.manager': 'Manager',
+    'roles.admin': 'Admin',
+    'roles.marketing': 'Marketing',
+    'roles.controlFinance': 'Control & Finance',
+    'roles.hr': 'HR',
+    'roles.frontOffice': 'Front Office',
+    'roles.topManagement': 'Top Management',
   },
   
   hu: {
@@ -345,6 +358,19 @@ const translations = {
     // Common additions
     'common.error': 'Hiba',
     'common.success': 'Siker',
+    
+    // Roles
+    'roles.housekeeping': 'Takarítás',
+    'roles.housekeepingManager': 'Takarítási vezető',
+    'roles.reception': 'Recepció',
+    'roles.maintenance': 'Karbantartás',
+    'roles.manager': 'Vezető',
+    'roles.admin': 'Adminisztrátor',
+    'roles.marketing': 'Marketing',
+    'roles.controlFinance': 'Pénzügy & Kontroll',
+    'roles.hr': 'HR',
+    'roles.frontOffice': 'Front Office',
+    'roles.topManagement': 'Felső vezetés',
   },
   
   es: {
@@ -518,6 +544,19 @@ const translations = {
     // Common additions
     'common.error': 'Error',
     'common.success': 'Éxito',
+    
+    // Roles
+    'roles.housekeeping': 'Limpieza',
+    'roles.housekeepingManager': 'Gerente de Limpieza',
+    'roles.reception': 'Recepción',
+    'roles.maintenance': 'Mantenimiento',
+    'roles.manager': 'Gerente',
+    'roles.admin': 'Administrador',
+    'roles.marketing': 'Marketing',
+    'roles.controlFinance': 'Control y Finanzas',
+    'roles.hr': 'RRHH',
+    'roles.frontOffice': 'Front Office',
+    'roles.topManagement': 'Alta Dirección',
   },
   
   vi: {
@@ -691,6 +730,19 @@ const translations = {
     // Common additions
     'common.error': 'Lỗi',
     'common.success': 'Thành công',
+    
+    // Roles
+    'roles.housekeeping': 'Dọn phòng',
+    'roles.housekeepingManager': 'Quản lý dọn phòng',
+    'roles.reception': 'Lễ tân',
+    'roles.maintenance': 'Bảo trì',
+    'roles.manager': 'Quản lý',
+    'roles.admin': 'Quản trị viên',
+    'roles.marketing': 'Marketing',
+    'roles.controlFinance': 'Kiểm soát & Tài chính',
+    'roles.hr': 'Nhân sự',
+    'roles.frontOffice': 'Front Office',
+    'roles.topManagement': 'Ban lãnh đạo',
   },
 };
 
