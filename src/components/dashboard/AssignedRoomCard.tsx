@@ -252,7 +252,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         )}
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           {assignment.status === 'assigned' && (
             <Button
               size="lg"

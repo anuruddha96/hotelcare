@@ -107,19 +107,28 @@ export function MobileHousekeepingView() {
 
       // 2) Always fetch room details in a separate query and merge
       const roomIds = Array.from(new Set(assignmentsData.map((a: any) => a.room_id).filter(Boolean)));
+      console.log('Room IDs to fetch:', roomIds);
+      
       if (roomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
           .select('id, room_number, hotel, status, room_name, floor_number, bed_type')
           .in('id', roomIds);
+          
+        console.log('Rooms fetch result:', { roomRows, roomsError });
+        
         if (!roomsError && roomRows) {
           const roomMap = Object.fromEntries(roomRows.map((r: any) => [r.id, r]));
+          console.log('Room map created:', roomMap);
+          
           assignmentsData = assignmentsData.map((a: any) => ({
             ...a,
             rooms: roomMap[a.room_id] ?? null,
           }));
+          
+          console.log('Final assignments with rooms:', assignmentsData);
         } else {
-          console.warn('Rooms fetch error or empty:', roomsError);
+          console.error('Rooms fetch error:', roomsError);
         }
       }
 
@@ -183,7 +192,7 @@ export function MobileHousekeepingView() {
   }
 
   return (
-    <div className="max-w-screen-sm mx-auto px-3 space-y-4 sm:max-w-none sm:px-4 lg:max-w-2xl sm:space-y-6">
+    <div className="w-full px-4 py-4 space-y-4 min-h-screen">
       {/* Date Selector - Mobile Optimized */}
       <Card className="bg-gradient-to-r from-primary/5 to-accent/10 border-primary/20">
         <CardHeader className="pb-3">
@@ -208,7 +217,7 @@ export function MobileHousekeepingView() {
       </Card>
 
       {/* Summary Cards - Mobile Grid with Clickable Filters */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <Card 
           className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
             statusFilter === 'total' 
