@@ -34,6 +34,15 @@ export function HousekeepingTab() {
   // Full management access: admin, top_management, manager, housekeeping_manager, marketing, control_finance, hr, front_office
   const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
   
+  // Set the default active tab based on manager access
+  useEffect(() => {
+    if (hasManagerAccess) {
+      setActiveTab('staff-management');
+    } else {
+      setActiveTab('assignments');
+    }
+  }, [hasManagerAccess]);
+  
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
   const canAccessHousekeeping = hasManagerAccess || ['housekeeping'].includes(userRole);
   
@@ -58,40 +67,8 @@ export function HousekeepingTab() {
           }
           ${hasManagerAccess ? 'sm:grid sm:grid-cols-6 sm:justify-center' : ''}
         `}>
-          <TabsTrigger 
-            value="assignments" 
-            className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-          >
-            <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
-            <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
-          </TabsTrigger>
           {hasManagerAccess && (
             <>
-              <TabsTrigger 
-                value="quick-assign" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Zap className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.quickAssign')}</span>
-                <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="pms-upload" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Upload className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.pmsUpload')}</span>
-                <span className="xs:hidden">{t('housekeeping.pmsUpload')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="performance" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.performance')}</span>
-                <span className="xs:hidden">{t('housekeeping.performance')}</span>
-              </TabsTrigger>
               <TabsTrigger 
                 value="staff-management" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
@@ -108,16 +85,60 @@ export function HousekeepingTab() {
                 <span className="hidden xs:inline">{t('housekeeping.teamView')}</span>
                 <span className="xs:hidden">{t('housekeeping.teamView')}</span>
               </TabsTrigger>
+              <TabsTrigger 
+                value="performance" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">{t('housekeeping.performance')}</span>
+                <span className="xs:hidden">{t('housekeeping.performance')}</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="pms-upload" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Upload className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">{t('housekeeping.pmsUpload')}</span>
+                <span className="xs:hidden">{t('housekeeping.pmsUpload')}</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="quick-assign" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Zap className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">{t('housekeeping.quickAssign')}</span>
+                <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
+              </TabsTrigger>
             </>
           )}
+          <TabsTrigger 
+            value="assignments" 
+            className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+          >
+            <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
+            <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
+            <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
+          </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="assignments" className="space-y-6">
-          <HousekeepingStaffView />
-        </TabsContent>
 
         {hasManagerAccess && (
           <>
+            <TabsContent value="staff-management" className="space-y-6">
+              <HousekeepingStaffManagement />
+            </TabsContent>
+
+            <TabsContent value="manage" className="space-y-6">
+              <HousekeepingManagerView />
+            </TabsContent>
+
+            <TabsContent value="performance" className="space-y-6">
+              <PerformanceLeaderboard />
+            </TabsContent>
+
+            <TabsContent value="pms-upload" className="space-y-6">
+              <PMSUpload />
+            </TabsContent>
+
             <TabsContent value="quick-assign" className="space-y-6">
               <EasyRoomAssignment onAssignmentCreated={() => {
                 // Refresh the team view if it's active
@@ -126,24 +147,12 @@ export function HousekeepingTab() {
                 }
               }} />
             </TabsContent>
-
-            <TabsContent value="pms-upload" className="space-y-6">
-              <PMSUpload />
-            </TabsContent>
-
-            <TabsContent value="performance" className="space-y-6">
-              <PerformanceLeaderboard />
-            </TabsContent>
-
-            <TabsContent value="staff-management" className="space-y-6">
-              <HousekeepingStaffManagement />
-            </TabsContent>
-
-            <TabsContent value="manage" className="space-y-6">
-              <HousekeepingManagerView />
-            </TabsContent>
           </>
         )}
+
+        <TabsContent value="assignments" className="space-y-6">
+          <HousekeepingStaffView />
+        </TabsContent>
       </Tabs>
     </div>
   );

@@ -311,9 +311,11 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         </DialogHeader>
 
         <Tabs defaultValue="users" className="w-full flex flex-col flex-1 min-h-0">
-          <TabsList className="grid w-full grid-cols-2 flex-shrink-0">
+          <TabsList className={`grid w-full ${['admin', 'housekeeping_manager'].includes(currentUserRole) ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
             <TabsTrigger value="users" className="text-xs sm:text-sm">All Users</TabsTrigger>
-            <TabsTrigger value="create" className="text-xs sm:text-sm">Create User</TabsTrigger>
+            {['admin', 'housekeeping_manager'].includes(currentUserRole) && (
+              <TabsTrigger value="create" className="text-xs sm:text-sm">Create User</TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="users" className="flex-1 min-h-0 overflow-auto">
@@ -405,7 +407,8 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
             )}
           </TabsContent>
 
-          <TabsContent value="create" className="flex-1 min-h-0 overflow-auto">
+          {['admin', 'housekeeping_manager'].includes(currentUserRole) && (
+            <TabsContent value="create" className="flex-1 min-h-0 overflow-auto">
             <Card>
               <CardHeader className="flex-shrink-0">
                 <CardTitle className="flex items-center gap-2">
@@ -480,72 +483,33 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                            <SelectValue />
                          </SelectTrigger>
                          <SelectContent>
-                           {/* Housekeeping managers can only create housekeeping staff */}
-                           {currentUserRole === 'housekeeping_manager' && (
-                             <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                           )}
-                           
-                           {/* Maintenance managers can create maintenance staff */}
-                           {currentUserRole === 'maintenance_manager' && (
-                             <SelectItem value="maintenance">Maintenance</SelectItem>
-                           )}
-                           
-                           {/* Reception managers can create reception staff */}
-                           {currentUserRole === 'reception_manager' && (
-                             <SelectItem value="reception">Reception</SelectItem>
-                           )}
-                           
-                           {/* Marketing managers can create marketing staff */}
-                           {currentUserRole === 'marketing_manager' && (
-                             <SelectItem value="marketing">Marketing</SelectItem>
-                           )}
-                           
-                           {/* Other managers can create their department staff */}
-                           {(currentUserRole === 'back_office_manager' || 
-                             currentUserRole === 'control_manager' || 
-                             currentUserRole === 'finance_manager') && (
-                             <>
-                               <SelectItem value="control_finance">Control & Finance</SelectItem>
-                               <SelectItem value="hr">HR</SelectItem>
-                               <SelectItem value="front_office">Front Office</SelectItem>
-                             </>
-                           )}
-                           
-                           {/* General managers can create most roles */}
-                           {currentUserRole === 'manager' && (
-                             <>
-                               <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                               <SelectItem value="reception">Reception</SelectItem>
-                               <SelectItem value="maintenance">Maintenance</SelectItem>
-                               <SelectItem value="marketing">Marketing</SelectItem>
-                               <SelectItem value="control_finance">Control & Finance</SelectItem>
-                               <SelectItem value="hr">HR</SelectItem>
-                               <SelectItem value="front_office">Front Office</SelectItem>
-                             </>
-                           )}
-                           
-                           {/* Top management and admins can create any role */}
-                           {(currentUserRole === 'admin' || currentUserRole === 'top_management' || currentUserRole === 'top_management_manager') && (
-                             <>
-                               <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                               <SelectItem value="reception">Reception</SelectItem>
-                               <SelectItem value="maintenance">Maintenance</SelectItem>
-                               <SelectItem value="marketing">Marketing</SelectItem>
-                               <SelectItem value="control_finance">Control & Finance</SelectItem>
-                               <SelectItem value="hr">HR</SelectItem>
-                               <SelectItem value="front_office">Front Office</SelectItem>
-                               <SelectItem value="manager">Manager</SelectItem>
-                               <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
-                               <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
-                               <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
-                               <SelectItem value="reception_manager">Reception Manager</SelectItem>
-                               <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
-                               <SelectItem value="control_manager">Control Manager</SelectItem>
-                               <SelectItem value="finance_manager">Finance Manager</SelectItem>
-                               <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
-                               {currentUserRole === 'admin' && <SelectItem value="admin">Admin</SelectItem>}
-                             </>
-                           )}
+                            {/* Only admins and housekeeping managers can create users */}
+                            {currentUserRole === 'admin' && (
+                              <>
+                                <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                                <SelectItem value="reception">Reception</SelectItem>
+                                <SelectItem value="maintenance">Maintenance</SelectItem>
+                                <SelectItem value="marketing">Marketing</SelectItem>
+                                <SelectItem value="control_finance">Control & Finance</SelectItem>
+                                <SelectItem value="hr">HR</SelectItem>
+                                <SelectItem value="front_office">Front Office</SelectItem>
+                                <SelectItem value="manager">Manager</SelectItem>
+                                <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
+                                <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
+                                <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
+                                <SelectItem value="reception_manager">Reception Manager</SelectItem>
+                                <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
+                                <SelectItem value="control_manager">Control Manager</SelectItem>
+                                <SelectItem value="finance_manager">Finance Manager</SelectItem>
+                                <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
+                                <SelectItem value="top_management">Top Management</SelectItem>
+                              </>
+                            )}
+                            
+                            {currentUserRole === 'housekeeping_manager' && (
+                              <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                            )}
                          </SelectContent>
                        </Select>
                        <p className="text-xs text-muted-foreground">
@@ -591,7 +555,8 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                 </form>
               </CardContent>
             </Card>
-          </TabsContent>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Edit User Dialog */}
