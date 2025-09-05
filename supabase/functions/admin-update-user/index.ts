@@ -52,15 +52,15 @@ serve(async (req: Request) => {
       });
     }
 
-    // Verify caller is admin
+    // Verify caller is admin, manager, or housekeeping_manager
     const { data: roleData, error: roleErr } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", caller.id)
       .maybeSingle();
 
-    if (roleErr || !roleData || roleData.role !== "admin") {
-      return new Response(JSON.stringify({ error: "Forbidden: admin only" }), {
+    if (roleErr || !roleData || !['admin', 'manager', 'housekeeping_manager'].includes(roleData.role)) {
+      return new Response(JSON.stringify({ error: "Forbidden: admin, manager, or housekeeping_manager role required" }), {
         status: 403,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
@@ -71,23 +71,64 @@ serve(async (req: Request) => {
 
     // Update auth user if email or password provided
     if (new_email || new_password) {
-      const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
-        target_user_id,
-        {
-          ...(new_email ? { email: new_email } : {}),
-          ...(new_password ? { password: new_password } : {}),
-          // Optionally keep metadata in sync
-          ...(full_name || nickname
-            ? { user_metadata: { ...(full_name ? { full_name } : {}), ...(nickname ? { username: nickname } : {}) } }
-            : {}),
-        },
-      );
+      console.log("Updating auth user for:", target_user_id);
+      
+      // First check if auth user exists
+      const { data: authUser, error: getUserErr } = await supabaseAdmin.auth.admin.getUserById(target_user_id);
+      
+      if (getUserErr || !authUser.user) {
+        // Auth user doesn't exist, create one if we have email and password
+        if (new_email && new_password) {
+          console.log("Creating new auth user with email:", new_email);
+          const { data: newAuthUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+            id: target_user_id,
+            email: new_email,
+            password: new_password,
+            email_confirm: true,
+            user_metadata: {
+              ...(full_name ? { full_name } : {}),
+              ...(nickname ? { username: nickname } : {}),
+            },
+          });
+          
+          if (createErr) {
+            console.error("Error creating auth user:", createErr);
+            return new Response(JSON.stringify({ error: createErr.message }), {
+              status: 400,
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            });
+          }
+          console.log("Auth user created successfully");
+        } else {
+          console.log("Cannot create auth user without both email and password");
+          return new Response(JSON.stringify({ error: "Cannot update auth credentials without both email and password for new auth user" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+      } else {
+        // Auth user exists, update it
+        console.log("Updating existing auth user");
+        const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
+          target_user_id,
+          {
+            ...(new_email ? { email: new_email } : {}),
+            ...(new_password ? { password: new_password } : {}),
+            // Optionally keep metadata in sync
+            ...(full_name || nickname
+              ? { user_metadata: { ...(full_name ? { full_name } : {}), ...(nickname ? { username: nickname } : {}) } }
+              : {}),
+          },
+        );
 
-      if (updateErr) {
-        return new Response(JSON.stringify({ error: updateErr.message }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-        });
+        if (updateErr) {
+          console.error("Error updating auth user:", updateErr);
+          return new Response(JSON.stringify({ error: updateErr.message }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          });
+        }
+        console.log("Auth user updated successfully");
       }
     }
 
@@ -97,6 +138,7 @@ serve(async (req: Request) => {
     if (full_name) updates.full_name = full_name;
     if (nickname) updates.nickname = nickname;
 
+    console.log("Profile updates to apply:", updates);
     if (Object.keys(updates).length > 0) {
       const { error: profileErr } = await supabase
         .from("profiles")
@@ -104,13 +146,16 @@ serve(async (req: Request) => {
         .eq("id", target_user_id);
 
       if (profileErr) {
+        console.error("Error updating profile:", profileErr);
         return new Response(JSON.stringify({ error: profileErr.message }), {
           status: 400,
           headers: { "Content-Type": "application/json", ...corsHeaders },
         });
       }
+      console.log("Profile updated successfully");
     }
 
+    console.log("User update completed successfully");
     return new Response(
       JSON.stringify({ success: true, message: "User updated successfully" }),
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } },

@@ -285,23 +285,21 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     
     setLoading(true);
     try {
-      // 1) If admin changed email or password, update Auth user via Edge Function
-      const emailOrPasswordChanged = !!editUserData.password || !!editUserData.email;
-      if (emailOrPasswordChanged) {
-        const { data: fnData, error: fnError } = await supabase.functions.invoke('admin-update-user', {
-          body: {
-            target_user_id: editUserData.id,
-            new_email: editUserData.email || undefined,
-            new_password: editUserData.password || undefined,
-            full_name: editUserData.full_name || undefined,
-            nickname: editUserData.nickname || undefined,
-          },
-        });
-        if (fnError) throw fnError;
-        if ((fnData as any)?.error) throw new Error((fnData as any).error);
-      }
+      // Use Edge Function for email/password updates and profile updates
+      const { data: fnData, error: fnError } = await supabase.functions.invoke('admin-update-user', {
+        body: {
+          target_user_id: editUserData.id,
+          new_email: editUserData.email || undefined,
+          new_password: editUserData.password || undefined,
+          full_name: editUserData.full_name || undefined,
+          nickname: editUserData.nickname || undefined,
+        },
+      });
+      
+      if (fnError) throw fnError;
+      if ((fnData as any)?.error) throw new Error((fnData as any).error);
 
-      // 2) Update public profile details (role, phone, hotel, etc.) via secure RPC
+      // Update role, phone, and hotel via RPC (only profile fields not handled by Edge Function)
       const { data, error } = await supabase.rpc('update_user_credentials', {
         p_user_id: editUserData.id,
         p_full_name: editUserData.full_name,
@@ -312,10 +310,11 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         p_assigned_hotel: editUserData.assigned_hotel === 'none' ? null : editUserData.assigned_hotel || null,
         p_send_password_reset: false,
       });
+      
       if (error) throw error;
       const result = data as { success: boolean; error?: string; message?: string };
       if (!result.success) {
-        throw new Error(result.error || 'Failed to update user');
+        throw new Error(result.error || 'Failed to update user profile');
       }
 
       toast({
@@ -400,9 +399,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         </DialogHeader>
 
         <Tabs defaultValue="users" className="w-full flex flex-col flex-1 min-h-0">
-            <TabsList className={`grid w-full ${currentUserRole === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
+            <TabsList className={`grid w-full ${['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
             <TabsTrigger value="users" className="text-xs sm:text-sm">All Users</TabsTrigger>
-            {currentUserRole === 'admin' && (
+            {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) && (
               <TabsTrigger value="create" className="text-xs sm:text-sm">Create User</TabsTrigger>
             )}
           </TabsList>
@@ -444,7 +443,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             {getRoleLabel(user.role)}
                           </Badge>
                           <div className="flex items-center gap-1">
-                            {currentUserRole === 'admin' ? (
+                            {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? (
                               <Button
                                 size="sm"
                                 variant="outline"
