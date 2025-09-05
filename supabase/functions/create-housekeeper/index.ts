@@ -6,6 +6,19 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Sanitize a name to a safe ASCII username for emails
+function sanitizeUsername(name: string) {
+  const base = String(name)
+    .normalize('NFD') // split accents
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, '.') // allow letters, numbers and dots
+    .replace(/\.+/g, '.') // collapse consecutive dots
+    .replace(/^\./, '') // no leading dot
+    .replace(/\.$/, ''); // no trailing dot
+  return base || 'user';
+}
+
 export const handler = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -30,6 +43,7 @@ export const handler = async (req: Request): Promise<Response> => {
       phone_number,
       assigned_hotel,
       role = 'housekeeping',
+      password,
     } = body;
 
     console.log('🔐 Creating Supabase clients');
@@ -86,9 +100,12 @@ export const handler = async (req: Request): Promise<Response> => {
 
     // 2) Generate credentials with timestamp to ensure uniqueness
     const timestamp = Date.now().toString().slice(-6);
-    const generatedUsername = `${String(full_name).trim().toLowerCase().replace(/\s+/g, '.')}.${timestamp}`;
+    const baseName = sanitizeUsername(String(full_name).trim());
+    const generatedUsername = `${baseName}.${timestamp}`;
 
-    const generatedPassword = `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`;
+    const generatedPassword = (password && String(password).trim().length
+      ? String(password).trim()
+      : `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`);
 
     let finalEmail = email && String(email).trim().length
       ? String(email).trim()

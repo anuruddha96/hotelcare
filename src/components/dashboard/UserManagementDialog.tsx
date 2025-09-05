@@ -71,7 +71,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [hotels, setHotels] = useState<any[]>([]);
-
+  const [generatedCredentials, setGeneratedCredentials] = useState<{username: string; password: string; email: string} | null>(null);
   useEffect(() => {
     if (open) {
       fetchUsers();
@@ -137,30 +137,31 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    
+
     try {
-      // Use the new secure function instead of admin API
-      const { data, error } = await supabase.rpc('create_user_with_profile', {
-        p_email: newUserData.email || null,
-        p_password: newUserData.password,
-        p_full_name: newUserData.full_name,
-        p_role: newUserData.role,
-        p_phone_number: newUserData.phone_number || null,
-        p_assigned_hotel: newUserData.assigned_hotel || null
+      const { data, error } = await supabase.functions.invoke('create-housekeeper', {
+        body: {
+          full_name: newUserData.full_name,
+          role: newUserData.role,
+          email: newUserData.email || null,
+          phone_number: newUserData.phone_number || null,
+          assigned_hotel: newUserData.assigned_hotel || null,
+          password: newUserData.password || null,
+        },
       });
 
       if (error) throw error;
-      
-      const result = data as { success: boolean; error?: string; message?: string };
-      
+
+      const result = data as { success: boolean; error?: string; message?: string; username?: string; password?: string; email?: string };
       if (!result.success) {
         throw new Error(result.error || 'Failed to create user');
       }
 
-      toast({
-        title: 'Success',
-        description: result.message || 'User created successfully',
-      });
+      if (result.username && result.password) {
+        setGeneratedCredentials({ username: result.username, password: result.password, email: result.email || '' });
+      }
+
+      toast({ title: 'Success', description: result.message || 'User created successfully' });
 
       setNewUserData({
         email: '',
@@ -170,14 +171,10 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         role: 'housekeeping',
         assigned_hotel: '',
       });
-      
+
       fetchUsers();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -403,9 +400,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         </DialogHeader>
 
         <Tabs defaultValue="users" className="w-full flex flex-col flex-1 min-h-0">
-          <TabsList className={`grid w-full ${['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
+            <TabsList className={`grid w-full ${currentUserRole === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} flex-shrink-0`}>
             <TabsTrigger value="users" className="text-xs sm:text-sm">All Users</TabsTrigger>
-            {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) && (
+            {currentUserRole === 'admin' && (
               <TabsTrigger value="create" className="text-xs sm:text-sm">Create User</TabsTrigger>
             )}
           </TabsList>
