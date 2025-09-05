@@ -140,24 +140,24 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'bg-green-100 text-green-800 border-green-200';
+        return 'bg-emerald-500 text-white border-emerald-600 shadow-sm';
       case 'in_progress':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
+        return 'bg-blue-500 text-white border-blue-600 shadow-sm';
       case 'assigned':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
+        return 'bg-amber-500 text-white border-amber-600 shadow-sm';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-slate-500 text-white border-slate-600 shadow-sm';
     }
   };
 
   const getPriorityColor = (priority: number) => {
     switch (priority) {
       case 3:
-        return 'bg-red-100 text-red-800';
+        return 'bg-red-50 text-red-700 border-red-300 hover:bg-red-100';
       case 2:
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-yellow-50 text-yellow-700 border-yellow-300 hover:bg-yellow-100';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100';
     }
   };
 
@@ -166,17 +166,27 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-3">
-            <CardTitle className="text-xl">Room {assignment.rooms?.room_number ?? '—'}</CardTitle>
-            <Badge className={getStatusColor(assignment.status)}>
-              {assignment.status.replace('_', ' ')}
+            <CardTitle className="text-xl font-bold text-foreground">
+              Room {assignment.rooms?.room_number || 'N/A'}
+            </CardTitle>
+            <Badge 
+              className={`${getStatusColor(assignment.status)} font-medium px-3 py-1 text-xs uppercase tracking-wide`}
+            >
+              {assignment.status === 'in_progress' ? 'In Progress' : assignment.status.replace('_', ' ')}
             </Badge>
             {assignment.priority > 1 && (
-              <Badge variant="outline" className={getPriorityColor(assignment.priority)}>
+              <Badge 
+                variant="outline" 
+                className={`${getPriorityColor(assignment.priority)} font-medium px-3 py-1 text-xs border-2`}
+              >
                 {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
               </Badge>
             )}
           </div>
-          <Badge variant="outline">
+          <Badge 
+            variant="outline" 
+            className="bg-slate-100 text-slate-700 border-slate-300 font-medium px-3 py-1 text-xs"
+          >
             {getAssignmentTypeLabel(assignment.assignment_type)}
           </Badge>
         </div>
@@ -191,7 +201,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           </div>
           <div className="flex items-center gap-2">
             <BedDouble className="h-4 w-4 text-muted-foreground" />
-            <span>{assignment.rooms?.floor_number !== undefined && assignment.rooms?.floor_number !== null ? `Floor ${assignment.rooms.floor_number}` : '—'}</span>
+            <span>
+              {assignment.rooms?.floor_number !== undefined && assignment.rooms?.floor_number !== null 
+                ? `Floor ${assignment.rooms.floor_number}` 
+                : 'Floor info unavailable'
+              }
+            </span>
           </div>
           {assignment.rooms?.room_name && (
             <div className="col-span-2">
@@ -256,7 +271,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>{t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number ?? '—'}</DialogTitle>
+                <DialogTitle>{t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number || 'N/A'}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <Textarea

@@ -108,6 +108,7 @@ export function HousekeepingStaffView() {
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate)
         .order('priority', { ascending: false })
+        .order('status', { ascending: true }) // Keep assigned first, then in_progress, then completed
         .order('created_at', { ascending: true });
 
       // Apply status filter if set
