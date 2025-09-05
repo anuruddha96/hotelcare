@@ -288,7 +288,23 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     
     setLoading(true);
     try {
-      // Use the new admin function to update user credentials
+      // 1) If admin changed email or password, update Auth user via Edge Function
+      const emailOrPasswordChanged = !!editUserData.password || !!editUserData.email;
+      if (emailOrPasswordChanged) {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('admin-update-user', {
+          body: {
+            target_user_id: editUserData.id,
+            new_email: editUserData.email || undefined,
+            new_password: editUserData.password || undefined,
+            full_name: editUserData.full_name || undefined,
+            nickname: editUserData.nickname || undefined,
+          },
+        });
+        if (fnError) throw fnError;
+        if ((fnData as any)?.error) throw new Error((fnData as any).error);
+      }
+
+      // 2) Update public profile details (role, phone, hotel, etc.) via secure RPC
       const { data, error } = await supabase.rpc('update_user_credentials', {
         p_user_id: editUserData.id,
         p_full_name: editUserData.full_name,
@@ -297,49 +313,18 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         p_phone_number: editUserData.phone_number || null,
         p_role: editUserData.role,
         p_assigned_hotel: editUserData.assigned_hotel === 'none' ? null : editUserData.assigned_hotel || null,
-        p_send_password_reset: !!editUserData.password
+        p_send_password_reset: false,
       });
-
       if (error) throw error;
-      
       const result = data as { success: boolean; error?: string; message?: string };
-      
       if (!result.success) {
         throw new Error(result.error || 'Failed to update user');
       }
 
-      // If password was requested to be changed, send reset email
-      if (editUserData.password) {
-        try {
-          const { error: resetError } = await supabase.auth.resetPasswordForEmail(editUserData.email, {
-            redirectTo: `${window.location.origin}/auth`
-          });
-          
-          if (resetError) {
-            console.warn('Password reset email failed:', resetError);
-            toast({
-              title: 'Profile Updated',
-              description: 'User profile updated successfully. Password reset email could not be sent - user will need to request it manually.',
-            });
-          } else {
-            toast({
-              title: 'Profile Updated & Password Reset Sent',
-              description: 'User profile updated successfully. Password reset email sent to the user.',
-            });
-          }
-        } catch (resetError) {
-          console.warn('Password reset email failed:', resetError);
-          toast({
-            title: 'Profile Updated',
-            description: 'User profile updated successfully. Password reset email could not be sent - user will need to request it manually.',
-          });
-        }
-      } else {
-        toast({
-          title: 'Success',
-          description: result.message || 'User profile updated successfully',
-        });
-      }
+      toast({
+        title: 'Success',
+        description: 'User updated successfully',
+      });
 
       fetchUsers();
       setEditDialogOpen(false);
