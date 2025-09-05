@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { TimerComponent } from './TimerComponent';
 import { useTranslation } from '@/hooks/useTranslation';
+import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 
 interface AssignedRoomCardProps {
   assignment: {
@@ -42,7 +43,7 @@ interface AssignedRoomCardProps {
 }
 
 export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCardProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
@@ -210,7 +211,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         {/* Assignment Notes */}
         {assignment.notes && (
           <div className="p-3 bg-muted rounded-md">
-            <p className="text-sm">{assignment.notes}</p>
+            <p className="text-sm">
+              {shouldTranslateContent(language) 
+                ? translateText(assignment.notes, language)
+                : assignment.notes
+              }
+            </p>
           </div>
         )}
 
