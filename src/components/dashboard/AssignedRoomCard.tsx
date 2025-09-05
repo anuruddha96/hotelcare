@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { TimerComponent } from './TimerComponent';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface AssignedRoomCardProps {
   assignment: {
@@ -41,6 +42,7 @@ interface AssignedRoomCardProps {
 }
 
 export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCardProps) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
@@ -121,13 +123,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const getAssignmentTypeLabel = (type: string) => {
     switch (type) {
       case 'daily_cleaning':
-        return 'Daily Clean';
+        return t('housekeeping.assignmentType.dailyClean');
       case 'checkout_cleaning':
-        return 'Checkout Clean';
+        return t('housekeeping.assignmentType.checkoutClean');
       case 'deep_cleaning':
-        return 'Deep Clean';
+        return t('housekeeping.assignmentType.deepClean');
       case 'maintenance':
-        return 'Maintenance';
+        return t('housekeeping.assignmentType.maintenance');
       default:
         return type;
     }
@@ -168,7 +170,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </Badge>
             {assignment.priority > 1 && (
               <Badge variant="outline" className={getPriorityColor(assignment.priority)}>
-                {assignment.priority === 3 ? 'High' : 'Medium'} Priority
+                {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
               </Badge>
             )}
           </div>
@@ -222,7 +224,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               className="flex items-center gap-2"
             >
               <Play className="h-4 w-4" />
-              Start
+              {t('housekeeping.start')}
             </Button>
           )}
           
@@ -234,7 +236,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               className="flex items-center gap-2"
             >
               <CheckCircle className="h-4 w-4" />
-              Complete
+              {t('housekeeping.complete')}
             </Button>
           )}
 
@@ -242,25 +244,25 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <DialogTrigger asChild>
               <Button size="sm" variant="outline" className="flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" />
-                Add Note
+                {t('housekeeping.addNote')}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add Note - Room {assignment.rooms.room_number}</DialogTitle>
+                <DialogTitle>{t('housekeeping.addNoteTitle')} {assignment.rooms.room_number}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <Textarea
-                  placeholder="Enter your note here..."
+                  placeholder={t('housekeeping.enterNote')}
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
                 />
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
-                    Cancel
+                    {t('common.cancel')}
                   </Button>
                   <Button onClick={addNote} disabled={!newNote.trim()}>
-                    Add Note
+                    {t('housekeeping.addNote')}
                   </Button>
                 </div>
               </div>
@@ -272,7 +274,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             variant="outline"
             onClick={() => setRoomDetailOpen(true)}
           >
-            Room Details
+            {t('housekeeping.roomDetails')}
           </Button>
         </div>
 
@@ -281,7 +283,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
             <AlertTriangle className="h-4 w-4 text-yellow-600" />
             <span className="text-sm text-yellow-800">
-              Room status: {assignment.rooms.status}
+              {t('housekeeping.roomStatus')} {assignment.rooms.status}
             </span>
           </div>
         )}

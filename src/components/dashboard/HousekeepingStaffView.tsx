@@ -10,6 +10,7 @@ import { MobileHousekeepingView } from './MobileHousekeepingView';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface Assignment {
   id: string;
@@ -42,6 +43,7 @@ interface Summary {
 export function HousekeepingStaffView() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
+  const { t } = useTranslation();
 
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -105,6 +107,7 @@ export function HousekeepingStaffView() {
         `)
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate)
+        .order('status', { ascending: true }) // assigned first, then in_progress, then completed
         .order('priority', { ascending: false })
         .order('created_at', { ascending: true });
 
@@ -152,25 +155,32 @@ export function HousekeepingStaffView() {
   };
 
   const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
-    setAssignments(prev => 
-      prev.map(assignment => 
+    setAssignments(prev => {
+      const updated = prev.map(assignment => 
         assignment.id === assignmentId 
           ? { ...assignment, status: newStatus }
           : assignment
-      ).filter(assignment => 
-        // Remove completed assignments from the list for cleaner view
-        newStatus === 'completed' && assignment.id === assignmentId ? false : true
-      )
-    );
+      );
+      
+      // Sort to maintain order: assigned > in_progress > completed
+      return updated.sort((a, b) => {
+        const statusOrder = { 'assigned': 0, 'in_progress': 1, 'completed': 2, 'cancelled': 3 };
+        const aOrder = statusOrder[a.status] || 0;
+        const bOrder = statusOrder[b.status] || 0;
+        
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return b.priority - a.priority; // Higher priority first within same status
+      });
+    });
     fetchSummary(); // Refresh summary
   };
 
   const getAssignmentTypeLabel = (type: string) => {
     switch (type) {
-      case 'daily_cleaning': return 'Daily Clean';
-      case 'checkout_cleaning': return 'Checkout Clean';
-      case 'maintenance': return 'Maintenance';
-      case 'deep_cleaning': return 'Deep Clean';
+      case 'daily_cleaning': return t('housekeeping.assignmentType.dailyClean');
+      case 'checkout_cleaning': return t('housekeeping.assignmentType.checkoutClean');
+      case 'maintenance': return t('housekeeping.assignmentType.maintenance');
+      case 'deep_cleaning': return t('housekeeping.assignmentType.deepClean');
       default: return type;
     }
   };
@@ -179,7 +189,7 @@ export function HousekeepingStaffView() {
     return (
       <div className="flex justify-center items-center p-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        <span className="ml-3 text-muted-foreground">Loading your tasks...</span>
+        <span className="ml-3 text-muted-foreground">{t('housekeeping.loadingTasks')}</span>
       </div>
     );
   }
@@ -191,7 +201,7 @@ export function HousekeepingStaffView() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
             <CalendarDays className="h-5 w-5 text-primary" />
-            <span>Work Schedule</span>
+            <span>{t('housekeeping.workSchedule')}</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -224,7 +234,7 @@ export function HousekeepingStaffView() {
               <CheckCircle className="h-4 w-4 text-blue-600" />
               <div className="min-w-0">
                 <p className="text-xl sm:text-2xl font-bold text-blue-700 dark:text-blue-300">{summary.total_assigned}</p>
-                <p className="text-xs sm:text-sm text-blue-600 dark:text-blue-400 font-medium">Total Tasks</p>
+                <p className="text-xs sm:text-sm text-blue-600 dark:text-blue-400 font-medium">{t('housekeeping.totalTasksForToday')}</p>
               </div>
             </div>
           </CardContent>
@@ -243,7 +253,7 @@ export function HousekeepingStaffView() {
               <CheckCircle className="h-4 w-4 text-green-600" />
               <div className="min-w-0">
                 <p className="text-xl sm:text-2xl font-bold text-green-700 dark:text-green-300">{summary.completed}</p>
-                <p className="text-xs sm:text-sm text-green-600 dark:text-green-400 font-medium">Done</p>
+                <p className="text-xs sm:text-sm text-green-600 dark:text-green-400 font-medium">{t('housekeeping.completed')}</p>
               </div>
             </div>
           </CardContent>
@@ -262,7 +272,7 @@ export function HousekeepingStaffView() {
               <Clock className="h-4 w-4 text-amber-600" />
               <div className="min-w-0">
                 <p className="text-xl sm:text-2xl font-bold text-amber-700 dark:text-amber-300">{summary.in_progress}</p>
-                <p className="text-xs sm:text-sm text-amber-600 dark:text-amber-400 font-medium">Working</p>
+                <p className="text-xs sm:text-sm text-amber-600 dark:text-amber-400 font-medium">{t('housekeeping.inProgress')}</p>
               </div>
             </div>
           </CardContent>
@@ -281,7 +291,7 @@ export function HousekeepingStaffView() {
               <AlertCircle className="h-4 w-4 text-orange-600" />
               <div className="min-w-0">
                 <p className="text-xl sm:text-2xl font-bold text-orange-700 dark:text-orange-300">{summary.pending}</p>
-                <p className="text-xs sm:text-sm text-orange-600 dark:text-orange-400 font-medium">Waiting</p>
+                <p className="text-xs sm:text-sm text-orange-600 dark:text-orange-400 font-medium">{t('housekeeping.waiting')}</p>
               </div>
             </div>
           </CardContent>
@@ -291,10 +301,10 @@ export function HousekeepingStaffView() {
       {/* Today's Tasks */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Today's Tasks</h3>
+          <h3 className="text-lg font-semibold">{t('housekeeping.todaysTasks')}</h3>
           {assignments.length > 0 && (
             <Badge variant="outline" className="text-xs">
-              {assignments.length} tasks
+              {assignments.length} {t('housekeeping.tasks')}
             </Badge>
           )}
         </div>
@@ -303,9 +313,9 @@ export function HousekeepingStaffView() {
           <Card className="text-center py-8">
             <CardContent>
               <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-              <p className="text-lg font-medium text-foreground mb-2">All Done! 🎉</p>
+              <p className="text-lg font-medium text-foreground mb-2">{t('housekeeping.allDone')}</p>
               <p className="text-sm text-muted-foreground">
-                No tasks for {format(new Date(selectedDate), 'MMMM dd, yyyy')}
+                {t('housekeeping.noTasksFor')} {format(new Date(selectedDate), 'MMMM dd, yyyy')}
               </p>
             </CardContent>
           </Card>
