@@ -88,6 +88,34 @@ const translationMappings = {
       'bed': 'giường',
       'carpet': 'thảm',
       'curtains': 'rèm cửa'
+    },
+    mn: {
+      'broken': 'эвдэрсэн',
+      'fixed': 'засагдсан',
+      'clean': 'цэвэр',
+      'dirty': 'бохир',
+      'maintenance': 'засвар',  
+      'completed': 'дууссан',
+      'in progress': 'явагдаж байна',
+      'urgent': 'яаралтай',
+      'repair needed': 'засвар хэрэгтэй',
+      'working': 'ажиллаж байна',
+      'not working': 'ажиллахгүй байна',
+      'replacement needed': 'солих хэрэгтэй',
+      'checked': 'шалгагдсан',
+      'approved': 'зөвшөөрөгдсөн',
+      'rejected': 'татгалзсан',
+      'toilet': 'жорлон',
+      'bathroom': 'угаалгын өрөө',
+      'shower': 'шүршүүр',
+      'air conditioning': 'агаар сэрүүлэгч',
+      'heating': 'халаалт',
+      'light': 'гэрэл',
+      'window': 'цонх',
+      'door': 'хаалга',
+      'bed': 'ор',
+      'carpet': 'хивс',
+      'curtains': 'хөшиг'
     }
   }
 };

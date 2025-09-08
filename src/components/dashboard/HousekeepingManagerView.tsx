@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Users, Plus, Calendar, CheckCircle } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Users, Plus, Calendar, CheckCircle, Trash2 } from 'lucide-react';
 import { RoomAssignmentDialog } from './RoomAssignmentDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -27,17 +30,32 @@ interface TeamAssignment {
   pending: number;
 }
 
+interface RoomAssignment {
+  id: string;
+  room_id: string;
+  assigned_to: string;
+  status: string;
+  room_number: string;
+  hotel: string;
+}
+
 export function HousekeepingManagerView() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [loading, setLoading] = useState(true);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
+  const [bulkUnassignMode, setBulkUnassignMode] = useState(false);
+  const [selectedAssignments, setSelectedAssignments] = useState<string[]>([]);
+  const [roomAssignments, setRoomAssignments] = useState<RoomAssignment[]>([]);
+  const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchHousekeepingStaff();
     fetchTeamAssignments();
+    fetchRoomAssignments();
   }, [selectedDate]);
 
   // Real-time subscriptions for live updates
@@ -73,6 +91,7 @@ export function HousekeepingManagerView() {
         () => {
           console.log('Assignment change detected, refreshing data');
           fetchTeamAssignments();
+          fetchRoomAssignments();
         }
       )
       .subscribe();
@@ -153,10 +172,71 @@ export function HousekeepingManagerView() {
     }
   };
 
+  const fetchRoomAssignments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('room_assignments')
+        .select(`
+          id,
+          room_id,
+          assigned_to,
+          status,
+          rooms!inner(room_number, hotel)
+        `)
+        .eq('assignment_date', selectedDate);
+
+      if (error) throw error;
+
+      const assignments = (data || []).map((item: any) => ({
+        id: item.id,
+        room_id: item.room_id,
+        assigned_to: item.assigned_to,
+        status: item.status,
+        room_number: item.rooms.room_number,
+        hotel: item.rooms.hotel,
+      }));
+
+      setRoomAssignments(assignments);
+    } catch (error) {
+      console.error('Error fetching room assignments:', error);
+    }
+  };
+
   const handleAssignmentCreated = () => {
     fetchTeamAssignments();
+    fetchRoomAssignments();
     setAssignmentDialogOpen(false);
-    toast.success('Room assigned successfully');
+    toast.success(t('assignment.successMessage').replace('{count}', '1').replace('{staffName}', 'staff'));
+  };
+
+  const handleBulkUnassign = async () => {
+    if (selectedAssignments.length === 0) return;
+
+    try {
+      const { error } = await supabase
+        .from('room_assignments')
+        .delete()
+        .in('id', selectedAssignments);
+
+      if (error) throw error;
+
+      toast.success(t('team.unassignSuccess').replace('{count}', selectedAssignments.length.toString()));
+      setSelectedAssignments([]);
+      setBulkUnassignMode(false);
+      fetchTeamAssignments();
+      fetchRoomAssignments();
+    } catch (error) {
+      console.error('Error unassigning rooms:', error);
+      toast.error(t('team.unassignError'));
+    }
+  };
+
+  const toggleAssignmentSelection = (assignmentId: string) => {
+    setSelectedAssignments(prev => 
+      prev.includes(assignmentId) 
+        ? prev.filter(id => id !== assignmentId)
+        : [...prev, assignmentId]
+    );
   };
 
   const getProgressPercentage = (completed: number, total: number) => {
@@ -164,7 +244,7 @@ export function HousekeepingManagerView() {
   };
 
   if (loading) {
-    return <div className="flex justify-center p-8">Loading team data...</div>;
+    return <div className="flex justify-center p-8">{t('common.loading')}</div>;
   }
 
   return (
@@ -172,7 +252,7 @@ export function HousekeepingManagerView() {
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-4">
-          <h2 className="text-xl font-semibold">Team Management</h2>
+          <h2 className="text-xl font-semibold">{t('team.management')}</h2>
           <input
             type="date"
             value={selectedDate}
@@ -181,23 +261,51 @@ export function HousekeepingManagerView() {
           />
         </div>
         
-        <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Assign Room
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Room Assignment</DialogTitle>
-            </DialogHeader>
-            <RoomAssignmentDialog 
-              onAssignmentCreated={handleAssignmentCreated}
-              selectedDate={selectedDate}
-            />
-          </DialogContent>
-        </Dialog>
+        <div className="flex gap-2">
+          {user && (user.role === 'admin' || user.role === 'manager' || user.role === 'housekeeping_manager') && (
+            <>
+              <Button
+                variant={bulkUnassignMode ? "destructive" : "outline"}
+                onClick={() => {
+                  setBulkUnassignMode(!bulkUnassignMode);
+                  setSelectedAssignments([]);
+                }}
+                className="flex items-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                {bulkUnassignMode ? t('common.cancel') : t('team.bulkUnassign')}
+              </Button>
+              
+              {bulkUnassignMode && selectedAssignments.length > 0 && (
+                <Button
+                  variant="destructive"
+                  onClick={() => setUnassignDialogOpen(true)}
+                  className="flex items-center gap-2"
+                >
+                  {t('team.unassignSelected')} ({selectedAssignments.length})
+                </Button>
+              )}
+            </>
+          )}
+          
+          <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                {t('team.assignRoom')}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{t('team.createAssignment')}</DialogTitle>
+              </DialogHeader>
+              <RoomAssignmentDialog 
+                onAssignmentCreated={handleAssignmentCreated}
+                selectedDate={selectedDate}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Team Overview Cards */}
@@ -227,7 +335,7 @@ export function HousekeepingManagerView() {
                     {/* Progress Bar */}
                     <div className="space-y-1">
                       <div className="flex justify-between text-sm">
-                        <span>Progress</span>
+                        <span>{t('team.progress')}</span>
                         <span>{progressPercentage}%</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
@@ -239,24 +347,24 @@ export function HousekeepingManagerView() {
                     </div>
 
                     {/* Status Breakdown */}
-                    <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="grid grid-cols-3 gap-2 text-center">
                       <div>
                         <p className="text-lg font-semibold text-green-600">{assignment.completed}</p>
-                        <p className="text-xs text-muted-foreground">Done</p>
+                        <p className="text-xs text-muted-foreground">{t('team.done')}</p>
                       </div>
                       <div>
                         <p className="text-lg font-semibold text-blue-600">{assignment.in_progress}</p>
-                        <p className="text-xs text-muted-foreground">Working</p>
+                        <p className="text-xs text-muted-foreground">{t('team.working')}</p>
                       </div>
                       <div>
                         <p className="text-lg font-semibold text-orange-600">{assignment.pending}</p>
-                        <p className="text-xs text-muted-foreground">Pending</p>
+                        <p className="text-xs text-muted-foreground">{t('team.pending')}</p>
                       </div>
                     </div>
                   </>
                 ) : (
                   <div className="text-center py-4">
-                    <p className="text-muted-foreground text-sm">No assignments for {format(new Date(selectedDate), 'MMM dd')}</p>
+                    <p className="text-muted-foreground text-sm">{t('team.noAssignments')} {format(new Date(selectedDate), 'MMM dd')}</p>
                   </div>
                 )}
               </CardContent>
@@ -270,30 +378,85 @@ export function HousekeepingManagerView() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
-            Team Summary for {format(new Date(selectedDate), 'MMMM dd, yyyy')}
+            {t('team.summary')} {format(new Date(selectedDate), 'MMMM dd, yyyy')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
             <div>
               <p className="text-2xl font-bold">{housekeepingStaff.length}</p>
-              <p className="text-sm text-muted-foreground">Team Members</p>
+              <p className="text-sm text-muted-foreground">{t('team.teamMembers')}</p>
             </div>
             <div>
               <p className="text-2xl font-bold">{teamAssignments.reduce((sum, a) => sum + a.total_assigned, 0)}</p>
-              <p className="text-sm text-muted-foreground">Total Assignments</p>
+              <p className="text-sm text-muted-foreground">{t('team.totalAssignments')}</p>
             </div>
             <div>
               <p className="text-2xl font-bold text-green-600">{teamAssignments.reduce((sum, a) => sum + a.completed, 0)}</p>
-              <p className="text-sm text-muted-foreground">Completed</p>
+              <p className="text-sm text-muted-foreground">{t('team.completed')}</p>
             </div>
             <div>
               <p className="text-2xl font-bold text-blue-600">{teamAssignments.reduce((sum, a) => sum + a.in_progress, 0)}</p>
-              <p className="text-sm text-muted-foreground">In Progress</p>
+              <p className="text-sm text-muted-foreground">{t('team.inProgress')}</p>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Bulk Unassign View */}
+      {bulkUnassignMode && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('team.selectForUnassign')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {roomAssignments.map((assignment) => {
+                const staff = housekeepingStaff.find(s => s.id === assignment.assigned_to);
+                return (
+                  <div key={assignment.id} className="border rounded-lg p-4 flex items-center space-x-3">
+                    <Checkbox
+                      checked={selectedAssignments.includes(assignment.id)}
+                      onCheckedChange={() => toggleAssignmentSelection(assignment.id)}
+                    />
+                    <div className="flex-1">
+                      <p className="font-medium">{assignment.room_number}</p>
+                      <p className="text-sm text-muted-foreground">{assignment.hotel}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {staff?.full_name || 'Unknown Staff'}
+                      </p>
+                      <Badge variant={assignment.status === 'completed' ? 'default' : 'secondary'}>
+                        {assignment.status}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('team.unassignRooms')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('team.confirmUnassign')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              handleBulkUnassign();
+              setUnassignDialogOpen(false);
+            }}>
+              {t('team.unassignSelected')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

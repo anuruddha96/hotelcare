@@ -8,6 +8,7 @@ const languages = [
   { code: 'hu', name: 'Magyar', flag: '🇭🇺' },
   { code: 'es', name: 'Español', flag: '🇪🇸' },
   { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳' },
+  { code: 'mn', name: 'Монгол', flag: '🇲🇳' },
 ];
 
 export function LanguageSwitcher() {
