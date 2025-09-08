@@ -219,6 +219,7 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Reject Task for Room',
     'supervisor.rejectionReason': 'Please provide a reason for rejection...',
     'supervisor.confirmReject': 'Confirm Rejection',
+    'supervisor.roomMarkedClean': 'Room has been marked as clean and ready!',
     
     // Notifications
     'notifications.newAssignment': 'You have a new room assignment!',
@@ -443,6 +444,7 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Feladat elutasítása - Szoba',
     'supervisor.rejectionReason': 'Kérjük, adja meg az elutasítás okát...',
     'supervisor.confirmReject': 'Elutasítás megerősítése',
+    'supervisor.roomMarkedClean': 'A szoba tisztára lett jelölve és kész!',
     
     // Értesítések
     'notifications.newAssignment': 'Új szobabeosztást kapott!',
@@ -667,6 +669,7 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Rechazar Tarea para Habitación',
     'supervisor.rejectionReason': 'Por favor proporcione una razón para el rechazo...',
     'supervisor.confirmReject': 'Confirmar Rechazo',
+    'supervisor.roomMarkedClean': '¡La habitación ha sido marcada como limpia y lista!',
     
     // Notificaciones
     'notifications.newAssignment': '¡Tiene una nueva asignación de habitación!',
@@ -891,6 +894,7 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Từ chối công việc cho phòng',
     'supervisor.rejectionReason': 'Vui lòng cung cấp lý do từ chối...',
     'supervisor.confirmReject': 'Xác nhận từ chối',
+    'supervisor.roomMarkedClean': 'Phòng đã được đánh dấu sạch sẽ và sẵn sàng!',
     
     // Thông báo
     'notifications.newAssignment': 'Bạn có nhiệm vụ phòng mới!',
@@ -1115,6 +1119,7 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Өрөөний ажил татгалзах',
     'supervisor.rejectionReason': 'Татгалзах шалтгаан бичнэ үү...',
     'supervisor.confirmReject': 'Татгалзахыг баталгаажуулах',
+    'supervisor.roomMarkedClean': 'Өрөө цэвэрлэгдсэн гэж тэмдэглэгдэж бэлэн болсон!',
     
     // Мэдэгдэл
     'notifications.newAssignment': 'Танд шинэ өрөөний даалгавар ирлээ!',

@@ -101,7 +101,7 @@ export function SupervisorApprovalView() {
             room_name,
             floor_number
           ),
-          profiles!room_assignments_assigned_to_fkey (
+          profiles!assigned_to (
             full_name,
             nickname
           )
@@ -152,6 +152,9 @@ export function SupervisorApprovalView() {
       }
 
       toast.success(`Assignment ${approved ? 'approved' : 'rejected'} successfully`);
+      if (approved) {
+        showNotification(t('supervisor.roomMarkedClean'), 'success');
+      }
       fetchPendingAssignments();
       setNoteDialogOpen(false);
       setApprovalNote('');

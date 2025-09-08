@@ -52,7 +52,7 @@ export function HousekeepingStaffView() {
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | null>('assigned');
 
   useEffect(() => {
     if (user?.id) {
@@ -321,15 +321,17 @@ export function HousekeepingStaffView() {
             statusFilter === 'assigned' 
               ? 'ring-2 ring-orange-500 bg-orange-100 shadow-lg border-orange-500' 
               : 'bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 border-orange-200 dark:border-orange-800 hover:shadow-md'
-          }`}
+          } ${summary.pending > 0 ? 'animate-pulse ring-2 ring-orange-400' : ''}`}
           onClick={() => setStatusFilter(statusFilter === 'assigned' ? null : 'assigned')}
         >
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-orange-600" />
+              <AlertCircle className={`h-4 w-4 text-orange-600 ${summary.pending > 0 ? 'animate-bounce' : ''}`} />
               <div className="min-w-0">
                 <p className="text-xl sm:text-2xl font-bold text-orange-700 dark:text-orange-300">{summary.pending}</p>
-                <p className="text-xs sm:text-sm text-orange-600 dark:text-orange-400 font-medium">{t('housekeeping.waiting')}</p>
+                <p className="text-xs sm:text-sm text-orange-600 dark:text-orange-400 font-medium">
+                  {summary.pending > 0 ? `⚠️ ${t('housekeeping.waiting')}` : t('housekeeping.waiting')}
+                </p>
               </div>
             </div>
           </CardContent>
