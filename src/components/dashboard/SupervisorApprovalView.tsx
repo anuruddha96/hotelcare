@@ -5,14 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   CheckCircle, 
-  XCircle, 
+  RefreshCw, 
   Clock, 
   User,
-  MapPin,
-  BedDouble,
-  AlertTriangle
+  MapPin
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -40,10 +39,17 @@ interface PendingAssignment {
     room_name: string | null;
     floor_number: number | null;
   } | null;
-      profiles: {
-        full_name: string;
-        nickname: string;
-      } | null;
+  profiles: {
+    full_name: string;
+    nickname: string;
+  } | null;
+}
+
+interface Staff {
+  id: string;
+  full_name: string;
+  nickname: string;
+  role: string;
 }
 
 export function SupervisorApprovalView() {
@@ -52,13 +58,14 @@ export function SupervisorApprovalView() {
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [approvalNote, setApprovalNote] = useState('');
-  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
 
   useEffect(() => {
     fetchPendingAssignments();
+    fetchStaff();
     
     // Set up real-time subscription
     const channel = supabase
@@ -84,6 +91,30 @@ export function SupervisorApprovalView() {
       supabase.removeChannel(channel);
     };
   }, [selectedDate, showNotification, t]);
+
+  const fetchStaff = async () => {
+    try {
+      const { data: currentUser } = await supabase.auth.getUser();
+      if (!currentUser.user) return;
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', currentUser.user.id)
+        .single();
+
+      if (profileError) throw profileError;
+
+      const { data, error } = await supabase.rpc('get_assignable_staff_secure', {
+        requesting_user_role: profile?.role
+      });
+
+      if (error) throw error;
+      setStaff(data || []);
+    } catch (error) {
+      console.error('Error fetching staff:', error);
+    }
+  };
 
   const fetchPendingAssignments = async () => {
     setLoading(true);
@@ -114,7 +145,6 @@ export function SupervisorApprovalView() {
       if (error) throw error;
       const assignments = (data as any) || [];
       setPendingAssignments(assignments);
-      setPendingCount(assignments.length);
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
       toast.error('Failed to fetch pending assignments');
@@ -123,10 +153,10 @@ export function SupervisorApprovalView() {
     }
   };
 
-  const handleApproval = async (assignmentId: string, approved: boolean, note?: string) => {
+  const handleApproval = async (assignmentId: string) => {
     try {
       const updateData: any = {
-        supervisor_approved: approved,
+        supervisor_approved: true,
         supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
         supervisor_approved_at: new Date().toISOString()
       };
@@ -138,30 +168,55 @@ export function SupervisorApprovalView() {
 
       if (error) throw error;
 
-      // Add a note if provided
-      if (note && note.trim()) {
-        await supabase
-          .from('housekeeping_notes')
-          .insert({
-            room_id: pendingAssignments.find(a => a.id === assignmentId)?.room_id,
-            assignment_id: assignmentId,
-            content: `Supervisor ${approved ? 'approved' : 'rejected'}: ${note}`,
-            note_type: 'supervisor_review',
-            created_by: (await supabase.auth.getUser()).data.user?.id
-          });
-      }
-
-      toast.success(`Assignment ${approved ? 'approved' : 'rejected'} successfully`);
-      if (approved) {
-        showNotification(t('supervisor.roomMarkedClean'), 'success');
-      }
+      toast.success('Assignment approved successfully');
+      showNotification(t('supervisor.roomMarkedClean'), 'success');
       fetchPendingAssignments();
-      setNoteDialogOpen(false);
-      setApprovalNote('');
-      setSelectedAssignment(null);
     } catch (error) {
       console.error('Error updating assignment approval:', error);
       toast.error('Failed to update approval status');
+    }
+  };
+
+  const handleReassignment = async () => {
+    if (!selectedAssignment || !selectedHousekeeper) return;
+
+    try {
+      const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
+      if (!assignment) return;
+
+      // Create new assignment for the selected housekeeper
+      const { error } = await supabase
+        .from('room_assignments')
+        .insert({
+          room_id: assignment.room_id,
+          assigned_to: selectedHousekeeper,
+          assigned_by: (await supabase.auth.getUser()).data.user?.id,
+          assignment_date: assignment.assignment_date,
+          assignment_type: assignment.assignment_type,
+          estimated_duration: assignment.estimated_duration,
+          notes: `Reassigned room - Previous completion needs review`
+        });
+
+      if (error) throw error;
+
+      // Mark the current assignment as supervisor approved (so it disappears from pending)
+      await supabase
+        .from('room_assignments')
+        .update({
+          supervisor_approved: true,
+          supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
+          supervisor_approved_at: new Date().toISOString()
+        })
+        .eq('id', selectedAssignment);
+
+      toast.success('Room reassigned successfully');
+      fetchPendingAssignments();
+      setReassignDialogOpen(false);
+      setSelectedAssignment(null);
+      setSelectedHousekeeper('');
+    } catch (error) {
+      console.error('Error reassigning room:', error);
+      toast.error('Failed to reassign room');
     }
   };
 
@@ -180,16 +235,6 @@ export function SupervisorApprovalView() {
     }
   };
 
-  const getPriorityColor = (priority: number) => {
-    switch (priority) {
-      case 3:
-        return 'bg-destructive/10 text-destructive border-destructive/30';
-      case 2:
-        return 'bg-primary/10 text-primary border-primary/30';
-      default:
-        return 'bg-muted text-foreground border-border';
-    }
-  };
 
   if (loading) {
     return (
@@ -255,16 +300,9 @@ export function SupervisorApprovalView() {
                       {t('housekeeping.completed')}
                     </Badge>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {assignment.priority > 1 && (
-                      <Badge variant="outline" className={getPriorityColor(assignment.priority)}>
-                        {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
-                      </Badge>
-                    )}
-                    <Badge variant="outline" className="bg-muted text-foreground border-border">
-                      {getAssignmentTypeLabel(assignment.assignment_type)}
-                    </Badge>
-                  </div>
+                   <Badge variant="outline" className="bg-muted text-foreground border-border">
+                     {getAssignmentTypeLabel(assignment.assignment_type)}
+                   </Badge>
                 </div>
               </CardHeader>
 
@@ -314,71 +352,81 @@ export function SupervisorApprovalView() {
                   </div>
                 )}
 
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <Button
-                    onClick={() => handleApproval(assignment.id, true)}
-                    className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    {t('supervisor.approveTask')}
-                  </Button>
-                  
-                  <Dialog 
-                    open={noteDialogOpen && selectedAssignment === assignment.id} 
-                    onOpenChange={(open) => {
-                      setNoteDialogOpen(open);
-                      if (!open) {
-                        setSelectedAssignment(null);
-                        setApprovalNote('');
-                      }
-                    }}
-                  >
-                    <DialogTrigger asChild>
-                      <Button
-                        variant="destructive"
-                        onClick={() => setSelectedAssignment(assignment.id)}
-                        className="w-full sm:w-auto"
-                      >
-                        <XCircle className="h-4 w-4 mr-2" />
-                        {t('supervisor.rejectTask')}
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>
-                          {t('supervisor.rejectTaskTitle')} {assignment.rooms?.room_number}
-                        </DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <Textarea
-                          placeholder={t('supervisor.rejectionReason')}
-                          value={approvalNote}
-                          onChange={(e) => setApprovalNote(e.target.value)}
-                          className="min-h-[100px]"
-                        />
-                        <div className="flex justify-end gap-3">
-                          <Button 
-                            variant="outline" 
-                            onClick={() => {
-                              setNoteDialogOpen(false);
-                              setSelectedAssignment(null);
-                              setApprovalNote('');
-                            }}
-                          >
-                            {t('common.cancel')}
-                          </Button>
-                          <Button 
-                            variant="destructive"
-                            onClick={() => handleApproval(assignment.id, false, approvalNote)}
-                            disabled={!approvalNote.trim()}
-                          >
-                            {t('supervisor.confirmReject')}
-                          </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
+                 <div className="flex flex-col sm:flex-row gap-3">
+                   <Button
+                     onClick={() => handleApproval(assignment.id)}
+                     className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+                   >
+                     <CheckCircle className="h-4 w-4 mr-2" />
+                     {t('supervisor.approveTask')}
+                   </Button>
+                   
+                   <Dialog 
+                     open={reassignDialogOpen && selectedAssignment === assignment.id} 
+                     onOpenChange={(open) => {
+                       setReassignDialogOpen(open);
+                       if (!open) {
+                         setSelectedAssignment(null);
+                         setSelectedHousekeeper('');
+                       }
+                     }}
+                   >
+                     <DialogTrigger asChild>
+                       <Button
+                         variant="outline"
+                         onClick={() => setSelectedAssignment(assignment.id)}
+                         className="w-full sm:w-auto"
+                       >
+                         <RefreshCw className="h-4 w-4 mr-2" />
+                         {t('supervisor.reassignRoom')}
+                       </Button>
+                     </DialogTrigger>
+                     <DialogContent>
+                       <DialogHeader>
+                         <DialogTitle>
+                           {t('supervisor.reassignRoomTitle')} {assignment.rooms?.room_number}
+                         </DialogTitle>
+                       </DialogHeader>
+                       <div className="space-y-4">
+                         <div>
+                           <label className="text-sm font-medium text-foreground mb-2 block">
+                             {t('supervisor.selectHousekeeper')}
+                           </label>
+                           <Select value={selectedHousekeeper} onValueChange={setSelectedHousekeeper}>
+                             <SelectTrigger>
+                               <SelectValue placeholder={t('supervisor.chooseHousekeeper')} />
+                             </SelectTrigger>
+                             <SelectContent>
+                               {staff.map((person) => (
+                                 <SelectItem key={person.id} value={person.id}>
+                                   {person.full_name} ({person.nickname})
+                                 </SelectItem>
+                               ))}
+                             </SelectContent>
+                           </Select>
+                         </div>
+                         <div className="flex justify-end gap-3">
+                           <Button 
+                             variant="outline" 
+                             onClick={() => {
+                               setReassignDialogOpen(false);
+                               setSelectedAssignment(null);
+                               setSelectedHousekeeper('');
+                             }}
+                           >
+                             {t('common.cancel')}
+                           </Button>
+                           <Button 
+                             onClick={handleReassignment}
+                             disabled={!selectedHousekeeper}
+                           >
+                             {t('supervisor.confirmReassign')}
+                           </Button>
+                         </div>
+                       </div>
+                     </DialogContent>
+                   </Dialog>
+                 </div>
               </CardContent>
             </Card>
           ))}
