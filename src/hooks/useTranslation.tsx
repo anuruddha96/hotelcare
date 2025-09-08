@@ -206,6 +206,19 @@ const translations = {
     'team.confirmUnassign': 'Are you sure you want to unassign the selected rooms?',
     'team.unassignSuccess': 'Successfully unassigned {count} rooms',
     'team.unassignError': 'Failed to unassign rooms',
+    
+    // Supervisor
+    'supervisor.pendingApprovals': 'Pending Approvals',
+    'supervisor.reviewCompletedTasks': 'Review completed housekeeping tasks',
+    'supervisor.noTasksPending': 'No Tasks Pending Review',
+    'supervisor.allTasksReviewed': 'All completed tasks have been reviewed for this date',
+    'supervisor.cleanedBy': 'Cleaned By',
+    'supervisor.completedAt': 'Completed At',
+    'supervisor.approveTask': 'Approve Task',
+    'supervisor.rejectTask': 'Reject Task',
+    'supervisor.rejectTaskTitle': 'Reject Task for Room',
+    'supervisor.rejectionReason': 'Please provide a reason for rejection...',
+    'supervisor.confirmReject': 'Confirm Rejection',
   },
   
   hu: {
@@ -413,6 +426,19 @@ const translations = {
     'team.confirmUnassign': 'Biztosan el szeretné távolítani a kiválasztott szobákat?',
     'team.unassignSuccess': 'Sikeresen eltávolított {count} szobát',
     'team.unassignError': 'Nem sikerült eltávolítani a szobákat',
+    
+    // Supervisor
+    'supervisor.pendingApprovals': 'Függőben lévő jóváhagyások',
+    'supervisor.reviewCompletedTasks': 'Befejezett takarítási feladatok áttekintése',
+    'supervisor.noTasksPending': 'Nincsenek felülvizsgálatra váró feladatok',
+    'supervisor.allTasksReviewed': 'Minden befejezett feladat felülvizsgálásra került ezen a napon',
+    'supervisor.cleanedBy': 'Takarította',
+    'supervisor.completedAt': 'Befejezve',
+    'supervisor.approveTask': 'Feladat jóváhagyása',
+    'supervisor.rejectTask': 'Feladat elutasítása',
+    'supervisor.rejectTaskTitle': 'Feladat elutasítása - Szoba',
+    'supervisor.rejectionReason': 'Kérjük, adja meg az elutasítás okát...',
+    'supervisor.confirmReject': 'Elutasítás megerősítése',
   },
   
   es: {
@@ -620,6 +646,19 @@ const translations = {
     'team.confirmUnassign': '¿Está seguro de que desea desasignar las habitaciones seleccionadas?',
     'team.unassignSuccess': 'Se desasignaron exitosamente {count} habitaciones',
     'team.unassignError': 'Error al desasignar habitaciones',
+    
+    // Supervisor
+    'supervisor.pendingApprovals': 'Aprobaciones Pendientes',
+    'supervisor.reviewCompletedTasks': 'Revisar tareas de limpieza completadas',
+    'supervisor.noTasksPending': 'No hay tareas pendientes de revisión',
+    'supervisor.allTasksReviewed': 'Todas las tareas completadas han sido revisadas para esta fecha',
+    'supervisor.cleanedBy': 'Limpiado por',
+    'supervisor.completedAt': 'Completado en',
+    'supervisor.approveTask': 'Aprobar Tarea',
+    'supervisor.rejectTask': 'Rechazar Tarea',
+    'supervisor.rejectTaskTitle': 'Rechazar Tarea para Habitación',
+    'supervisor.rejectionReason': 'Por favor proporcione una razón para el rechazo...',
+    'supervisor.confirmReject': 'Confirmar Rechazo',
   },
   
   vi: {
@@ -827,6 +866,19 @@ const translations = {
     'team.confirmUnassign': 'Bạn có chắc muốn hủy phân công các phòng đã chọn?',
     'team.unassignSuccess': 'Đã hủy phân công thành công {count} phòng',
     'team.unassignError': 'Lỗi khi hủy phân công phòng',
+    
+    // Supervisor
+    'supervisor.pendingApprovals': 'Phê duyệt chờ xử lý',
+    'supervisor.reviewCompletedTasks': 'Xem lại các công việc dọn phòng đã hoàn thành',
+    'supervisor.noTasksPending': 'Không có công việc nào chờ xem xét',
+    'supervisor.allTasksReviewed': 'Tất cả công việc đã hoàn thành đã được xem xét cho ngày này',
+    'supervisor.cleanedBy': 'Được dọn bởi',
+    'supervisor.completedAt': 'Hoàn thành lúc',
+    'supervisor.approveTask': 'Phê duyệt công việc',
+    'supervisor.rejectTask': 'Từ chối công việc',
+    'supervisor.rejectTaskTitle': 'Từ chối công việc cho phòng',
+    'supervisor.rejectionReason': 'Vui lòng cung cấp lý do từ chối...',
+    'supervisor.confirmReject': 'Xác nhận từ chối',
   },
   
   mn: {
@@ -1034,6 +1086,19 @@ const translations = {
     'team.confirmUnassign': 'Та сонгосон өрөөнүүдийг цуцлахдаа итгэлтэй байна уу?',
     'team.unassignSuccess': 'Амжилттай {count} өрөө цуцлалаа',
     'team.unassignError': 'Өрөө цуцлахад алдаа гарлаа',
+    
+    // Supervisor
+    'supervisor.pendingApprovals': 'Хүлээгдэж буй зөвшөөрөл',
+    'supervisor.reviewCompletedTasks': 'Дууссан цэвэрлэгээний ажлыг шалгах',
+    'supervisor.noTasksPending': 'Шалгах ажил байхгүй',
+    'supervisor.allTasksReviewed': 'Энэ өдрийн бүх дууссан ажил шалгагдсан',
+    'supervisor.cleanedBy': 'Цэвэрлэсэн',
+    'supervisor.completedAt': 'Дууссан цаг',
+    'supervisor.approveTask': 'Ажил зөвшөөрөх',
+    'supervisor.rejectTask': 'Ажил татгалзах',
+    'supervisor.rejectTaskTitle': 'Өрөөний ажил татгалзах',
+    'supervisor.rejectionReason': 'Татгалзах шалтгаан бичнэ үү...',
+    'supervisor.confirmReject': 'Татгалзахыг баталгаажуулах',
   },
 };
 

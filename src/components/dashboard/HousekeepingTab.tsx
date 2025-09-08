@@ -9,7 +9,8 @@ import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
 import { PMSUpload } from './PMSUpload';
 import { EasyRoomAssignment } from './EasyRoomAssignment';
 import { PerformanceLeaderboard } from './PerformanceLeaderboard';
-import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus } from 'lucide-react';
+import { SupervisorApprovalView } from './SupervisorApprovalView';
+import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield } from 'lucide-react';
 
 export function HousekeepingTab() {
   const { user } = useAuth();
@@ -65,7 +66,7 @@ export function HousekeepingTab() {
             ? 'flex flex-nowrap overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
             : 'grid w-full grid-cols-1'
           }
-          ${hasManagerAccess ? 'sm:grid sm:grid-cols-6 sm:justify-center' : ''}
+          ${hasManagerAccess ? 'sm:grid sm:grid-cols-7 sm:justify-center' : ''}
         `}>
           {hasManagerAccess && (
             <>
@@ -109,6 +110,14 @@ export function HousekeepingTab() {
                 <span className="hidden xs:inline">{t('housekeeping.quickAssign')}</span>
                 <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
               </TabsTrigger>
+              <TabsTrigger 
+                value="supervisor" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Shield className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
+                <span className="xs:hidden">Approval</span>
+              </TabsTrigger>
             </>
           )}
           <TabsTrigger 
@@ -146,6 +155,10 @@ export function HousekeepingTab() {
                   // This will be handled by the HousekeepingManagerView component
                 }
               }} />
+            </TabsContent>
+
+            <TabsContent value="supervisor" className="space-y-6">
+              <SupervisorApprovalView />
             </TabsContent>
           </>
         )}

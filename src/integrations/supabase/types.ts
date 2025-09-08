@@ -292,6 +292,9 @@ export type Database = {
           room_id: string
           started_at: string | null
           status: Database["public"]["Enums"]["assignment_status"]
+          supervisor_approved: boolean | null
+          supervisor_approved_at: string | null
+          supervisor_approved_by: string | null
           updated_at: string
         }
         Insert: {
@@ -308,6 +311,9 @@ export type Database = {
           room_id: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["assignment_status"]
+          supervisor_approved?: boolean | null
+          supervisor_approved_at?: string | null
+          supervisor_approved_by?: string | null
           updated_at?: string
         }
         Update: {
@@ -324,6 +330,9 @@ export type Database = {
           room_id?: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["assignment_status"]
+          supervisor_approved?: boolean | null
+          supervisor_approved_at?: string | null
+          supervisor_approved_by?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -346,6 +355,13 @@ export type Database = {
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_assignments_supervisor_approved_by_fkey"
+            columns: ["supervisor_approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

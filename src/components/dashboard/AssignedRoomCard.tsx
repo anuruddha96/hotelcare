@@ -59,24 +59,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         updateData.started_at = new Date().toISOString();
       }
       
-      // If completing, also update the room status and tracking info
+      // If completing, set completed_at but don't update room status (requires supervisor approval)
       if (newStatus === 'completed') {
         updateData.completed_at = new Date().toISOString();
-        
-        // Update the room status to clean
-        const { error: roomError } = await supabase
-          .from('rooms')
-          .update({ 
-            status: 'clean',
-            last_cleaned_at: new Date().toISOString(),
-            last_cleaned_by: (await supabase.auth.getUser()).data.user?.id,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', assignment.room_id);
-
-        if (roomError) {
-          console.error('Error updating room status:', roomError);
-        }
       }
 
       const { error } = await supabase
@@ -88,7 +73,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       
       onStatusUpdate(assignment.id, newStatus);
       const roomNum = assignment.rooms?.room_number ?? '—';
-      toast.success(`Room ${roomNum} marked as ${newStatus}${newStatus === 'completed' ? ' and status updated to clean' : ''}`);
+      const message = newStatus === 'completed' 
+        ? `Room ${roomNum} completed and awaiting supervisor approval`
+        : `Room ${roomNum} marked as ${newStatus}`;
+      toast.success(message);
     } catch (error) {
       console.error('Error updating assignment status:', error);
       toast.error('Failed to update status');
