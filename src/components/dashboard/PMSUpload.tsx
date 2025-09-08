@@ -174,8 +174,14 @@ export function PMSUpload() {
         setProgress(10 + (i / jsonData.length) * 80);
 
         try {
+          // Skip empty or invalid rows
+          if (!row || !row.Room || row.Room === null || row.Room === undefined) {
+            processed.errors.push(`Skipping empty row at index ${i}`);
+            continue;
+          }
+
           // Extract room number from complex room name
-          const roomNumber = extractRoomNumber(row.Room.toString());
+          const roomNumber = extractRoomNumber(String(row.Room).trim());
           
           // Find the room by extracted number
           const { data: rooms, error: roomError } = await supabase
