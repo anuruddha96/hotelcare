@@ -8,6 +8,7 @@ import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle } from 'lucide-reac
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAuth } from '@/hooks/useAuth';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
 import * as XLSX from 'xlsx';
 
@@ -26,6 +27,8 @@ interface PMSData {
 
 export function PMSUpload() {
   const { t } = useTranslation();
+  const { user, profile } = useAuth();
+  const userRole = profile?.role;
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [backgroundUpload, setBackgroundUpload] = useState(false);
@@ -60,61 +63,73 @@ export function PMSUpload() {
     
     // Handle specific patterns based on provided mappings
     
-    // Pattern 1: QRP rooms (e.g., "66EC.QRP216" -> "216")
-    let match = cleanName.match(/QRP(\d{3})/);
+    // Pattern 1: Q-XXX format (e.g., "Q-101" -> "101")
+    let match = cleanName.match(/^Q-(\d{3})$/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 2: SNG rooms (e.g., "70SNG-306" -> "306")
+    // Pattern 2: DB/TW-XXX format (e.g., "DB/TW-102" -> "102")
+    match = cleanName.match(/^DB\/TW-(\d{3})$/);
+    if (match) {
+      return match[1];
+    }
+    
+    // Pattern 3: QRP rooms (e.g., "66EC.QRP216" -> "216")
+    match = cleanName.match(/QRP(\d{3})/);
+    if (match) {
+      return match[1];
+    }
+    
+    // Pattern 4: SNG rooms (e.g., "70SNG-306" -> "306")
     match = cleanName.match(/\d+SNG-(\d{3})/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 3: ECDBL rooms (e.g., "71ECDBL-308" -> "308") 
+    // Pattern 5: ECDBL rooms (e.g., "71ECDBL-308" -> "308") 
     match = cleanName.match(/\d+ECDBL-(\d{3})/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 4: QUEEN rooms with or without SH (e.g., "1QUEEN-002", "4QUEEN-008SH" -> "002", "008")
+    // Pattern 6: QUEEN rooms with or without SH (e.g., "1QUEEN-002", "4QUEEN-008SH" -> "002", "008")
     match = cleanName.match(/\d+QUEEN-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 5: TWIN rooms with or without SH (e.g., "7TWIN-034SH", "8TWIN-036" -> "034", "036")
+    // Pattern 7: TWIN rooms with or without SH (e.g., "7TWIN-034SH", "8TWIN-036" -> "034", "036")
     match = cleanName.match(/\d+TWIN-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 6: DOUBLE rooms (e.g., "16DOUBLE-104", "39DOUBLE-135" -> "104", "135")
+    // Pattern 8: DOUBLE rooms (e.g., "16DOUBLE-104", "39DOUBLE-135" -> "104", "135")
     match = cleanName.match(/\d+DOUBLE-(\d{3})/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 7: SYN.TWIN rooms with or without SH (e.g., "13SYN.TWIN-101", "21SYN.TWIN-109SH" -> "101", "109")
+    // Pattern 9: SYN.TWIN rooms with or without SH (e.g., "13SYN.TWIN-101", "21SYN.TWIN-109SH" -> "101", "109")
     match = cleanName.match(/\d+SYN\.TWIN-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 8: SYN.DOUBLE rooms with or without SH (e.g., "15SYN.DOUBLE-103", "19SYN.DOUBLE-107SH" -> "103", "107")
+    // Pattern 10: SYN.DOUBLE rooms with or without SH (e.g., "15SYN.DOUBLE-103", "19SYN.DOUBLE-107SH" -> "103", "107")
     match = cleanName.match(/\d+SYN\.DOUBLE-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 9: TRP rooms with or without SH (e.g., "3TRP-006", "59TRP-209SH" -> "006", "209")
+    // Pattern 11: TRP rooms with or without SH (e.g., "3TRP-006", "59TRP-209SH" -> "006", "209")
     match = cleanName.match(/\d+TRP-(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 10: QDR rooms (e.g., "9QDR-038", "26QDR-114" -> "038", "114")
+    // Pattern 12: QDR rooms (e.g., "9QDR-038", "26QDR-114" -> "038", "114")
     match = cleanName.match(/\d+QDR-(\d{3})/);
     if (match) {
       return match[1];
@@ -164,6 +179,19 @@ export function PMSUpload() {
 
       setProgress(10);
       
+      // Reset all current day room assignments since PMS upload will reset room data
+      const today = new Date().toISOString().split('T')[0];
+      const { error: resetError } = await supabase
+        .from('room_assignments')
+        .delete()
+        .eq('assignment_date', today);
+      
+      if (resetError) {
+        console.warn('Error resetting room assignments:', resetError);
+      } else {
+        console.log('Reset all room assignments for today');
+      }
+      
       // Process the data
       const processed = { processed: 0, updated: 0, assigned: 0, errors: [] as string[] };
       const checkoutRoomsList: any[] = [];
@@ -208,12 +236,13 @@ export function PMSUpload() {
           let needsCleaning = false;
           let isCheckout = false;
 
-          if (row.Occupied === 'Yes' && row.Departure) {
+          // Any room with a departure time needs checkout cleaning (regardless of current occupancy)
+          if (row.Departure && row.Departure.trim() !== '') {
             // Checkout room - needs checkout cleaning
             newStatus = 'dirty';
             needsCleaning = true;
             isCheckout = true;
-            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Occupied: ${row.Occupied}, Departure: ${row.Departure})`);
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${row.Departure})`);
             
             // Add to checkout rooms list
             checkoutRoomsList.push({
@@ -225,7 +254,7 @@ export function PMSUpload() {
               notes: row.Note
             });
           } else if (row.Occupied === 'Yes' && !row.Departure) {
-            // Daily cleaning room
+            // Daily cleaning room (occupied but no departure)
             needsCleaning = true;
             newStatus = 'dirty';
             console.log(`[PMS] Room ${roomNumber}: Daily cleaning needed (Occupied: ${row.Occupied}, no departure)`);
@@ -463,20 +492,23 @@ export function PMSUpload() {
               <span className="font-medium">{t('pms.uploadComplete')}</span>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">{results.processed}</div>
-                <div className="text-sm text-blue-600">{t('pms.roomsProcessed')}</div>
+            {/* Only show statistics to admins */}
+            {userRole === 'admin' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="text-center p-4 bg-blue-50 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-600">{results.processed}</div>
+                  <div className="text-sm text-blue-600">{t('pms.roomsProcessed')}</div>
+                </div>
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{results.updated}</div>
+                  <div className="text-sm text-green-600">{t('pms.statusesUpdated')}</div>
+                </div>
+                <div className="text-center p-4 bg-orange-50 rounded-lg">
+                  <div className="text-2xl font-bold text-orange-600">{results.assigned}</div>
+                  <div className="text-sm text-orange-600">{t('pms.tasksAssigned')}</div>
+                </div>
               </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">{results.updated}</div>
-                <div className="text-sm text-green-600">{t('pms.statusesUpdated')}</div>
-              </div>
-              <div className="text-center p-4 bg-orange-50 rounded-lg">
-                <div className="text-2xl font-bold text-orange-600">{results.assigned}</div>
-                <div className="text-sm text-orange-600">{t('pms.tasksAssigned')}</div>
-              </div>
-            </div>
+            )}
 
             {results.errors.length > 0 && (
               <div className="space-y-2">

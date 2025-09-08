@@ -25,6 +25,7 @@ interface Room {
   checkout_time?: string;
   guest_count?: number;
   assignment?: {
+    id: string;
     assigned_to_name: string;
     assignment_date: string;
     status: string;
@@ -38,7 +39,7 @@ interface HousekeepingStaff {
 }
 
 export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: RoomAssignmentDialogProps) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const { toast } = useToast();
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -69,6 +70,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       const { data: assignments, error: assignmentError } = await supabase
         .from('room_assignments')
         .select(`
+          id,
           room_id,
           assignment_date,
           status,
@@ -101,6 +103,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
         return {
           ...room,
           assignment: assignment ? {
+            id: assignment.id,
             assigned_to_name: staffNames[assignment.assigned_to] || 'Unknown',
             assignment_date: assignment.assignment_date,
             status: assignment.status
@@ -262,6 +265,33 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
     }
   };
 
+  const handleUnassignRoom = async (assignmentId: string) => {
+    try {
+      const { error } = await supabase
+        .from('room_assignments')
+        .delete()
+        .eq('id', assignmentId);
+
+      if (error) throw error;
+
+      toast({
+        title: t('common.success'),
+        description: 'Room assignment removed successfully',
+      });
+
+      // Refresh rooms to update assignment status
+      fetchRooms();
+      onAssignmentCreated(); // Refresh parent component
+    } catch (error) {
+      console.error('Error unassigning room:', error);
+      toast({
+        title: t('common.error'),
+        description: 'Failed to remove room assignment',
+        variant: 'destructive',
+      });
+    }
+  };
+
   // Group rooms by hotel and type
   const groupedRooms = rooms.reduce((groups, room) => {
     if (!groups[room.hotel]) {
@@ -375,12 +405,28 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                              {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
                              {room.floor_number && ` • Floor ${room.floor_number}`}
                            </div>
-                           {room.assignment ? (
-                             <div className="text-xs text-red-600 mt-1 flex items-center">
-                               <User className="h-3 w-3 mr-1" />
-                               Already assigned to {room.assignment.assigned_to_name}
-                             </div>
-                           ) : (
+                            {room.assignment ? (
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs text-red-600 mt-1 flex items-center">
+                                  <User className="h-3 w-3 mr-1" />
+                                  Already assigned to {room.assignment.assigned_to_name}
+                                </div>
+                                {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={async (e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      await handleUnassignRoom(room.assignment!.id);
+                                    }}
+                                    className="h-6 px-2 text-xs"
+                                  >
+                                    Unassign
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
                              <div className="text-xs text-orange-600 mt-1 flex items-center">
                                <LogOut className="h-3 w-3 mr-1" />
                                {t('assignment.checkoutRoom')}
@@ -426,12 +472,28 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                              {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
                              {room.floor_number && ` • Floor ${room.floor_number}`}
                            </div>
-                           {room.assignment ? (
-                             <div className="text-xs text-red-600 mt-1 flex items-center">
-                               <User className="h-3 w-3 mr-1" />
-                               Already assigned to {room.assignment.assigned_to_name}
-                             </div>
-                           ) : (
+                            {room.assignment ? (
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs text-red-600 mt-1 flex items-center">
+                                  <User className="h-3 w-3 mr-1" />
+                                  Already assigned to {room.assignment.assigned_to_name}
+                                </div>
+                                {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={async (e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      await handleUnassignRoom(room.assignment!.id);
+                                    }}
+                                    className="h-6 px-2 text-xs"
+                                  >
+                                    Unassign
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
                              <div className="text-xs text-blue-600 mt-1 flex items-center">
                                <User className="h-3 w-3 mr-1" />
                                {t('assignment.dailyCleaning')}
