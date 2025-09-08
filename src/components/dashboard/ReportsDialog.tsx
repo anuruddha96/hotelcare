@@ -191,40 +191,69 @@ export function ReportsDialog({ trigger }: ReportsDialogProps) {
   };
 
   const generateHousekeepingReport = async () => {
-    let query = supabase
+    // First get housekeeping performance data
+    let performanceQuery = supabase
       .from('housekeeping_performance')
-      .select(`
-        *,
-        housekeeper:profiles!housekeeping_performance_housekeeper_id_fkey(full_name, nickname),
-        room:rooms!housekeeping_performance_room_id_fkey(room_number, hotel, room_type)
-      `)
+      .select('*')
       .order('assignment_date', { ascending: false });
 
     if (dateRange?.from) {
-      query = query.gte('assignment_date', format(dateRange.from, 'yyyy-MM-dd'));
+      performanceQuery = performanceQuery.gte('assignment_date', format(dateRange.from, 'yyyy-MM-dd'));
     }
     if (dateRange?.to) {
-      query = query.lte('assignment_date', format(dateRange.to, 'yyyy-MM-dd'));
+      performanceQuery = performanceQuery.lte('assignment_date', format(dateRange.to, 'yyyy-MM-dd'));
     }
 
-    const { data, error } = await query;
-    if (error) throw error;
+    const { data: performanceData, error: performanceError } = await performanceQuery;
+    if (performanceError) throw performanceError;
 
-    const excelData = data?.map((record: any) => ({
-      'Date': format(new Date(record.assignment_date), 'yyyy-MM-dd'),
-      'Hotel': record.room?.hotel || 'N/A',
-      'Room Number': record.room?.room_number || 'N/A',
-      'Room Type': record.room?.room_type || 'N/A',
-      'Housekeeper': record.housekeeper?.full_name || 'Unknown',
-      'Nickname': record.housekeeper?.nickname || 'N/A',
-      'Assignment Type': record.assignment_type.replace('_', ' '),
-      'Started At': format(new Date(record.started_at), 'yyyy-MM-dd HH:mm:ss'),
-      'Completed At': format(new Date(record.completed_at), 'yyyy-MM-dd HH:mm:ss'),
-      'Actual Duration (min)': record.actual_duration_minutes,
-      'Estimated Duration (min)': record.estimated_duration_minutes || 'N/A',
-      'Efficiency Score': Math.round(record.efficiency_score),
-      'Performance': record.efficiency_score >= 100 ? 'Above Target' : 'Below Target'
-    })) || [];
+    if (!performanceData || performanceData.length === 0) {
+      return {
+        data: [],
+        fileName: `housekeeping-performance-${format(new Date(), 'yyyy-MM-dd')}.csv`
+      };
+    }
+
+    // Get unique housekeeper and room IDs
+    const housekeeperIds = [...new Set(performanceData.map(p => p.housekeeper_id))];
+    const roomIds = [...new Set(performanceData.map(p => p.room_id))];
+
+    // Fetch housekeepers data
+    const { data: housekeepers } = await supabase
+      .from('profiles')
+      .select('id, full_name, nickname')
+      .in('id', housekeeperIds);
+
+    // Fetch rooms data
+    const { data: rooms } = await supabase
+      .from('rooms')
+      .select('id, room_number, hotel, room_type')
+      .in('id', roomIds);
+
+    // Create lookup maps
+    const housekeeperMap = new Map(housekeepers?.map(h => [h.id, h]) || []);
+    const roomMap = new Map(rooms?.map(r => [r.id, r]) || []);
+
+    const excelData = performanceData.map((record: any) => {
+      const housekeeper = housekeeperMap.get(record.housekeeper_id);
+      const room = roomMap.get(record.room_id);
+
+      return {
+        'Date': format(new Date(record.assignment_date), 'yyyy-MM-dd'),
+        'Hotel': room?.hotel || 'N/A',
+        'Room Number': room?.room_number || 'N/A',
+        'Room Type': room?.room_type || 'N/A',
+        'Housekeeper': housekeeper?.full_name || 'Unknown',
+        'Nickname': housekeeper?.nickname || 'N/A',
+        'Assignment Type': record.assignment_type.replace('_', ' '),
+        'Started At': format(new Date(record.started_at), 'yyyy-MM-dd HH:mm:ss'),
+        'Completed At': format(new Date(record.completed_at), 'yyyy-MM-dd HH:mm:ss'),
+        'Actual Duration (min)': record.actual_duration_minutes,
+        'Estimated Duration (min)': record.estimated_duration_minutes || 'N/A',
+        'Efficiency Score': Math.round(record.efficiency_score),
+        'Performance': record.efficiency_score >= 100 ? 'Above Target' : 'Below Target'
+      };
+    });
 
     return {
       data: excelData,
@@ -233,25 +262,50 @@ export function ReportsDialog({ trigger }: ReportsDialogProps) {
   };
 
   const generateRoomsReport = async () => {
-    let query = supabase
+    // Get rooms data
+    let roomsQuery = supabase
       .from('rooms')
-      .select(`
-        *,
-        last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name, nickname)
-      `)
+      .select('*')
       .order('hotel', { ascending: true });
 
     if (selectedHotel && selectedHotel !== 'all') {
-      query = query.eq('hotel', selectedHotel);
+      roomsQuery = roomsQuery.eq('hotel', selectedHotel);
     }
 
-    const { data, error } = await query;
-    if (error) throw error;
+    const { data: roomsData, error: roomsError } = await roomsQuery;
+    if (roomsError) throw roomsError;
 
-    const excelData = data?.map((room: any) => {
+    if (!roomsData || roomsData.length === 0) {
+      return {
+        data: [],
+        fileName: `rooms-status-${format(new Date(), 'yyyy-MM-dd')}.csv`
+      };
+    }
+
+    // Get unique cleaner IDs (excluding null values)
+    const cleanerIds = [...new Set(roomsData
+      .map(r => r.last_cleaned_by)
+      .filter(id => id !== null)
+    )];
+
+    // Fetch cleaner profiles if there are any
+    let cleaners: any[] = [];
+    if (cleanerIds.length > 0) {
+      const { data: cleanerData } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname')
+        .in('id', cleanerIds);
+      cleaners = cleanerData || [];
+    }
+
+    // Create cleaner lookup map
+    const cleanerMap = new Map(cleaners.map(c => [c.id, c]));
+
+    const excelData = roomsData.map((room: any) => {
       const lastCleaned = room.last_cleaned_at ? new Date(room.last_cleaned_at) : null;
       const hoursSinceClean = lastCleaned ? 
         Math.floor((new Date().getTime() - lastCleaned.getTime()) / (1000 * 60 * 60)) : null;
+      const cleaner = room.last_cleaned_by ? cleanerMap.get(room.last_cleaned_by) : null;
 
       return {
         'Hotel': room.hotel,
@@ -265,12 +319,12 @@ export function ReportsDialog({ trigger }: ReportsDialogProps) {
         'Guest Count': room.guest_count || 0,
         'Checkout Time': room.checkout_time ? format(new Date(room.checkout_time), 'yyyy-MM-dd HH:mm:ss') : 'N/A',
         'Last Cleaned At': lastCleaned ? format(lastCleaned, 'yyyy-MM-dd HH:mm:ss') : 'Never',
-        'Last Cleaned By': room.last_cleaned_by_profile?.full_name || 'N/A',
+        'Last Cleaned By': cleaner?.full_name || 'N/A',
         'Hours Since Clean': hoursSinceClean || 'N/A',
         'Needs Attention': hoursSinceClean && hoursSinceClean > 24 ? 'Yes' : 'No',
         'Notes': room.notes || 'None'
       };
-    }) || [];
+    });
 
     return {
       data: excelData,
