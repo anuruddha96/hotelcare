@@ -219,6 +219,10 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Reject Task for Room',
     'supervisor.rejectionReason': 'Please provide a reason for rejection...',
     'supervisor.confirmReject': 'Confirm Rejection',
+    
+    // Notifications
+    'notifications.newAssignment': 'You have a new room assignment!',
+    'notifications.newCompletion': 'A task has been completed and needs approval',
   },
   
   hu: {
@@ -439,6 +443,10 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Feladat elutasítása - Szoba',
     'supervisor.rejectionReason': 'Kérjük, adja meg az elutasítás okát...',
     'supervisor.confirmReject': 'Elutasítás megerősítése',
+    
+    // Értesítések
+    'notifications.newAssignment': 'Új szobabeosztást kapott!',
+    'notifications.newCompletion': 'Egy feladat befejeződött és jóváhagyásra vár',
   },
   
   es: {
@@ -659,6 +667,10 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Rechazar Tarea para Habitación',
     'supervisor.rejectionReason': 'Por favor proporcione una razón para el rechazo...',
     'supervisor.confirmReject': 'Confirmar Rechazo',
+    
+    // Notificaciones
+    'notifications.newAssignment': '¡Tiene una nueva asignación de habitación!',
+    'notifications.newCompletion': 'Una tarea se ha completado y necesita aprobación',
   },
   
   vi: {
@@ -879,6 +891,10 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Từ chối công việc cho phòng',
     'supervisor.rejectionReason': 'Vui lòng cung cấp lý do từ chối...',
     'supervisor.confirmReject': 'Xác nhận từ chối',
+    
+    // Thông báo
+    'notifications.newAssignment': 'Bạn có nhiệm vụ phòng mới!',
+    'notifications.newCompletion': 'Một công việc đã hoàn thành và cần phê duyệt',
   },
   
   mn: {
@@ -1099,6 +1115,10 @@ const translations = {
     'supervisor.rejectTaskTitle': 'Өрөөний ажил татгалзах',
     'supervisor.rejectionReason': 'Татгалзах шалтгаан бичнэ үү...',
     'supervisor.confirmReject': 'Татгалзахыг баталгаажуулах',
+    
+    // Мэдэгдэл
+    'notifications.newAssignment': 'Танд шинэ өрөөний даалгавар ирлээ!',
+    'notifications.newCompletion': 'Ажил дууссан бөгөөд зөвшөөрөл хэрэгтэй байна',
   },
 };
 

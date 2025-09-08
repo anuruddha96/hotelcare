@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useNotifications } from '@/hooks/useNotifications';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
@@ -47,12 +48,14 @@ interface PendingAssignment {
 
 export function SupervisorApprovalView() {
   const { t } = useTranslation();
+  const { showNotification } = useNotifications();
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [approvalNote, setApprovalNote] = useState('');
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     fetchPendingAssignments();
@@ -68,14 +71,19 @@ export function SupervisorApprovalView() {
           table: 'room_assignments',
           filter: 'status=eq.completed'
         },
-        () => fetchPendingAssignments()
+        (payload) => {
+          fetchPendingAssignments();
+          if (payload.eventType === 'INSERT' || (payload.eventType === 'UPDATE' && payload.new.status === 'completed' && payload.old.status !== 'completed')) {
+            showNotification(t('notifications.newCompletion'), 'info');
+          }
+        }
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedDate]);
+  }, [selectedDate, showNotification, t]);
 
   const fetchPendingAssignments = async () => {
     setLoading(true);
@@ -104,7 +112,9 @@ export function SupervisorApprovalView() {
         .order('completed_at', { ascending: false });
 
       if (error) throw error;
-      setPendingAssignments((data as any) || []);
+      const assignments = (data as any) || [];
+      setPendingAssignments(assignments);
+      setPendingCount(assignments.length);
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
       toast.error('Failed to fetch pending assignments');

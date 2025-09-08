@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useNotifications } from '@/hooks/useNotifications';
 
 interface Assignment {
   id: string;
@@ -44,6 +45,7 @@ export function HousekeepingStaffView() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const { t } = useTranslation();
+  const { showNotification } = useNotifications();
 
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -68,7 +70,7 @@ export function HousekeepingStaffView() {
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'UPDATE',
           schema: 'public',
           table: 'room_assignments',
           filter: `assigned_to=eq.${user.id}`
@@ -78,12 +80,26 @@ export function HousekeepingStaffView() {
           fetchSummary();
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'room_assignments',
+          filter: `assigned_to=eq.${user.id}`
+        },
+        () => {
+          fetchAssignments();
+          fetchSummary();
+          showNotification(t('notifications.newAssignment'), 'info');
+        }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, selectedDate]);
+  }, [user?.id, selectedDate, showNotification, t]);
 
   if (isMobile) {
     return <MobileHousekeepingView />;
