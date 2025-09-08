@@ -305,47 +305,7 @@ export function PMSUpload() {
             }
           }
 
-          // Auto-assign cleaning if needed
-          if (needsCleaning) {
-            const assignmentType = isCheckout ? 'checkout_cleaning' : 'daily_cleaning';
-            const priority = isCheckout ? 2 : 1; // Higher priority for checkout
-
-            // Check if already assigned for today
-            const { data: existingAssignments } = await supabase
-              .from('room_assignments')
-              .select('id')
-              .eq('room_id', room.id)
-              .eq('assignment_date', new Date().toISOString().split('T')[0])
-              .eq('assignment_type', assignmentType);
-
-            if (!existingAssignments || existingAssignments.length === 0) {
-              // Find available housekeeper (simple round-robin for now)
-              const { data: housekeepers } = await supabase
-                .from('profiles')
-                .select('id')
-                .eq('role', 'housekeeping')
-                .limit(1);
-
-              if (housekeepers && housekeepers.length > 0) {
-                const { error: assignError } = await supabase
-                  .from('room_assignments')
-                  .insert({
-                    room_id: room.id,
-                    assigned_to: housekeepers[0].id,
-                    assigned_by: (await supabase.auth.getUser()).data.user?.id,
-                    assignment_date: new Date().toISOString().split('T')[0],
-                    assignment_type: assignmentType,
-                    priority: priority,
-                    estimated_duration: assignmentType === 'checkout_cleaning' ? 45 : 30,
-                    notes: `Auto-assigned from PMS upload${row.Note ? ` - ${row.Note}` : ''}`
-                  });
-
-                if (!assignError) {
-                  processed.assigned++;
-                }
-              }
-            }
-          }
+          // Note: PMS upload only updates room statuses. Managers must manually assign rooms to housekeepers.
 
           processed.processed++;
         } catch (error) {
