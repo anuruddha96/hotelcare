@@ -273,7 +273,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Daily Connect</span>
+                <span>Attendance</span>
               </TabsTrigger>
             </TabsList>
           ) : profile?.role === 'maintenance' ? (
@@ -284,7 +284,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Daily Connect</span>
+                <span>Attendance</span>
               </TabsTrigger>
             </TabsList>
           ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
@@ -303,7 +303,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Daily Connect</span>
+                <span>Attendance</span>
               </TabsTrigger>
             </TabsList>
           ) : (
@@ -318,7 +318,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Daily Connect</span>
+                <span>Attendance</span>
               </TabsTrigger>
             </TabsList>
           )}
@@ -552,12 +552,12 @@ export function Dashboard() {
             <HousekeepingTab />
           </TabsContent>
           
-          <TabsContent value="attendance" className="space-y-4">
-            {profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager' ? (
-              <AttendanceReports />
-            ) : (
-              <div className="flex justify-center">
-                <AttendanceTracker />
+          <TabsContent value="attendance" className="space-y-6">
+            <AttendanceTracker />
+            {(profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager') && (
+              <div className="mt-8">
+                <h3 className="text-lg font-semibold mb-4">HR & Admin Dashboard</h3>
+                <AttendanceReports />
               </div>
             )}
           </TabsContent>

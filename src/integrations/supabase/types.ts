@@ -495,6 +495,10 @@ export type Database = {
       staff_attendance: {
         Row: {
           break_duration: number | null
+          break_duration_minutes: number | null
+          break_ended_at: string | null
+          break_started_at: string | null
+          break_type: string | null
           check_in_location: Json | null
           check_in_time: string
           check_out_location: Json | null
@@ -510,6 +514,10 @@ export type Database = {
         }
         Insert: {
           break_duration?: number | null
+          break_duration_minutes?: number | null
+          break_ended_at?: string | null
+          break_started_at?: string | null
+          break_type?: string | null
           check_in_location?: Json | null
           check_in_time?: string
           check_out_location?: Json | null
@@ -525,6 +533,10 @@ export type Database = {
         }
         Update: {
           break_duration?: number | null
+          break_duration_minutes?: number | null
+          break_ended_at?: string | null
+          break_started_at?: string | null
+          break_type?: string | null
           check_in_location?: Json | null
           check_in_time?: string
           check_out_location?: Json | null

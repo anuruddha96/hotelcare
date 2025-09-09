@@ -3,11 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, MapPin, Calendar, Coffee, LogOut, LogIn } from 'lucide-react';
+import { Clock, MapPin, Calendar, Coffee, LogOut, LogIn, Utensils, Timer } from 'lucide-react';
 import { format } from 'date-fns';
+import { BreakTimer } from './BreakTimer';
 
 interface AttendanceRecord {
   id: string;
@@ -18,6 +20,9 @@ interface AttendanceRecord {
   work_date: string;
   total_hours: number | null;
   break_duration: number;
+  break_type: string | null;
+  break_started_at: string | null;
+  break_ended_at: string | null;
   status: string;
   notes: string | null;
 }
@@ -28,6 +33,7 @@ export const AttendanceTracker = () => {
   const [currentRecord, setCurrentRecord] = useState<AttendanceRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [notes, setNotes] = useState('');
+  const [selectedBreakType, setSelectedBreakType] = useState<string>('coffee');
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
 
   useEffect(() => {
@@ -158,8 +164,8 @@ export const AttendanceTracker = () => {
       });
     } else {
       toast({
-        title: "🎉 Amazing Work Today! 🎉",
-        description: `Thank you for your dedication! See you tomorrow 🌅`,
+        title: "Shift Complete",
+        description: `Thank you for your hard work today! Have a great rest of your day.`,
       });
       fetchTodaysAttendance();
     }
@@ -172,11 +178,21 @@ export const AttendanceTracker = () => {
 
     setIsLoading(true);
 
+    const now = new Date().toISOString();
+    const updateData: any = {
+      status: isStartingBreak ? 'on_break' : 'checked_in'
+    };
+
+    if (isStartingBreak) {
+      updateData.break_type = selectedBreakType;
+      updateData.break_started_at = now;
+    } else {
+      updateData.break_ended_at = now;
+    }
+
     const { error } = await supabase
       .from('staff_attendance')
-      .update({
-        status: isStartingBreak ? 'on_break' : 'checked_in'
-      })
+      .update(updateData)
       .eq('id', currentRecord.id);
 
     if (error) {
@@ -186,11 +202,17 @@ export const AttendanceTracker = () => {
         variant: "destructive"
       });
     } else {
+      const breakTypeNames = {
+        short: 'Short Break',
+        coffee: 'Coffee Break', 
+        lunch: 'Lunch Break'
+      };
+      
       toast({
-        title: isStartingBreak ? "😴 Rest & Recharge" : "🔥 Let's Go! Energized & Ready!",
+        title: isStartingBreak ? "😴 Time to Rest & Recharge" : "🔥 Energized & Ready to Go!",
         description: isStartingBreak 
-          ? `Enjoy your break! You deserve it 🌸 Started at ${format(new Date(), 'HH:mm')}`
-          : `Welcome back! Ready to conquer more tasks ⚡ Back at ${format(new Date(), 'HH:mm')}`
+          ? `Enjoy your ${breakTypeNames[selectedBreakType as keyof typeof breakTypeNames] || 'break'}! 🌸`
+          : `Welcome back! Let's make great things happen ⚡`
       });
       fetchTodaysAttendance();
     }
@@ -220,7 +242,7 @@ export const AttendanceTracker = () => {
       <CardHeader className="text-center">
         <CardTitle className="flex items-center justify-center gap-2">
           <Clock className="h-5 w-5" />
-          Daily Connect
+          Attendance
         </CardTitle>
         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <Calendar className="h-4 w-4" />
@@ -282,58 +304,100 @@ export const AttendanceTracker = () => {
               rows={3}
             />
 
-            <div className="space-y-2">
+            <div className="space-y-4">
               {currentRecord.status === 'checked_in' && (
                 <>
-                  <Button
-                    onClick={() => handleBreak(true)}
-                    variant="outline"
-                    className="w-full bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:scale-105"
-                    disabled={isLoading}
-                  >
-                    <Coffee className="h-4 w-4 mr-2" />
-                    Take a Restful Break 😴
-                  </Button>
+                  <div className="space-y-3">
+                    <div className="text-sm font-medium text-center">Select Break Type:</div>
+                    <Select value={selectedBreakType} onValueChange={setSelectedBreakType}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="short">
+                          <div className="flex items-center gap-2">
+                            <Timer className="h-4 w-4" />
+                            Short Break (5 minutes)
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="coffee">
+                          <div className="flex items-center gap-2">
+                            <Coffee className="h-4 w-4" />
+                            Coffee Break (10 minutes)
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="lunch">
+                          <div className="flex items-center gap-2">
+                            <Utensils className="h-4 w-4" />
+                            Lunch Break (30 minutes)
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    <Button
+                      onClick={() => handleBreak(true)}
+                      variant="outline"
+                      className="w-full bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:scale-105"
+                      disabled={isLoading}
+                    >
+                      <Coffee className="h-4 w-4 mr-2" />
+                      Start Break 😌
+                    </Button>
+                  </div>
+                  
                   <Button
                     onClick={handleCheckOut}
-                    className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 transition-all duration-300 hover:scale-105 animate-pulse"
+                    variant="outline"
+                    className="w-full transition-all duration-300 hover:scale-105"
                     disabled={isLoading}
                   >
                     <LogOut className="h-4 w-4 mr-2" />
-                    Complete Your Amazing Day! 🎉
+                    End Shift
                   </Button>
                 </>
               )}
 
               {currentRecord.status === 'on_break' && (
                 <>
+                  {currentRecord.break_started_at && (
+                    <div className="mb-4">
+                      <BreakTimer
+                        breakType={currentRecord.break_type || 'coffee'}
+                        startedAt={currentRecord.break_started_at}
+                      />
+                    </div>
+                  )}
+                  
                   <Button
                     onClick={() => handleBreak(false)}
-                    variant="outline"
-                    className="w-full bg-gradient-to-r from-orange-50 to-red-50 border-orange-200 hover:from-orange-100 hover:to-red-100 transition-all duration-300 hover:scale-105 animate-bounce"
+                    className="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 transition-all duration-300 hover:scale-105 animate-bounce"
                     disabled={isLoading}
                   >
                     <Clock className="h-4 w-4 mr-2" />
-                    I'm Ready! Let's Go! ⚡
+                    Back to Work! ⚡
                   </Button>
+                  
                   <Button
                     onClick={handleCheckOut}
-                    className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 transition-all duration-300 hover:scale-105 animate-pulse"
+                    variant="outline"
+                    className="w-full transition-all duration-300 hover:scale-105"
                     disabled={isLoading}
                   >
                     <LogOut className="h-4 w-4 mr-2" />
-                    Complete Your Amazing Day! 🎉
+                    End Shift
                   </Button>
                 </>
               )}
 
               {currentRecord.status === 'checked_out' && (
-                <div className="text-center p-4 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200 animate-fade-in">
-                  <div className="text-lg font-semibold text-green-700 mb-1">
-                    🌟 Fantastic Work Today! 🌟
+                <div className="text-center p-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200 animate-fade-in">
+                  <div className="text-2xl mb-2">🎉</div>
+                  <div className="text-lg font-semibold text-green-700 mb-2">
+                    Shift Complete!
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    Thank you for your dedication and hard work. Rest well and see you tomorrow! 🌅
+                    Thank you for your hard work today. Have a great rest of your day!
                   </div>
                 </div>
               )}
