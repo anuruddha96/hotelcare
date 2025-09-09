@@ -15,6 +15,8 @@ import { MinimBarManagement } from './MinimBarManagement';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
 import { CompactRoomCard } from './CompactRoomCard';
 import { OrganizedRoomCard } from './OrganizedRoomCard';
+import { ModernRoomCard } from './ModernRoomCard';
+import { RoomStatusOverview } from './RoomStatusOverview';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { BulkRoomCreation } from './BulkRoomCreation';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -564,54 +566,17 @@ export function RoomManagement() {
           </div>
         </div>
 
-        {/* Room Stats */}
-        <div className="bg-card rounded-lg border shadow-sm p-4">
-          <h3 className="text-lg font-semibold text-foreground mb-4">Room Status Overview</h3>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
-            const count = rooms.filter(r => r.status === status).length;
-            const isActive = activeStatusFilter === status;
-            return (
-              <Card 
-                key={status} 
-                className={`cursor-pointer transition-all duration-300 ${
-                  isActive 
-                    ? 'ring-2 ring-primary bg-gradient-to-br from-primary/10 to-primary/5 shadow-lg border-primary scale-105' 
-                    : 'hover:bg-gradient-to-br hover:from-muted/30 hover:to-muted/10 hover:shadow-md hover:scale-102'
-                }`}
-                onClick={() => handleStatusFilterClick(status)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-full ${getStatusColor(status).split(' ')[0]} ${getStatusColor(status).split(' ')[2]}`}>
-                        {getStatusIcon(status)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground capitalize">
-                          {getStatusDisplayName(status)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {status === 'clean' && 'Ready rooms'}
-                          {status === 'dirty' && 'Need cleaning'}
-                          {status === 'maintenance' && 'Under repair'}
-                          {status === 'out_of_order' && 'Not available'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>
-                        {count}
-                      </p>
-                      <p className="text-xs text-muted-foreground">rooms</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-            })}
-          </div>
-        </div>
+        {/* Room Status Overview */}
+        <RoomStatusOverview 
+          statusData={{
+            clean: rooms.filter(r => r.status === 'clean').length,
+            dirty: rooms.filter(r => r.status === 'dirty').length,
+            maintenance: rooms.filter(r => r.status === 'maintenance').length,
+            out_of_order: rooms.filter(r => r.status === 'out_of_order').length
+          }}
+          onStatusClick={handleStatusFilterClick}
+          activeFilter={activeStatusFilter}
+        />
 
         {/* Rooms by Hotel */}
         {loading ? (
@@ -634,34 +599,34 @@ export function RoomManagement() {
                         {groupedRooms[hotel].length} rooms
                       </Badge>
                     </div>
-                     <div className={`grid gap-3 ${
-                       isMobile 
-                         ? 'grid-cols-2 sm:grid-cols-3' 
-                         : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'
-                     }`}>
-                       {groupedRooms[hotel].map((room) => (
-                         <OrganizedRoomCard 
-                           key={room.id} 
-                           room={room} 
-                           onClick={() => handleRoomClick(room)}
-                         />
-                       ))}
+                 <div className={`grid gap-4 ${
+                   isMobile 
+                     ? 'grid-cols-1 sm:grid-cols-2' 
+                     : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                 }`}>
+                        {groupedRooms[hotel].map((room) => (
+                          <ModernRoomCard 
+                            key={room.id} 
+                            room={room} 
+                            onClick={() => handleRoomClick(room)}
+                          />
+                        ))}
                      </div>
                   </div>
                 ))
               : (
-                 <div className={`grid gap-3 ${
-                   isMobile 
-                     ? 'grid-cols-2 sm:grid-cols-3' 
-                     : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'
-                 }`}>
-                   {finalFilteredRooms.map((room) => (
-                     <OrganizedRoomCard 
-                       key={room.id} 
-                       room={room} 
-                       onClick={() => handleRoomClick(room)}
-                     />
-                   ))}
+                     <div className={`grid gap-4 ${
+                       isMobile 
+                         ? 'grid-cols-1 sm:grid-cols-2' 
+                         : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                     }`}>
+                    {finalFilteredRooms.map((room) => (
+                      <ModernRoomCard 
+                        key={room.id} 
+                        room={room} 
+                        onClick={() => handleRoomClick(room)}
+                      />
+                    ))}
                  </div>
               )
             }
