@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
 import { 
   Clock, 
   MapPin, 
@@ -44,12 +46,57 @@ interface AssignedRoomCardProps {
 
 export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCardProps) {
   const { t, language } = useTranslation();
+  const { user } = useAuth();
+  const { toast: showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
+  const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    checkAttendanceStatus();
+  }, [user]);
+
+  const checkAttendanceStatus = async () => {
+    if (!user?.id) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    const { data, error } = await supabase
+      .from('staff_attendance')
+      .select('status')
+      .eq('user_id', user.id)
+      .eq('work_date', today)
+      .single();
+    
+    if (!error && data) {
+      setAttendanceStatus(data.status);
+    } else {
+      setAttendanceStatus(null);
+    }
+  };
 
   const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
+    // Check if user is on break before starting work
+    if (newStatus === 'in_progress' && attendanceStatus === 'on_break') {
+      showToast({
+        title: "🌸 Take Your Time",
+        description: "Please finish your break before starting work. Your well-being matters! 😌",
+      });
+      return;
+    }
+
+    // Check if user is checked in before starting work
+    if (newStatus === 'in_progress' && (!attendanceStatus || attendanceStatus === 'checked_out')) {
+      showToast({
+        title: "Check-in Required",
+        description: "Please check in first before starting your tasks",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const updateData: any = { status: newStatus };

@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Clock, MapPin, Calendar, Coffee, LogOut, LogIn, Utensils, Timer } from 'lucide-react';
 import { format } from 'date-fns';
 import { BreakTimer } from './BreakTimer';
+import { BreakTypesManagement } from './BreakTypesManagement';
 
 interface AttendanceRecord {
   id: string;
@@ -27,19 +28,32 @@ interface AttendanceRecord {
   notes: string | null;
 }
 
-export const AttendanceTracker = () => {
-  const { user } = useAuth();
+interface BreakType {
+  id: string;
+  name: string;
+  display_name: string;
+  duration_minutes: number;
+  icon_name: string;
+  is_active: boolean;
+}
+
+export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status: string | null) => void }) => {
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const [currentRecord, setCurrentRecord] = useState<AttendanceRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [notes, setNotes] = useState('');
-  const [selectedBreakType, setSelectedBreakType] = useState<string>('coffee');
+  const [selectedBreakType, setSelectedBreakType] = useState<string>('');
+  const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
+  
+  const isAdminOrHR = profile?.role && ['admin', 'hr', 'manager'].includes(profile.role);
 
   useEffect(() => {
     if (user) {
       fetchTodaysAttendance();
       getCurrentLocation();
+      fetchBreakTypes();
     }
   }, [user]);
 
@@ -74,6 +88,21 @@ export const AttendanceTracker = () => {
     }
   };
 
+  const fetchBreakTypes = async () => {
+    const { data, error } = await supabase
+      .from('break_types')
+      .select('*')
+      .eq('is_active', true)
+      .order('duration_minutes', { ascending: true });
+
+    if (!error && data) {
+      setBreakTypes(data);
+      if (data.length > 0 && !selectedBreakType) {
+        setSelectedBreakType(data[0].name);
+      }
+    }
+  };
+
   const fetchTodaysAttendance = async () => {
     if (!user) return;
 
@@ -94,6 +123,10 @@ export const AttendanceTracker = () => {
     if (data) {
       setCurrentRecord(data as AttendanceRecord);
       setNotes(data.notes || '');
+      // Notify parent component about status change
+      onStatusChange?.(data.status);
+    } else {
+      onStatusChange?.(null);
     }
   };
 
@@ -126,7 +159,7 @@ export const AttendanceTracker = () => {
       });
     } else {
       toast({
-        title: "🌟 Welcome to Your Shift! 🌟",
+        title: "🌟 Welcome to Your Shift! 🌟", 
         description: `You're all set! Time to shine at ${format(new Date(), 'HH:mm')} ✨`,
       });
       fetchTodaysAttendance();
@@ -202,16 +235,12 @@ export const AttendanceTracker = () => {
         variant: "destructive"
       });
     } else {
-      const breakTypeNames = {
-        short: 'Short Break',
-        coffee: 'Coffee Break', 
-        lunch: 'Lunch Break'
-      };
+      const selectedBreak = breakTypes.find(bt => bt.name === selectedBreakType);
       
       toast({
         title: isStartingBreak ? "😴 Time to Rest & Recharge" : "🔥 Energized & Ready to Go!",
         description: isStartingBreak 
-          ? `Enjoy your ${breakTypeNames[selectedBreakType as keyof typeof breakTypeNames] || 'break'}! 🌸`
+          ? `Enjoy your ${selectedBreak?.display_name || 'break'}! 🌸`
           : `Welcome back! Let's make great things happen ⚡`
       });
       fetchTodaysAttendance();
@@ -238,17 +267,18 @@ export const AttendanceTracker = () => {
   };
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader className="text-center">
-        <CardTitle className="flex items-center justify-center gap-2">
-          <Clock className="h-5 w-5" />
-          Attendance
-        </CardTitle>
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Calendar className="h-4 w-4" />
-          {format(new Date(), 'EEEE, MMMM do, yyyy')}
-        </div>
-      </CardHeader>
+    <div className="space-y-6">
+      <Card className="w-full max-w-md mx-auto">
+        <CardHeader className="text-center">
+          <CardTitle className="flex items-center justify-center gap-2">
+            <Clock className="h-5 w-5" />
+            Work Status
+          </CardTitle>
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Calendar className="h-4 w-4" />
+            {format(new Date(), 'EEEE, MMMM do, yyyy')}
+          </div>
+        </CardHeader>
 
       <CardContent className="space-y-4">
         {location ? (
@@ -314,24 +344,25 @@ export const AttendanceTracker = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="short">
-                          <div className="flex items-center gap-2">
-                            <Timer className="h-4 w-4" />
-                            Short Break (5 minutes)
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="coffee">
-                          <div className="flex items-center gap-2">
-                            <Coffee className="h-4 w-4" />
-                            Coffee Break (10 minutes)
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="lunch">
-                          <div className="flex items-center gap-2">
-                            <Utensils className="h-4 w-4" />
-                            Lunch Break (30 minutes)
-                          </div>
-                        </SelectItem>
+                        {breakTypes.map((breakType) => {
+                          const getIcon = (iconName: string) => {
+                            switch(iconName) {
+                              case 'Utensils': return Utensils;
+                              case 'Timer': return Timer;
+                              case 'Clock': return Clock;
+                              default: return Coffee;
+                            }
+                          };
+                          const IconComponent = getIcon(breakType.icon_name);
+                          return (
+                            <SelectItem key={breakType.id} value={breakType.name}>
+                              <div className="flex items-center gap-2">
+                                <IconComponent className="h-4 w-4" />
+                                {breakType.display_name} ({breakType.duration_minutes} minutes)
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                     
@@ -392,12 +423,15 @@ export const AttendanceTracker = () => {
 
               {currentRecord.status === 'checked_out' && (
                 <div className="text-center p-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200 animate-fade-in">
-                  <div className="text-2xl mb-2">🎉</div>
-                  <div className="text-lg font-semibold text-green-700 mb-2">
-                    Shift Complete!
+                  <div className="text-4xl mb-3">🎉</div>
+                  <div className="text-xl font-bold text-green-700 mb-3">
+                    Amazing Work Today!
                   </div>
-                  <div className="text-sm text-muted-foreground">
-                    Thank you for your hard work today. Have a great rest of your day!
+                  <div className="text-sm text-green-600 mb-2 font-medium">
+                    You've completed your shift successfully
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Rest well and see you tomorrow! ✨
                   </div>
                 </div>
               )}
@@ -434,5 +468,14 @@ export const AttendanceTracker = () => {
         )}
       </CardContent>
     </Card>
+
+    {/* Admin/HR Break Types Management */}
+    {isAdminOrHR && (
+      <div className="mt-8">
+        <h3 className="text-lg font-semibold mb-4">Break Types Management</h3>
+        <BreakTypesManagement />
+      </div>
+    )}
+    </div>
   );
 };

@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      break_types: {
+        Row: {
+          created_at: string
+          display_name: string
+          duration_minutes: number
+          icon_name: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          duration_minutes: number
+          icon_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          duration_minutes?: number
+          icon_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       comments: {
         Row: {
           content: string

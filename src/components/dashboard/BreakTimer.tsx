@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { supabase } from '@/integrations/supabase/client';
 
 interface BreakTimerProps {
   breakType: string;
@@ -8,24 +9,36 @@ interface BreakTimerProps {
   onComplete?: () => void;
 }
 
-const BREAK_DURATIONS = {
-  'short': 5, // 5 minutes
-  'coffee': 10, // 10 minutes  
-  'lunch': 30, // 30 minutes
-};
-
 export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps) {
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [isOvertime, setIsOvertime] = useState(false);
+  const [breakDuration, setBreakDuration] = useState(30); // default 30 minutes
+
+  // Fetch break duration from database
+  useEffect(() => {
+    const fetchBreakDuration = async () => {
+      const { data, error } = await supabase
+        .from('break_types')
+        .select('duration_minutes')
+        .eq('name', breakType)
+        .eq('is_active', true)
+        .single();
+
+      if (!error && data) {
+        setBreakDuration(data.duration_minutes);
+      }
+    };
+
+    fetchBreakDuration();
+  }, [breakType]);
 
   useEffect(() => {
     const startTime = new Date(startedAt).getTime();
-    const duration = BREAK_DURATIONS[breakType as keyof typeof BREAK_DURATIONS] || 10;
     
     const updateTimer = () => {
       const now = Date.now();
       const elapsed = Math.floor((now - startTime) / 1000); // seconds elapsed
-      const totalSeconds = duration * 60; // convert to seconds
+      const totalSeconds = breakDuration * 60; // convert to seconds
       const remaining = totalSeconds - elapsed;
       
       setTimeRemaining(remaining);
@@ -43,7 +56,7 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
     const interval = setInterval(updateTimer, 1000);
 
     return () => clearInterval(interval);
-  }, [breakType, startedAt, onComplete]);
+  }, [breakType, startedAt, onComplete, breakDuration]);
 
   const formatTime = (seconds: number) => {
     const absSeconds = Math.abs(seconds);
@@ -61,12 +74,7 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
   };
 
   const getBreakTypeName = () => {
-    switch (breakType) {
-      case 'short': return 'Short Break (5 min)';
-      case 'coffee': return 'Coffee Break (10 min)'; 
-      case 'lunch': return 'Lunch Break (30 min)';
-      default: return 'Break';
-    }
+    return `${breakType.charAt(0).toUpperCase() + breakType.slice(1)} Break (${breakDuration} min)`;
   };
 
   return (

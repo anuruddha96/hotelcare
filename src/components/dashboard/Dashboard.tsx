@@ -226,8 +226,8 @@ export function Dashboard() {
     
     switch (role) {
       case 'housekeeping':
-        // For housekeepers: show attendance first if not checked in, then tasks after check-in
-        return !attendanceStatus ? "attendance" : "housekeeping";
+        // For housekeepers: show work status first if not checked in or on break, then tasks after check-in
+        return (!attendanceStatus || attendanceStatus === 'on_break') ? "attendance" : "housekeeping";
       case 'housekeeping_manager':
         return "housekeeping";
       case 'maintenance':
@@ -241,9 +241,10 @@ export function Dashboard() {
   };
 
   const [activeTab, setActiveTab] = useState<string>(getDefaultTab(profile?.role));
+  
   useEffect(() => {
     setActiveTab(getDefaultTab(profile?.role));
-  }, [profile?.role]);
+  }, [profile?.role, attendanceStatus]);
   return (
     <div className="min-h-screen bg-background">
       <AutoAssignmentService />
@@ -273,7 +274,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Attendance</span>
+                <span>Work Status</span>
               </TabsTrigger>
             </TabsList>
           ) : profile?.role === 'maintenance' ? (
@@ -284,7 +285,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Attendance</span>
+                <span>Work Status</span>
               </TabsTrigger>
             </TabsList>
           ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
@@ -303,7 +304,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Attendance</span>
+                <span>Work Status</span>
               </TabsTrigger>
             </TabsList>
           ) : (
@@ -318,7 +319,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Attendance</span>
+                <span>Work Status</span>
               </TabsTrigger>
             </TabsList>
           )}
@@ -553,7 +554,7 @@ export function Dashboard() {
           </TabsContent>
           
           <TabsContent value="attendance" className="space-y-6">
-            <AttendanceTracker />
+            <AttendanceTracker onStatusChange={setAttendanceStatus} />
             {(profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager') && (
               <div className="mt-8">
                 <h3 className="text-lg font-semibold mb-4">HR & Admin Dashboard</h3>
