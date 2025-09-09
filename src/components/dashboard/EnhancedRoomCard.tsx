@@ -148,7 +148,7 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
               <h3 className="text-base font-bold text-foreground leading-none">
                 {room.room_number}
               </h3>
-              {room.floor_number && (
+              {room.floor_number !== undefined && room.floor_number !== null && (
                 <span className="text-xs text-muted-foreground">FL - {room.floor_number}</span>
               )}
             </div>
@@ -159,18 +159,18 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
         </div>
 
         {/* Room Type & Bed Type */}
-        <div className="space-y-1 mb-2">
+        <div className="space-y-1.5 mb-2">
           <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1">
-              <Building2 className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">
-                {room.is_checkout_room ? 'Checkout Room' : 'Daily Room'}
+            <div className="flex items-center gap-1 min-w-0 flex-1">
+              <Building2 className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+              <span className="text-muted-foreground truncate">
+                {room.is_checkout_room ? 'Checkout' : 'Daily'}
               </span>
             </div>
             {room.bed_type && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 min-w-0 flex-shrink-0">
                 <Bed className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground capitalize">{room.bed_type}</span>
+                <span className="text-muted-foreground capitalize text-xs truncate">{room.bed_type}</span>
               </div>
             )}
           </div>
@@ -178,8 +178,8 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
           {/* Checkout time if applicable */}
           {room.is_checkout_room && room.checkout_time && (
             <div className="flex items-center gap-1 text-xs text-blue-600 font-medium">
-              <Clock className="h-3 w-3" />
-              <span>Checkout: {format(new Date(room.checkout_time), 'HH:mm')}</span>
+              <Clock className="h-3 w-3 flex-shrink-0" />
+              <span className="truncate">Checkout: {format(new Date(room.checkout_time), 'HH:mm')}</span>
             </div>
           )}
         </div>
@@ -210,15 +210,15 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
         {/* Last Cleaned - Bottom */}
         {room.last_cleaned_at && (
           <div className="mt-auto pt-2 border-t border-border/30">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <div className="flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                <span>{format(new Date(room.last_cleaned_at), 'MMM d, HH:mm')}</span>
+            <div className="flex items-center justify-between text-xs text-muted-foreground gap-2">
+              <div className="flex items-center gap-1 min-w-0 flex-1">
+                <Calendar className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate">{format(new Date(room.last_cleaned_at), 'MMM d, HH:mm')}</span>
               </div>
               {room.last_cleaned_by && typeof room.last_cleaned_by === 'object' && (
-                <div className="flex items-center gap-1">
-                  <User className="h-3 w-3" />
-                  <span className="truncate max-w-12">{room.last_cleaned_by.full_name.split(' ')[0]}</span>
+                <div className="flex items-center gap-1 min-w-0 flex-shrink-0">
+                  <User className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate max-w-16 text-xs">{room.last_cleaned_by.full_name.split(' ')[0]}</span>
                 </div>
               )}
             </div>

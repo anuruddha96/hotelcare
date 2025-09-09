@@ -71,6 +71,10 @@ const translations = {
     'common.error': 'Error',
     'common.success': 'Success',
     'common.minutes': 'minutes',
+    'common.floor': 'Floor',
+    'common.lastCleaned': 'Last Cleaned',
+    'common.checkout': 'Checkout',
+    'common.daily': 'Daily',
     
     // Language
     'language.changed': 'Language Changed',
