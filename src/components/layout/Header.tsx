@@ -58,19 +58,24 @@ export function Header() {
   };
 
   return (
-    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm">
-      <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
-        <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
-          <div className="flex items-center gap-3 p-1.5 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
-            <img
-              src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
-              alt="RD Hotels Logo"
-              className="h-8 sm:h-10 w-auto object-contain"
-            />
-            <div className="hidden sm:flex flex-col">
-              <span className="text-base font-semibold tracking-tight">RD Hotels</span>
-              <span className="text-xs text-muted-foreground">
-                {profile?.assigned_hotel || 'Hotel Care Hub'}
+    <header className="bg-card/95 supports-[backdrop-filter]:bg-card/80 backdrop-blur border-b border-border sticky top-0 z-50 shadow-lg">
+      <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-4 p-2 rounded-2xl bg-gradient-to-r from-primary/10 to-primary/5 ring-2 ring-primary/20 shadow-md">
+            <div className="relative">
+              <img
+                src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
+                alt="RD Hotels Logo"
+                className="h-10 sm:h-12 w-auto object-contain drop-shadow-sm"
+              />
+              <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 to-primary/10 rounded-full blur opacity-60"></div>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+                RD Hotels
+              </span>
+              <span className="text-xs text-muted-foreground font-medium">
+                {profile?.assigned_hotel || 'Hotel Management System'}
               </span>
             </div>
           </div>

@@ -249,105 +249,116 @@ export function Dashboard() {
     <div className="min-h-screen bg-background">
       <AutoAssignmentService />
       
-      <div className="container mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <div className="flex flex-col gap-4 justify-between items-start">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
-                {profile?.assigned_hotel || t('dashboard.title')}
-              </h1>
-              <p className="text-sm sm:text-base text-muted-foreground">
-                {profile?.assigned_hotel ? `${profile.assigned_hotel} Management System` : t('dashboard.subtitle')}
-              </p>
-          </div>
-          
-          {/* Role-based navigation tabs */}
-          {profile?.role === 'housekeeping' ? (
-            <TabsList className="grid w-full max-w-md grid-cols-3 h-10 sm:h-12">
-              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
-                <Ticket className="h-4 w-4" />
-                <span>{t('dashboard.tickets')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
-                <Users className="h-4 w-4" />
-                <span>My Tasks</span>
-              </TabsTrigger>
-              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4" />
-                <span>Work Status</span>
-              </TabsTrigger>
-            </TabsList>
-          ) : profile?.role === 'maintenance' ? (
-            <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
-              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
-                <Ticket className="h-4 w-4" />
-                <span>{t('dashboard.tickets')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4" />
-                <span>Work Status</span>
-              </TabsTrigger>
-            </TabsList>
-          ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
-            <TabsList className="grid w-full max-w-md grid-cols-4 h-10 sm:h-12">
-              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
-                <Ticket className="h-4 w-4" />
-                <span>{t('dashboard.tickets')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
-                <Home className="h-4 w-4" />
-                <span>{t('dashboard.rooms')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
-                <Users className="h-4 w-4" />
-                <span>Housekeeping</span>
-              </TabsTrigger>
-              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4" />
-                <span>Work Status</span>
-              </TabsTrigger>
-            </TabsList>
-          ) : (
-            <TabsList className="grid w-full max-w-md grid-cols-3 h-10 sm:h-12">
-              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
-                <Ticket className="h-4 w-4" />
-                <span>{t('dashboard.tickets')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
-                <Home className="h-4 w-4" />
-                <span>{t('dashboard.rooms')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4" />
-                <span>Work Status</span>
-              </TabsTrigger>
-            </TabsList>
-          )}
-        </div>
-
-          <TabsContent value="tickets" className="space-y-6">
-            {/* Ticket Management Header */}
-            <div className="flex flex-col gap-3 sm:gap-4 justify-between items-start">
-              <div>
-                <h2 className="text-xl sm:text-2xl font-bold text-foreground">
-                  {profile?.role === 'maintenance' ? 'My Tickets' : 'All Tickets'}
-                  {profile?.assigned_hotel && (
-                    <span className="block sm:inline text-base sm:text-lg font-normal text-muted-foreground sm:ml-2">
-                      {profile.assigned_hotel}
-                    </span>
-                  )}
-                </h2>
-                <p className="text-sm sm:text-base text-muted-foreground">
-                  {profile?.role === 'maintenance' 
-                    ? 'Tickets assigned to you' 
-                    : profile?.assigned_hotel && profile?.role !== 'admin' && profile?.role !== 'top_management'
-                      ? `Manage tickets for ${profile.assigned_hotel}`
-                      : 'Manage maintenance requests across all hotels'
-                  }
+      <div className="container mx-auto px-4 py-6 space-y-8">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
+          {/* Main Header Section */}
+          <div className="bg-gradient-to-r from-card to-card/50 rounded-xl border shadow-sm p-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="space-y-2">
+                <h1 className="text-3xl sm:text-4xl font-bold text-foreground">
+                  {profile?.assigned_hotel || t('dashboard.title')}
+                </h1>
+                <p className="text-base text-muted-foreground">
+                  {profile?.assigned_hotel ? `${profile.assigned_hotel} Management System` : t('dashboard.subtitle')}
                 </p>
               </div>
-              
-              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+            </div>
+          </div>
+          
+          {/* Navigation Tabs */}
+          <div className="flex justify-center">
+            {profile?.role === 'housekeeping' ? (
+              <TabsList className="grid w-full max-w-2xl grid-cols-3 h-12 bg-card/50 border shadow-sm">
+                <TabsTrigger value="tickets" className="flex items-center gap-3 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Ticket className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t('dashboard.tickets')}</span>
+                  <span className="sm:hidden">Tickets</span>
+                </TabsTrigger>
+                <TabsTrigger value="housekeeping" className="flex items-center gap-3 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Users className="h-4 w-4" />
+                  <span className="hidden sm:inline">My Tasks</span>
+                  <span className="sm:hidden">Tasks</span>
+                </TabsTrigger>
+                <TabsTrigger value="attendance" className="flex items-center gap-3 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span className="hidden sm:inline">Work Status</span>
+                  <span className="sm:hidden">Status</span>
+                </TabsTrigger>
+              </TabsList>
+            ) : profile?.role === 'maintenance' ? (
+              <TabsList className="grid w-full max-w-xl grid-cols-2 h-12 bg-card/50 border shadow-sm">
+                <TabsTrigger value="tickets" className="flex items-center gap-3 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Ticket className="h-4 w-4" />
+                  <span>{t('dashboard.tickets')}</span>
+                </TabsTrigger>
+                <TabsTrigger value="attendance" className="flex items-center gap-3 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span>Work Status</span>
+                </TabsTrigger>
+              </TabsList>
+            ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
+              <TabsList className="grid w-full max-w-4xl grid-cols-2 sm:grid-cols-4 h-12 bg-card/50 border shadow-sm">
+                <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Ticket className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t('dashboard.tickets')}</span>
+                  <span className="sm:hidden">Tickets</span>
+                </TabsTrigger>
+                <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Home className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t('dashboard.rooms')}</span>
+                  <span className="sm:hidden">Rooms</span>
+                </TabsTrigger>
+                <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Users className="h-4 w-4" />
+                  <span className="hidden sm:inline">Housekeeping</span>
+                  <span className="sm:hidden">Tasks</span>
+                </TabsTrigger>
+                <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span className="hidden sm:inline">Work Status</span>
+                  <span className="sm:hidden">Status</span>
+                </TabsTrigger>
+              </TabsList>
+            ) : (
+              <TabsList className="grid w-full max-w-2xl grid-cols-3 h-12 bg-card/50 border shadow-sm">
+                <TabsTrigger value="tickets" className="flex items-center gap-3 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Ticket className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t('dashboard.tickets')}</span>
+                  <span className="sm:hidden">Tickets</span>
+                </TabsTrigger>
+                <TabsTrigger value="rooms" className="flex items-center gap-3 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Home className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t('dashboard.rooms')}</span>
+                  <span className="sm:hidden">Rooms</span>
+                </TabsTrigger>
+                <TabsTrigger value="attendance" className="flex items-center gap-3 text-sm font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Clock className="h-4 w-4" />
+                  <span className="hidden sm:inline">Work Status</span>
+                  <span className="sm:hidden">Status</span>
+                </TabsTrigger>
+              </TabsList>
+            )}
+          </div>
+
+          <TabsContent value="tickets" className="space-y-8">
+            {/* Ticket Management Header */}
+            <div className="bg-card rounded-lg border shadow-sm p-6">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-bold text-foreground">
+                    {profile?.role === 'maintenance' ? 'My Tickets' : 'All Tickets'}
+                  </h2>
+                  <p className="text-muted-foreground">
+                    {profile?.role === 'maintenance' 
+                      ? 'Tickets assigned to you' 
+                      : profile?.assigned_hotel && profile?.role !== 'admin' && profile?.role !== 'top_management'
+                        ? `Manage tickets for ${profile.assigned_hotel}`
+                        : 'Manage maintenance requests across all hotels'
+                    }
+                  </p>
+                </div>
+                
+                <div className="flex flex-wrap gap-3">
                 {canManageUsers && (
                   <Button
                     variant="outline"
@@ -402,28 +413,60 @@ export function Dashboard() {
                     <span className="sm:hidden">New</span>
                   </Button>
                 )}
+                </div>
               </div>
             </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.total')}</p>
-          <p className="text-xl sm:text-2xl font-bold">{counts.total}</p>
-        </div>
-        <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.open')}</p>
-          <p className="text-xl sm:text-2xl font-bold text-blue-600">{counts.open}</p>
-        </div>
-        <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.inProgress')}</p>
-          <p className="text-xl sm:text-2xl font-bold text-yellow-600">{counts.inProgress}</p>
-        </div>
-        <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.completed')}</p>
-          <p className="text-xl sm:text-2xl font-bold text-green-600">{counts.completed}</p>
-        </div>
-      </div>
+            {/* Stats Cards */}
+            <div className="bg-card rounded-lg border shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-foreground mb-4">Ticket Overview</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-blue-700">{t('tickets.total')}</p>
+                      <p className="text-3xl font-bold text-blue-900">{counts.total}</p>
+                    </div>
+                    <div className="p-3 bg-blue-500 rounded-full">
+                      <Ticket className="h-6 w-6 text-white" />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-green-700">{t('tickets.open')}</p>
+                      <p className="text-3xl font-bold text-green-900">{counts.open}</p>
+                    </div>
+                    <div className="p-3 bg-green-500 rounded-full">
+                      <Plus className="h-6 w-6 text-white" />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-yellow-700">{t('tickets.inProgress')}</p>
+                      <p className="text-3xl font-bold text-yellow-900">{counts.inProgress}</p>
+                    </div>
+                    <div className="p-3 bg-yellow-500 rounded-full">
+                      <Settings className="h-6 w-6 text-white" />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-purple-700">{t('tickets.completed')}</p>
+                      <p className="text-3xl font-bold text-purple-900">{counts.completed}</p>
+                    </div>
+                    <div className="p-3 bg-purple-500 rounded-full">
+                      <Badge className="h-6 w-6 text-white" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
 
       {/* Search and Filters */}
       <div className="flex flex-col gap-3">
