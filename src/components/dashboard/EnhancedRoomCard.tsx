@@ -2,7 +2,6 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
-  MapPin, 
   Calendar, 
   User, 
   CheckCircle2, 
@@ -11,7 +10,6 @@ import {
   XCircle,
   Clock,
   Users,
-  Coffee,
   AlertCircle,
   Euro,
   Bed,
@@ -138,51 +136,51 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
       <div className={`absolute top-0 left-0 right-0 h-1 ${statusConfig.iconColor.replace('text-', 'bg-')}`} />
       
       <CardContent className="p-3 flex flex-col h-full justify-between">
-        {/* Header Row - Room Number & Status */}
+        {/* Header - Room Number & Status */}
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <div className={`
-              w-8 h-8 rounded-lg flex items-center justify-center
+              w-6 h-6 rounded-md flex items-center justify-center
               ${statusConfig.badge.split(' ')[0]} backdrop-blur-sm
             `}>
-              <StatusIcon className={`h-4 w-4 ${statusConfig.iconColor}`} />
+              <StatusIcon className={`h-3 w-3 ${statusConfig.iconColor}`} />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-foreground leading-none">
+              <h3 className="text-base font-bold text-foreground leading-none">
                 {room.room_number}
               </h3>
               {room.floor_number && (
-                <span className="text-xs text-muted-foreground">F{room.floor_number}</span>
+                <span className="text-xs text-muted-foreground">Floor {room.floor_number}</span>
               )}
             </div>
           </div>
           <Badge className={`${statusConfig.badge} text-xs font-medium border px-1.5 py-0.5 leading-none`}>
-            {room.status === 'clean' ? 'Clean' : room.status === 'dirty' ? 'Need Clean' : statusConfig.statusText}
+            {statusConfig.statusText}
           </Badge>
         </div>
 
-        {/* Hotel Name - Truncated */}
-        <div className="flex items-center gap-1 mb-2">
-          <MapPin className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-          <span className="text-xs text-foreground font-medium truncate">{room.hotel}</span>
-        </div>
-
-        {/* Room Details Grid */}
-        <div className="space-y-1.5 mb-2">
+        {/* Room Type & Bed Type */}
+        <div className="space-y-1 mb-2">
           <div className="flex items-center justify-between text-xs">
             <div className="flex items-center gap-1">
-              <Coffee className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">{getRoomTypeDisplay()}</span>
+              <Building2 className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">
+                {room.is_checkout_room ? 'Checkout Room' : 'Daily Room'}
+              </span>
             </div>
             {room.bed_type && (
-              <span className="text-muted-foreground capitalize">{room.bed_type}</span>
+              <div className="flex items-center gap-1">
+                <Bed className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground capitalize">{room.bed_type}</span>
+              </div>
             )}
           </div>
 
           {/* Checkout time if applicable */}
           {room.is_checkout_room && room.checkout_time && (
-            <div className="text-xs text-blue-600 font-medium">
-              Checkout at {format(new Date(room.checkout_time), 'HH:mm')}
+            <div className="flex items-center gap-1 text-xs text-blue-600 font-medium">
+              <Clock className="h-3 w-3" />
+              <span>Checkout: {format(new Date(room.checkout_time), 'HH:mm')}</span>
             </div>
           )}
         </div>
