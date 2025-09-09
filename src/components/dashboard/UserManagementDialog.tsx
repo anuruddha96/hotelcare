@@ -285,37 +285,44 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     
     setLoading(true);
     try {
-      // Use Edge Function for email/password updates and profile updates
-      const { data: fnData, error: fnError } = await supabase.functions.invoke('admin-update-user', {
-        body: {
-          target_user_id: editUserData.id,
-          new_email: editUserData.email || undefined,
-          new_password: editUserData.password || undefined,
-          full_name: editUserData.full_name || undefined,
-          nickname: editUserData.nickname || undefined,
-        },
-      });
-      
-      if (fnError) throw fnError;
-      if ((fnData as any)?.error) throw new Error((fnData as any).error);
-
-      // Update role, phone, and hotel via RPC (only profile fields not handled by Edge Function)
-      const { data, error } = await supabase.rpc('update_user_credentials', {
-        p_user_id: editUserData.id,
-        p_full_name: editUserData.full_name,
-        p_nickname: editUserData.nickname || null,
-        p_email: editUserData.email,
-        p_phone_number: editUserData.phone_number || null,
-        p_role: editUserData.role,
-        p_assigned_hotel: editUserData.assigned_hotel === 'none' ? null : editUserData.assigned_hotel || null,
-        p_send_password_reset: false,
-      });
-      
-      if (error) throw error;
-      const result = data as { success: boolean; error?: string; message?: string };
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to update user profile');
+      // First, use Edge Function for auth user email/password updates
+      if (editUserData.email || editUserData.password) {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('admin-update-user', {
+          body: {
+            target_user_id: editUserData.id,
+            new_email: editUserData.email || undefined,
+            new_password: editUserData.password || undefined,
+            full_name: editUserData.full_name || undefined,
+            nickname: editUserData.nickname || undefined,
+          },
+        });
+        
+        if (fnError) throw fnError;
+        if ((fnData as any)?.error) throw new Error((fnData as any).error);
       }
+
+      // Then update all profile fields (including role, phone, hotel) via direct update
+      const profileUpdates: any = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (editUserData.full_name) profileUpdates.full_name = editUserData.full_name;
+      if (editUserData.nickname) profileUpdates.nickname = editUserData.nickname;
+      if (editUserData.email) profileUpdates.email = editUserData.email;
+      if (editUserData.phone_number) profileUpdates.phone_number = editUserData.phone_number;
+      if (editUserData.role) profileUpdates.role = editUserData.role;
+      if (editUserData.assigned_hotel && editUserData.assigned_hotel !== 'none') {
+        profileUpdates.assigned_hotel = editUserData.assigned_hotel;
+      } else if (editUserData.assigned_hotel === 'none') {
+        profileUpdates.assigned_hotel = null;
+      }
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update(profileUpdates)
+        .eq('id', editUserData.id);
+
+      if (profileError) throw profileError;
 
       toast({
         title: 'Success',

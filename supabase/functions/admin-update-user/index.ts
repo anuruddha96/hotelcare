@@ -102,7 +102,7 @@ serve(async (req: Request) => {
         // Create auth user when missing (requires password and an effective email)
         if (passwordInput && effectiveEmail) {
           console.log('Creating new auth user with email:', effectiveEmail);
-          const { error: createErr } = await supabaseAdmin.auth.admin.createUser({
+          const { data: createResult, error: createErr } = await supabaseAdmin.auth.admin.createUser({
             id: target_user_id,
             email: effectiveEmail,
             password: passwordInput,
@@ -114,7 +114,9 @@ serve(async (req: Request) => {
           });
 
           if (createErr) {
-            const dup = (createErr.message || '').toLowerCase().includes('duplicate key') || (createErr.message || '').toLowerCase().includes('users_email_partial_key');
+            const dup = (createErr.message || '').toLowerCase().includes('duplicate key') || 
+                        (createErr.message || '').toLowerCase().includes('users_email_partial_key') ||
+                        (createErr.message || '').toLowerCase().includes('already registered');
             const msg = dup ? 'Email already in use by another account' : createErr.message;
             console.error('Error creating auth user:', createErr);
             return new Response(JSON.stringify({ error: msg }), {
@@ -122,11 +124,11 @@ serve(async (req: Request) => {
               headers: { 'Content-Type': 'application/json', ...corsHeaders },
             });
           }
-          console.log('Auth user created successfully');
+          console.log('Auth user created successfully:', createResult?.user?.id);
         } else if (passwordInput && targetProfile?.email) {
           // Create auth user with profile email if we have a password but no email input
           console.log('Creating new auth user with profile email:', targetProfile.email);
-          const { error: createErr } = await supabaseAdmin.auth.admin.createUser({
+          const { data: createResult, error: createErr } = await supabaseAdmin.auth.admin.createUser({
             id: target_user_id,
             email: targetProfile.email,
             password: passwordInput,
@@ -138,7 +140,9 @@ serve(async (req: Request) => {
           });
 
           if (createErr) {
-            const dup = (createErr.message || '').toLowerCase().includes('duplicate key') || (createErr.message || '').toLowerCase().includes('users_email_partial_key');
+            const dup = (createErr.message || '').toLowerCase().includes('duplicate key') || 
+                        (createErr.message || '').toLowerCase().includes('users_email_partial_key') ||
+                        (createErr.message || '').toLowerCase().includes('already registered');
             const msg = dup ? 'Email already in use by another account' : createErr.message;
             console.error('Error creating auth user:', createErr);
             return new Response(JSON.stringify({ error: msg }), {
@@ -146,9 +150,9 @@ serve(async (req: Request) => {
               headers: { 'Content-Type': 'application/json', ...corsHeaders },
             });
           }
-          console.log('Auth user created successfully with profile email');
+          console.log('Auth user created successfully with profile email:', createResult?.user?.id);
         } else {
-          console.log('Cannot create auth user without password; skipping auth creation and proceeding with profile update');
+          console.log('Cannot create auth user without password and email; skipping auth creation');
         }
       } else {
         // Auth user exists, update it
@@ -157,6 +161,7 @@ serve(async (req: Request) => {
         
         if (emailInput) {
           updateData.email = emailInput;
+          updateData.email_confirm = true; // Auto-confirm updated emails
         }
         
         if (passwordInput) {
@@ -171,10 +176,12 @@ serve(async (req: Request) => {
           };
         }
 
-        const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(target_user_id, updateData);
+        const { data: updateResult, error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(target_user_id, updateData);
 
         if (updateErr) {
-          const dup = (updateErr.message || '').toLowerCase().includes('duplicate key') || (updateErr.message || '').toLowerCase().includes('users_email_partial_key');
+          const dup = (updateErr.message || '').toLowerCase().includes('duplicate key') || 
+                      (updateErr.message || '').toLowerCase().includes('users_email_partial_key') ||
+                      (updateErr.message || '').toLowerCase().includes('already registered');
           const msg = dup ? 'Email already in use by another account' : updateErr.message;
           console.error('Error updating auth user:', updateErr);
           return new Response(JSON.stringify({ error: msg }), {
@@ -182,7 +189,7 @@ serve(async (req: Request) => {
             headers: { 'Content-Type': 'application/json', ...corsHeaders },
           });
         }
-        console.log('Auth user updated successfully');
+        console.log('Auth user updated successfully:', updateResult?.user?.id);
       }
     }
 
