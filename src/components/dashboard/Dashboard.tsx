@@ -12,13 +12,15 @@ import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
 import { CompanySettings } from './CompanySettings';
 import { HousekeepingTab } from './HousekeepingTab';
+import { AttendanceTracker } from './AttendanceTracker';
+import { AttendanceReports } from './AttendanceReports';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield } from 'lucide-react';
+import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Ticket {
@@ -232,7 +234,7 @@ export function Dashboard() {
           
           {/* Role-based navigation tabs */}
           {profile?.role === 'housekeeping' ? (
-            <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
+            <TabsList className="grid w-full max-w-md grid-cols-3 h-10 sm:h-12">
               <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
                 <Ticket className="h-4 w-4" />
                 <span>{t('dashboard.tickets')}</span>
@@ -241,16 +243,24 @@ export function Dashboard() {
                 <Users className="h-4 w-4" />
                 <span>My Tasks</span>
               </TabsTrigger>
+              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4" />
+                <span>Attendance</span>
+              </TabsTrigger>
             </TabsList>
           ) : profile?.role === 'maintenance' ? (
-            <TabsList className="grid w-full max-w-md grid-cols-1 h-10 sm:h-12">
+            <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
               <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
                 <Ticket className="h-4 w-4" />
                 <span>{t('dashboard.tickets')}</span>
               </TabsTrigger>
+              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4" />
+                <span>Attendance</span>
+              </TabsTrigger>
             </TabsList>
           ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
-            <TabsList className="grid w-full max-w-md grid-cols-3 h-10 sm:h-12">
+            <TabsList className="grid w-full max-w-md grid-cols-4 h-10 sm:h-12">
               <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
                 <Ticket className="h-4 w-4" />
                 <span>{t('dashboard.tickets')}</span>
@@ -263,9 +273,13 @@ export function Dashboard() {
                 <Users className="h-4 w-4" />
                 <span>Housekeeping</span>
               </TabsTrigger>
+              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4" />
+                <span>Attendance</span>
+              </TabsTrigger>
             </TabsList>
           ) : (
-            <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
+            <TabsList className="grid w-full max-w-md grid-cols-3 h-10 sm:h-12">
               <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
                 <Ticket className="h-4 w-4" />
                 <span>{t('dashboard.tickets')}</span>
@@ -273,6 +287,10 @@ export function Dashboard() {
               <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
                 <Home className="h-4 w-4" />
                 <span>{t('dashboard.rooms')}</span>
+              </TabsTrigger>
+              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4" />
+                <span>Attendance</span>
               </TabsTrigger>
             </TabsList>
           )}
@@ -504,6 +522,16 @@ export function Dashboard() {
 
           <TabsContent value="housekeeping">
             <HousekeepingTab />
+          </TabsContent>
+          
+          <TabsContent value="attendance" className="space-y-4">
+            {profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager' ? (
+              <AttendanceReports />
+            ) : (
+              <div className="flex justify-center">
+                <AttendanceTracker />
+              </div>
+            )}
           </TabsContent>
         </Tabs>
 

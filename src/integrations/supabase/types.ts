@@ -492,6 +492,54 @@ export type Database = {
           },
         ]
       }
+      staff_attendance: {
+        Row: {
+          break_duration: number | null
+          check_in_location: Json | null
+          check_in_time: string
+          check_out_location: Json | null
+          check_out_time: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          status: string
+          total_hours: number | null
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          break_duration?: number | null
+          check_in_location?: Json | null
+          check_in_time?: string
+          check_out_location?: Json | null
+          check_out_time?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          total_hours?: number | null
+          updated_at?: string
+          user_id: string
+          work_date?: string
+        }
+        Update: {
+          break_duration?: number | null
+          check_in_location?: Json | null
+          check_in_time?: string
+          check_out_location?: Json | null
+          check_out_time?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          total_hours?: number | null
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: []
+      }
       ticket_categories: {
         Row: {
           category_key: string
@@ -729,6 +777,14 @@ export type Database = {
           nickname: string
           role: Database["public"]["Enums"]["user_role"]
         }[]
+      }
+      get_attendance_summary: {
+        Args: {
+          end_date?: string
+          start_date?: string
+          target_user_id?: string
+        }
+        Returns: Json
       }
       get_current_user_role: {
         Args: Record<PropertyKey, never>
