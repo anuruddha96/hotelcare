@@ -37,6 +37,9 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
+// Temporary alias to avoid runtime errors from stale references
+const ModernRoomCard = EnhancedRoomCard;
+
 interface Room {
   id: string;
   hotel: string;
