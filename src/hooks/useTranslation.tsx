@@ -10,6 +10,9 @@ const translations = {
     'dashboard.reports': 'Reports',
     'dashboard.manageUsers': 'Manage Users',
     'dashboard.newTicket': 'New Ticket',
+    'dashboard.myTasks': 'My Tasks',
+    'dashboard.workStatus': 'Work Status',
+    'dashboard.housekeeping': 'Housekeeping',
     
     // Tickets
     'tickets.total': 'Total',
@@ -36,6 +39,12 @@ const translations = {
     'rooms.dirty': 'Dirty',
     'rooms.maintenance': 'Maintenance',
     'rooms.outOfOrder': 'Out Of Order',
+    'rooms.statusOverview': 'Room Status Overview',
+    'rooms.roomsCount': 'rooms',
+    'rooms.status.clean.subtitle': 'Ready to use',
+    'rooms.status.dirty.subtitle': 'Need cleaning',
+    'rooms.status.maintenance.subtitle': 'Under repair',
+    'rooms.status.outOfOrder.subtitle': 'Not available',
     
     // Room Status
     'room.status.clean': 'Clean',
@@ -286,6 +295,9 @@ const translations = {
     'dashboard.reports': 'Jelentések',
     'dashboard.manageUsers': 'Felhasználók kezelése',
     'dashboard.newTicket': 'Új jegy',
+    'dashboard.myTasks': 'Feladataim',
+    'dashboard.workStatus': 'Munka Állapot',
+    'dashboard.housekeeping': 'Takarítás',
     
     // Tickets
     'tickets.total': 'Összesen',
@@ -312,6 +324,12 @@ const translations = {
     'rooms.dirty': 'Piszkos',
     'rooms.maintenance': 'Karbantartás',
     'rooms.outOfOrder': 'Használaton kívül',
+    'rooms.statusOverview': 'Szoba Állapot Áttekintés',
+    'rooms.roomsCount': 'szoba',
+    'rooms.status.clean.subtitle': 'Használatra kész',
+    'rooms.status.dirty.subtitle': 'Takarítás szükséges',
+    'rooms.status.maintenance.subtitle': 'Javítás alatt',
+    'rooms.status.outOfOrder.subtitle': 'Nem elérhető',
     
     // Room Status
     'room.status.clean': 'Tiszta',
@@ -563,6 +581,9 @@ const translations = {
     'dashboard.reports': 'Informes',
     'dashboard.manageUsers': 'Gestionar Usuarios',
     'dashboard.newTicket': 'Nuevo Ticket',
+    'dashboard.myTasks': 'Mis Tareas',
+    'dashboard.workStatus': 'Estado de Trabajo',
+    'dashboard.housekeeping': 'Limpieza',
     
     // Tickets
     'tickets.total': 'Total',
@@ -589,6 +610,12 @@ const translations = {
     'rooms.dirty': 'Sucio',
     'rooms.maintenance': 'Mantenimiento',
     'rooms.outOfOrder': 'Fuera de Servicio',
+    'rooms.statusOverview': 'Resumen del Estado de Habitaciones',
+    'rooms.roomsCount': 'habitaciones',
+    'rooms.status.clean.subtitle': 'Listo para usar',
+    'rooms.status.dirty.subtitle': 'Necesita limpieza',
+    'rooms.status.maintenance.subtitle': 'En reparación',
+    'rooms.status.outOfOrder.subtitle': 'No disponible',
     
     // Room Status
     'room.status.clean': 'Limpio',
@@ -789,6 +816,9 @@ const translations = {
     'dashboard.reports': 'Báo cáo',
     'dashboard.manageUsers': 'Quản lý người dùng',
     'dashboard.newTicket': 'Tạo phiếu',
+    'dashboard.myTasks': 'Nhiệm vụ của tôi',
+    'dashboard.workStatus': 'Trạng thái công việc',
+    'dashboard.housekeeping': 'Dọn phòng',
 
     // Tickets
     'tickets.total': 'Tổng',
@@ -815,6 +845,12 @@ const translations = {
     'rooms.dirty': 'Bẩn',
     'rooms.maintenance': 'Bảo trì',
     'rooms.outOfOrder': 'Hỏng',
+    'rooms.statusOverview': 'Tổng quan trạng thái phòng',
+    'rooms.roomsCount': 'phòng',
+    'rooms.status.clean.subtitle': 'Sẵn sàng sử dụng',
+    'rooms.status.dirty.subtitle': 'Cần dọn dẹp',
+    'rooms.status.maintenance.subtitle': 'Đang sửa chữa',
+    'rooms.status.outOfOrder.subtitle': 'Không khả dụng',
 
     // Room Status
     'room.status.clean': 'Sạch',
@@ -1015,6 +1051,9 @@ const translations = {
     'dashboard.reports': 'Тайлан',
     'dashboard.manageUsers': 'Хэрэглэгч удирдах',
     'dashboard.newTicket': 'Шинэ тиккет',
+    'dashboard.myTasks': 'Миний ажил',
+    'dashboard.workStatus': 'Ажлын төлөв',
+    'dashboard.housekeeping': 'Цэвэрлэгээ',
 
     // Tickets
     'tickets.total': 'Нийт',
@@ -1041,6 +1080,12 @@ const translations = {
     'rooms.dirty': 'Бохир',
     'rooms.maintenance': 'Засвар',
     'rooms.outOfOrder': 'Эвдэрсэн',
+    'rooms.statusOverview': 'Өрөөний төлөв байдлын тойм',
+    'rooms.roomsCount': 'өрөө',
+    'rooms.status.clean.subtitle': 'Ашиглахад бэлэн',
+    'rooms.status.dirty.subtitle': 'Цэвэрлэх шаардлагатай',
+    'rooms.status.maintenance.subtitle': 'Засварлаж байна',
+    'rooms.status.outOfOrder.subtitle': 'Ашиглах боломжгүй',
 
     // Room Status
     'room.status.clean': 'Цэвэр',

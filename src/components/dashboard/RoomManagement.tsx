@@ -566,49 +566,83 @@ export function RoomManagement() {
 
         {/* Room Stats */}
         <div className="bg-card rounded-lg border shadow-sm p-4">
-          <h3 className="text-lg font-semibold text-foreground mb-4">Room Status Overview</h3>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <h3 className="text-lg font-semibold text-foreground mb-4">{t('rooms.statusOverview')}</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
               const count = rooms.filter(r => r.status === status).length;
               const isActive = activeStatusFilter === status;
+              
+              const statusConfig = {
+                clean: {
+                  icon: CheckCircle2,
+                  bgColor: 'bg-emerald-50',
+                  iconColor: 'bg-emerald-100 text-emerald-600',
+                  textColor: 'text-emerald-700',
+                  subtitle: t('rooms.status.clean.subtitle')
+                },
+                dirty: {
+                  icon: AlertTriangle,
+                  bgColor: 'bg-orange-50',
+                  iconColor: 'bg-orange-100 text-orange-600',
+                  textColor: 'text-orange-700',
+                  subtitle: t('rooms.status.dirty.subtitle')
+                },
+                maintenance: {
+                  icon: Wrench,
+                  bgColor: 'bg-amber-50',
+                  iconColor: 'bg-amber-100 text-amber-600',
+                  textColor: 'text-amber-700',
+                  subtitle: t('rooms.status.maintenance.subtitle')
+                },
+                out_of_order: {
+                  icon: Settings,
+                  bgColor: 'bg-slate-50',
+                  iconColor: 'bg-slate-100 text-slate-600',
+                  textColor: 'text-slate-700',
+                  subtitle: t('rooms.status.outOfOrder.subtitle')
+                }
+              };
+              
+              const config = statusConfig[status as keyof typeof statusConfig];
+              const IconComponent = config.icon;
+              
               return (
                 <Card 
                   key={status} 
-                  className={`cursor-pointer transition-all duration-300 h-28 ${
+                  className={`cursor-pointer transition-all duration-200 border ${
                     isActive 
-                      ? 'ring-2 ring-primary bg-gradient-to-br from-primary/10 to-primary/5 shadow-lg border-primary scale-105' 
-                      : 'hover:bg-gradient-to-br hover:from-muted/30 hover:to-muted/10 hover:shadow-md hover:scale-[1.02]'
-                  }`}
+                      ? 'ring-2 ring-primary shadow-lg border-primary scale-[1.02]' 
+                      : 'hover:shadow-md hover:scale-[1.01] hover:border-border/60'
+                  } ${config.bgColor}`}
                   onClick={() => handleStatusFilterClick(status)}
                 >
-                  <CardContent className="p-4 h-full flex flex-col justify-center">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className={`p-2 rounded-lg shrink-0 ${getStatusColor(status).split(' ')[0]} ${getStatusColor(status).split(' ')[2]}`}>
-                        {React.cloneElement(getStatusIcon(status), { className: 'h-4 w-4' })}
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className={`p-2 rounded-lg ${config.iconColor}`}>
+                        <IconComponent className="h-4 w-4" />
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-foreground capitalize leading-tight">
-                          {getStatusDisplayName(status)}
-                        </p>
-                        <p className="text-xs text-muted-foreground leading-tight">
-                          {status === 'clean' && 'Ready to use'}
-                          {status === 'dirty' && 'Need cleaning'}
-                          {status === 'maintenance' && 'Under repair'}
-                          {status === 'out_of_order' && 'Not available'}
-                        </p>
+                      <div className="text-right">
+                        <div className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>
+                          {count}
+                        </div>
+                        <div className="text-xs text-muted-foreground font-medium">
+                          {t('rooms.roomsCount')}
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-baseline gap-1">
-                      <span className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>
-                        {count}
-                      </span>
-                      <span className="text-xs text-muted-foreground font-medium">rooms</span>
+                    <div className="space-y-1">
+                      <h4 className={`font-semibold text-sm ${config.textColor}`}>
+                        {getStatusDisplayName(status)}
+                      </h4>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {config.subtitle}
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
               );
-              })}
-            </div>
+            })}
+          </div>
         </div>
 
         {/* Rooms by Hotel */}
