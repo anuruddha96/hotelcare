@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { DateRangeFilter } from './DateRangeFilter';
 import { HotelFilter } from './HotelFilter';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, FileSpreadsheet } from 'lucide-react';
+import { Download, FileSpreadsheet, BarChart3 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { DateRange } from 'react-day-picker';
@@ -487,9 +487,12 @@ export function ReportsDialog({ trigger }: ReportsDialogProps) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {trigger || (
-          <Button variant="outline" className="gap-2">
-            <FileSpreadsheet className="h-4 w-4" />
-            Reports
+          <Button 
+            variant="outline" 
+            className="flex items-center gap-1 sm:gap-2 bg-background/50 border-border/40 hover:bg-background/80 transition-colors px-2 sm:px-4"
+          >
+            <BarChart3 className="h-4 w-4" />
+            <span className="hidden sm:inline">Reports</span>
           </Button>
         )}
       </DialogTrigger>

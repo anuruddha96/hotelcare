@@ -31,13 +31,15 @@ export function LanguageSwitcher() {
 
   return (
     <div className="flex items-center gap-2">
-      <Select value={language} onValueChange={handleLanguageChange}>
-        <SelectTrigger aria-label="Language" className="w-[160px] sm:w-[200px]">
-          <div className="flex items-center gap-2 truncate">
-            <span>{current.flag}</span>
-            <span className="truncate">{current.name}</span>
+    <Select value={language} onValueChange={handleLanguageChange}>
+      <SelectTrigger className="w-auto min-w-[60px] sm:w-[180px] bg-background/50 border-border/40 hover:bg-background/80 transition-colors">
+        <SelectValue>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{current.flag}</span>
+            <span className="font-medium hidden sm:inline">{current.name}</span>
           </div>
-        </SelectTrigger>
+        </SelectValue>
+      </SelectTrigger>
         <SelectContent>
           {languages.map((lang) => (
             <SelectItem key={lang.code} value={lang.code}>

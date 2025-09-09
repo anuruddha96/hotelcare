@@ -60,14 +60,16 @@ export function Header() {
   return (
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm">
       <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
+        {/* Logo Section - More space on mobile */}
         <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
-          <div className="flex items-center gap-3 p-1.5 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
+          <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
             <img
               src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
               alt="RD Hotels Logo"
               className="h-8 sm:h-10 w-auto object-contain"
             />
-            <div className="hidden sm:flex flex-col">
+            {/* Only show text on larger screens */}
+            <div className="hidden md:flex flex-col">
               <span className="text-base font-semibold tracking-tight">RD Hotels</span>
               <span className="text-xs text-muted-foreground">
                 {profile?.assigned_hotel || 'Hotel Care Hub'}
@@ -76,8 +78,9 @@ export function Header() {
           </div>
         </div>
         
-        <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto scrollbar-hide">
-          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+        {/* Right Section with Horizontal Scroll */}
+        <div className="flex items-center gap-1 sm:gap-3 overflow-x-auto scrollbar-hide max-w-[60%] sm:max-w-none">
+          <div className="flex items-center gap-1 sm:gap-3 shrink-0">
             <LanguageSwitcher />
             
             {(profile?.role === 'admin' || profile?.role === 'manager') && (
@@ -90,16 +93,17 @@ export function Header() {
               </>
             )}
             
+            {/* Profile Badge - Hidden on small screens */}
             {profile && (
-              <div className="flex flex-col items-end gap-1">
+              <div className="flex flex-col items-end gap-1 hidden sm:block">
                 <Badge 
                   variant="secondary" 
-                  className="text-xs sm:text-sm hidden sm:inline-flex"
+                  className="text-xs sm:text-sm"
                 >
                   {getRoleLabel(profile.role)}
                 </Badge>
                 {profile.assigned_hotel && (
-                  <span className="text-xs text-muted-foreground hidden sm:inline">
+                  <span className="text-xs text-muted-foreground hidden lg:inline">
                     {profile.assigned_hotel}
                   </span>
                 )}
@@ -108,10 +112,10 @@ export function Header() {
             
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full shrink-0">
-                  <Avatar className="h-10 w-10">
+                <Button variant="ghost" className="relative h-8 w-8 sm:h-10 sm:w-10 rounded-full shrink-0">
+                  <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
                     <AvatarImage src={profile?.profile_picture_url || ''} />
-                    <AvatarFallback>
+                    <AvatarFallback className="text-xs sm:text-sm">
                       {((profile?.nickname || profile?.full_name || user?.email || 'U').charAt(0) || 'U').toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
@@ -126,9 +130,14 @@ export function Header() {
                     <p className="w-[160px] sm:w-[200px] truncate text-xs text-muted-foreground">
                       {profile?.email}
                     </p>
-                    <p className="text-xs text-muted-foreground sm:hidden">
+                    <p className="text-xs text-muted-foreground">
                       {profile && getRoleLabel(profile.role)}
                     </p>
+                    {profile?.assigned_hotel && (
+                      <p className="text-xs text-muted-foreground sm:hidden">
+                        {profile.assigned_hotel}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <DropdownMenuSeparator />

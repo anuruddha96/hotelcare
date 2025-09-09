@@ -89,11 +89,11 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
     >
       <CardContent className="p-3 space-y-3">
         {/* Header */}
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between mb-2">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-lg font-bold text-foreground">{room.room_number}</span>
-              {room.floor_number && (
+              {room.floor_number !== undefined && room.floor_number !== null && (
                 <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
                   F{room.floor_number}
                 </span>
@@ -103,7 +103,11 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
               <p className="text-xs text-muted-foreground truncate max-w-20">{room.room_name}</p>
             )}
           </div>
-          <Badge className={`${getStatusColor(room.status)} text-xs border`}>
+        </div>
+
+        {/* Status Badge - Now in its own section with proper spacing */}
+        <div className="mb-3">
+          <Badge className={`${getStatusColor(room.status)} text-xs border w-fit`}>
             <div className="flex items-center gap-1">
               {getStatusIcon(room.status)}
               <span className="capitalize">{room.status.replace('_', ' ')}</span>

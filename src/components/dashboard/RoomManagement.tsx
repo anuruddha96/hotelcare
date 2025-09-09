@@ -567,50 +567,48 @@ export function RoomManagement() {
         {/* Room Stats */}
         <div className="bg-card rounded-lg border shadow-sm p-4">
           <h3 className="text-lg font-semibold text-foreground mb-4">Room Status Overview</h3>
-           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-           {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
-             const count = rooms.filter(r => r.status === status).length;
-             const isActive = activeStatusFilter === status;
-             return (
-               <Card 
-                 key={status} 
-                 className={`cursor-pointer transition-all duration-300 h-24 ${
-                   isActive 
-                     ? 'ring-2 ring-primary bg-gradient-to-br from-primary/10 to-primary/5 shadow-lg border-primary scale-105' 
-                     : 'hover:bg-gradient-to-br hover:from-muted/30 hover:to-muted/10 hover:shadow-md hover:scale-102'
-                 }`}
-                 onClick={() => handleStatusFilterClick(status)}
-               >
-                 <CardContent className="p-3 h-full">
-                   <div className="flex items-center justify-between h-full">
-                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                       <div className={`p-1.5 rounded-full shrink-0 ${getStatusColor(status).split(' ')[0]} ${getStatusColor(status).split(' ')[2]}`}>
-                         {React.cloneElement(getStatusIcon(status), { className: 'h-3 w-3' })}
-                       </div>
-                       <div className="min-w-0 flex-1">
-                         <p className="text-xs font-medium text-foreground capitalize truncate">
-                           {getStatusDisplayName(status)}
-                         </p>
-                         <p className="text-[10px] text-muted-foreground truncate">
-                           {status === 'clean' && 'Ready rooms'}
-                           {status === 'dirty' && 'Need cleaning'}
-                           {status === 'maintenance' && 'Under repair'}
-                           {status === 'out_of_order' && 'Not available'}
-                         </p>
-                       </div>
-                     </div>
-                     <div className="text-right shrink-0">
-                       <p className={`text-lg font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>
-                         {count}
-                       </p>
-                       <p className="text-[10px] text-muted-foreground">rooms</p>
-                     </div>
-                   </div>
-                 </CardContent>
-               </Card>
-             );
-             })}
-           </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
+              const count = rooms.filter(r => r.status === status).length;
+              const isActive = activeStatusFilter === status;
+              return (
+                <Card 
+                  key={status} 
+                  className={`cursor-pointer transition-all duration-300 h-28 ${
+                    isActive 
+                      ? 'ring-2 ring-primary bg-gradient-to-br from-primary/10 to-primary/5 shadow-lg border-primary scale-105' 
+                      : 'hover:bg-gradient-to-br hover:from-muted/30 hover:to-muted/10 hover:shadow-md hover:scale-[1.02]'
+                  }`}
+                  onClick={() => handleStatusFilterClick(status)}
+                >
+                  <CardContent className="p-4 h-full flex flex-col justify-center">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`p-2 rounded-lg shrink-0 ${getStatusColor(status).split(' ')[0]} ${getStatusColor(status).split(' ')[2]}`}>
+                        {React.cloneElement(getStatusIcon(status), { className: 'h-4 w-4' })}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground capitalize leading-tight">
+                          {getStatusDisplayName(status)}
+                        </p>
+                        <p className="text-xs text-muted-foreground leading-tight">
+                          {status === 'clean' && 'Ready to use'}
+                          {status === 'dirty' && 'Need cleaning'}
+                          {status === 'maintenance' && 'Under repair'}
+                          {status === 'out_of_order' && 'Not available'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>
+                        {count}
+                      </span>
+                      <span className="text-xs text-muted-foreground font-medium">rooms</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+              })}
+            </div>
         </div>
 
         {/* Rooms by Hotel */}
