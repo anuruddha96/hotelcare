@@ -10,6 +10,7 @@ import { Navigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { Eye, EyeOff } from 'lucide-react';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 
 export default function Auth() {
   const { signIn, signUp, user, loading } = useAuth();
@@ -18,6 +19,11 @@ export default function Auth() {
   const [resetLoading, setResetLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
+  const [otpStep, setOtpStep] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   if (loading) {
     return (
@@ -87,6 +93,66 @@ export default function Auth() {
     } else {
       toast.success('Password reset email sent! Check your inbox.');
       setForgotPasswordOpen(false);
+    }
+    
+    setResetLoading(false);
+  };
+
+  const handleSendOTP = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setResetLoading(true);
+    
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('otp-email') as string;
+
+    const { error } = await supabase.functions.invoke('send-otp-password-reset', {
+      body: { email }
+    });
+    
+    if (error) {
+      toast.error(error.message || 'Failed to send OTP');
+    } else {
+      toast.success('Verification code sent! Check your email.');
+      setOtpEmail(email);
+      setOtpStep(true);
+    }
+    
+    setResetLoading(false);
+  };
+
+  const handleVerifyOTP = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setResetLoading(true);
+    
+    if (!otpCode || otpCode.length !== 6) {
+      toast.error('Please enter a valid 6-digit code');
+      setResetLoading(false);
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters long');
+      setResetLoading(false);
+      return;
+    }
+
+    const { error } = await supabase.functions.invoke('verify-otp-reset-password', {
+      body: { 
+        email: otpEmail,
+        otp_code: otpCode,
+        new_password: newPassword
+      }
+    });
+    
+    if (error) {
+      toast.error(error.message || 'Failed to reset password');
+    } else {
+      toast.success('Password reset successful! You can now log in with your new password.');
+      setForgotPasswordOpen(false);
+      setOtpStep(false);
+      setOtpCode('');
+      setNewPassword('');
+      setOtpEmail('');
     }
     
     setResetLoading(false);
@@ -194,48 +260,147 @@ export default function Auth() {
                       Choose an option to reset your password or resend email verification.
                     </DialogDescription>
                   </DialogHeader>
-                  <Tabs defaultValue="reset" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 h-8 sm:h-10">
-                      <TabsTrigger value="reset" className="text-xs sm:text-sm">Reset Password</TabsTrigger>
-                      <TabsTrigger value="resend" className="text-xs sm:text-sm">Resend Verification</TabsTrigger>
-                    </TabsList>
-                    
-                    <TabsContent value="reset">
-                      <form onSubmit={handleForgotPassword} className="space-y-4">
+                  {!otpStep ? (
+                    <Tabs defaultValue="otp" className="w-full">
+                      <TabsList className="grid w-full grid-cols-3 h-8 sm:h-10">
+                        <TabsTrigger value="otp" className="text-xs sm:text-sm">OTP Reset</TabsTrigger>
+                        <TabsTrigger value="email" className="text-xs sm:text-sm">Email Reset</TabsTrigger>
+                        <TabsTrigger value="resend" className="text-xs sm:text-sm">Resend Verification</TabsTrigger>
+                      </TabsList>
+                      
+                      <TabsContent value="otp">
+                        <form onSubmit={handleSendOTP} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="otp-email">Email</Label>
+                            <Input
+                              id="otp-email"
+                              name="otp-email"
+                              type="email"
+                              required
+                              placeholder="Enter your email"
+                            />
+                          </div>
+                          <Button type="submit" className="w-full" disabled={resetLoading}>
+                            {resetLoading ? 'Sending...' : 'Send Verification Code'}
+                          </Button>
+                        </form>
+                      </TabsContent>
+                      
+                      <TabsContent value="email">
+                        <form onSubmit={handleForgotPassword} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="reset-email">Email</Label>
+                            <Input
+                              id="reset-email"
+                              name="reset-email"
+                              type="email"
+                              required
+                              placeholder="Enter your email"
+                            />
+                          </div>
+                          <Button type="submit" className="w-full" disabled={resetLoading}>
+                            {resetLoading ? 'Sending...' : 'Send Reset Link'}
+                          </Button>
+                        </form>
+                      </TabsContent>
+                      
+                      <TabsContent value="resend">
+                        <form onSubmit={handleResendVerification} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="resend-email">Email</Label>
+                            <Input
+                              id="resend-email"
+                              name="resend-email"
+                              type="email"
+                              required
+                              placeholder="Enter your email"
+                            />
+                          </div>
+                          <Button type="submit" className="w-full" disabled={resetLoading}>
+                            {resetLoading ? 'Sending...' : 'Resend Verification'}
+                          </Button>
+                        </form>
+                      </TabsContent>
+                    </Tabs>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="text-center">
+                        <h4 className="font-medium mb-2">Enter Verification Code</h4>
+                        <p className="text-sm text-muted-foreground mb-4">
+                          We sent a 6-digit code to {otpEmail}
+                        </p>
+                      </div>
+                      
+                      <form onSubmit={handleVerifyOTP} className="space-y-4">
                         <div className="space-y-2">
-                          <Label htmlFor="reset-email">Email</Label>
-                          <Input
-                            id="reset-email"
-                            name="reset-email"
-                            type="email"
-                            required
-                            placeholder="Enter your email"
-                          />
+                          <Label htmlFor="otp-code">Verification Code</Label>
+                          <div className="flex justify-center">
+                            <InputOTP 
+                              maxLength={6} 
+                              value={otpCode}
+                              onChange={setOtpCode}
+                            >
+                              <InputOTPGroup>
+                                <InputOTPSlot index={0} />
+                                <InputOTPSlot index={1} />
+                                <InputOTPSlot index={2} />
+                                <InputOTPSlot index={3} />
+                                <InputOTPSlot index={4} />
+                                <InputOTPSlot index={5} />
+                              </InputOTPGroup>
+                            </InputOTP>
+                          </div>
                         </div>
-                        <Button type="submit" className="w-full" disabled={resetLoading}>
-                          {resetLoading ? 'Sending...' : 'Send Reset Link'}
-                        </Button>
-                      </form>
-                    </TabsContent>
-                    
-                    <TabsContent value="resend">
-                      <form onSubmit={handleResendVerification} className="space-y-4">
+                        
                         <div className="space-y-2">
-                          <Label htmlFor="resend-email">Email</Label>
-                          <Input
-                            id="resend-email"
-                            name="resend-email"
-                            type="email"
-                            required
-                            placeholder="Enter your email"
-                          />
+                          <Label htmlFor="new-password">New Password</Label>
+                          <div className="relative">
+                            <Input
+                              id="new-password"
+                              type={showNewPassword ? "text" : "password"}
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              required
+                              placeholder="Enter new password"
+                              className="pr-10"
+                              minLength={6}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowNewPassword(!showNewPassword)}
+                            >
+                              {showNewPassword ? (
+                                <EyeOff className="h-4 w-4 text-muted-foreground" />
+                              ) : (
+                                <Eye className="h-4 w-4 text-muted-foreground" />
+                              )}
+                            </Button>
+                          </div>
                         </div>
-                        <Button type="submit" className="w-full" disabled={resetLoading}>
-                          {resetLoading ? 'Sending...' : 'Resend Verification'}
-                        </Button>
+                        
+                        <div className="flex gap-2">
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            className="w-full"
+                            onClick={() => {
+                              setOtpStep(false);
+                              setOtpCode('');
+                              setNewPassword('');
+                            }}
+                          >
+                            Back
+                          </Button>
+                          <Button type="submit" className="w-full" disabled={resetLoading}>
+                            {resetLoading ? 'Resetting...' : 'Reset Password'}
+                          </Button>
+                        </div>
                       </form>
-                    </TabsContent>
-                  </Tabs>
+                    </div>
+                  )}
                 </DialogContent>
               </Dialog>
             </form>

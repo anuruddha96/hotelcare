@@ -42,6 +42,9 @@ port = 54327
 enabled = true
 port = 54328
 
+[functions.admin-update-user]
+verify_jwt = true
+
 [functions.send-email-notification]
 verify_jwt = true
 
@@ -53,3 +56,18 @@ verify_jwt = true
 
 [functions.create-housekeeper]
 verify_jwt = true
+
+[functions.send-assignment-notification]
+verify_jwt = true
+
+[functions.send-task-notification]
+verify_jwt = true
+
+[functions.send-password-reset]
+verify_jwt = false
+
+[functions.send-otp-password-reset]
+verify_jwt = false
+
+[functions.verify-otp-reset-password]
+verify_jwt = false

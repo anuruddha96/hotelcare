@@ -377,6 +377,36 @@ export type Database = {
           },
         ]
       }
+      password_reset_otps: {
+        Row: {
+          created_at: string | null
+          email: string
+          expires_at: string | null
+          id: string
+          otp_code: string
+          used: boolean | null
+          verified: boolean | null
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          expires_at?: string | null
+          id?: string
+          otp_code: string
+          used?: boolean | null
+          verified?: boolean | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          expires_at?: string | null
+          id?: string
+          otp_code?: string
+          used?: boolean | null
+          verified?: boolean | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           assigned_hotel: string | null
@@ -949,6 +979,10 @@ export type Database = {
       }
       get_email_by_nickname: {
         Args: { p_nickname: string }
+        Returns: string
+      }
+      get_email_case_insensitive: {
+        Args: { p_email: string }
         Returns: string
       }
       get_hotel_name_from_id: {

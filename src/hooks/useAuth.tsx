@@ -167,11 +167,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (emailOrUsername: string, password: string) => {
     console.log('Attempting login with:', emailOrUsername);
     
-    // First try with email
+    // First try with email - attempt case-insensitive email lookup
     let { error } = await supabase.auth.signInWithPassword({
       email: emailOrUsername,
       password,
     });
+    
+    // If direct email fails, try case-insensitive email lookup
+    if (error && emailOrUsername.includes('@')) {
+      console.log('Direct email login failed, trying case-insensitive email lookup');
+      try {
+        const { data: emailData, error: rpcError } = await supabase.rpc('get_email_case_insensitive', {
+          p_email: emailOrUsername,
+        });
+        console.log('Case-insensitive email RPC lookup:', emailData, rpcError);
+        
+        if (emailData) {
+          console.log('Found email with case-insensitive lookup, attempting login with:', emailData);
+          const result = await supabase.auth.signInWithPassword({
+            email: emailData as string,
+            password,
+          });
+          error = result.error;
+          console.log('Case-insensitive email login result:', result.error);
+        }
+      } catch (lookupError) {
+        console.error('Case-insensitive email lookup failed:', lookupError);
+      }
+    }
     
     // If email login fails and input doesn't contain @, try username lookup
     if (error && !emailOrUsername.includes('@')) {
