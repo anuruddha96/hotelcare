@@ -599,11 +599,7 @@ export function RoomManagement() {
                         {groupedRooms[hotel].length} rooms
                       </Badge>
                     </div>
-                 <div className={`grid gap-4 ${
-                   isMobile 
-                     ? 'grid-cols-1 sm:grid-cols-2' 
-                     : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-                 }`}>
+                 <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                         {groupedRooms[hotel].map((room) => (
                           <ModernRoomCard 
                             key={room.id} 
@@ -615,11 +611,7 @@ export function RoomManagement() {
                   </div>
                 ))
               : (
-                     <div className={`grid gap-4 ${
-                       isMobile 
-                         ? 'grid-cols-1 sm:grid-cols-2' 
-                         : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-                     }`}>
+                     <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                     {finalFilteredRooms.map((room) => (
                       <ModernRoomCard 
                         key={room.id} 

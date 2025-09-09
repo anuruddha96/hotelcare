@@ -112,106 +112,106 @@ export function ModernRoomCard({ room, onClick }: ModernRoomCardProps) {
   return (
     <Card 
       className={`
-        group cursor-pointer transition-all duration-300 
-        hover:shadow-xl hover:scale-[1.02] active:scale-95
-        ${statusConfig.bg} ${statusConfig.border} border-2
-        ${hasActiveIssues ? 'ring-2 ring-red-300 shadow-lg' : 'hover:shadow-lg'}
+        group cursor-pointer transition-all duration-200 
+        hover:shadow-md hover:scale-[1.01] active:scale-95
+        ${statusConfig.bg} ${statusConfig.border} border
+        ${hasActiveIssues ? 'ring-1 ring-red-300' : ''}
       `}
       onClick={onClick}
     >
-      <CardContent className="p-5">
-        {/* Header Section */}
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center space-x-3">
+      <CardContent className="p-3">
+        {/* Compact Header */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
             <div className={`
-              w-10 h-10 rounded-lg flex items-center justify-center
+              w-8 h-8 rounded-md flex items-center justify-center
               ${statusConfig.badge.includes('emerald') ? 'bg-emerald-500/10' : ''}
               ${statusConfig.badge.includes('orange') ? 'bg-orange-500/10' : ''}
               ${statusConfig.badge.includes('blue') ? 'bg-blue-500/10' : ''}
               ${statusConfig.badge.includes('red') ? 'bg-red-500/10' : ''}
               ${statusConfig.badge.includes('gray') ? 'bg-gray-500/10' : ''}
             `}>
-              <StatusIcon className={`h-5 w-5 ${statusConfig.iconColor}`} />
+              <StatusIcon className={`h-4 w-4 ${statusConfig.iconColor}`} />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-foreground">{room.room_number}</h3>
+              <h3 className="text-lg font-bold text-foreground">{room.room_number}</h3>
               {room.floor_number && (
-                <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md">
-                  Floor {room.floor_number}
-                </span>
+                <span className="text-xs text-muted-foreground">Floor {room.floor_number}</span>
               )}
             </div>
           </div>
-          
-          <Badge className={`${statusConfig.badge} font-medium border`}>
+          <Badge className={`${statusConfig.badge} text-xs font-medium border`}>
             {room.status.replace('_', ' ').toUpperCase()}
           </Badge>
         </div>
 
-        {/* Room Information */}
-        <div className="space-y-3 mb-4">
-          <div className="flex items-center gap-2 text-sm">
-            <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <span className="font-medium text-foreground truncate">{room.hotel}</span>
+        {/* Compact Info */}
+        <div className="space-y-2 mb-3">
+          <div className="flex items-center gap-2 text-xs">
+            <MapPin className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+            <span className="text-foreground truncate font-medium">{room.hotel}</span>
           </div>
           
-          <div className="flex items-center gap-2 text-sm">
-            <Coffee className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <span className="text-muted-foreground">{getRoomTypeDisplay()}</span>
-          </div>
-
-          {room.bed_type && (
-            <div className="text-sm text-muted-foreground">
-              <span className="capitalize">{room.bed_type} bed</span>
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1">
+              <Coffee className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">{getRoomTypeDisplay()}</span>
             </div>
-          )}
-        </div>
-
-        {/* Status Badges */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          {room.is_checkout_room && (
-            <Badge variant="secondary" className="text-xs">
-              <Clock className="h-3 w-3 mr-1" />
-              Checkout Room
-            </Badge>
-          )}
-          
-          {room.guest_count && room.guest_count > 0 && (
-            <Badge variant="outline" className="text-xs">
-              <Users className="h-3 w-3 mr-1" />
-              {room.guest_count} guest{room.guest_count > 1 ? 's' : ''}
-            </Badge>
-          )}
-
-          {room.recent_tickets?.length > 0 && (
-            <Badge variant="destructive" className="text-xs">
-              <AlertCircle className="h-3 w-3 mr-1" />
-              {room.recent_tickets.length} issue{room.recent_tickets.length > 1 ? 's' : ''}
-            </Badge>
-          )}
-
-          {getMinibarValue() > 0 && (
-            <Badge className="text-xs bg-yellow-100 text-yellow-800 border-yellow-300">
-              €{getMinibarValue().toFixed(2)} minibar
-            </Badge>
-          )}
-        </div>
-
-        {/* Last Cleaned Info */}
-        {room.last_cleaned_at && (
-          <div className="pt-3 border-t border-border/50 space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Calendar className="h-3 w-3" />
-              <span>Last cleaned: {format(new Date(room.last_cleaned_at), 'MMM d, HH:mm')}</span>
-            </div>
-            {room.last_cleaned_by && typeof room.last_cleaned_by === 'object' && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <User className="h-3 w-3" />
-                <span className="truncate">by {room.last_cleaned_by.full_name}</span>
-              </div>
+            {room.bed_type && (
+              <span className="text-muted-foreground capitalize">{room.bed_type}</span>
             )}
           </div>
-        )}
+        </div>
+
+        {/* Compact Status Info */}
+        <div className="space-y-2">
+          {/* Key indicators in a single row */}
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex gap-1">
+              {room.is_checkout_room && (
+                <Badge variant="secondary" className="text-xs px-1 py-0">
+                  <Clock className="h-2 w-2 mr-1" />
+                  CO
+                </Badge>
+              )}
+              {room.guest_count && room.guest_count > 0 && (
+                <Badge variant="outline" className="text-xs px-1 py-0">
+                  <Users className="h-2 w-2 mr-1" />
+                  {room.guest_count}
+                </Badge>
+              )}
+              {room.recent_tickets?.length > 0 && (
+                <Badge variant="destructive" className="text-xs px-1 py-0">
+                  <AlertCircle className="h-2 w-2 mr-1" />
+                  {room.recent_tickets.length}
+                </Badge>
+              )}
+            </div>
+            {getMinibarValue() > 0 && (
+              <Badge className="text-xs px-1 py-0 bg-yellow-100 text-yellow-800 border-yellow-300">
+                €{getMinibarValue().toFixed(0)}
+              </Badge>
+            )}
+          </div>
+
+          {/* Last cleaned - compact */}
+          {room.last_cleaned_at && (
+            <div className="pt-2 border-t border-border/30">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-2 w-2" />
+                  <span>{format(new Date(room.last_cleaned_at), 'MMM d, HH:mm')}</span>
+                </div>
+                {room.last_cleaned_by && typeof room.last_cleaned_by === 'object' && (
+                  <div className="flex items-center gap-1">
+                    <User className="h-2 w-2" />
+                    <span className="truncate max-w-16">{room.last_cleaned_by.full_name.split(' ')[0]}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
