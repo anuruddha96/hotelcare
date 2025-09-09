@@ -11,6 +11,7 @@ import { Clock, MapPin, Calendar, Coffee, LogOut, LogIn, Utensils, Timer } from 
 import { format } from 'date-fns';
 import { BreakTimer } from './BreakTimer';
 import { BreakTypesManagement } from './BreakTypesManagement';
+import { SwipeToEndBreak } from './SwipeToEndBreak';
 
 interface AttendanceRecord {
   id: string;
@@ -400,14 +401,10 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                     </div>
                   )}
                   
-                  <Button
-                    onClick={() => handleBreak(false)}
-                    className="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 transition-all duration-300 hover:scale-105 animate-bounce"
+                  <SwipeToEndBreak
+                    onSwipeComplete={() => handleBreak(false)}
                     disabled={isLoading}
-                  >
-                    <Clock className="h-4 w-4 mr-2" />
-                    Back to Work! ⚡
-                  </Button>
+                  />
                   
                   <Button
                     onClick={handleCheckOut}
