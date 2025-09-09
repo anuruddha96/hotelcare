@@ -59,6 +59,7 @@ export function Dashboard() {
   const [userManagementOpen, setUserManagementOpen] = useState(false);
   const [accessManagementOpen, setAccessManagementOpen] = useState(false);
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
+  const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
 
   const canCreateTickets = profile?.role && [
     'housekeeping', 'reception', 'manager', 'admin', 'maintenance',
@@ -159,7 +160,12 @@ export function Dashboard() {
   useEffect(() => {
     if (!profile?.id) return;
     fetchTickets();
+    checkTodayAttendance();
   }, [profile?.id, profile?.role]);
+
+  useEffect(() => {
+    checkTodayAttendance();
+  }, [profile?.id]);
 
   const filteredTickets = tickets
     .filter(ticket => {
@@ -195,11 +201,33 @@ export function Dashboard() {
 
   const counts = getTicketCounts();
 
+  // Check today's attendance status
+  const checkTodayAttendance = async () => {
+    if (!profile?.id) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    const { data, error } = await supabase
+      .from('staff_attendance')
+      .select('status')
+      .eq('user_id', profile.id)
+      .eq('work_date', today)
+      .single();
+    
+    if (!error && data) {
+      setAttendanceStatus(data.status);
+    } else {
+      setAttendanceStatus(null);
+    }
+  };
+
   const getDefaultTab = (role?: string) => {
     if (!role) return "rooms";
     
     switch (role) {
       case 'housekeeping':
+        // For housekeepers: show attendance first if not checked in, then tasks after check-in
+        return !attendanceStatus ? "attendance" : "housekeeping";
       case 'housekeeping_manager':
         return "housekeeping";
       case 'maintenance':
@@ -245,7 +273,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Attendance</span>
+                <span>Daily Connect</span>
               </TabsTrigger>
             </TabsList>
           ) : profile?.role === 'maintenance' ? (
@@ -256,7 +284,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Attendance</span>
+                <span>Daily Connect</span>
               </TabsTrigger>
             </TabsList>
           ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
@@ -275,7 +303,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Attendance</span>
+                <span>Daily Connect</span>
               </TabsTrigger>
             </TabsList>
           ) : (
@@ -290,7 +318,7 @@ export function Dashboard() {
               </TabsTrigger>
               <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
                 <Clock className="h-4 w-4" />
-                <span>Attendance</span>
+                <span>Daily Connect</span>
               </TabsTrigger>
             </TabsList>
           )}

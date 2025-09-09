@@ -120,8 +120,8 @@ export const AttendanceTracker = () => {
       });
     } else {
       toast({
-        title: "Check-in Successful",
-        description: `Checked in at ${format(new Date(), 'HH:mm')}`
+        title: "🌟 Welcome to Your Shift! 🌟",
+        description: `You're all set! Time to shine at ${format(new Date(), 'HH:mm')} ✨`,
       });
       fetchTodaysAttendance();
     }
@@ -158,8 +158,8 @@ export const AttendanceTracker = () => {
       });
     } else {
       toast({
-        title: "Check-out Successful",
-        description: `Checked out at ${format(new Date(), 'HH:mm')}`
+        title: "🎉 Amazing Work Today! 🎉",
+        description: `Thank you for your dedication! See you tomorrow 🌅`,
       });
       fetchTodaysAttendance();
     }
@@ -187,8 +187,10 @@ export const AttendanceTracker = () => {
       });
     } else {
       toast({
-        title: isStartingBreak ? "Break Started" : "Break Ended",
-        description: `${isStartingBreak ? 'On break' : 'Back to work'} at ${format(new Date(), 'HH:mm')}`
+        title: isStartingBreak ? "😴 Rest & Recharge" : "🔥 Let's Go! Energized & Ready!",
+        description: isStartingBreak 
+          ? `Enjoy your break! You deserve it 🌸 Started at ${format(new Date(), 'HH:mm')}`
+          : `Welcome back! Ready to conquer more tasks ⚡ Back at ${format(new Date(), 'HH:mm')}`
       });
       fetchTodaysAttendance();
     }
@@ -218,7 +220,7 @@ export const AttendanceTracker = () => {
       <CardHeader className="text-center">
         <CardTitle className="flex items-center justify-center gap-2">
           <Clock className="h-5 w-5" />
-          Attendance Tracker
+          Daily Connect
         </CardTitle>
         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <Calendar className="h-4 w-4" />
@@ -286,19 +288,19 @@ export const AttendanceTracker = () => {
                   <Button
                     onClick={() => handleBreak(true)}
                     variant="outline"
-                    className="w-full"
+                    className="w-full bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:scale-105"
                     disabled={isLoading}
                   >
                     <Coffee className="h-4 w-4 mr-2" />
-                    Start Break
+                    Take a Restful Break 😴
                   </Button>
                   <Button
                     onClick={handleCheckOut}
-                    className="w-full"
+                    className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 transition-all duration-300 hover:scale-105 animate-pulse"
                     disabled={isLoading}
                   >
                     <LogOut className="h-4 w-4 mr-2" />
-                    Check Out
+                    Complete Your Amazing Day! 🎉
                   </Button>
                 </>
               )}
@@ -308,26 +310,31 @@ export const AttendanceTracker = () => {
                   <Button
                     onClick={() => handleBreak(false)}
                     variant="outline"
-                    className="w-full"
+                    className="w-full bg-gradient-to-r from-orange-50 to-red-50 border-orange-200 hover:from-orange-100 hover:to-red-100 transition-all duration-300 hover:scale-105 animate-bounce"
                     disabled={isLoading}
                   >
                     <Clock className="h-4 w-4 mr-2" />
-                    End Break
+                    I'm Ready! Let's Go! ⚡
                   </Button>
                   <Button
                     onClick={handleCheckOut}
-                    className="w-full"
+                    className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 transition-all duration-300 hover:scale-105 animate-pulse"
                     disabled={isLoading}
                   >
                     <LogOut className="h-4 w-4 mr-2" />
-                    Check Out
+                    Complete Your Amazing Day! 🎉
                   </Button>
                 </>
               )}
 
               {currentRecord.status === 'checked_out' && (
-                <div className="text-center text-sm text-muted-foreground">
-                  You have completed your work day. See you tomorrow!
+                <div className="text-center p-4 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200 animate-fade-in">
+                  <div className="text-lg font-semibold text-green-700 mb-1">
+                    🌟 Fantastic Work Today! 🌟
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Thank you for your dedication and hard work. Rest well and see you tomorrow! 🌅
+                  </div>
                 </div>
               )}
             </div>
@@ -347,11 +354,11 @@ export const AttendanceTracker = () => {
 
             <Button
               onClick={handleCheckIn}
-              className="w-full"
+              className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 transition-all duration-300 hover:scale-105 text-white font-semibold py-3"
               disabled={isLoading || !location}
             >
               <LogIn className="h-4 w-4 mr-2" />
-              Check In
+              🌟 Start Your Amazing Day! 🌟
             </Button>
 
             {!location && (
