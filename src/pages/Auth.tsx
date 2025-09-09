@@ -158,25 +158,43 @@ export default function Auth() {
     setResetLoading(false);
   };
 
-  const handleResendVerification = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSendSMSOTP = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setResetLoading(true);
     
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('resend-email') as string;
+    const phone = formData.get('sms-phone') as string;
 
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/`,
-      }
+    const { error } = await supabase.functions.invoke('send-sms-otp', {
+      body: { phone }
     });
     
     if (error) {
-      toast.error(error.message || 'Failed to resend verification');
+      toast.error(error.message || 'Failed to send SMS code');
     } else {
-      toast.success('Verification email sent! Check your inbox.');
+      toast.success('Verification code sent to your phone!');
+      setOtpEmail(phone); // Store phone number for verification
+      setOtpStep(true);
+    }
+    
+    setResetLoading(false);
+  };
+
+  const handleSendLoginLink = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setResetLoading(true);
+    
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('login-email') as string;
+
+    const { error } = await supabase.functions.invoke('generate-login-link', {
+      body: { email }
+    });
+    
+    if (error) {
+      toast.error(error.message || 'Failed to send login link');
+    } else {
+      toast.success('Login link sent! Check your email.');
       setForgotPasswordOpen(false);
     }
     
@@ -262,10 +280,11 @@ export default function Auth() {
                   </DialogHeader>
                   {!otpStep ? (
                     <Tabs defaultValue="otp" className="w-full">
-                      <TabsList className="grid w-full grid-cols-3 h-8 sm:h-10">
-                        <TabsTrigger value="otp" className="text-xs sm:text-sm">OTP Reset</TabsTrigger>
-                        <TabsTrigger value="email" className="text-xs sm:text-sm">Email Reset</TabsTrigger>
-                        <TabsTrigger value="resend" className="text-xs sm:text-sm">Resend Verification</TabsTrigger>
+                      <TabsList className="grid w-full grid-cols-4 h-8 sm:h-10">
+                        <TabsTrigger value="otp" className="text-xs sm:text-sm">Email OTP</TabsTrigger>
+                        <TabsTrigger value="sms" className="text-xs sm:text-sm">SMS OTP</TabsTrigger>
+                        <TabsTrigger value="email" className="text-xs sm:text-sm">Email Link</TabsTrigger>
+                        <TabsTrigger value="login-link" className="text-xs sm:text-sm">Login Link</TabsTrigger>
                       </TabsList>
                       
                       <TabsContent value="otp">
@@ -304,20 +323,38 @@ export default function Auth() {
                         </form>
                       </TabsContent>
                       
-                      <TabsContent value="resend">
-                        <form onSubmit={handleResendVerification} className="space-y-4">
+                      <TabsContent value="sms">
+                        <form onSubmit={handleSendSMSOTP} className="space-y-4">
                           <div className="space-y-2">
-                            <Label htmlFor="resend-email">Email</Label>
+                            <Label htmlFor="sms-phone">Phone Number</Label>
                             <Input
-                              id="resend-email"
-                              name="resend-email"
+                              id="sms-phone"
+                              name="sms-phone"
+                              type="tel"
+                              required
+                              placeholder="Enter your phone number"
+                            />
+                          </div>
+                          <Button type="submit" className="w-full" disabled={resetLoading}>
+                            {resetLoading ? 'Sending...' : 'Send SMS Code'}
+                          </Button>
+                        </form>
+                      </TabsContent>
+                      
+                      <TabsContent value="login-link">
+                        <form onSubmit={handleSendLoginLink} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="login-email">Email</Label>
+                            <Input
+                              id="login-email"
+                              name="login-email"
                               type="email"
                               required
                               placeholder="Enter your email"
                             />
                           </div>
                           <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Resend Verification'}
+                            {resetLoading ? 'Sending...' : 'Send Login Link'}
                           </Button>
                         </form>
                       </TabsContent>

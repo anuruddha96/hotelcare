@@ -750,15 +750,15 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         {/* Admin-only User Edit Dialog */}
         {currentUserRole === 'admin' && (
           <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
+            <DialogContent className="w-[95vw] max-w-md h-[90vh] max-h-[90vh] flex flex-col">
+              <DialogHeader className="flex-shrink-0">
                 <DialogTitle>Edit User Details</DialogTitle>
                 <DialogDescription>
                   Update user information and credentials (Admin only)
                 </DialogDescription>
               </DialogHeader>
               
-              <div className="space-y-4 mt-4">
+              <div className="flex-1 overflow-y-auto space-y-4 mt-4 pr-2">
                 <div className="space-y-2">
                   <Label htmlFor="edit_full_name">Full Name</Label>
                   <Input
@@ -854,12 +854,12 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     placeholder="Leave blank to keep current password"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Note: Password changes require the user to reset via email for security
+                    Password changes take effect immediately for admin overrides
                   </p>
                 </div>
               </div>
               
-              <div className="flex justify-end gap-2 mt-6">
+              <div className="flex justify-end gap-2 mt-4 flex-shrink-0 pt-4 border-t">
                 <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={loading}>
                   Cancel
                 </Button>

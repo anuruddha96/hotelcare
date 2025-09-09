@@ -116,7 +116,8 @@ serve(async (req: Request) => {
           if (createErr) {
             const dup = (createErr.message || '').toLowerCase().includes('duplicate key') || 
                         (createErr.message || '').toLowerCase().includes('users_email_partial_key') ||
-                        (createErr.message || '').toLowerCase().includes('already registered');
+                        (createErr.message || '').toLowerCase().includes('already registered') ||
+                        (createErr.message || '').toLowerCase().includes('email address not authorized');
             const msg = dup ? 'Email already in use by another account' : createErr.message;
             console.error('Error creating auth user:', createErr);
             return new Response(JSON.stringify({ error: msg }), {
@@ -181,7 +182,8 @@ serve(async (req: Request) => {
         if (updateErr) {
           const dup = (updateErr.message || '').toLowerCase().includes('duplicate key') || 
                       (updateErr.message || '').toLowerCase().includes('users_email_partial_key') ||
-                      (updateErr.message || '').toLowerCase().includes('already registered');
+                      (updateErr.message || '').toLowerCase().includes('already registered') ||
+                      (updateErr.message || '').toLowerCase().includes('email address not authorized');
           const msg = dup ? 'Email already in use by another account' : updateErr.message;
           console.error('Error updating auth user:', updateErr);
           return new Response(JSON.stringify({ error: msg }), {
