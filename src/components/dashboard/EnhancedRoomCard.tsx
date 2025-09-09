@@ -61,7 +61,7 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
           badge: 'bg-orange-500/10 text-orange-700 border-orange-200',
           icon: AlertTriangle,
           iconColor: 'text-orange-600',
-          statusText: 'Needs Cleaning'
+          statusText: 'Dirty'
         };
       case 'maintenance':
         return {
@@ -79,7 +79,7 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
           badge: 'bg-red-500/10 text-red-700 border-red-200',
           icon: XCircle,
           iconColor: 'text-red-600',
-          statusText: 'Out of Order'
+          statusText: 'Out Of Order'
         };
       default:
         return {
@@ -96,11 +96,22 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
   const statusConfig = getStatusConfig(room.status);
   const StatusIcon = statusConfig.icon;
 
-  const getRoomTypeDisplay = () => {
-    if (room.is_checkout_room && room.checkout_time) {
-      return `Checkout at ${format(new Date(room.checkout_time), 'HH:mm')}`;
+  const getFloorDisplay = () => {
+    if (room.floor_number !== undefined && room.floor_number !== null) {
+      return `FL - ${room.floor_number}`;
     }
-    return room.room_type ? room.room_type.charAt(0).toUpperCase() + room.room_type.slice(1) : 'Standard';
+    return null;
+  };
+
+  const getRoomTypeDisplay = () => {
+    const parts = [];
+    if (room.room_type) {
+      parts.push(room.room_type.charAt(0).toUpperCase() + room.room_type.slice(1));
+    }
+    if (room.bed_type) {
+      parts.push(room.bed_type.charAt(0).toUpperCase() + room.bed_type.slice(1));
+    }
+    return parts.length > 0 ? parts.join('-') : 'Standard';
   };
 
   const getMinibarValue = () => {
@@ -118,6 +129,19 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
     ['open', 'in_progress'].includes(ticket.status)
   ).length || 0;
 
+  const getLastCleanedInfo = () => {
+    if (room.last_cleaned_at) {
+      const cleanedDate = new Date(room.last_cleaned_at);
+      return {
+        date: format(cleanedDate, 'MMM d, HH:mm'),
+        by: typeof room.last_cleaned_by === 'string' 
+          ? room.last_cleaned_by 
+          : room.last_cleaned_by?.full_name || 'Unknown'
+      };
+    }
+    return null;
+  };
+
   return (
     <Card 
       className={`
@@ -127,21 +151,22 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
         ${statusConfig.bg} ${statusConfig.border} border-2
         ${hasActiveIssues ? 'ring-2 ring-red-200 ring-offset-1' : ''}
         animate-fade-in relative overflow-hidden
-        aspect-square flex flex-col
+        aspect-square lg:aspect-auto lg:min-h-[280px] flex flex-col
       `}
       onClick={onClick}
     >
       {/* Status Indicator Strip */}
       <div className={`absolute top-0 left-0 right-0 h-1 ${statusConfig.iconColor.replace('text-', 'bg-')}`} />
       
-      <CardContent className="p-4 flex flex-col h-full justify-between">
+      {/* Mobile Layout */}
+      <CardContent className="p-4 flex flex-col h-full justify-between lg:hidden">
         {/* Header - Room Number & Floor */}
         <div className="text-center mb-3">
           <h3 className="text-xl font-bold text-foreground mb-1">
             {room.room_number}
           </h3>
-          {room.floor_number !== undefined && room.floor_number !== null && (
-            <span className="text-sm text-muted-foreground">FL - {room.floor_number}</span>
+          {getFloorDisplay() && (
+            <span className="text-sm text-muted-foreground">{getFloorDisplay()}</span>
           )}
         </div>
 
@@ -178,6 +203,93 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
             <div className="flex items-center justify-center gap-1 text-xs text-yellow-700">
               <Euro className="h-3 w-3" />
               <span>€{getMinibarValue().toFixed(0)}</span>
+            </div>
+          )}
+        </div>
+      </CardContent>
+
+      {/* Desktop Layout */}
+      <CardContent className="hidden lg:flex flex-col p-4 h-full justify-between">
+        {/* Top Section */}
+        <div className="space-y-3">
+          {/* Room Header with Status */}
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-foreground">
+                {room.room_number}
+                {getRoomTypeDisplay() !== 'Standard' && (
+                  <span className="text-sm font-normal text-muted-foreground">
+                    -{getRoomTypeDisplay()}
+                  </span>
+                )}
+              </h3>
+              {getFloorDisplay() && (
+                <p className="text-sm text-muted-foreground mt-1">{getFloorDisplay()}</p>
+              )}
+            </div>
+            <Badge className={`${statusConfig.badge} text-xs font-medium border px-2 py-1`}>
+              <StatusIcon className={`h-3 w-3 mr-1 ${statusConfig.iconColor}`} />
+              {statusConfig.statusText}
+            </Badge>
+          </div>
+
+          {/* Room Details */}
+          <div className="space-y-2 text-sm">
+            {/* Room Type & Bed Type */}
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Bed className="h-4 w-4" />
+              <span>{getRoomTypeDisplay()}</span>
+            </div>
+
+            {/* Hotel */}
+            {room.hotel && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Building2 className="h-4 w-4" />
+                <span className="truncate">{room.hotel}</span>
+              </div>
+            )}
+
+            {/* Last Cleaned Info */}
+            {getLastCleanedInfo() && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <User className="h-4 w-4" />
+                <span className="text-xs">
+                  Cleaned {getLastCleanedInfo()?.date}
+                </span>
+              </div>
+            )}
+
+            {/* Room Type - Daily/Checkout */}
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Calendar className="h-4 w-4" />
+              <span>
+                {room.is_checkout_room 
+                  ? `Checkout Room ${room.checkout_time ? format(new Date(room.checkout_time), 'MMM d, HH:mm') : ''}` 
+                  : 'Daily Cleaning'
+                }
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Section */}
+        <div className="mt-auto pt-3 space-y-2">
+          {/* Minibar Usage */}
+          {getMinibarValue() > 0 && (
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Euro className="h-4 w-4" />
+                <span>€{getMinibarValue().toFixed(2)}</span>
+              </div>
+              <span className="text-xs text-muted-foreground">Minibar</span>
+            </div>
+          )}
+
+          {/* Issues */}
+          {openTicketsCount > 0 && (
+            <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
+              <AlertCircle className="h-3 w-3" />
+              <span>{openTicketsCount} open issue{openTicketsCount !== 1 ? 's' : ''}</span>
             </div>
           )}
         </div>

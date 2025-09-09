@@ -83,14 +83,15 @@ export function RoomStatusOverview({ statusData, onStatusClick, activeFilter }: 
             <Card
               key={status.key}
               className={`
-                cursor-pointer transition-all duration-300 border-2 aspect-square
+                cursor-pointer transition-all duration-300 border-2 
+                aspect-square sm:aspect-square lg:aspect-[4/3]
                 ${status.bgColor} ${status.borderColor} ${status.hoverColor}
                 hover:shadow-lg hover:scale-[1.02] active:scale-95
                 ${isActive ? 'ring-2 ring-primary shadow-lg scale-[1.02]' : ''}
               `}
               onClick={() => onStatusClick(status.key)}
             >
-              <CardContent className="p-3 sm:p-4 flex flex-col justify-between h-full">
+              <CardContent className="p-3 sm:p-4 lg:p-3 flex flex-col justify-between h-full">
                 <div className="flex flex-col space-y-2">
                   {/* Icon */}
                   <div className={`
