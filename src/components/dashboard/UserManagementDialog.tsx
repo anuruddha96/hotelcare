@@ -238,31 +238,21 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
 
   const handleDeleteUser = async (userId: string, userName: string) => {
     try {
-      // Use the original delete function for now
-      const { data, error } = await supabase.rpc('delete_user_profile', {
-        p_user_id: userId
+      // Prefer edge function (uses service role, bypasses RLS safely)
+      const { data, error } = await supabase.functions.invoke('admin-delete-user', {
+        body: { target_user_id: userId },
       });
 
       if (error) throw error;
-      
-      const result = data as { success: boolean; error?: string; message?: string };
-      
-      if (!result.success) {
+      const result = data as { success?: boolean; error?: string; message?: string };
+      if (result?.success === false || result?.error) {
         throw new Error(result.error || 'Failed to delete user');
       }
 
-      toast({
-        title: 'Success',
-        description: `User ${userName} deleted successfully`,
-      });
-
+      toast({ title: 'Success', description: result?.message || `User ${userName} deleted successfully` });
       fetchUsers();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
   };
 
