@@ -11,7 +11,9 @@ import { Clock, MapPin, Calendar, Coffee, LogOut, LogIn, Utensils, Timer } from 
 import { format } from 'date-fns';
 import { BreakTimer } from './BreakTimer';
 import { BreakTypesManagement } from './BreakTypesManagement';
+import { useTranslation } from '@/hooks/useTranslation';
 import { SwipeToEndBreak } from './SwipeToEndBreak';
+import { BreakRequestDialog } from './BreakRequestDialog';
 
 interface AttendanceRecord {
   id: string;
@@ -323,6 +325,16 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                     <span className="text-sm font-bold">
                       {currentRecord.total_hours ? `${currentRecord.total_hours.toFixed(1)}h` : 'N/A'}
                     </span>
+                  </div>
+
+                  {/* Special break request option for housekeeping */}
+                  <div className="pt-4 border-t">
+                    <div className="flex flex-col gap-2">
+                      <p className="text-sm text-muted-foreground text-center">
+                        Need a different type of break?
+                      </p>
+                      <BreakRequestDialog onRequestSubmitted={() => {}} />
+                    </div>
                   </div>
                 </>
               )}

@@ -1,6 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Globe } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useLanguagePreference } from '@/hooks/useLanguagePreference';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const languages = [
@@ -13,10 +14,12 @@ const languages = [
 
 export function LanguageSwitcher() {
   const { language, setLanguage, t } = useTranslation();
+  const { saveLanguagePreference } = useLanguagePreference();
   const current = languages.find(l => l.code === language) || languages[0];
 
-  const handleLanguageChange = (langCode: string) => {
+  const handleLanguageChange = async (langCode: string) => {
     setLanguage(langCode as any);
+    await saveLanguagePreference(langCode);
     
     // Show confirmation toast
     const selectedLang = languages.find(lang => lang.code === langCode);

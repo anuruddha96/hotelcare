@@ -14,6 +14,80 @@ export type Database = {
   }
   public: {
     Tables: {
+      break_requests: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          break_type_id: string
+          created_at: string
+          id: string
+          reason: string
+          rejection_reason: string | null
+          requested_at: string
+          requested_by: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          break_type_id: string
+          created_at?: string
+          id?: string
+          reason: string
+          rejection_reason?: string | null
+          requested_at?: string
+          requested_by: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          break_type_id?: string
+          created_at?: string
+          id?: string
+          reason?: string
+          rejection_reason?: string | null
+          requested_at?: string
+          requested_by?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "break_requests_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "break_requests_break_type_id_fkey"
+            columns: ["break_type_id"]
+            isOneToOne: false
+            referencedRelation: "break_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "break_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "break_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       break_types: {
         Row: {
           created_at: string
@@ -268,6 +342,41 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_preferences: {
+        Row: {
+          browser_notifications_enabled: boolean | null
+          created_at: string
+          id: string
+          sound_notifications_enabled: boolean | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          browser_notifications_enabled?: boolean | null
+          created_at?: string
+          id?: string
+          sound_notifications_enabled?: boolean | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          browser_notifications_enabled?: boolean | null
+          created_at?: string
+          id?: string
+          sound_notifications_enabled?: boolean | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           assigned_hotel: string | null
@@ -278,6 +387,7 @@ export type Database = {
           last_login: string | null
           nickname: string | null
           phone_number: string | null
+          preferred_language: string | null
           profile_picture_url: string | null
           role: Database["public"]["Enums"]["user_role"]
           updated_at: string | null
@@ -291,6 +401,7 @@ export type Database = {
           last_login?: string | null
           nickname?: string | null
           phone_number?: string | null
+          preferred_language?: string | null
           profile_picture_url?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           updated_at?: string | null
@@ -304,6 +415,7 @@ export type Database = {
           last_login?: string | null
           nickname?: string | null
           phone_number?: string | null
+          preferred_language?: string | null
           profile_picture_url?: string | null
           role?: Database["public"]["Enums"]["user_role"]
           updated_at?: string | null

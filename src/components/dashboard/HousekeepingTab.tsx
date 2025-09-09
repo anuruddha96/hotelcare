@@ -10,6 +10,7 @@ import { PMSUpload } from './PMSUpload';
 import { EasyRoomAssignment } from './EasyRoomAssignment';
 import { PerformanceLeaderboard } from './PerformanceLeaderboard';
 import { SupervisorApprovalView } from './SupervisorApprovalView';
+import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
 import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -82,6 +83,19 @@ export function HousekeepingTab() {
                 <span className="xs:hidden">{t('housekeeping.staff')}</span>
               </TabsTrigger>
               <TabsTrigger 
+                value="supervisor" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
+              >
+                <Shield className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
+                <span className="xs:hidden">Approval</span>
+                {pendingCount > 0 && (
+                  <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
+                    {pendingCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger 
                 value="manage" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
@@ -112,19 +126,6 @@ export function HousekeepingTab() {
                 <Zap className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden xs:inline">{t('housekeeping.quickAssign')}</span>
                 <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="supervisor" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
-              >
-                <Shield className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
-                <span className="xs:hidden">Approval</span>
-                {pendingCount > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
-                    {pendingCount}
-                  </Badge>
-                )}
               </TabsTrigger>
             </>
           )}
@@ -166,7 +167,10 @@ export function HousekeepingTab() {
             </TabsContent>
 
             <TabsContent value="supervisor" className="space-y-6">
-              <SupervisorApprovalView />
+              <div className="space-y-6">
+                <SupervisorApprovalView />
+                <BreakRequestApprovalView />
+              </div>
             </TabsContent>
           </>
         )}
