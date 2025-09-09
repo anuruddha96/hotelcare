@@ -134,96 +134,53 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
       {/* Status Indicator Strip */}
       <div className={`absolute top-0 left-0 right-0 h-1 ${statusConfig.iconColor.replace('text-', 'bg-')}`} />
       
-      <CardContent className="p-3 flex flex-col h-full justify-between">
-        {/* Header - Room Number & Status */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1.5">
-            <div className={`
-              w-6 h-6 rounded-md flex items-center justify-center
-              ${statusConfig.badge.split(' ')[0]} backdrop-blur-sm
-            `}>
-              <StatusIcon className={`h-3 w-3 ${statusConfig.iconColor}`} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-foreground leading-none">
-                {room.room_number}
-              </h3>
-              {room.floor_number !== undefined && room.floor_number !== null && (
-                <span className="text-xs text-muted-foreground">FL - {room.floor_number}</span>
-              )}
-            </div>
-          </div>
-          <Badge className={`${statusConfig.badge} text-xs font-medium border px-1.5 py-0.5 leading-none`}>
+      <CardContent className="p-4 flex flex-col h-full justify-between">
+        {/* Header - Room Number & Floor */}
+        <div className="text-center mb-3">
+          <h3 className="text-xl font-bold text-foreground mb-1">
+            {room.room_number}
+          </h3>
+          {room.floor_number !== undefined && room.floor_number !== null && (
+            <span className="text-sm text-muted-foreground">FL - {room.floor_number}</span>
+          )}
+        </div>
+
+        {/* Status Badge - Center */}
+        <div className="flex justify-center mb-3">
+          <Badge className={`${statusConfig.badge} text-sm font-medium border px-3 py-1`}>
+            <StatusIcon className={`h-4 w-4 mr-1.5 ${statusConfig.iconColor}`} />
             {statusConfig.statusText}
           </Badge>
         </div>
 
-        {/* Room Type & Bed Type */}
-        <div className="space-y-1.5 mb-2">
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1 min-w-0 flex-1">
-              <Building2 className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-              <span className="text-muted-foreground truncate">
-                {room.is_checkout_room ? 'Checkout' : 'Daily'}
-              </span>
-            </div>
-            {room.bed_type && (
-              <div className="flex items-center gap-1 min-w-0 flex-shrink-0">
-                <Bed className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground capitalize text-xs truncate">{room.bed_type}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Checkout time if applicable */}
+        {/* Room Type - Simple */}
+        <div className="text-center mb-3">
+          <span className="text-sm text-muted-foreground">
+            {room.is_checkout_room ? 'Checkout' : 'Daily'}
+          </span>
           {room.is_checkout_room && room.checkout_time && (
-            <div className="flex items-center gap-1 text-xs text-blue-600 font-medium">
-              <Clock className="h-3 w-3 flex-shrink-0" />
-              <span className="truncate">Checkout: {format(new Date(room.checkout_time), 'HH:mm')}</span>
+            <div className="text-xs text-blue-600 mt-1">
+              {format(new Date(room.checkout_time), 'HH:mm')}
             </div>
           )}
         </div>
 
-        {/* Key Indicators Row */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex gap-1">
-            {room.is_checkout_room && (
-              <Badge variant="secondary" className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 border-blue-200 leading-none">
-                Checkout Room
-              </Badge>
-            )}
-            {openTicketsCount > 0 && (
-              <div className="flex items-center gap-1 text-xs text-red-600">
-                <AlertCircle className="h-3 w-3" />
-                <span>{openTicketsCount}</span>
-              </div>
-            )}
-          </div>
+        {/* Bottom indicators */}
+        <div className="mt-auto space-y-2">
+          {openTicketsCount > 0 && (
+            <div className="flex items-center justify-center gap-1 text-xs text-red-600">
+              <AlertCircle className="h-3 w-3" />
+              <span>{openTicketsCount} issues</span>
+            </div>
+          )}
+          
           {getMinibarValue() > 0 && (
-            <div className="flex items-center gap-1 text-xs text-yellow-700">
+            <div className="flex items-center justify-center gap-1 text-xs text-yellow-700">
               <Euro className="h-3 w-3" />
-              <span>{getMinibarValue().toFixed(0)}</span>
+              <span>€{getMinibarValue().toFixed(0)}</span>
             </div>
           )}
         </div>
-
-        {/* Last Cleaned - Bottom */}
-        {room.last_cleaned_at && (
-          <div className="mt-auto pt-2 border-t border-border/30">
-            <div className="flex items-center justify-between text-xs text-muted-foreground gap-2">
-              <div className="flex items-center gap-1 min-w-0 flex-1">
-                <Calendar className="h-3 w-3 flex-shrink-0" />
-                <span className="truncate">{format(new Date(room.last_cleaned_at), 'MMM d, HH:mm')}</span>
-              </div>
-              {room.last_cleaned_by && typeof room.last_cleaned_by === 'object' && (
-                <div className="flex items-center gap-1 min-w-0 flex-shrink-0">
-                  <User className="h-3 w-3 flex-shrink-0" />
-                  <span className="truncate max-w-16 text-xs">{room.last_cleaned_by.full_name.split(' ')[0]}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );
