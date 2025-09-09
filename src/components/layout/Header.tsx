@@ -61,15 +61,15 @@ export function Header() {
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm">
       <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
         <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
-          <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-1.5 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition-all duration-200">
+          <div className="flex items-center gap-3 p-1.5 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
             <img
               src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
               alt="RD Hotels Logo"
-              className="h-8 sm:h-14 w-auto max-w-[120px] sm:max-w-none object-contain"
+              className="h-8 sm:h-10 w-auto object-contain"
             />
-            <div className="hidden sm:flex flex-col min-w-0">
-              <span className="text-sm sm:text-base font-semibold tracking-tight text-foreground">RD Hotels</span>
-              <span className="text-xs text-muted-foreground truncate">
+            <div className="hidden sm:flex flex-col">
+              <span className="text-base font-semibold tracking-tight">RD Hotels</span>
+              <span className="text-xs text-muted-foreground">
                 {profile?.assigned_hotel || 'Hotel Care Hub'}
               </span>
             </div>

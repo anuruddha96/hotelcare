@@ -32,10 +32,10 @@ export function LanguageSwitcher() {
   return (
     <div className="flex items-center gap-2">
       <Select value={language} onValueChange={handleLanguageChange}>
-        <SelectTrigger aria-label="Language" className="w-12 sm:w-[200px] h-10">
+        <SelectTrigger aria-label="Language" className="w-[160px] sm:w-[200px]">
           <div className="flex items-center gap-2 truncate">
-            <span className="text-lg">{current.flag}</span>
-            <span className="truncate hidden sm:inline">{current.name}</span>
+            <span>{current.flag}</span>
+            <span className="truncate">{current.name}</span>
           </div>
         </SelectTrigger>
         <SelectContent>
