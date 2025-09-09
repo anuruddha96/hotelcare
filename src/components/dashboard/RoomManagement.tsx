@@ -602,27 +602,27 @@ export function RoomManagement() {
                         {groupedRooms[hotel].length} rooms
                       </Badge>
                     </div>
-                 <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                        {groupedRooms[hotel].map((room) => (
-                           <EnhancedRoomCard 
-                             key={room.id} 
-                             room={room} 
-                             onClick={() => handleRoomClick(room)}
-                           />
-                        ))}
-                     </div>
+                  <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                         {groupedRooms[hotel].map((room) => (
+                            <EnhancedRoomCard 
+                              key={room.id} 
+                              room={room} 
+                              onClick={() => handleRoomClick(room)}
+                            />
+                         ))}
+                      </div>
                   </div>
                 ))
               : (
-                     <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                    {finalFilteredRooms.map((room) => (
-                       <EnhancedRoomCard 
-                         key={room.id} 
-                         room={room} 
-                         onClick={() => handleRoomClick(room)}
-                       />
-                    ))}
-                 </div>
+                      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                     {finalFilteredRooms.map((room) => (
+                        <EnhancedRoomCard 
+                          key={room.id} 
+                          room={room} 
+                          onClick={() => handleRoomClick(room)}
+                        />
+                     ))}
+                  </div>
               )
             }
           </div>
