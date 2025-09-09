@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Users, Plus, Calendar, CheckCircle, Trash2 } from 'lucide-react';
+import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
+import { CompactRoomCard } from './CompactRoomCard';
 import { RoomAssignmentDialog } from './RoomAssignmentDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';

@@ -78,8 +78,8 @@ export default function Auth() {
     const formData = new FormData(e.currentTarget);
     const email = formData.get('reset-email') as string;
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth`,
+    const { error } = await supabase.functions.invoke('send-password-reset', {
+      body: { email }
     });
     
     if (error) {

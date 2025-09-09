@@ -123,21 +123,55 @@ serve(async (req: Request) => {
             });
           }
           console.log('Auth user created successfully');
+        } else if (passwordInput && targetProfile?.email) {
+          // Create auth user with profile email if we have a password but no email input
+          console.log('Creating new auth user with profile email:', targetProfile.email);
+          const { error: createErr } = await supabaseAdmin.auth.admin.createUser({
+            id: target_user_id,
+            email: targetProfile.email,
+            password: passwordInput,
+            email_confirm: true,
+            user_metadata: {
+              ...(fullNameInput ? { full_name: fullNameInput } : {}),
+              ...(nicknameInput ? { username: nicknameInput } : {}),
+            },
+          });
+
+          if (createErr) {
+            const dup = (createErr.message || '').toLowerCase().includes('duplicate key') || (createErr.message || '').toLowerCase().includes('users_email_partial_key');
+            const msg = dup ? 'Email already in use by another account' : createErr.message;
+            console.error('Error creating auth user:', createErr);
+            return new Response(JSON.stringify({ error: msg }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+          }
+          console.log('Auth user created successfully with profile email');
         } else {
-          console.log('Cannot create auth user without email and password; skipping auth creation and proceeding with profile update');
-          // Do not block profile updates if password not provided
-          // Admin can set a password later to enable login
+          console.log('Cannot create auth user without password; skipping auth creation and proceeding with profile update');
         }
       } else {
         // Auth user exists, update it
         console.log('Updating existing auth user');
-        const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(target_user_id, {
-          ...(emailInput ? { email: emailInput } : {}),
-          ...(passwordInput ? { password: passwordInput } : {}),
-          ...(fullNameInput || nicknameInput
-            ? { user_metadata: { ...(fullNameInput ? { full_name: fullNameInput } : {}), ...(nicknameInput ? { username: nicknameInput } : {}) } }
-            : {}),
-        });
+        const updateData: any = {};
+        
+        if (emailInput) {
+          updateData.email = emailInput;
+        }
+        
+        if (passwordInput) {
+          updateData.password = passwordInput;
+        }
+        
+        if (fullNameInput || nicknameInput) {
+          updateData.user_metadata = {
+            ...(authUserRes.user.user_metadata || {}),
+            ...(fullNameInput ? { full_name: fullNameInput } : {}),
+            ...(nicknameInput ? { username: nicknameInput } : {}),
+          };
+        }
+
+        const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(target_user_id, updateData);
 
         if (updateErr) {
           const dup = (updateErr.message || '').toLowerCase().includes('duplicate key') || (updateErr.message || '').toLowerCase().includes('users_email_partial_key');
