@@ -65,7 +65,7 @@ export function Header() {
             <img
               src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
               alt="RD Hotels Logo"
-              className="h-12 sm:h-10 w-auto object-contain"
+              className="h-16 sm:h-14 w-auto object-contain"
             />
             <div className="hidden sm:flex flex-col">
               <span className="text-base font-semibold tracking-tight">RD Hotels</span>

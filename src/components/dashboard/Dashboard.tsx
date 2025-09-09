@@ -278,46 +278,46 @@ export function Dashboard() {
               </TabsTrigger>
             </TabsList>
           ) : profile?.role === 'maintenance' ? (
-            <TabsList className="grid w-full max-w-md grid-cols-2 h-10 sm:h-12">
-              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+            <TabsList className="flex w-full overflow-x-auto scrollbar-hide gap-1 p-1 h-12">
+              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Ticket className="h-4 w-4" />
                 <span>{t('dashboard.tickets')}</span>
               </TabsTrigger>
-              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
+              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Clock className="h-4 w-4" />
                 <span>Work Status</span>
               </TabsTrigger>
             </TabsList>
           ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
-            <TabsList className="grid w-full max-w-md grid-cols-4 h-10 sm:h-12">
-              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+            <TabsList className="flex w-full overflow-x-auto scrollbar-hide gap-1 p-1 h-12">
+              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Ticket className="h-4 w-4" />
                 <span>{t('dashboard.tickets')}</span>
               </TabsTrigger>
-              <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
+              <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Home className="h-4 w-4" />
                 <span>{t('dashboard.rooms')}</span>
               </TabsTrigger>
-              <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm">
+              <TabsTrigger value="housekeeping" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Users className="h-4 w-4" />
                 <span>Housekeeping</span>
               </TabsTrigger>
-              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
+              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Clock className="h-4 w-4" />
                 <span>Work Status</span>
               </TabsTrigger>
             </TabsList>
           ) : (
-            <TabsList className="grid w-full max-w-md grid-cols-3 h-10 sm:h-12">
-              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm">
+            <TabsList className="flex w-full overflow-x-auto scrollbar-hide gap-1 p-1 h-12">
+              <TabsTrigger value="tickets" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Ticket className="h-4 w-4" />
                 <span>{t('dashboard.tickets')}</span>
               </TabsTrigger>
-              <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm">
+              <TabsTrigger value="rooms" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Home className="h-4 w-4" />
                 <span>{t('dashboard.rooms')}</span>
               </TabsTrigger>
-              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm">
+              <TabsTrigger value="attendance" className="flex items-center gap-2 text-sm whitespace-nowrap px-4 py-2 rounded-full">
                 <Clock className="h-4 w-4" />
                 <span>Work Status</span>
               </TabsTrigger>
