@@ -74,9 +74,10 @@ serve(async (req) => {
 
     console.log(`Admin ${userData.user.id} requested delete for ${target_user_id}`);
 
-    // 1) Run DB cleanup (uses our RPC to keep logic centralized)
-    const { data: rpcRes, error: rpcErr } = await admin.rpc("delete_user_profile", {
+    // 1) Run DB cleanup using v2 function with reassignment
+    const { data: rpcRes, error: rpcErr } = await admin.rpc("delete_user_profile_v2", {
       p_user_id: target_user_id,
+      p_reassign_to: userData.user.id, // Reassign tickets to current admin
     });
 
     if (rpcErr) {

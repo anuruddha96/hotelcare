@@ -946,6 +946,10 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: Json
       }
+      delete_user_profile_v2: {
+        Args: { p_reassign_to: string; p_user_id: string }
+        Returns: Json
+      }
       generate_ticket_number: {
         Args: Record<PropertyKey, never>
         Returns: string
