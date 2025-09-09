@@ -275,15 +275,6 @@ const translations = {
     'supervisor.chooseHousekeeper': 'Choose a housekeeper...',
     'supervisor.confirmReassign': 'Reassign Room',
     'supervisor.roomMarkedClean': 'Room has been marked as clean and ready!',
-    // Notifications
-    'notifications.newAssignment': 'You have a new room assignment!',
-    'notifications.newAssignmentTitle': 'New Assignment',
-    'notifications.newCompletion': 'A task has been completed and needs approval',
-    'notifications.newBreakRequest': 'New break request submitted',
-    'notifications.newBreakRequestTitle': 'Break Request',
-    'notifications.breakRequestApproved': 'Your break request has been approved',
-    'notifications.breakRequestRejected': 'Your break request has been rejected',
-    'notifications.breakRequestTitle': 'Break Request Update',
   },
   
   hu: {
@@ -561,16 +552,6 @@ const translations = {
     'supervisor.chooseHousekeeper': 'Válasszon egy takarítót...',
     'supervisor.confirmReassign': 'Szoba újraosztása',
     'supervisor.roomMarkedClean': 'A szoba tisztára lett jelölve és kész!',
-    
-    // Értesítések
-    'notifications.newAssignment': 'Új szobabeosztást kapott!',
-    'notifications.newAssignmentTitle': 'Új feladat',
-    'notifications.newCompletion': 'Egy feladat befejeződött és jóváhagyásra vár',
-    'notifications.newBreakRequest': 'Új szünet kérelem érkezett',
-    'notifications.newBreakRequestTitle': 'Szünet kérelem',
-    'notifications.breakRequestApproved': 'A szünet kérelmed jóváhagyásra került',
-    'notifications.breakRequestRejected': 'A szünet kérelmed elutasításra került',
-    'notifications.breakRequestTitle': 'Szünet kérelem frissítés',
   },
   
   es: {
