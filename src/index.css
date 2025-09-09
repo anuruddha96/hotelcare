@@ -191,4 +191,14 @@ All colors MUST be HSL.
   .mobile-gap-md {
     gap: 0.75rem;
   }
+
+  /* Hide scrollbars */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }

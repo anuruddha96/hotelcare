@@ -75,6 +75,11 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
     return roomType.charAt(0).toUpperCase() + roomType.slice(1);
   };
 
+  const getFloorDisplay = (floorNumber?: number) => {
+    if (floorNumber === undefined || floorNumber === null) return '';
+    return `F${floorNumber}`;
+  };
+
   const getMinibarValue = () => {
     if (!room.minibar_usage || room.minibar_usage.length === 0) return 0;
     return room.minibar_usage.reduce((total, usage) => 
@@ -102,13 +107,13 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
       onClick={onClick}
     >
       <CardContent className="p-4">
-        {/* Header with room number and status */}
+        {/* Header with room number and floor */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="text-xl font-bold text-primary">{room.room_number}</span>
-            {room.floor_number && (
+            {room.floor_number !== undefined && room.floor_number !== null && (
               <Badge variant="secondary" className="text-xs">
-                Floor {room.floor_number}
+                {getFloorDisplay(room.floor_number)}
               </Badge>
             )}
           </div>
@@ -123,7 +128,7 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
         {/* Room details */}
         <div className="space-y-2 mb-3">
           {room.room_name && (
-            <div className="font-medium text-sm text-foreground">{room.room_name}</div>
+            <div className="font-medium text-sm text-foreground truncate">{room.room_name}</div>
           )}
           
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -137,11 +142,6 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
                 <span>{getBedTypeDisplay(room.bed_type)}</span>
               </div>
             )}
-          </div>
-
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <MapPin className="h-3 w-3" />
-            <span>{room.hotel}</span>
           </div>
         </div>
 

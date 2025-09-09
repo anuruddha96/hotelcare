@@ -76,76 +76,78 @@ export function Header() {
           </div>
         </div>
         
-        <div className="flex items-center gap-2 sm:gap-4">
-          <LanguageSwitcher />
-          
-          {(profile?.role === 'admin' || profile?.role === 'manager') && (
-            <>
-              <ReportsDialog />
-              <UserManagementDialog 
-                open={false}
-                onOpenChange={() => {}}
-              />
-            </>
-          )}
-          
-          {profile && (
-            <div className="flex flex-col items-end gap-1">
-              <Badge 
-                variant="secondary" 
-                className="text-xs sm:text-sm hidden sm:inline-flex"
-              >
-                {getRoleLabel(profile.role)}
-              </Badge>
-              {profile.assigned_hotel && (
-                <span className="text-xs text-muted-foreground hidden sm:inline">
-                  {profile.assigned_hotel}
-                </span>
-              )}
-            </div>
-          )}
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                <Avatar className="h-10 w-10">
-                  <AvatarImage src={profile?.profile_picture_url || ''} />
-                  <AvatarFallback>
-                    {((profile?.nickname || profile?.full_name || user?.email || 'U').charAt(0) || 'U').toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-48 sm:w-56" align="end">
-              <div className="flex items-center justify-start gap-2 p-2">
-                <div className="flex flex-col space-y-1 leading-none">
-                  <p className="font-medium text-sm">
-                    {profile?.nickname || profile?.full_name}
-                  </p>
-                  <p className="w-[160px] sm:w-[200px] truncate text-xs text-muted-foreground">
-                    {profile?.email}
-                  </p>
-                  <p className="text-xs text-muted-foreground sm:hidden">
-                    {profile && getRoleLabel(profile.role)}
-                  </p>
-                </div>
+        <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+            <LanguageSwitcher />
+            
+            {(profile?.role === 'admin' || profile?.role === 'manager') && (
+              <>
+                <ReportsDialog />
+                <UserManagementDialog 
+                  open={false}
+                  onOpenChange={() => {}}
+                />
+              </>
+            )}
+            
+            {profile && (
+              <div className="flex flex-col items-end gap-1">
+                <Badge 
+                  variant="secondary" 
+                  className="text-xs sm:text-sm hidden sm:inline-flex"
+                >
+                  {getRoleLabel(profile.role)}
+                </Badge>
+                {profile.assigned_hotel && (
+                  <span className="text-xs text-muted-foreground hidden sm:inline">
+                    {profile.assigned_hotel}
+                  </span>
+                )}
               </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setProfileDialogOpen(true)}>
-                <User className="mr-2 h-4 w-4" />
-                {t('common.profile')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}>
-                <Settings className="mr-2 h-4 w-4" />
-                {t('common.settings')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => signOut()}>
-                <LogOut className="mr-2 h-4 w-4" />
-                {t('common.logout')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            )}
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="relative h-10 w-10 rounded-full shrink-0">
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={profile?.profile_picture_url || ''} />
+                    <AvatarFallback>
+                      {((profile?.nickname || profile?.full_name || user?.email || 'U').charAt(0) || 'U').toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-48 sm:w-56" align="end">
+                <div className="flex items-center justify-start gap-2 p-2">
+                  <div className="flex flex-col space-y-1 leading-none">
+                    <p className="font-medium text-sm">
+                      {profile?.nickname || profile?.full_name}
+                    </p>
+                    <p className="w-[160px] sm:w-[200px] truncate text-xs text-muted-foreground">
+                      {profile?.email}
+                    </p>
+                    <p className="text-xs text-muted-foreground sm:hidden">
+                      {profile && getRoleLabel(profile.role)}
+                    </p>
+                  </div>
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setProfileDialogOpen(true)}>
+                  <User className="mr-2 h-4 w-4" />
+                  {t('common.profile')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSettingsDialogOpen(true)}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  {t('common.settings')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => signOut()}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  {t('common.logout')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
       
