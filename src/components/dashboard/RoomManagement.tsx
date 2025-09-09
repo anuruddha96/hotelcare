@@ -15,7 +15,7 @@ import { MinimBarManagement } from './MinimBarManagement';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
 import { CompactRoomCard } from './CompactRoomCard';
 import { OrganizedRoomCard } from './OrganizedRoomCard';
-import { ModernRoomCard } from './ModernRoomCard';
+import { EnhancedRoomCard } from './EnhancedRoomCard';
 import { RoomStatusOverview } from './RoomStatusOverview';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { BulkRoomCreation } from './BulkRoomCreation';
@@ -601,11 +601,11 @@ export function RoomManagement() {
                     </div>
                  <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                         {groupedRooms[hotel].map((room) => (
-                          <ModernRoomCard 
-                            key={room.id} 
-                            room={room} 
-                            onClick={() => handleRoomClick(room)}
-                          />
+                           <EnhancedRoomCard 
+                             key={room.id} 
+                             room={room} 
+                             onClick={() => handleRoomClick(room)}
+                           />
                         ))}
                      </div>
                   </div>
@@ -613,11 +613,11 @@ export function RoomManagement() {
               : (
                      <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                     {finalFilteredRooms.map((room) => (
-                      <ModernRoomCard 
-                        key={room.id} 
-                        room={room} 
-                        onClick={() => handleRoomClick(room)}
-                      />
+                       <EnhancedRoomCard 
+                         key={room.id} 
+                         room={room} 
+                         onClick={() => handleRoomClick(room)}
+                       />
                     ))}
                  </div>
               )
