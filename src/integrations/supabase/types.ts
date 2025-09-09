@@ -384,6 +384,7 @@ export type Database = {
           expires_at: string | null
           id: string
           otp_code: string
+          phone_number: string | null
           used: boolean | null
           verified: boolean | null
         }
@@ -393,6 +394,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           otp_code: string
+          phone_number?: string | null
           used?: boolean | null
           verified?: boolean | null
         }
@@ -402,6 +404,7 @@ export type Database = {
           expires_at?: string | null
           id?: string
           otp_code?: string
+          phone_number?: string | null
           used?: boolean | null
           verified?: boolean | null
         }

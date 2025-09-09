@@ -71,3 +71,9 @@ verify_jwt = false
 
 [functions.verify-otp-reset-password]
 verify_jwt = false
+
+[functions.send-sms-otp]
+verify_jwt = false
+
+[functions.generate-login-link]
+verify_jwt = false
