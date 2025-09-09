@@ -227,10 +227,21 @@ export const AttendanceTracker = () => {
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {location && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4" />
-            <span className="truncate">{location.address}</span>
+        {location ? (
+          <div className="flex items-center gap-2 p-3 bg-primary/5 rounded-lg border">
+            <MapPin className="h-4 w-4 text-primary" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">Current Location</p>
+              <p className="text-xs text-muted-foreground truncate">{location.address}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg border border-dashed">
+            <MapPin className="h-4 w-4 text-muted-foreground animate-pulse" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">Getting your location...</p>
+              <p className="text-xs text-muted-foreground">Please allow GPS access for accurate attendance tracking</p>
+            </div>
           </div>
         )}
 
