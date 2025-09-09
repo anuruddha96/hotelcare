@@ -65,9 +65,9 @@ export function Header() {
             <img
               src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
               alt="RD Hotels Logo"
-              className="h-10 sm:h-14 w-auto object-contain"
+              className="h-8 sm:h-14 w-auto max-w-[120px] sm:max-w-none object-contain"
             />
-            <div className="flex flex-col min-w-0">
+            <div className="hidden sm:flex flex-col min-w-0">
               <span className="text-sm sm:text-base font-semibold tracking-tight text-foreground">RD Hotels</span>
               <span className="text-xs text-muted-foreground truncate">
                 {profile?.assigned_hotel || 'Hotel Care Hub'}

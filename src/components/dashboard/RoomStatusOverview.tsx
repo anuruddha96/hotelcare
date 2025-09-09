@@ -83,42 +83,42 @@ export function RoomStatusOverview({ statusData, onStatusClick, activeFilter }: 
             <Card
               key={status.key}
               className={`
-                cursor-pointer transition-all duration-300 border-2
+                cursor-pointer transition-all duration-300 border-2 aspect-square
                 ${status.bgColor} ${status.borderColor} ${status.hoverColor}
                 hover:shadow-lg hover:scale-[1.02] active:scale-95
                 ${isActive ? 'ring-2 ring-primary shadow-lg scale-[1.02]' : ''}
               `}
               onClick={() => onStatusClick(status.key)}
             >
-              <CardContent className="p-4 sm:p-6">
-                <div className="flex flex-col space-y-3">
+              <CardContent className="p-3 sm:p-4 flex flex-col justify-between h-full">
+                <div className="flex flex-col space-y-2">
                   {/* Icon */}
                   <div className={`
-                    w-12 h-12 rounded-xl flex items-center justify-center
+                    w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center
                     ${status.iconBg} ${status.iconColor}
                   `}>
-                    <Icon className="h-6 w-6" />
+                    <Icon className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   
                   {/* Content */}
                   <div className="space-y-1">
-                    <h4 className="font-semibold text-lg text-foreground leading-tight">
+                    <h4 className="font-semibold text-sm sm:text-lg text-foreground leading-tight">
                       {status.title}
                     </h4>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-xs sm:text-sm text-muted-foreground">
                       {status.subtitle}
                     </p>
                   </div>
-                  
-                  {/* Count */}
-                  <div className="flex items-end justify-between">
-                    <span className="text-3xl font-bold text-foreground">
-                      {status.count}
-                    </span>
-                    <span className="text-sm text-muted-foreground font-medium">
-                      rooms
-                    </span>
-                  </div>
+                </div>
+                
+                {/* Count */}
+                <div className="flex items-end justify-between mt-auto">
+                  <span className="text-2xl sm:text-3xl font-bold text-foreground">
+                    {status.count}
+                  </span>
+                  <span className="text-xs sm:text-sm text-muted-foreground font-medium">
+                    rooms
+                  </span>
                 </div>
               </CardContent>
             </Card>

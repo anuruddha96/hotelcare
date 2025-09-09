@@ -9,7 +9,6 @@ import {
   Wrench, 
   XCircle,
   Clock,
-  Users,
   AlertCircle,
   Euro,
   Bed,
@@ -150,7 +149,7 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
                 {room.room_number}
               </h3>
               {room.floor_number && (
-                <span className="text-xs text-muted-foreground">Floor {room.floor_number}</span>
+                <span className="text-xs text-muted-foreground">FL - {room.floor_number}</span>
               )}
             </div>
           </div>
@@ -192,12 +191,6 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
               <Badge variant="secondary" className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 border-blue-200 leading-none">
                 Checkout Room
               </Badge>
-            )}
-            {room.guest_count && room.guest_count > 0 && (
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Users className="h-3 w-3" />
-                <span>{room.guest_count}</span>
-              </div>
             )}
             {openTicketsCount > 0 && (
               <div className="flex items-center gap-1 text-xs text-red-600">
