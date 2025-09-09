@@ -14,6 +14,7 @@ import { HotelFilter } from './HotelFilter';
 import { MinimBarManagement } from './MinimBarManagement';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
 import { CompactRoomCard } from './CompactRoomCard';
+import { OrganizedRoomCard } from './OrganizedRoomCard';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { BulkRoomCreation } from './BulkRoomCreation';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -385,43 +386,43 @@ export function RoomManagement() {
         }}
       >
         {/* Header */}
-        <div className="flex flex-col gap-4 items-start">
-          <div>
-            <h2 className="text-2xl font-bold text-foreground">{t('rooms.title')}</h2>
-            <p className="text-muted-foreground">{t('rooms.subtitle')}</p>
-            {profile?.assigned_hotel && !['admin', 'top_management'].includes(profile.role || '') && (
-              <div className="mt-2 flex items-center gap-2 px-4 py-2 bg-primary/15 border border-primary/30 rounded-full shadow-sm">
-                <MapPin className="h-4 w-4 text-primary" />
-                <span className="text-sm sm:text-base font-semibold text-primary">{profile.assigned_hotel}</span>
-              </div>
-            )}
-          </div>
-          
-          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+        <div className="bg-card rounded-lg border shadow-sm p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-2xl font-bold text-foreground">{t('rooms.title')}</h2>
+              <p className="text-muted-foreground">{t('rooms.subtitle')}</p>
+              {profile?.assigned_hotel && !['admin', 'top_management'].includes(profile.role || '') && (
+                <div className="mt-2 flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-md">
+                  <MapPin className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium text-primary">{profile.assigned_hotel}</span>
+                </div>
+              )}
+            </div>
+            
             {isAdmin && (
-              <>
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   onClick={() => setMinibarDialogOpen(true)}
-                  className="flex-1 sm:flex-initial"
+                  className="flex items-center gap-2"
                 >
-                  <Settings className="h-4 w-4 mr-2" />
+                  <Settings className="h-4 w-4" />
                   <span className="hidden sm:inline">{t('rooms.minibarSettings')}</span>
                   <span className="sm:hidden">Minibar</span>
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => setBulkCreateDialogOpen(true)}
-                  className="flex-1 sm:flex-initial"
+                  className="flex items-center gap-2"
                 >
-                  <Upload className="h-4 w-4 mr-2" />
+                  <Upload className="h-4 w-4" />
                   <span className="hidden sm:inline">Bulk Add Rooms</span>
                   <span className="sm:hidden">Bulk Add</span>
                 </Button>
                 <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button className="flex-1 sm:flex-initial">
-                      <Plus className="h-4 w-4 mr-2" />
+                    <Button className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
                       <span className="hidden sm:inline">{t('rooms.addRoom')}</span>
                       <span className="sm:hidden">Add Room</span>
                     </Button>
@@ -518,79 +519,98 @@ export function RoomManagement() {
                     </div>
                   </DialogContent>
                 </Dialog>
-              </>
+              </div>
             )}
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          <div className="flex-1">
-            <Input
-              placeholder="Search by room number or hotel..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full"
+        {/* Filters */}
+        <div className="bg-card rounded-lg border shadow-sm p-4">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex-1">
+              <Input
+                placeholder="Search by room number or hotel..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            <HotelFilter 
+              value={selectedHotel}
+              onValueChange={setSelectedHotel}
             />
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent className="bg-white">
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="clean">Clean</SelectItem>
+                <SelectItem value="dirty">Dirty</SelectItem>
+                <SelectItem value="maintenance">Maintenance</SelectItem>
+                <SelectItem value="out_of_order">Out of Order</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={roomTypeFilter} onValueChange={(value: 'all' | 'checkout' | 'daily') => setRoomTypeFilter(value)}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="Room Type" />
+              </SelectTrigger>
+              <SelectContent className="bg-white">
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="checkout">Checkout Rooms</SelectItem>
+                <SelectItem value="daily">Daily Cleaning Rooms</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <HotelFilter 
-            value={selectedHotel}
-            onValueChange={setSelectedHotel}
-          />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="All Status" />
-            </SelectTrigger>
-            <SelectContent className="bg-white">
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="clean">Clean</SelectItem>
-              <SelectItem value="dirty">Dirty</SelectItem>
-              <SelectItem value="maintenance">Maintenance</SelectItem>
-              <SelectItem value="out_of_order">Out of Order</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={roomTypeFilter} onValueChange={(value: 'all' | 'checkout' | 'daily') => setRoomTypeFilter(value)}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="Room Type" />
-            </SelectTrigger>
-            <SelectContent className="bg-white">
-              <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="checkout">Checkout Rooms</SelectItem>
-              <SelectItem value="daily">Daily Cleaning Rooms</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
 
         {/* Room Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-card rounded-lg border shadow-sm p-4">
+          <h3 className="text-lg font-semibold text-foreground mb-4">Room Status Overview</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
             const count = rooms.filter(r => r.status === status).length;
             const isActive = activeStatusFilter === status;
             return (
               <Card 
                 key={status} 
-                className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+                className={`cursor-pointer transition-all duration-300 ${
                   isActive 
-                    ? 'ring-2 ring-primary bg-primary/10 shadow-lg border-primary' 
-                    : 'hover:bg-muted/20 hover:shadow-md'
+                    ? 'ring-2 ring-primary bg-gradient-to-br from-primary/10 to-primary/5 shadow-lg border-primary scale-105' 
+                    : 'hover:bg-gradient-to-br hover:from-muted/30 hover:to-muted/10 hover:shadow-md hover:scale-102'
                 }`}
                 onClick={() => handleStatusFilterClick(status)}
               >
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2">
-                    {getStatusIcon(status)}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs sm:text-sm text-muted-foreground capitalize truncate">
-                        {getStatusDisplayName(status)}
-                      </p>
-                      <p className={`text-xl sm:text-2xl font-bold ${isActive ? 'text-primary' : ''}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-full ${getStatusColor(status).split(' ')[0]} ${getStatusColor(status).split(' ')[2]}`}>
+                        {getStatusIcon(status)}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground capitalize">
+                          {getStatusDisplayName(status)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {status === 'clean' && 'Ready rooms'}
+                          {status === 'dirty' && 'Need cleaning'}
+                          {status === 'maintenance' && 'Under repair'}
+                          {status === 'out_of_order' && 'Not available'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>
                         {count}
                       </p>
+                      <p className="text-xs text-muted-foreground">rooms</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             );
-          })}
+            })}
+          </div>
         </div>
 
         {/* Rooms by Hotel */}
@@ -617,48 +637,32 @@ export function RoomManagement() {
                      <div className={`grid gap-3 ${
                        isMobile 
                          ? 'grid-cols-2 sm:grid-cols-3' 
-                         : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+                         : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'
                      }`}>
                        {groupedRooms[hotel].map((room) => (
-                         isMobile ? (
-                           <CompactRoomCard 
-                             key={room.id} 
-                             room={room} 
-                             onClick={() => handleRoomClick(room)}
-                           />
-                         ) : (
-                           <EnhancedRoomCardV2 
-                             key={room.id} 
-                             room={room} 
-                             onClick={() => handleRoomClick(room)}
-                           />
-                         )
+                         <OrganizedRoomCard 
+                           key={room.id} 
+                           room={room} 
+                           onClick={() => handleRoomClick(room)}
+                         />
                        ))}
                      </div>
                   </div>
                 ))
               : (
-                <div className={`grid gap-3 ${
-                  isMobile 
-                    ? 'grid-cols-2 sm:grid-cols-3' 
-                    : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-                }`}>
-                  {finalFilteredRooms.map((room) => (
-                    isMobile ? (
-                      <CompactRoomCard 
-                        key={room.id} 
-                        room={room} 
-                        onClick={() => handleRoomClick(room)}
-                      />
-                    ) : (
-                      <EnhancedRoomCardV2 
-                        key={room.id} 
-                        room={room} 
-                        onClick={() => handleRoomClick(room)}
-                      />
-                    )
-                  ))}
-                </div>
+                 <div className={`grid gap-3 ${
+                   isMobile 
+                     ? 'grid-cols-2 sm:grid-cols-3' 
+                     : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6'
+                 }`}>
+                   {finalFilteredRooms.map((room) => (
+                     <OrganizedRoomCard 
+                       key={room.id} 
+                       room={room} 
+                       onClick={() => handleRoomClick(room)}
+                     />
+                   ))}
+                 </div>
               )
             }
           </div>
