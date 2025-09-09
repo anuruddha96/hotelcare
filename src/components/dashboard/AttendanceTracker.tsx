@@ -459,14 +459,45 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
               rows={3}
             />
 
-            <Button
-              onClick={handleCheckIn}
-              className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 transition-all duration-300 hover:scale-105 text-white font-semibold py-3"
-              disabled={isLoading || !location}
-            >
-              <LogIn className="h-4 w-4 mr-2" />
-              🌟 Start Your Amazing Day! 🌟
-            </Button>
+            {/* Scrollable Check-in Card */}
+            <div className="relative overflow-hidden rounded-lg border bg-gradient-to-r from-green-50 to-blue-50 border-green-200">
+              <div 
+                className="flex overflow-x-auto scrollbar-hide space-x-4 p-4"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              >
+                <div className="flex-shrink-0 flex items-center space-x-4 min-w-max">
+                  <div className="text-2xl">🌅</div>
+                  <div>
+                    <p className="font-medium text-green-800">Ready to start?</p>
+                    <p className="text-sm text-green-600">Swipe right to check in →</p>
+                  </div>
+                </div>
+                
+                <div className="flex-shrink-0 flex items-center space-x-4 min-w-max">
+                  <div className="text-2xl">⏰</div>
+                  <div>
+                    <p className="font-medium text-blue-800">Perfect timing!</p>
+                    <p className="text-sm text-blue-600">Your shift begins now →</p>
+                  </div>
+                </div>
+                
+                <div className="flex-shrink-0 flex items-center space-x-4 min-w-max">
+                  <Button
+                    onClick={handleCheckIn}
+                    className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold px-6 py-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
+                    disabled={isLoading || !location}
+                  >
+                    <LogIn className="h-5 w-5 mr-2" />
+                    🌟 Start Your Amazing Day! 🌟
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Scroll indicator */}
+              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-green-600 animate-bounce">
+                <div className="text-xl">→</div>
+              </div>
+            </div>
 
             {!location && (
               <div className="text-xs text-muted-foreground text-center">

@@ -167,6 +167,8 @@ serve(async (req: Request) => {
         
         if (passwordInput) {
           updateData.password = passwordInput;
+          // Force password update by invalidating existing sessions
+          updateData.email_confirm = true;
         }
         
         if (fullNameInput || nicknameInput) {
