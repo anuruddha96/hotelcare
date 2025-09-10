@@ -13,6 +13,8 @@ import { Users, Plus, Calendar, CheckCircle, Trash2 } from 'lucide-react';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
 import { CompactRoomCard } from './CompactRoomCard';
 import { RoomAssignmentDialog } from './RoomAssignmentDialog';
+import { WorkingRoomDetailDialog } from './WorkingRoomDetailDialog';
+import { PendingRoomsDialog } from './PendingRoomsDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
@@ -53,6 +55,9 @@ export function HousekeepingManagerView() {
   const [selectedAssignments, setSelectedAssignments] = useState<string[]>([]);
   const [roomAssignments, setRoomAssignments] = useState<RoomAssignment[]>([]);
   const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
+  const [workingRoomDialogOpen, setWorkingRoomDialogOpen] = useState(false);
+  const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
+  const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     fetchHousekeepingStaff();
@@ -354,13 +359,35 @@ export function HousekeepingManagerView() {
                         <p className="text-lg font-semibold text-green-600">{assignment.completed}</p>
                         <p className="text-xs text-muted-foreground">{t('team.done')}</p>
                       </div>
-                      <div>
+                      <div 
+                        className="cursor-pointer hover:bg-blue-50 rounded p-1 transition-colors"
+                        onClick={() => {
+                          if (assignment.in_progress > 0) {
+                            setSelectedStaff({ id: staff.id, name: staff.full_name });
+                            setWorkingRoomDialogOpen(true);
+                          }
+                        }}
+                      >
                         <p className="text-lg font-semibold text-blue-600">{assignment.in_progress}</p>
                         <p className="text-xs text-muted-foreground">{t('team.working')}</p>
+                        {assignment.in_progress > 0 && (
+                          <p className="text-xs text-blue-600 font-medium">{t('team.clickToView')}</p>
+                        )}
                       </div>
-                      <div>
+                      <div 
+                        className="cursor-pointer hover:bg-orange-50 rounded p-1 transition-colors"
+                        onClick={() => {
+                          if (assignment.pending > 0) {
+                            setSelectedStaff({ id: staff.id, name: staff.full_name });
+                            setPendingRoomsDialogOpen(true);
+                          }
+                        }}
+                      >
                         <p className="text-lg font-semibold text-orange-600">{assignment.pending}</p>
                         <p className="text-xs text-muted-foreground">{t('team.pending')}</p>
+                        {assignment.pending > 0 && (
+                          <p className="text-xs text-orange-600 font-medium">{t('team.clickToView')}</p>
+                        )}
                       </div>
                     </div>
                   </>
@@ -459,6 +486,28 @@ export function HousekeepingManagerView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Working Room Detail Dialog */}
+      {selectedStaff && (
+        <WorkingRoomDetailDialog
+          open={workingRoomDialogOpen}
+          onOpenChange={setWorkingRoomDialogOpen}
+          staffId={selectedStaff.id}
+          staffName={selectedStaff.name}
+          selectedDate={selectedDate}
+        />
+      )}
+
+      {/* Pending Rooms Dialog */}
+      {selectedStaff && (
+        <PendingRoomsDialog
+          open={pendingRoomsDialogOpen}
+          onOpenChange={setPendingRoomsDialogOpen}
+          staffId={selectedStaff.id}
+          staffName={selectedStaff.name}
+          selectedDate={selectedDate}
+        />
+      )}
     </div>
   );
 }

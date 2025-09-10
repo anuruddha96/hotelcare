@@ -324,6 +324,7 @@ const translations = {
     'team.done': 'Done',
     'team.working': 'Working',
     'team.pending': 'Pending',
+    'team.clickToView': 'Click to view',
     'team.progress': 'Progress',
     'team.summary': 'Team Summary for',
     'team.bulkUnassign': 'Bulk Unassign',
@@ -333,6 +334,36 @@ const translations = {
     'team.confirmUnassign': 'Are you sure you want to unassign the selected rooms?',
     'team.unassignSuccess': 'Successfully unassigned {count} rooms',
     'team.unassignError': 'Failed to unassign rooms',
+    
+    // Manager Actions
+    'manager.workingRoomDetails': 'Working Room Details',
+    'manager.pendingRooms': 'Pending Rooms',
+    'manager.roomsPending': 'rooms pending',
+    'manager.timeElapsed': 'Time elapsed',
+    'manager.startedAt': 'Started at',
+    'manager.readyToClean': 'Ready to clean',
+    'manager.waitingCheckout': 'Waiting for checkout',
+    'manager.waitingGuestCheckout': 'Waiting for guest checkout',
+    'manager.markReadyWhenGuestLeaves': 'Mark as ready when guest actually leaves',
+    'manager.markReadyToClean': 'Mark Ready to Clean',
+    'manager.markReady': 'Mark Ready',
+    'manager.roomMarkedReady': 'Room marked as ready to clean',
+    'manager.roomReadyForCleaning': 'Room is ready for cleaning',
+    'manager.noActiveWork': 'No Active Work',
+    'manager.notCurrentlyWorking': 'is not currently working on any room',
+    'manager.noPendingRooms': 'No Pending Rooms',
+    'manager.hasNoWaitingTasks': 'has no waiting tasks for today',
+    'manager.overdue': 'Overdue',
+    'manager.atRisk': 'At Risk',
+    'manager.onTrack': 'On Track',
+
+    // Priority
+    'priority.high': 'High Priority',
+    'priority.medium': 'Medium Priority',
+    'priority.low': 'Low Priority',
+
+    // Assignment
+    'assignment.dailyCleaningRoom': 'Daily Cleaning Room',
     
     // Supervisor
     'supervisor.pendingApprovals': 'Pending Approvals',
@@ -620,6 +651,7 @@ const translations = {
     'team.done': 'Kész',
     'team.working': 'Dolgozik',
     'team.pending': 'Várakozik',
+    'team.clickToView': 'Kattintson a megtekintéshez',
     'team.progress': 'Előrehaladás',
     'team.summary': 'Csapat összefoglaló:',
     'team.bulkUnassign': 'Tömeges eltávolítás',
@@ -629,6 +661,36 @@ const translations = {
     'team.confirmUnassign': 'Biztosan el szeretné távolítani a kiválasztott szobákat?',
     'team.unassignSuccess': 'Sikeresen eltávolított {count} szobát',
     'team.unassignError': 'Nem sikerült eltávolítani a szobákat',
+    
+    // Manager Actions
+    'manager.workingRoomDetails': 'Munkában lévő szoba részletei',
+    'manager.pendingRooms': 'Függő szobák',
+    'manager.roomsPending': 'szoba vár',
+    'manager.timeElapsed': 'Eltelt idő',
+    'manager.startedAt': 'Elkezdve',
+    'manager.readyToClean': 'Takarításra kész',
+    'manager.waitingCheckout': 'Kijelentkezésre vár',
+    'manager.waitingGuestCheckout': 'Vendég kijelentkezésre vár',
+    'manager.markReadyWhenGuestLeaves': 'Jelölje meg készen, amikor a vendég elmegy',
+    'manager.markReadyToClean': 'Takarításra késznek jelölés',
+    'manager.markReady': 'Késznek jelölés',
+    'manager.roomMarkedReady': 'Szoba takarításra késznek jelölve',
+    'manager.roomReadyForCleaning': 'A szoba takarításra kész',
+    'manager.noActiveWork': 'Nincs aktív munka',
+    'manager.notCurrentlyWorking': 'jelenleg nem dolgozik szobán',
+    'manager.noPendingRooms': 'Nincsenek függő szobák',
+    'manager.hasNoWaitingTasks': 'nincs várakozó feladata ma',
+    'manager.overdue': 'Késésben',
+    'manager.atRisk': 'Veszélyben',
+    'manager.onTrack': 'Jól halad',
+
+    // Priority
+    'priority.high': 'Magas prioritás',
+    'priority.medium': 'Közepes prioritás',
+    'priority.low': 'Alacsony prioritás',
+
+    // Assignment Updates
+    'assignment.dailyCleaningRoom': 'Napi takarítás szoba',
     
     // Supervisor
     'supervisor.pendingApprovals': 'Függőben lévő jóváhagyások',

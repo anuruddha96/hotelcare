@@ -467,6 +467,7 @@ export type Database = {
           id: string
           notes: string | null
           priority: number
+          ready_to_clean: boolean
           room_id: string
           started_at: string | null
           status: Database["public"]["Enums"]["assignment_status"]
@@ -486,6 +487,7 @@ export type Database = {
           id?: string
           notes?: string | null
           priority?: number
+          ready_to_clean?: boolean
           room_id: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["assignment_status"]
@@ -505,6 +507,7 @@ export type Database = {
           id?: string
           notes?: string | null
           priority?: number
+          ready_to_clean?: boolean
           room_id?: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["assignment_status"]
