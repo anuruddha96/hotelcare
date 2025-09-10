@@ -36,13 +36,13 @@ export function useNotifications() {
     return Notification.permission === 'granted';
   }, [user?.id]);
 
-  // Enhanced notification sound with multiple tones
+  // Enhanced attention-grabbing notification sound
   const playNotificationSound = useCallback(() => {
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       
-      // Create a more distinctive notification sound
-      const createTone = (frequency: number, startTime: number, duration: number) => {
+      // Create a more distinctive and attention-grabbing notification sound
+      const createTone = (frequency: number, startTime: number, duration: number, volume = 0.6) => {
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
         
@@ -50,17 +50,18 @@ export function useNotifications() {
         gainNode.connect(audioContext.destination);
         
         oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime + startTime);
-        gainNode.gain.setValueAtTime(0.4, audioContext.currentTime + startTime);
+        gainNode.gain.setValueAtTime(volume, audioContext.currentTime + startTime);
         gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + startTime + duration);
         
         oscillator.start(audioContext.currentTime + startTime);
         oscillator.stop(audioContext.currentTime + startTime + duration);
       };
 
-      // Create a sequence of tones for a more distinctive sound
-      createTone(880, 0, 0.15);      // High note
-      createTone(660, 0.15, 0.15);   // Medium note  
-      createTone(880, 0.3, 0.2);     // High note again
+      // Create an attention-grabbing sequence - more like a phone ring
+      createTone(1000, 0, 0.2, 0.7);      // High attention tone
+      createTone(800, 0.25, 0.2, 0.7);    // Medium tone
+      createTone(1000, 0.5, 0.2, 0.7);    // High again
+      createTone(600, 0.75, 0.3, 0.6);    // Lower ending tone
       
     } catch (error) {
       console.log('Notification sound not supported:', error);
@@ -113,7 +114,7 @@ export function useNotifications() {
     }
   }, [playNotificationSound, showBrowserNotification, notificationPermission, requestNotificationPermission]);
 
-  // Listen for new assignments and break requests
+  // Listen for new assignments, break requests, and pending approvals
   useEffect(() => {
     if (!user?.id) return;
 
@@ -133,6 +134,29 @@ export function useNotifications() {
             'info',
             t('notifications.newAssignmentTitle')
           );
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'room_assignments',
+          filter: 'status=eq.completed'
+        },
+        (payload) => {
+          const newRecord = payload.new as any;
+          const oldRecord = payload.old as any;
+          
+          // Notify managers/supervisors when a task is completed (new pending approval)
+          if (oldRecord.status !== 'completed' && newRecord.status === 'completed' && 
+              (user.role === 'manager' || user.role === 'housekeeping_manager' || user.role === 'admin')) {
+            showNotification(
+              t('notifications.newPendingApproval'),
+              'warning',
+              t('notifications.newPendingApprovalTitle')
+            );
+          }
         }
       )
       .on(
@@ -180,7 +204,7 @@ export function useNotifications() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, showNotification, t]);
+  }, [user?.id, user?.role, showNotification, t]);
 
   return {
     playNotificationSound,

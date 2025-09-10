@@ -29,6 +29,7 @@ interface PendingAssignment {
   estimated_duration: number;
   notes: string;
   completed_at: string;
+  started_at: string | null;
   supervisor_approved: boolean;
   assigned_to: string;
   assignment_date: string;
@@ -151,6 +152,21 @@ export function SupervisorApprovalView() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const calculateDuration = (startTime: string, endTime: string) => {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const diffMs = end.getTime() - start.getTime();
+    const diffMins = Math.round(diffMs / (1000 * 60));
+    
+    const hours = Math.floor(diffMins / 60);
+    const minutes = diffMins % 60;
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
   };
 
   const handleApproval = async (assignmentId: string) => {
@@ -307,7 +323,7 @@ export function SupervisorApprovalView() {
               </CardHeader>
 
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                     <User className="h-5 w-5 text-muted-foreground" />
                     <div>
@@ -330,18 +346,41 @@ export function SupervisorApprovalView() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                    <Clock className="h-5 w-5 text-muted-foreground" />
+                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                    <Clock className="h-5 w-5 text-blue-600" />
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {t('supervisor.completedAt')}
+                      <p className="text-sm font-medium text-blue-700">Started At</p>
+                      <p className="text-lg font-semibold text-blue-800">
+                        {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString() : 'N/A'}
                       </p>
-                      <p className="text-lg font-semibold text-foreground">
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                    <Clock className="h-5 w-5 text-green-600" />
+                    <div>
+                      <p className="text-sm font-medium text-green-700">Completed At</p>
+                      <p className="text-lg font-semibold text-green-800">
                         {new Date(assignment.completed_at).toLocaleTimeString()}
                       </p>
                     </div>
                   </div>
                 </div>
+
+                {assignment.started_at && (
+                  <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Clock className="h-5 w-5 text-amber-600" />
+                      <h4 className="font-semibold text-amber-800">Duration</h4>
+                    </div>
+                    <p className="text-2xl font-bold text-amber-900">
+                      {calculateDuration(assignment.started_at, assignment.completed_at)}
+                    </p>
+                    <p className="text-sm text-amber-700 mt-1">
+                      Total time taken to clean the room
+                    </p>
+                  </div>
+                )}
 
                 {assignment.notes && (
                   <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">

@@ -15,6 +15,7 @@ import { CompactRoomCard } from './CompactRoomCard';
 import { RoomAssignmentDialog } from './RoomAssignmentDialog';
 import { WorkingRoomDetailDialog } from './WorkingRoomDetailDialog';
 import { PendingRoomsDialog } from './PendingRoomsDialog';
+import { DoneRoomsDialog } from './DoneRoomsDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
@@ -57,6 +58,7 @@ export function HousekeepingManagerView() {
   const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
   const [workingRoomDialogOpen, setWorkingRoomDialogOpen] = useState(false);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
+  const [doneRoomsDialogOpen, setDoneRoomsDialogOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
@@ -355,9 +357,20 @@ export function HousekeepingManagerView() {
 
                     {/* Status Breakdown */}
                         <div className="grid grid-cols-3 gap-2 text-center">
-                      <div>
-                        <p className="text-lg font-semibold text-green-600">{assignment.completed}</p>
+                      <div 
+                        className="cursor-pointer hover:bg-green-50 rounded p-1 transition-colors"
+                        onClick={() => {
+                          if (assignment && assignment.completed > 0) {
+                            setSelectedStaff({ id: staff.id, name: staff.full_name });
+                            setDoneRoomsDialogOpen(true);
+                          }
+                        }}
+                      >
+                        <p className="text-lg font-semibold text-green-600">{assignment?.completed || 0}</p>
                         <p className="text-xs text-muted-foreground">{t('team.done')}</p>
+                        {assignment && assignment.completed > 0 && (
+                          <p className="text-xs text-green-600">{t('team.clickToView')}</p>
+                        )}
                       </div>
                       <div 
                         className="cursor-pointer hover:bg-blue-50 rounded p-1 transition-colors"
@@ -503,6 +516,17 @@ export function HousekeepingManagerView() {
         <PendingRoomsDialog
           open={pendingRoomsDialogOpen}
           onOpenChange={setPendingRoomsDialogOpen}
+          staffId={selectedStaff.id}
+          staffName={selectedStaff.name}
+          selectedDate={selectedDate}
+        />
+      )}
+
+      {/* Done Rooms Dialog */}
+      {selectedStaff && (
+        <DoneRoomsDialog
+          open={doneRoomsDialogOpen}
+          onOpenChange={setDoneRoomsDialogOpen}
           staffId={selectedStaff.id}
           staffName={selectedStaff.name}
           selectedDate={selectedDate}

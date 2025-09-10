@@ -203,6 +203,8 @@ const translations = {
     'notifications.breakRequestApproved': 'Your break request has been approved',
     'notifications.breakRequestRejected': 'Your break request has been rejected',
     'notifications.breakRequestTitle': 'Break Request Update',
+    'notifications.newPendingApproval': 'New task pending approval',
+    'notifications.newPendingApprovalTitle': 'Task Completed',
     'pms.title': 'PMS Data Upload',
     'pms.subtitle': 'Upload Excel file from your PMS system to automatically update room statuses and create cleaning assignments',
     'pms.dragDrop': 'Drag & drop your PMS export file here, or click to browse',
@@ -528,6 +530,8 @@ const translations = {
     'notifications.breakRequestApproved': 'A szünet kérelmed jóváhagyásra került',
     'notifications.breakRequestRejected': 'A szünet kérelmed elutasításra került',
     'notifications.breakRequestTitle': 'Szünet kérelem frissítés',
+    'notifications.newPendingApproval': 'Új feladat jóváhagyásra vár',
+    'notifications.newPendingApprovalTitle': 'Feladat befejezve',
     
     // PMS Upload
     'pms.title': 'PMS Adatok Feltöltése',
