@@ -264,25 +264,13 @@ export default function Auth() {
                   </Button>
                 </div>
               </div>
-               {/* Swipe to Sign In */}
-               <SwipeAction
-                 label={isLoading ? t('auth.signingIn') : t('auth.swipeToSignIn')}
-                 onComplete={async () => {
-                   if (isLoading) return;
-                   setIsLoading(true);
-                   const formEl = document.querySelector('form') as HTMLFormElement | null;
-                   const emailOrUsername = (formEl?.querySelector('#signin-email') as HTMLInputElement)?.value || '';
-                   const password = (formEl?.querySelector('#signin-password') as HTMLInputElement)?.value || '';
-                   const { error } = await signIn(emailOrUsername, password);
-                   if (error) {
-                     toast.error(error.message || (t as any)('auth.invalidCredentials'));
-                   } else {
-                     toast.success((t as any)('auth.signInSuccess'));
-                   }
-                   setIsLoading(false);
-                 }}
-                 disabled={isLoading}
-               />
+               <Button
+                  type="submit"
+                  className="w-full h-10 sm:h-11"
+                  disabled={isLoading}
+                >
+                  {isLoading ? t('auth.signingIn') : t('auth.signIn')}
+                </Button>
               
               <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
                 <DialogTrigger asChild>

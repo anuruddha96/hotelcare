@@ -133,6 +133,7 @@ const translations = {
     'language.switchedTo': 'Language switched to',
 
     // Auth
+    'auth.signIn': 'Sign In',
     'auth.swipeToSignIn': 'Swipe right to sign in',
     'auth.signingIn': 'Signing In...',
     'auth.invalidCredentials': 'Invalid login credentials',
@@ -436,6 +437,7 @@ const translations = {
     'language.switchedTo': 'Nyelv váltva erre:',
 
     // Auth
+    'auth.signIn': 'Bejelentkezés',
     'auth.swipeToSignIn': 'Húzza jobbra a bejelentkezéshez',
     'auth.signingIn': 'Bejelentkezés...',
     'auth.invalidCredentials': 'Helytelen bejelentkezési adatok',
