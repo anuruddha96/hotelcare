@@ -26,6 +26,8 @@ const translations = {
     'tickets.priority.high': 'High',
     'tickets.priority.medium': 'Medium',
     'tickets.priority.low': 'Low',
+    'tickets.create.success': 'Ticket created successfully',
+    'tickets.create.error': 'Failed to create ticket',
     
     // Room Management
     'rooms.title': 'Room Management',
@@ -84,6 +86,12 @@ const translations = {
     // Language
     'language.changed': 'Language Changed',
     'language.switchedTo': 'Language switched to',
+
+    // Auth
+    'auth.swipeToSignIn': 'Swipe right to sign in',
+    'auth.signingIn': 'Signing In...',
+    'auth.invalidCredentials': 'Invalid login credentials',
+    'auth.signInSuccess': 'Welcome back!',
     
     // Work Status (formerly Attendance)
     'workStatus.checkIn': 'Check In',
@@ -311,63 +319,72 @@ const translations = {
     'tickets.priority.high': 'Magas',
     'tickets.priority.medium': 'Közepes',
     'tickets.priority.low': 'Alacsony',
+    'tickets.create.success': 'Jegy sikeresen létrehozva',
+    'tickets.create.error': 'Jegy létrehozása nem sikerült',
     
     // Room Management
-    'rooms.title': 'Szoba kezelés',
-    'rooms.subtitle': 'Szállodai szobák állapotának figyelése és kezelése',
-    'rooms.search': 'Keresés szobaszám vagy szálloda szerint...',
-    'rooms.addRoom': 'Szoba hozzáadása',
-    'rooms.minibarSettings': 'Minibar beállítások',
-    'rooms.allHotels': 'Minden szálloda',
-    'rooms.allStatus': 'Minden állapot',
-    'rooms.clean': 'Tiszta',
-    'rooms.dirty': 'Piszkos',
-    'rooms.maintenance': 'Karbantartás',
-    'rooms.outOfOrder': 'Használaton kívül',
-    'rooms.statusOverview': 'Szoba Állapot Áttekintés',
-    'rooms.roomsCount': 'szoba',
-    'rooms.status.clean.subtitle': 'Használatra kész',
-    'rooms.status.dirty.subtitle': 'Takarítás szükséges',
-    'rooms.status.maintenance.subtitle': 'Javítás alatt',
-    'rooms.status.outOfOrder.subtitle': 'Nem elérhető',
+    'rooms.title': 'Room Management',
+    'rooms.subtitle': 'Monitor and manage hotel room status',
+    'rooms.search': 'Search by room number or hotel...',
+    'rooms.addRoom': 'Add Room',
+    'rooms.minibarSettings': 'Minibar Settings',
+    'rooms.allHotels': 'All Hotels',
+    'rooms.allStatus': 'All Status',
+    'rooms.clean': 'Clean',
+    'rooms.dirty': 'Dirty',
+    'rooms.maintenance': 'Maintenance',
+    'rooms.outOfOrder': 'Out Of Order',
+    'rooms.statusOverview': 'Room Status Overview',
+    'rooms.roomsCount': 'rooms',
+    'rooms.status.clean.subtitle': 'Ready to use',
+    'rooms.status.dirty.subtitle': 'Need cleaning',
+    'rooms.status.maintenance.subtitle': 'Under repair',
+    'rooms.status.outOfOrder.subtitle': 'Not available',
     
     // Room Status
-    'room.status.clean': 'Tiszta',
-    'room.status.dirty': 'Piszkos',
-    'room.status.maintenance': 'Karbantartás',
-    'room.status.out_of_order': 'Használaton kívül',
+    'room.status.clean': 'Clean',
+    'room.status.dirty': 'Dirty',
+    'room.status.maintenance': 'Maintenance',
+    'room.status.out_of_order': 'Out of Order',
     
     // Create Room
-    'createRoom.title': 'Új szoba létrehozása',
-    'createRoom.hotel': 'Szálloda',
-    'createRoom.roomName': 'Szoba neve',
-    'createRoom.roomNumber': 'Szobaszám',
-    'createRoom.roomType': 'Szoba típusa',
-    'createRoom.floorNumber': 'Emelet száma',
-    'createRoom.create': 'Szoba létrehozása',
+    'createRoom.title': 'Create New Room',
+    'createRoom.hotel': 'Hotel',
+    'createRoom.roomName': 'Room Name',
+    'createRoom.roomNumber': 'Room Number',
+    'createRoom.roomType': 'Room Type',
+    'createRoom.floorNumber': 'Floor Number',
+    'createRoom.create': 'Create Room',
     
     // Common
-    'common.loading': 'Betöltés...',
-    'common.save': 'Mentés',
-    'common.cancel': 'Mégse',
-    'common.close': 'Bezárás',
-    'common.edit': 'Szerkesztés',
-    'common.delete': 'Törlés',
-    'common.search': 'Keresés',
-    'common.filter': 'Szűrés',
-    'common.status': 'Állapot',
-    'common.priority': 'Prioritás',
-    'common.hotel': 'Szálloda',
-    'common.room': 'Szoba',
-    'common.profile': 'Profil',
-    'common.settings': 'Beállítások',
-    'common.logout': 'Kijelentkezés',
-    'common.error': 'Hiba',
-    'common.success': 'Siker',
+    'common.loading': 'Loading...',
+    'common.save': 'Save',
+    'common.cancel': 'Cancel',
+    'common.close': 'Close',
+    'common.edit': 'Edit',
+    'common.delete': 'Delete',
+    'common.search': 'Search',
+    'common.filter': 'Filter',
+    'common.status': 'Status',
+    'common.priority': 'Priority',
+    'common.hotel': 'Hotel',
+    'common.room': 'Room',
+    'common.profile': 'Profile',
+    'common.settings': 'Settings',
+    'common.logout': 'Log out',
+    'common.error': 'Error',
+    'common.success': 'Success',
+    'common.minutes': 'minutes',
     
     // Language
     'language.changed': 'Nyelv megváltoztatva',
     'language.switchedTo': 'Nyelv váltva erre:',
+
+    // Auth
+    'auth.swipeToSignIn': 'Húzza jobbra a bejelentkezéshez',
+    'auth.signingIn': 'Bejelentkezés...',
+    'auth.invalidCredentials': 'Helytelen bejelentkezési adatok',
+    'auth.signInSuccess': 'Üdv újra!',
     
     // Work Status (formerly Attendance)
     'workStatus.checkIn': 'Bejelentkezés',
@@ -597,6 +614,8 @@ const translations = {
     'tickets.priority.high': 'Alta',
     'tickets.priority.medium': 'Media',
     'tickets.priority.low': 'Baja',
+    'tickets.create.success': 'Ticket creado con éxito',
+    'tickets.create.error': 'No se pudo crear el ticket',
     
     // Room Management
     'rooms.title': 'Gestión de Habitaciones',
@@ -832,6 +851,8 @@ const translations = {
     'tickets.priority.high': 'Cao',
     'tickets.priority.medium': 'Trung bình',
     'tickets.priority.low': 'Thấp',
+    'tickets.create.success': 'Tạo phiếu thành công',
+    'tickets.create.error': 'Tạo phiếu thất bại',
 
     // Room Management
     'rooms.title': 'Quản lý phòng',
@@ -1067,6 +1088,8 @@ const translations = {
     'tickets.priority.high': 'Өндөр',
     'tickets.priority.medium': 'Дунд',
     'tickets.priority.low': 'Бага',
+    'tickets.create.success': 'Тикет амжилттай үүслээ',
+    'tickets.create.error': 'Тикет үүсгэхэд алдаа гарлаа',
 
     // Room Management
     'rooms.title': 'Өрөөний удирдлага',

@@ -11,9 +11,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { supabase } from '@/integrations/supabase/client';
 import { Eye, EyeOff } from 'lucide-react';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
+import { SwipeAction } from '@/components/ui/swipe-action';
+import { useTranslation } from '@/hooks/useTranslation';
 
 export default function Auth() {
-  const { signIn, signUp, user, loading } = useAuth();
+ const { signIn, signUp, user, loading } = useAuth();
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
@@ -261,9 +264,25 @@ export default function Auth() {
                   </Button>
                 </div>
               </div>
-              <Button type="submit" className="w-full h-9 sm:h-10 text-sm" disabled={isLoading}>
-                {isLoading ? 'Signing In...' : 'Sign In'}
-              </Button>
+               {/* Swipe to Sign In */}
+               <SwipeAction
+                 label={isLoading ? t('auth.signingIn') : t('auth.swipeToSignIn')}
+                 onComplete={async () => {
+                   if (isLoading) return;
+                   setIsLoading(true);
+                   const formEl = document.querySelector('form') as HTMLFormElement | null;
+                   const emailOrUsername = (formEl?.querySelector('#signin-email') as HTMLInputElement)?.value || '';
+                   const password = (formEl?.querySelector('#signin-password') as HTMLInputElement)?.value || '';
+                   const { error } = await signIn(emailOrUsername, password);
+                   if (error) {
+                     toast.error(error.message || (t as any)('auth.invalidCredentials'));
+                   } else {
+                     toast.success((t as any)('auth.signInSuccess'));
+                   }
+                   setIsLoading(false);
+                 }}
+                 disabled={isLoading}
+               />
               
               <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
                 <DialogTrigger asChild>
