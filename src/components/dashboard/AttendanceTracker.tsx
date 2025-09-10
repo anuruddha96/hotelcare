@@ -14,6 +14,7 @@ import { BreakTypesManagement } from './BreakTypesManagement';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SwipeToEndBreak } from './SwipeToEndBreak';
 import { BreakRequestDialog } from './BreakRequestDialog';
+import { SwipeAction } from '@/components/ui/swipe-action';
 
 interface AttendanceRecord {
   id: string;
@@ -43,6 +44,7 @@ interface BreakType {
 export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status: string | null) => void }) => {
   const { user, profile } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [currentRecord, setCurrentRecord] = useState<AttendanceRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [notes, setNotes] = useState('');
@@ -162,8 +164,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       });
     } else {
       toast({
-        title: "🌟 Welcome to Your Shift! 🌟", 
-        description: `You're all set! Time to shine at ${format(new Date(), 'HH:mm')} ✨`,
+        title: "Welcome to Your Shift!", 
+        description: "You're all set! Time to shine ✨",
       });
       fetchTodaysAttendance();
     }
@@ -201,7 +203,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     } else {
       toast({
         title: "Shift Complete",
-        description: `Thank you for your hard work today! Have a great rest of your day.`,
+        description: "Thank you for your hard work today! Have a great rest of your day.",
       });
       fetchTodaysAttendance();
     }
@@ -241,10 +243,10 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       const selectedBreak = breakTypes.find(bt => bt.name === selectedBreakType);
       
       toast({
-        title: isStartingBreak ? "😴 Time to Rest & Recharge" : "🔥 Energized & Ready to Go!",
+        title: isStartingBreak ? "Time to Rest & Recharge" : "Energized & Ready to Go!",
         description: isStartingBreak 
-          ? `Enjoy your ${selectedBreak?.display_name || 'break'}! 🌸`
-          : `Welcome back! Let's make great things happen ⚡`
+          ? "Enjoy your break! 🌸"
+          : "Welcome back! Let's make great things happen ⚡"
       });
       fetchTodaysAttendance();
     }
@@ -459,44 +461,21 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
               rows={3}
             />
 
-            {/* Scrollable Check-in Card */}
-            <div className="relative overflow-hidden rounded-lg border bg-gradient-to-r from-green-50 to-blue-50 border-green-200">
-              <div 
-                className="flex overflow-x-auto scrollbar-hide space-x-4 p-4"
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-              >
-                <div className="flex-shrink-0 flex items-center space-x-4 min-w-max">
-                  <div className="text-2xl">🌅</div>
-                  <div>
-                    <p className="font-medium text-green-800">Ready to start?</p>
-                    <p className="text-sm text-green-600">Swipe right to check in →</p>
-                  </div>
-                </div>
-                
-                <div className="flex-shrink-0 flex items-center space-x-4 min-w-max">
-                  <div className="text-2xl">⏰</div>
-                  <div>
-                    <p className="font-medium text-blue-800">Perfect timing!</p>
-                    <p className="text-sm text-blue-600">Your shift begins now →</p>
-                  </div>
-                </div>
-                
-                <div className="flex-shrink-0 flex items-center space-x-4 min-w-max">
-                  <Button
-                    onClick={handleCheckIn}
-                    className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold px-6 py-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
-                    disabled={isLoading || !location}
-                  >
-                    <LogIn className="h-5 w-5 mr-2" />
-                    🌟 Start Your Amazing Day! 🌟
-                  </Button>
+            {/* Swipe to Check-in */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 p-3 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
+                <div className="text-2xl">🌅</div>
+                <div>
+                  <p className="font-medium text-green-800">Ready to start?</p>
+                  <p className="text-sm text-green-600">Swipe right to check in</p>
                 </div>
               </div>
               
-              {/* Scroll indicator */}
-              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-green-600 animate-bounce">
-                <div className="text-xl">→</div>
-              </div>
+              <SwipeAction
+                label="Swipe right to check in"
+                onComplete={handleCheckIn}
+                disabled={isLoading || !location}
+              />
             </div>
 
             {!location && (

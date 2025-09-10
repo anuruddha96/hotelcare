@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { AttachmentUpload } from './AttachmentUpload';
 import { toast } from '@/hooks/use-toast';
+import { useTranslation } from '@/hooks/useTranslation';
 import { hotels } from './HotelFilter';
 import { Lightbulb, Star, Zap, AlertTriangle, Wrench, Droplet, Thermometer, Bed, Wifi, Utensils } from 'lucide-react';
 
@@ -26,16 +27,26 @@ interface CreateTicketDialogProps {
   onTicketCreated: () => void;
 }
 
-// Common hotel issues with icons and categories
+// Common hotel issues with icons and categories - expanded list
 const commonIssues = [
   { category: 'Room Issues', icon: Bed, issues: [
     'Air conditioning not working',
-    'TV not functioning',
+    'TV not functioning', 
+    'Remote control missing/broken',
     'Light bulbs burned out',
     'WiFi connection problems',
     'Safe not working',
     'Door lock issues',
-    'Window won\'t open/close'
+    'Window won\'t open/close',
+    'Curtains/blinds stuck',
+    'Room temperature too hot/cold',
+    'Noise from neighboring rooms',
+    'Room key not working',
+    'Balcony door stuck',
+    'Phone not working',
+    'Alarm clock issues',
+    'Mini bar not cooling',
+    'In-room coffee machine broken'
   ]},
   { category: 'Plumbing', icon: Droplet, issues: [
     'Leaky faucet',
@@ -43,21 +54,43 @@ const commonIssues = [
     'Low water pressure',
     'Shower drain clogged',
     'Hot water not working',
-    'Bathroom flooding'
+    'Bathroom flooding',
+    'Shower head broken',
+    'Toilet seat loose',
+    'Sink drain slow/clogged',
+    'Towel rack loose',
+    'Shower door won\'t close',
+    'Water temperature inconsistent',
+    'Bathtub drain clogged',
+    'Water leak under sink',
+    'Toilet running continuously'
   ]},
   { category: 'Electrical', icon: Zap, issues: [
     'Power outlet not working',
     'Lights flickering',
     'Circuit breaker tripped',
     'Electrical sparks',
-    'Fan not working'
+    'Fan not working',
+    'Bathroom lights not working',
+    'Bedside lamps not working',
+    'Hair dryer not working',
+    'USB charging ports not working',
+    'Light switches not responding',
+    'Ceiling fan making noise',
+    'Power surge damage'
   ]},
   { category: 'HVAC', icon: Thermometer, issues: [
     'Room too hot/cold',
     'Heating not working',
     'Strange noises from AC',
     'Air vents blocked',
-    'Thermostat malfunction'
+    'Thermostat malfunction',
+    'AC not turning on',
+    'AC blowing warm air',
+    'Ventilation fan not working',
+    'Musty smell from AC',
+    'AC remote not working',
+    'Temperature not adjusting'
   ]},
   { category: 'Maintenance', icon: Wrench, issues: [
     'Furniture damage',
@@ -65,14 +98,44 @@ const commonIssues = [
     'Carpet stains',
     'Ceiling leak',
     'Wall cracks',
-    'Mirror broken'
+    'Mirror broken',
+    'Drawer stuck/broken',
+    'Closet door off track',
+    'Bed frame loose/squeaky',
+    'Chair/table wobbly',
+    'Picture frame crooked/fallen',
+    'Wallpaper peeling',
+    'Floor tiles loose',
+    'Bathroom tiles cracked'
   ]},
   { category: 'Kitchen/Restaurant', icon: Utensils, issues: [
     'Refrigerator not cooling',
     'Stove not working',
     'Dishwasher malfunction',
     'Freezer temperature issues',
-    'Exhaust fan broken'
+    'Exhaust fan broken',
+    'Microwave not working',
+    'Coffee machine malfunction',
+    'Ice machine not working',
+    'Kitchen sink clogged',
+    'Oven temperature incorrect',
+    'Range hood not working'
+  ]},
+  { category: 'Housekeeping', icon: AlertTriangle, issues: [
+    'Room not cleaned properly',
+    'Towels not replaced',
+    'Bed sheets dirty/stained',
+    'Bathroom not cleaned',
+    'Trash not emptied',
+    'Missing toiletries',
+    'Pillows need replacement',
+    'Vacuum needed urgently',
+    'Window cleaning required',
+    'Deep cleaning needed',
+    'Carpet cleaning required',
+    'Extra towels needed',
+    'Missing amenities',
+    'Room service cleanup'
   ]}
 ];
 
@@ -85,6 +148,7 @@ const priorityConfig = {
 
 export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: CreateTicketDialogProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [canCreateTickets, setCanCreateTickets] = useState(true);
