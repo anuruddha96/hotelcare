@@ -23,6 +23,7 @@ interface Assignment {
   created_at: string;
   started_at?: string | null;
   completed_at?: string | null;
+  ready_to_clean?: boolean; // prioritize when true
   rooms: {
     room_number: string;
     hotel: string;

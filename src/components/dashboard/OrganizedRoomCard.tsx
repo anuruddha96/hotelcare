@@ -150,9 +150,9 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
             </Badge>
           )}
 
-          {room.recent_tickets?.length > 0 && (
+          {room.recent_tickets && room.recent_tickets.filter(t => ['open','in_progress'].includes(t.status)).length > 0 && (
             <Badge variant="destructive" className="text-xs px-1.5 py-0.5">
-              {room.recent_tickets.length} issue{room.recent_tickets.length > 1 ? 's' : ''}
+              {room.recent_tickets.filter(t => ['open','in_progress'].includes(t.status)).length} issue{room.recent_tickets.filter(t => ['open','in_progress'].includes(t.status)).length > 1 ? 's' : ''}
             </Badge>
           )}
 

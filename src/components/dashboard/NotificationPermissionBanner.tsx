@@ -6,7 +6,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useTranslation } from '@/hooks/useTranslation';
 
 export function NotificationPermissionBanner() {
-  const { requestNotificationPermission, notificationPermission, ensureAudioUnlocked } = useNotifications();
+  const { requestNotificationPermission, notificationPermission, ensureAudioUnlocked, playNotificationSound } = useNotifications();
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
