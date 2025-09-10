@@ -146,24 +146,25 @@ export function MobileHousekeepingView() {
         }
       }
 
-      // Sort assignments by status priority: in_progress first, then assigned, then completed
+      // Sort with checkout-ready first, then status, then priority, then created_at
       assignmentsData.sort((a, b) => {
-        const statusPriority = {
+        const checkoutRank = (x: any) => {
+          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 0; // top
+          if (x.assignment_type === 'checkout_cleaning') return 1;
+          return 2;
+        };
+        const statusPriority: Record<string, number> = {
           'in_progress': 1,
           'assigned': 2,
           'completed': 3,
           'cancelled': 4
         };
-        
-        // First sort by status
-        const statusDiff = statusPriority[a.status] - statusPriority[b.status];
+        const checkoutDiff = checkoutRank(a) - checkoutRank(b);
+        if (checkoutDiff !== 0) return checkoutDiff;
+        const statusDiff = (statusPriority[a.status] ?? 99) - (statusPriority[b.status] ?? 99);
         if (statusDiff !== 0) return statusDiff;
-        
-        // Then by priority (higher priority first)
-        const priorityDiff = b.priority - a.priority;
+        const priorityDiff = (b.priority ?? 0) - (a.priority ?? 0);
         if (priorityDiff !== 0) return priorityDiff;
-        
-        // Finally by created_at (older first)
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
 

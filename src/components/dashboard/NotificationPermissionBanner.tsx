@@ -23,25 +23,31 @@ export function NotificationPermissionBanner() {
   }, [notificationPermission]);
 
   const handleEnableNotifications = async () => {
-    // Unlock audio on iOS (must run inside user gesture)
+    // Ensure audio can play on iOS (must be inside user gesture)
     try { ensureAudioUnlocked(); } catch {}
 
+    // Detect iOS Safari context
+    const isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true;
+
+    // If running in Safari (not installed PWA), enable loud in-app alerts and show guidance
+    if (isIOSSafari && !isStandalone) {
+      try { playNotificationSound(); } catch {}
+      setShowIOSInstructions(true);
+      setIsVisible(false);
+      return;
+    }
+
+    // Otherwise, request browser permission (PWA or non‑iOS browsers)
     const granted = await requestNotificationPermission();
     if (granted) {
       setIsVisible(false);
       return;
     }
 
-    // Re-check current permission and iOS standalone state
+    // If denied or unavailable, surface guidance
     const current = typeof Notification !== 'undefined' ? Notification.permission : notificationPermission;
-    const isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true;
-
-    if (isIOSSafari && !isStandalone) {
-      setShowIOSInstructions(true);
-      alert(t('notifications.iosInstructions'));
-    } else if (current === 'denied') {
-      // Show instructions for enabling notifications manually
+    if (current === 'denied') {
       alert(t('notifications.enableInBrowserSettings'));
     }
   };
