@@ -14,6 +14,8 @@ import { CompanySettings } from './CompanySettings';
 import { HousekeepingTab } from './HousekeepingTab';
 import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
+import { NotificationPermissionBanner } from './NotificationPermissionBanner';
+import { VisualNotificationOverlay, useVisualNotifications } from './VisualNotificationOverlay';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -47,6 +49,7 @@ interface Ticket {
 export function Dashboard() {
   const { profile } = useAuth();
   const { t } = useTranslation();
+  const { notifications, addNotification, removeNotification } = useVisualNotifications();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,6 +63,19 @@ export function Dashboard() {
   const [accessManagementOpen, setAccessManagementOpen] = useState(false);
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
+
+  // Listen for visual notification events
+  useEffect(() => {
+    const handleVisualNotification = (event: CustomEvent) => {
+      const { title, message, type } = event.detail;
+      addNotification(title, message, type);
+    };
+
+    window.addEventListener('visual-notification', handleVisualNotification as EventListener);
+    return () => {
+      window.removeEventListener('visual-notification', handleVisualNotification as EventListener);
+    };
+  }, [addNotification]);
 
   const canCreateTickets = profile?.role && [
     'housekeeping', 'reception', 'manager', 'admin', 'maintenance',
@@ -248,6 +264,11 @@ export function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       <AutoAssignmentService />
+      <NotificationPermissionBanner />
+      <VisualNotificationOverlay 
+        notifications={notifications}
+        onDismiss={removeNotification}
+      />
       
       <div className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">

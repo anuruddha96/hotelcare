@@ -127,6 +127,7 @@ const translations = {
     'common.error': 'Error',
     'common.success': 'Success',
     'common.minutes': 'minutes',
+    'common.dismiss': 'Dismiss',
     
     // Language
     'language.changed': 'Language Changed',
@@ -195,7 +196,13 @@ const translations = {
     'breakRequest.rejectError': 'Error rejecting request',
     
     // Notifications
-    'notifications.newAssignment': 'You have a new room assignment!',
+      'notifications.newAssignment': 'You have a new room assignment!',
+      'notifications.enableTitle': 'Enable Notifications',
+      'notifications.enableDescription': 'Get notified about new room assignments and approvals with sound and vibration.',
+      'notifications.enableInBrowserSettings': 'To enable notifications, go to your browser settings > Site settings > Notifications and allow notifications for this site.',
+      'notifications.iosInstructions': 'iOS Safari Tips',
+      'notifications.iosSteps': 'For best results: Add this website to your home screen, or use Chrome/Firefox browser for full notification support.',
+      'notifications.enable': 'Enable Now',
     'notifications.newAssignmentTitle': 'New Assignment',
     'notifications.newCompletion': 'A task has been completed and needs approval',
     'notifications.newBreakRequest': 'New break request submitted',
@@ -464,6 +471,7 @@ const translations = {
     'common.error': 'Error',
     'common.success': 'Success',
     'common.minutes': 'minutes',
+    'common.dismiss': 'Elvet',
     
     // Language
     'language.changed': 'Nyelv megváltoztatva',
