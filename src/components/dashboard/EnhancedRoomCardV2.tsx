@@ -49,6 +49,11 @@ interface Room {
   notes?: string;
   checkout_time?: string;
   is_checkout_room?: boolean;
+  is_dnd?: boolean;
+  dnd_marked_at?: string;
+  dnd_marked_by?: {
+    full_name: string;
+  };
   minibar_usage?: Array<{
     id: string;
     quantity_used: number;
@@ -248,6 +253,13 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
             <Badge variant="destructive" className="text-xs">
               <AlertTriangle className="h-3 w-3 mr-1" />
               {room.recent_tickets?.filter(t => t.status === 'open' || t.status === 'in_progress').length} Active Issues
+            </Badge>
+          )}
+
+          {/* DND Badge */}
+          {room.is_dnd && (
+            <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800 border-orange-200">
+              🚪 DND Room
             </Badge>
           )}
 

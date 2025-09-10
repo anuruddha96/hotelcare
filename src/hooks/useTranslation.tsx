@@ -11,7 +11,7 @@ const translations = {
     'dashboard.manageUsers': 'Manage Users',
     'dashboard.newTicket': 'New Ticket',
     'dashboard.myTasks': 'My Tasks',
-    'dashboard.workStatus': 'Work Status',
+    'dashboard.workStatus': 'Attendance',
     'dashboard.housekeeping': 'Housekeeping',
     
     // Tickets
@@ -140,7 +140,7 @@ const translations = {
     'auth.invalidCredentials': 'Invalid login credentials',
     'auth.signInSuccess': 'Welcome back!',
     
-    // Work Status (formerly Attendance)
+    // Attendance
     'workStatus.checkIn': 'Check In',
     'workStatus.checkOut': 'Check Out',
     'workStatus.checkedIn': 'Checked In',
@@ -484,7 +484,7 @@ const translations = {
     'auth.invalidCredentials': 'Helytelen bejelentkezési adatok',
     'auth.signInSuccess': 'Üdv újra!',
     
-    // Work Status (formerly Attendance)
+    // Attendance
     'workStatus.checkIn': 'Bejelentkezés',
     'workStatus.checkOut': 'Kijelentkezés',
     'workStatus.checkedIn': 'Bejelentkezett',

@@ -77,6 +77,48 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
+  const markAsDND = async () => {
+    setLoading(true);
+    try {
+      const now = new Date().toISOString();
+      
+      // Mark assignment as DND
+      const { error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({ 
+          status: 'completed',
+          is_dnd: true,
+          dnd_marked_at: now,
+          dnd_marked_by: user?.id,
+          completed_at: now
+        })
+        .eq('id', assignment.id);
+
+      if (assignmentError) throw assignmentError;
+
+      // Also mark the room as DND for display purposes
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({
+          is_dnd: true,
+          dnd_marked_at: now,
+          dnd_marked_by: user?.id
+        })
+        .eq('id', assignment.room_id);
+
+      if (roomError) throw roomError;
+      
+      onStatusUpdate(assignment.id, 'completed');
+      const roomNum = assignment.rooms?.room_number ?? '—';
+      toast.success(`Room ${roomNum} marked as DND and awaiting supervisor approval`);
+    } catch (error) {
+      console.error('Error marking as DND:', error);
+      toast.error('Failed to mark room as DND');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
     // Check if user is on break before starting work
     if (newStatus === 'in_progress' && attendanceStatus === 'on_break') {
@@ -310,15 +352,26 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           )}
           
           {assignment.status === 'in_progress' && (
-            <Button
-              size="lg"
-              onClick={() => updateAssignmentStatus('completed')}
-              disabled={loading}
-              className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-            >
-              <CheckCircle className="h-5 w-5" />
-              {t('housekeeping.complete')}
-            </Button>
+            <div className="flex gap-3 w-full sm:w-auto">
+              <Button
+                size="lg"
+                onClick={() => updateAssignmentStatus('completed')}
+                disabled={loading}
+                className="flex-1 sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+              >
+                <CheckCircle className="h-5 w-5" />
+                {t('housekeeping.complete')}
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => markAsDND()}
+                disabled={loading}
+                className="flex-1 sm:w-auto border-orange-300 text-orange-700 hover:bg-orange-50"
+              >
+                🚪 DND
+              </Button>
+            </div>
           )}
 
           <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>

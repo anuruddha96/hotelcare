@@ -39,10 +39,10 @@ export function HousekeepingTab() {
   // Full management access: admin, top_management, manager, housekeeping_manager, marketing, control_finance, hr, front_office
   const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
   
-  // Set the default active tab based on manager access
+  // Set the default active tab based on manager access - prioritize approvals
   useEffect(() => {
     if (hasManagerAccess) {
-      setActiveTab('staff-management');
+      setActiveTab('supervisor'); // Default to pending approvals for managers
     } else {
       setActiveTab('assignments');
     }

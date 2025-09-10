@@ -31,6 +31,11 @@ interface Room {
   recent_tickets?: any[];
   minibar_usage?: any[];
   is_checkout_room?: boolean;
+  is_dnd?: boolean;
+  dnd_marked_at?: string;
+  dnd_marked_by?: {
+    full_name: string;
+  };
   checkout_time?: string;
   guest_count?: number;
   notes?: string;
@@ -136,6 +141,13 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
 
         {/* Status Indicators */}
         <div className="flex flex-wrap gap-1">
+          {/* DND Badge */}
+          {room.is_dnd && (
+            <Badge variant="secondary" className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-800 border-orange-200">
+              🚪 DND Room
+            </Badge>
+          )}
+
           {room.is_checkout_room && (
             <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
               <Clock className="h-2.5 w-2.5 mr-1" />

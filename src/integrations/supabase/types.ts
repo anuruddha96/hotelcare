@@ -463,8 +463,11 @@ export type Database = {
           assignment_type: Database["public"]["Enums"]["assignment_type"]
           completed_at: string | null
           created_at: string
+          dnd_marked_at: string | null
+          dnd_marked_by: string | null
           estimated_duration: number | null
           id: string
+          is_dnd: boolean | null
           notes: string | null
           priority: number
           ready_to_clean: boolean
@@ -483,8 +486,11 @@ export type Database = {
           assignment_type?: Database["public"]["Enums"]["assignment_type"]
           completed_at?: string | null
           created_at?: string
+          dnd_marked_at?: string | null
+          dnd_marked_by?: string | null
           estimated_duration?: number | null
           id?: string
+          is_dnd?: boolean | null
           notes?: string | null
           priority?: number
           ready_to_clean?: boolean
@@ -503,8 +509,11 @@ export type Database = {
           assignment_type?: Database["public"]["Enums"]["assignment_type"]
           completed_at?: string | null
           created_at?: string
+          dnd_marked_at?: string | null
+          dnd_marked_by?: string | null
           estimated_duration?: number | null
           id?: string
+          is_dnd?: boolean | null
           notes?: string | null
           priority?: number
           ready_to_clean?: boolean
@@ -613,11 +622,14 @@ export type Database = {
           bed_type: string | null
           checkout_time: string | null
           created_at: string
+          dnd_marked_at: string | null
+          dnd_marked_by: string | null
           floor_number: number | null
           guest_count: number | null
           hotel: string
           id: string
           is_checkout_room: boolean | null
+          is_dnd: boolean | null
           last_cleaned_at: string | null
           last_cleaned_by: string | null
           notes: string | null
@@ -631,11 +643,14 @@ export type Database = {
           bed_type?: string | null
           checkout_time?: string | null
           created_at?: string
+          dnd_marked_at?: string | null
+          dnd_marked_by?: string | null
           floor_number?: number | null
           guest_count?: number | null
           hotel: string
           id?: string
           is_checkout_room?: boolean | null
+          is_dnd?: boolean | null
           last_cleaned_at?: string | null
           last_cleaned_by?: string | null
           notes?: string | null
@@ -649,11 +664,14 @@ export type Database = {
           bed_type?: string | null
           checkout_time?: string | null
           created_at?: string
+          dnd_marked_at?: string | null
+          dnd_marked_by?: string | null
           floor_number?: number | null
           guest_count?: number | null
           hotel?: string
           id?: string
           is_checkout_room?: boolean | null
+          is_dnd?: boolean | null
           last_cleaned_at?: string | null
           last_cleaned_by?: string | null
           notes?: string | null

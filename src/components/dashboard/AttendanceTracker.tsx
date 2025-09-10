@@ -277,7 +277,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         <CardHeader className="text-center">
           <CardTitle className="flex items-center justify-center gap-2">
             <Clock className="h-5 w-5" />
-            Work Status
+            Attendance
           </CardTitle>
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Calendar className="h-4 w-4" />
