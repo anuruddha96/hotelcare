@@ -19,6 +19,7 @@ import {
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { TimerComponent } from './TimerComponent';
+import { DNDPhotoDialog } from './DNDPhotoDialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 
@@ -52,6 +53,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [newNote, setNewNote] = useState('');
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
+  const [dndPhotoDialogOpen, setDndPhotoDialogOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -77,7 +79,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  const markAsDND = async () => {
+  const markAsDND = async (photoUrl: string) => {
     setLoading(true);
     try {
       const now = new Date().toISOString();
@@ -110,12 +112,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       
       onStatusUpdate(assignment.id, 'completed');
       const roomNum = assignment.rooms?.room_number ?? '—';
-      toast.success(`Room ${roomNum} marked as DND and awaiting supervisor approval`);
+      toast.success(`Room ${roomNum} marked as DND with photo evidence`);
     } catch (error) {
       console.error('Error marking as DND:', error);
       toast.error('Failed to mark room as DND');
     } finally {
       setLoading(false);
+      setDndPhotoDialogOpen(false);
     }
   };
 
@@ -365,11 +368,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <Button
                 size="lg"
                 variant="outline"
-                onClick={() => markAsDND()}
+                onClick={() => setDndPhotoDialogOpen(true)}
                 disabled={loading}
                 className="flex-1 sm:w-auto border-orange-300 text-orange-700 hover:bg-orange-50"
               >
-                🚪 DND
+                📷 DND
               </Button>
             </div>
           )}
@@ -458,6 +461,16 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           onOpenChange={setRoomDetailOpen}
         />
       )}
+
+      {/* DND Photo Dialog */}
+      <DNDPhotoDialog
+        open={dndPhotoDialogOpen}
+        onOpenChange={setDndPhotoDialogOpen}
+        roomNumber={assignment.rooms?.room_number || 'N/A'}
+        roomId={assignment.room_id}
+        assignmentId={assignment.id}
+        onPhotoUploaded={markAsDND}
+      />
     </Card>
   );
 }

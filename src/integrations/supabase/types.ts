@@ -193,6 +193,45 @@ export type Database = {
         }
         Relationships: []
       }
+      dnd_photos: {
+        Row: {
+          assignment_date: string
+          assignment_id: string | null
+          created_at: string
+          id: string
+          marked_at: string
+          marked_by: string
+          notes: string | null
+          photo_url: string
+          room_id: string
+          updated_at: string
+        }
+        Insert: {
+          assignment_date?: string
+          assignment_id?: string | null
+          created_at?: string
+          id?: string
+          marked_at?: string
+          marked_by: string
+          notes?: string | null
+          photo_url: string
+          room_id: string
+          updated_at?: string
+        }
+        Update: {
+          assignment_date?: string
+          assignment_id?: string | null
+          created_at?: string
+          id?: string
+          marked_at?: string
+          marked_by?: string
+          notes?: string | null
+          photo_url?: string
+          room_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hotels: {
         Row: {
           created_at: string

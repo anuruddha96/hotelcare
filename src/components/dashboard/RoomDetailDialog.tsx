@@ -22,9 +22,11 @@ import {
   Euro,
   User,
   Calendar,
-  Trash2
+  Trash2,
+  Camera
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { DNDPhotosViewer } from './DNDPhotosViewer';
 
 interface Room {
   id: string;
@@ -81,6 +83,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
   const [tempUsage, setTempUsage] = useState<{ [key: string]: number }>({});
   const [roomNotes, setRoomNotes] = useState('');
+  const [dndPhotosOpen, setDndPhotosOpen] = useState(false);
 
   useEffect(() => {
     if (open && room) {
@@ -424,6 +427,20 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                   <span>Last cleaned: {new Date(room.last_cleaned_at).toLocaleString()}</span>
                 </div>
               )}
+
+              {/* DND Photos Button for Managers/Admins */}
+              {profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role) && (
+                <div className="pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDndPhotosOpen(true)}
+                    className="w-full sm:w-auto"
+                  >
+                    <Camera className="h-4 w-4 mr-2" />
+                    View DND Photos
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -542,6 +559,14 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
           </Card>
         </div>
       </DialogContent>
+
+      {/* DND Photos Viewer */}
+      <DNDPhotosViewer
+        open={dndPhotosOpen}
+        onOpenChange={setDndPhotosOpen}
+        roomId={room.id}
+        roomNumber={room.room_number}
+      />
     </Dialog>
   );
 }
