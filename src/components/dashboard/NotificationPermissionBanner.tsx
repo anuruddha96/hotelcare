@@ -6,7 +6,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useTranslation } from '@/hooks/useTranslation';
 
 export function NotificationPermissionBanner() {
-  const { requestNotificationPermission, notificationPermission } = useNotifications();
+  const { requestNotificationPermission, notificationPermission, ensureAudioUnlocked } = useNotifications();
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
@@ -23,15 +23,28 @@ export function NotificationPermissionBanner() {
   }, [notificationPermission]);
 
   const handleEnableNotifications = async () => {
+    // Unlock audio on iOS (must run inside user gesture)
+    try { ensureAudioUnlocked(); } catch {}
+
     const granted = await requestNotificationPermission();
     if (granted) {
       setIsVisible(false);
-    } else if (notificationPermission === 'denied') {
+      return;
+    }
+
+    // Re-check current permission and iOS standalone state
+    const current = typeof Notification !== 'undefined' ? Notification.permission : notificationPermission;
+    const isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true;
+
+    if (isIOSSafari && !isStandalone) {
+      setShowIOSInstructions(true);
+      alert(t('notifications.iosInstructions'));
+    } else if (current === 'denied') {
       // Show instructions for enabling notifications manually
       alert(t('notifications.enableInBrowserSettings'));
     }
   };
-
   if (!isVisible || notificationPermission === 'granted') {
     return null;
   }

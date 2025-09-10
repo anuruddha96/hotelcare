@@ -17,6 +17,9 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(style);
 }
 
+// Shared AudioContext to unlock and reuse on iOS Safari
+let sharedAudioContext: (AudioContext & { close?: () => Promise<void> }) | null = null;
+
 export function useNotifications() {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -47,7 +50,17 @@ export function useNotifications() {
     }
     
     try {
-      // Request permission - this must be triggered by user interaction on iOS
+      // iOS Web Push works only when installed to Home Screen (standalone)
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true;
+      if (isIOS && !isStandalone) {
+        // Inform user how to enable on iOS Safari
+        toast.info(t('notifications.iosInstructions'));
+        setNotificationPermission('default');
+        return false;
+      }
+
+      // Request permission - must be triggered by user interaction on iOS
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
       
@@ -77,6 +90,28 @@ export function useNotifications() {
       return false;
     }
   }, [user?.id]);
+
+  // Prepare audio on first user gesture for iOS Safari
+  const ensureAudioUnlocked = useCallback(() => {
+    try {
+      if (!sharedAudioContext) {
+        sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      // Resume context and play a near-silent blip to unlock
+      sharedAudioContext.resume?.();
+      const osc = sharedAudioContext.createOscillator();
+      const gain = sharedAudioContext.createGain();
+      gain.gain.value = 0.0001; // inaudible unlock blip
+      osc.connect(gain);
+      gain.connect(sharedAudioContext.destination);
+      osc.start();
+      setTimeout(() => {
+        try { osc.stop(); } catch {}
+      }, 50);
+    } catch (e) {
+      console.log('Audio unlock failed:', e);
+    }
+  }, []);
 
   // Enhanced iOS-compatible notification sound and vibration
   const playNotificationSound = useCallback(() => {
@@ -136,19 +171,28 @@ export function useNotifications() {
         playPromise.catch(() => {
           // Fallback: try Web Audio API for desktop browsers
           try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            if (!sharedAudioContext) {
+              sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            }
+            const audioContext = sharedAudioContext;
+            // Try resuming (required on iOS)
+            audioContext.resume?.();
+
+            // Beep using Web Audio (more reliable on iOS once unlocked)
             const oscillator = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
             
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
-            oscillator.frequency.setValueAtTime(1000, audioContext.currentTime);
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            oscillator.frequency.setValueAtTime(950, audioContext.currentTime);
+            // Quick attack-decay envelope for attention
+            gainNode.gain.setValueAtTime(0.001, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.3, audioContext.currentTime + 0.02);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.35);
             
             oscillator.start();
-            oscillator.stop(audioContext.currentTime + 0.3);
+            oscillator.stop(audioContext.currentTime + 0.4);
           } catch (webAudioError) {
             console.log('Web Audio not supported:', webAudioError);
           }
@@ -346,6 +390,7 @@ export function useNotifications() {
     playNotificationSound,
     showNotification,
     requestNotificationPermission,
-    notificationPermission
+    notificationPermission,
+    ensureAudioUnlocked
   };
 }
