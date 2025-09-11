@@ -182,7 +182,7 @@ export function DirtyLinenManagement() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-2">
           <Shirt className="h-6 w-6 text-primary" />
-          <h2 className="text-xl font-semibold">Dirty Linen Management</h2>
+          <h2 className="text-xl font-semibold">{t('dirtyLinen.management')}</h2>
         </div>
         
         <div className="flex gap-2">
@@ -205,16 +205,16 @@ export function DirtyLinenManagement() {
           </Select>
           <Button variant="outline" onClick={exportData} disabled={linenCounts.length === 0}>
             <Download className="h-4 w-4 mr-2" />
-            Export
+            {t('dirtyLinen.export')}
           </Button>
         </div>
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="detailed">Detailed Records</TabsTrigger>
-          <TabsTrigger value="housekeepers">By Housekeeper</TabsTrigger>
+          <TabsTrigger value="overview">{t('dirtyLinen.overview')}</TabsTrigger>
+          <TabsTrigger value="detailed">{t('dirtyLinen.detailedRecords')}</TabsTrigger>
+          <TabsTrigger value="housekeepers">{t('dirtyLinen.byHousekeeper')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">

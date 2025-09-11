@@ -428,23 +428,25 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {assignment.rooms && (
             <div className="flex gap-2">
               <Button 
-                size="lg" 
+                size="sm" 
                 variant="outline"
                 onClick={() => setRoomDetailOpen(true)}
-                className="flex-1"
+                className="flex-1 text-xs sm:text-sm min-h-[40px]"
               >
-                <Eye className="h-4 w-4 mr-2" />
-                {t('housekeeping.roomDetails')}
+                <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">{t('housekeeping.roomDetails')}</span>
+                <span className="sm:hidden">{t('dirtyLinen.details')}</span>
               </Button>
               
               <Button 
-                size="lg" 
+                size="sm" 
                 variant="outline"
                 onClick={() => setDirtyLinenDialogOpen(true)}
-                className="flex-1"
+                className="flex-1 text-xs sm:text-sm min-h-[40px]"
               >
-                <Shirt className="h-4 w-4 mr-2" />
-                Dirty Linen
+                <Shirt className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">{t('dirtyLinen.dirtyLinen')}</span>
+                <span className="sm:hidden">{t('dirtyLinen.linen')}</span>
               </Button>
             </div>
           )}

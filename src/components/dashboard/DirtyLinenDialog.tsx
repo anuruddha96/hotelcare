@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-import { useTranslation } from '@/hooks/useTranslation';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Shirt, Plus, Minus, Save } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
+import { Shirt, Plus, Minus, CheckCircle } from 'lucide-react';
 
 interface DirtyLinenDialogProps {
   open: boolean;
@@ -31,27 +31,52 @@ interface LinenCount {
   count: number;
 }
 
-export function DirtyLinenDialog({
-  open,
-  onOpenChange,
-  roomId,
-  roomNumber,
-  assignmentId,
-}: DirtyLinenDialogProps) {
+export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assignmentId }: DirtyLinenDialogProps) {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [linenItems, setLinenItems] = useState<LinenItem[]>([]);
   const [linenCounts, setLinenCounts] = useState<LinenCount[]>([]);
-  const [existingCounts, setExistingCounts] = useState<LinenCount[]>([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [autoSaveTimeout, setAutoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (open) {
       fetchLinenItems();
       fetchExistingCounts();
+      
+      // Set up real-time subscription
+      const channel = supabase
+        .channel('dirty-linen-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'dirty_linen_counts',
+            filter: `room_id=eq.${roomId}`
+          },
+          () => {
+            fetchExistingCounts();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [open, roomId]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+      }
+    };
+  }, [autoSaveTimeout]);
 
   const fetchLinenItems = async () => {
     try {
@@ -82,42 +107,20 @@ export function DirtyLinenDialog({
         .eq('work_date', today);
 
       if (error) throw error;
-      
-      const existing = data || [];
-      setExistingCounts(existing);
-      setLinenCounts(existing);
+      setLinenCounts(data || []);
     } catch (error) {
       console.error('Error fetching existing counts:', error);
     }
   };
 
-  const updateCount = (linenItemId: string, newCount: number) => {
-    const count = Math.max(0, newCount); // Prevent negative counts
-    setLinenCounts(prev => {
-      const existing = prev.find(item => item.linen_item_id === linenItemId);
-      if (existing) {
-        return prev.map(item => 
-          item.linen_item_id === linenItemId ? { ...item, count } : item
-        );
-      } else {
-        return [...prev, { linen_item_id: linenItemId, count }];
-      }
-    });
-  };
-
-  const getCount = (linenItemId: string): number => {
-    const item = linenCounts.find(count => count.linen_item_id === linenItemId);
-    return item ? item.count : 0;
-  };
-
-  const handleSave = async () => {
-    if (!user?.id) return;
-
-    setSaving(true);
+  const autoSave = useCallback(async (counts: LinenCount[]) => {
+    if (!user?.id || !open) return;
+    
+    setAutoSaving(true);
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      // Delete existing counts for this room and date
+      // Delete existing counts for today
       await supabase
         .from('dirty_linen_counts')
         .delete()
@@ -125,16 +128,16 @@ export function DirtyLinenDialog({
         .eq('room_id', roomId)
         .eq('work_date', today);
 
-      // Insert new counts (only for items with count > 0)
-      const countsToInsert = linenCounts
-        .filter(item => item.count > 0)
-        .map(item => ({
+      // Insert new counts (only non-zero)
+      const countsToInsert = counts
+        .filter(c => c.count > 0)
+        .map(c => ({
           housekeeper_id: user.id,
           room_id: roomId,
-          assignment_id: assignmentId || null,
-          linen_item_id: item.linen_item_id,
-          count: item.count,
-          work_date: today,
+          assignment_id: assignmentId,
+          linen_item_id: c.linen_item_id,
+          count: c.count,
+          work_date: today
         }));
 
       if (countsToInsert.length > 0) {
@@ -144,15 +147,47 @@ export function DirtyLinenDialog({
 
         if (error) throw error;
       }
-
-      toast.success('Dirty linen count saved successfully');
-      onOpenChange(false);
+      
+      setLastSaved(new Date());
     } catch (error) {
-      console.error('Error saving linen counts:', error);
-      toast.error('Failed to save linen counts');
+      console.error('Auto-save error:', error);
+      toast.error('Auto-save failed');
     } finally {
-      setSaving(false);
+      setAutoSaving(false);
     }
+  }, [user?.id, roomId, assignmentId, open]);
+
+  const updateCount = (linenItemId: string, newCount: number) => {
+    if (newCount < 0) return;
+    
+    const updatedCounts = (() => {
+      const existing = linenCounts.find(c => c.linen_item_id === linenItemId);
+      if (existing) {
+        return linenCounts.map(c => 
+          c.linen_item_id === linenItemId ? { ...c, count: newCount } : c
+        );
+      } else {
+        return [...linenCounts, { linen_item_id: linenItemId, count: newCount }];
+      }
+    })();
+    
+    setLinenCounts(updatedCounts);
+
+    // Auto-save with debounce
+    if (autoSaveTimeout) {
+      clearTimeout(autoSaveTimeout);
+    }
+    
+    const timeout = setTimeout(() => {
+      autoSave(updatedCounts);
+    }, 1500); // 1.5 second delay
+    
+    setAutoSaveTimeout(timeout);
+  };
+
+  const getCount = (linenItemId: string): number => {
+    const item = linenCounts.find(count => count.linen_item_id === linenItemId);
+    return item ? item.count : 0;
   };
 
   const getTotalItems = () => {
@@ -165,17 +200,31 @@ export function DirtyLinenDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Shirt className="h-5 w-5" />
-            Dirty Linen Count - Room {roomNumber}
+            {t('dirtyLinen.title')} - {t('common.room')} {roomNumber}
           </DialogTitle>
         </DialogHeader>
 
         <Card className="mb-4">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center justify-between">
-              Today's Count
-              <Badge variant="outline">
-                {getTotalItems()} items
-              </Badge>
+              {t('dirtyLinen.todaysCount')}
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">
+                  {getTotalItems()} {t('dirtyLinen.items')}
+                </Badge>
+                {autoSaving && (
+                  <div className="flex items-center gap-1">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
+                    <span className="text-xs text-muted-foreground">Saving...</span>
+                  </div>
+                )}
+                {lastSaved && !autoSaving && (
+                  <div className="flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3 text-green-500" />
+                    <span className="text-xs text-muted-foreground">Saved</span>
+                  </div>
+                )}
+              </div>
             </CardTitle>
           </CardHeader>
         </Card>
@@ -225,12 +274,13 @@ export function DirtyLinenDialog({
 
         <div className="flex gap-2 pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
-            Cancel
+            {t('common.close')}
           </Button>
-          <Button onClick={handleSave} disabled={saving} className="flex-1">
-            <Save className="h-4 w-4 mr-2" />
-            {saving ? 'Saving...' : 'Save Count'}
-          </Button>
+          <div className="flex-1 text-center">
+            <p className="text-xs text-muted-foreground">
+              {t('dirtyLinen.autoSave')}
+            </p>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

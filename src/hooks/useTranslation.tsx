@@ -128,6 +128,7 @@ const translations = {
     'common.success': 'Success',
     'common.minutes': 'minutes',
     'common.dismiss': 'Dismiss',
+    'common.details': 'Details',
     
     // Language
     'language.changed': 'Language Changed',
@@ -387,8 +388,35 @@ const translations = {
     'supervisor.selectHousekeeper': 'Select Housekeeper',
     'supervisor.chooseHousekeeper': 'Choose a housekeeper...',
     'supervisor.confirmReassign': 'Reassign Room',
-    'supervisor.roomMarkedClean': 'Room has been marked as clean and ready!',
   },
+    
+    // Dirty Linen
+    'dirtyLinen.dirtyLinen': 'Dirty Linen',
+    'dirtyLinen.linen': 'Linen',
+    'dirtyLinen.details': 'Details',
+    'dirtyLinen.title': 'Dirty Linen Count',
+    'dirtyLinen.todaysCount': "Today's Count",
+    'dirtyLinen.items': 'items',
+    'dirtyLinen.autoSave': 'Changes saved automatically',
+    'dirtyLinen.management': 'Dirty Linen Management',
+    'dirtyLinen.overview': 'Overview',
+    'dirtyLinen.detailedRecords': 'Detailed Records',
+    'dirtyLinen.byHousekeeper': 'By Housekeeper',
+    'dirtyLinen.dailyTotals': 'Daily Totals by Item',
+    'dirtyLinen.export': 'Export',
+    'dirtyLinen.noRecords': 'No dirty linen recorded for this date',
+    'dirtyLinen.noRecordsFound': 'No records found for this date',
+    'dirtyLinen.performanceByHousekeeper': 'Performance by Housekeeper',
+    'dirtyLinen.totalItems': 'Total Items',
+    'dirtyLinen.roomsCleaned': 'Rooms Cleaned',
+    'dirtyLinen.noHousekeeperData': 'No housekeeper data for this date',
+    'dirtyLinen.itemsConfiguration': 'Linen Items Configuration',
+    'dirtyLinen.addItem': 'Add Item',
+    'dirtyLinen.itemName': 'Item Name',
+    'dirtyLinen.displayName': 'Display Name',
+    'dirtyLinen.sortOrder': 'Sort Order',
+    'dirtyLinen.isActive': 'Active',
+    'dirtyLinen.saveItem': 'Save Item',
   
   hu: {
     // Dashboard
@@ -1429,7 +1457,7 @@ const translations = {
     // Мэдэгдэл
     'notifications.newAssignment': 'Танд шинэ өрөөний даалгавар ирлээ!',
     'notifications.newCompletion': 'Ажил дууссан бөгөөд зөвшөөрөл хэрэгтэй байна',
-  },
+  }
 };
 
 type Language = keyof typeof translations;

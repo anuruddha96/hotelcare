@@ -136,8 +136,8 @@ export function HousekeepingTab() {
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Dirty Linen</span>
-                <span className="xs:hidden">Linen</span>
+                <span className="hidden sm:inline">{t('dirtyLinen.dirtyLinen')}</span>
+                <span className="sm:hidden">{t('dirtyLinen.linen')}</span>
               </TabsTrigger>
             </>
           )}
