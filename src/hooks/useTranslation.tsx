@@ -168,7 +168,7 @@ const translations = {
     'workStatus.breakStartSuccess': 'Time to Rest & Recharge',
     'workStatus.breakStartDescription': 'Enjoy your break! 🌸',
     'workStatus.breakEndSuccess': 'Energized & Ready to Go!',
-    'workStatus.breakEndDescription': 'Welcome back! Let\\'s make great things happen ⚡',
+    'workStatus.breakEndDescription': "Welcome back! Let's make great things happen ⚡",
     
     // Break Requests
     'breakRequest.requestSpecialBreak': 'Request Special Break',
