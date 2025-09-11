@@ -94,7 +94,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     }
   };
 
-  const fetchExistingCounts = async () => {
+  const fetchExistingCounts = useCallback(async () => {
     if (!user?.id) return;
     
     try {
@@ -111,7 +111,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     } catch (error) {
       console.error('Error fetching existing counts:', error);
     }
-  };
+  }, [user?.id, roomId]);
 
   const autoSave = useCallback(async (counts: LinenCount[]) => {
     if (!user?.id || !open) return;
@@ -120,13 +120,17 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      // Delete existing counts for today
-      await supabase
+      // Delete existing counts for today for this room and housekeeper
+      const { error: deleteError } = await supabase
         .from('dirty_linen_counts')
         .delete()
         .eq('housekeeper_id', user.id)
         .eq('room_id', roomId)
         .eq('work_date', today);
+
+      if (deleteError) {
+        console.error('Delete error:', deleteError);
+      }
 
       // Insert new counts (only non-zero)
       const countsToInsert = counts
@@ -141,21 +145,31 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
         }));
 
       if (countsToInsert.length > 0) {
-        const { error } = await supabase
+        const { error: insertError } = await supabase
           .from('dirty_linen_counts')
           .insert(countsToInsert);
 
-        if (error) throw error;
+        if (insertError) {
+          console.error('Insert error:', insertError);
+          throw insertError;
+        }
       }
       
       setLastSaved(new Date());
+      
+      // Force a small delay to ensure the database has processed the changes
+      setTimeout(() => {
+        // Trigger a manual refetch if needed
+        fetchExistingCounts();
+      }, 500);
+      
     } catch (error) {
       console.error('Auto-save error:', error);
       toast.error('Auto-save failed');
     } finally {
       setAutoSaving(false);
     }
-  }, [user?.id, roomId, assignmentId, open]);
+  }, [user?.id, roomId, assignmentId, open, fetchExistingCounts]);
 
   const updateCount = (linenItemId: string, newCount: number) => {
     if (newCount < 0) return;

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Shirt, Calendar, Users, BarChart3, Download } from 'lucide-react';
+import { Shirt, Calendar, Users, BarChart3, Download, Home, TrendingUp } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -217,37 +217,214 @@ export function DirtyLinenManagement() {
           <TabsTrigger value="housekeepers">{t('dirtyLinen.byHousekeeper')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          {/* Daily Totals */}
+        <TabsContent value="overview" className="space-y-6">
+          {/* Summary Statistics */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Shirt className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Items</p>
+                  <p className="text-2xl font-bold">
+                    {dailyTotals.reduce((sum, item) => sum + item.total_count, 0)}
+                  </p>
+                </div>
+              </div>
+            </Card>
+            
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <Users className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Active Housekeepers</p>
+                  <p className="text-2xl font-bold">{housekeeperTotals.length}</p>
+                </div>
+              </div>
+            </Card>
+            
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <Home className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Rooms Processed</p>
+                  <p className="text-2xl font-bold">
+                    {housekeeperTotals.reduce((sum, hk) => sum + hk.room_count, 0)}
+                  </p>
+                </div>
+              </div>
+            </Card>
+            
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <TrendingUp className="h-5 w-5 text-orange-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Avg per Room</p>
+                  <p className="text-2xl font-bold">
+                    {housekeeperTotals.reduce((sum, hk) => sum + hk.room_count, 0) > 0 
+                      ? Math.round(dailyTotals.reduce((sum, item) => sum + item.total_count, 0) / housekeeperTotals.reduce((sum, hk) => sum + hk.room_count, 0))
+                      : 0}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Daily Totals Chart */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5" />
                 Daily Totals by Item - {format(new Date(selectedDate), 'MMMM dd, yyyy')}
               </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Comprehensive view of all dirty linen items collected today
+              </p>
             </CardHeader>
             <CardContent>
               {dailyTotals.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {dailyTotals.map((item) => (
-                    <Card key={item.linen_item_name} className="p-4">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">{item.linen_item_name}</span>
-                        <Badge variant="secondary" className="text-lg font-bold">
-                          {item.total_count}
-                        </Badge>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
+                <>
+                  {/* Visual Bar Chart */}
+                  <div className="space-y-4 mb-6">
+                    {dailyTotals
+                      .sort((a, b) => b.total_count - a.total_count)
+                      .map((item, index) => {
+                        const maxCount = Math.max(...dailyTotals.map(d => d.total_count));
+                        const percentage = (item.total_count / maxCount) * 100;
+                        return (
+                          <div key={item.linen_item_name} className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium text-sm">{item.linen_item_name}</span>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary" className="font-bold">
+                                  {item.total_count}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {Math.round((item.total_count / dailyTotals.reduce((sum, d) => sum + d.total_count, 0)) * 100)}%
+                                </span>
+                              </div>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-3">
+                              <div 
+                                className={`h-3 rounded-full transition-all duration-500 ${
+                                  index === 0 ? 'bg-blue-600' :
+                                  index === 1 ? 'bg-green-600' :
+                                  index === 2 ? 'bg-purple-600' : 'bg-gray-600'
+                                }`}
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+
+                  {/* Detailed Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {dailyTotals.map((item) => (
+                      <Card key={item.linen_item_name} className="p-4 hover:shadow-md transition-shadow">
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-start">
+                            <span className="font-medium text-sm">{item.linen_item_name}</span>
+                            <Badge variant="secondary" className="text-lg font-bold">
+                              {item.total_count}
+                            </Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {Math.round((item.total_count / dailyTotals.reduce((sum, d) => sum + d.total_count, 0)) * 100)}% of total
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </>
               ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Shirt className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No dirty linen recorded for this date</p>
+                <div className="text-center py-12 text-muted-foreground">
+                  <Shirt className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                  <h3 className="text-lg font-medium mb-2">No Data Available</h3>
+                  <p className="text-sm">No dirty linen has been recorded for {format(new Date(selectedDate), 'MMMM dd, yyyy')}</p>
+                  <p className="text-xs mt-2">Data will appear here once housekeepers start logging dirty linen items</p>
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Performance Insights */}
+          {housekeeperTotals.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Team Performance Overview
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Housekeeper productivity and workload distribution
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Top Performers */}
+                  <div>
+                    <h4 className="font-medium mb-3 text-sm">Top Performers (by items processed)</h4>
+                    <div className="space-y-3">
+                      {housekeeperTotals
+                        .sort((a, b) => b.total_items - a.total_items)
+                        .slice(0, 3)
+                        .map((hk, index) => (
+                          <div key={hk.housekeeper_name} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                                index === 0 ? 'bg-yellow-500' :
+                                index === 1 ? 'bg-gray-400' : 'bg-orange-500'
+                              }`}>
+                                {index + 1}
+                              </div>
+                              <span className="font-medium">{hk.housekeeper_name}</span>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-bold">{hk.total_items} items</div>
+                              <div className="text-xs text-muted-foreground">{hk.room_count} rooms</div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  {/* Workload Distribution */}
+                  <div>
+                    <h4 className="font-medium mb-3 text-sm">Workload Distribution</h4>
+                    <div className="space-y-2">
+                      {housekeeperTotals.map((hk) => {
+                        const maxItems = Math.max(...housekeeperTotals.map(h => h.total_items));
+                        const percentage = maxItems > 0 ? (hk.total_items / maxItems) * 100 : 0;
+                        return (
+                          <div key={hk.housekeeper_name} className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span>{hk.housekeeper_name}</span>
+                              <span className="font-medium">{hk.total_items} items</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className="h-2 bg-blue-600 rounded-full transition-all duration-500"
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="detailed" className="space-y-4">
