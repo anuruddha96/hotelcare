@@ -158,12 +158,20 @@ export function HousekeepingStaffView() {
         }
       }
 
+      // Filter out checkout rooms that are not ready to clean
+      assignmentsData = assignmentsData.filter((assignment: any) => {
+        // Only show checkout rooms if they are marked as ready to clean
+        if (assignment.assignment_type === 'checkout_cleaning') {
+          return assignment.ready_to_clean === true;
+        }
+        return true; // Show all non-checkout assignments
+      });
+
       // Sort with checkout-ready first, then status, then priority, then created_at
       assignmentsData.sort((a, b) => {
         const checkoutRank = (x: any) => {
           if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 0; // top priority
-          if (x.assignment_type === 'checkout_cleaning') return 1; // next
-          return 2; // daily/others
+          return 1; // daily/others (checkout rooms without ready_to_clean are already filtered out)
         };
         const statusPriority: Record<string, number> = {
           'in_progress': 1,

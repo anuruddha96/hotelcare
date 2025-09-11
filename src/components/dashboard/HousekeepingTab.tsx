@@ -6,13 +6,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
 import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
-import { PMSUpload } from './PMSUpload';
-import { EasyRoomAssignment } from './EasyRoomAssignment';
-import { PerformanceLeaderboard } from './PerformanceLeaderboard';
-import { SupervisorApprovalView } from './SupervisorApprovalView';
+import { CompanySettings } from './CompanySettings';
+import { AttendanceTracker } from './AttendanceTracker';
+import { DirtyLinenManagement } from './DirtyLinenManagement';
+import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
 import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
-import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield } from 'lucide-react';
+import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 export function HousekeepingTab() {
@@ -70,7 +70,7 @@ export function HousekeepingTab() {
             ? 'flex flex-nowrap overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
             : 'grid w-full grid-cols-1'
           }
-          ${hasManagerAccess ? 'sm:grid sm:grid-cols-7 sm:justify-center' : ''}
+          ${hasManagerAccess ? 'sm:grid sm:grid-cols-8 sm:justify-center' : ''}
         `}>
           {hasManagerAccess && (
             <>
@@ -127,9 +127,17 @@ export function HousekeepingTab() {
                 <span className="hidden xs:inline">{t('housekeeping.quickAssign')}</span>
                 <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
               </TabsTrigger>
+              <TabsTrigger 
+                value="dirty-linen" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Dirty Linen</span>
+                <span className="xs:hidden">Linen</span>
+              </TabsTrigger>
             </>
           )}
-          <TabsTrigger 
+          <TabsTrigger
             value="assignments" 
             className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
           >
@@ -170,6 +178,13 @@ export function HousekeepingTab() {
               <div className="space-y-6">
                 <SupervisorApprovalView />
                 <BreakRequestApprovalView />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="dirty-linen" className="space-y-6">
+              <div className="space-y-6">
+                <DirtyLinenManagement />
+                {user?.role === 'admin' && <DirtyLinenItemsManagement />}
               </div>
             </TabsContent>
           </>

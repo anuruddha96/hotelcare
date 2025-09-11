@@ -14,12 +14,15 @@ import {
   CheckCircle, 
   MessageSquare,
   AlertTriangle,
-  BedDouble
+  BedDouble,
+  Shirt,
+  Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
-import { TimerComponent } from './TimerComponent';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
+import { DirtyLinenDialog } from './DirtyLinenDialog';
+import { TimerComponent } from './TimerComponent';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 
@@ -54,6 +57,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
   const [dndPhotoDialogOpen, setDndPhotoDialogOpen] = useState(false);
+  const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -422,14 +426,27 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           </Dialog>
 
           {assignment.rooms && (
-            <Button 
-              size="lg" 
-              variant="outline"
-              onClick={() => setRoomDetailOpen(true)}
-              className="w-full sm:w-auto"
-            >
-              {t('housekeeping.roomDetails')}
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                size="lg" 
+                variant="outline"
+                onClick={() => setRoomDetailOpen(true)}
+                className="flex-1"
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                {t('housekeeping.roomDetails')}
+              </Button>
+              
+              <Button 
+                size="lg" 
+                variant="outline"
+                onClick={() => setDirtyLinenDialogOpen(true)}
+                className="flex-1"
+              >
+                <Shirt className="h-4 w-4 mr-2" />
+                Dirty Linen
+              </Button>
+            </div>
           )}
         </div>
 
@@ -470,6 +487,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         roomId={assignment.room_id}
         assignmentId={assignment.id}
         onPhotoUploaded={markAsDND}
+      <DirtyLinenDialog
+        open={dirtyLinenDialogOpen}
+        onOpenChange={setDirtyLinenDialogOpen}
+        roomId={assignment.room_id}
+        roomNumber={assignment.rooms?.room_number || 'Unknown'}
+        assignmentId={assignment.id}
       />
     </Card>
   );

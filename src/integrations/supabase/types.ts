@@ -193,6 +193,80 @@ export type Database = {
         }
         Relationships: []
       }
+      dirty_linen_counts: {
+        Row: {
+          assignment_id: string | null
+          count: number
+          created_at: string
+          housekeeper_id: string
+          id: string
+          linen_item_id: string
+          room_id: string
+          updated_at: string
+          work_date: string
+        }
+        Insert: {
+          assignment_id?: string | null
+          count?: number
+          created_at?: string
+          housekeeper_id: string
+          id?: string
+          linen_item_id: string
+          room_id: string
+          updated_at?: string
+          work_date?: string
+        }
+        Update: {
+          assignment_id?: string | null
+          count?: number
+          created_at?: string
+          housekeeper_id?: string
+          id?: string
+          linen_item_id?: string
+          room_id?: string
+          updated_at?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dirty_linen_counts_linen_item_id_fkey"
+            columns: ["linen_item_id"]
+            isOneToOne: false
+            referencedRelation: "dirty_linen_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dirty_linen_items: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       dnd_photos: {
         Row: {
           assignment_date: string
