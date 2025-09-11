@@ -67,72 +67,83 @@ export function DirtyLinenManagement() {
   const fetchLinenData = async () => {
     setLoading(true);
     try {
-      let query = supabase
+      // 1) Fetch raw counts without relying on FK relationships
+      let countsQuery = supabase
         .from('dirty_linen_counts')
-        .select(`
-          id,
-          count,
-          work_date,
-          created_at,
-          profiles!inner(full_name),
-          rooms!inner(room_number, hotel),
-          dirty_linen_items!inner(display_name)
-        `)
+        .select('id, count, work_date, created_at, housekeeper_id, room_id, linen_item_id')
         .eq('work_date', selectedDate)
         .order('created_at', { ascending: false });
 
       if (selectedHousekeeper !== 'all') {
-        query = query.eq('housekeeper_id', selectedHousekeeper);
+        countsQuery = countsQuery.eq('housekeeper_id', selectedHousekeeper);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const { data: countsRows, error: countsError } = await countsQuery;
+      if (countsError) throw countsError;
 
-      const counts: LinenCount[] = (data || []).map((item: any) => ({
-        id: item.id,
-        housekeeper_name: item.profiles.full_name,
-        room_number: item.rooms.room_number,
-        hotel: item.rooms.hotel,
-        linen_item_name: item.dirty_linen_items.display_name,
-        count: item.count,
-        work_date: item.work_date,
-        created_at: item.created_at,
-      }));
+      const countsData = countsRows || [];
+      const housekeeperIds = Array.from(new Set(countsData.map((r: any) => r.housekeeper_id)));
+      const roomIds = Array.from(new Set(countsData.map((r: any) => r.room_id)));
+      const linenIds = Array.from(new Set(countsData.map((r: any) => r.linen_item_id)));
+
+      // 2) Fetch lookups in parallel (only if we have ids)
+      const [profilesRes, roomsRes, linenRes] = await Promise.all([
+        housekeeperIds.length > 0
+          ? supabase.from('profiles').select('id, full_name').in('id', housekeeperIds)
+          : Promise.resolve({ data: [], error: null } as any),
+        roomIds.length > 0
+          ? supabase.from('rooms').select('id, room_number, hotel').in('id', roomIds)
+          : Promise.resolve({ data: [], error: null } as any),
+        linenIds.length > 0
+          ? supabase.from('dirty_linen_items').select('id, display_name').in('id', linenIds)
+          : Promise.resolve({ data: [], error: null } as any),
+      ]);
+
+      if (profilesRes.error) throw profilesRes.error;
+      if (roomsRes.error) throw roomsRes.error;
+      if (linenRes.error) throw linenRes.error;
+
+      const profileMap = new Map<string, string>((profilesRes.data || []).map((p: any) => [p.id, p.full_name]));
+      const roomMap = new Map<string, { room_number: string; hotel: string }>((roomsRes.data || []).map((r: any) => [r.id, { room_number: r.room_number, hotel: r.hotel }]));
+      const linenMap = new Map<string, string>((linenRes.data || []).map((l: any) => [l.id, l.display_name]));
+
+      // 3) Build view models
+      const counts: LinenCount[] = countsData.map((row: any) => {
+        const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
+        return {
+          id: row.id,
+          housekeeper_name: profileMap.get(row.housekeeper_id) || 'Unknown',
+          room_number: room.room_number,
+          hotel: room.hotel,
+          linen_item_name: linenMap.get(row.linen_item_id) || 'Item',
+          count: row.count,
+          work_date: row.work_date,
+          created_at: row.created_at,
+        };
+      });
 
       setLinenCounts(counts);
 
-      // Calculate daily totals by linen type
+      // 4) Aggregations
       const totalsMap = new Map<string, number>();
       counts.forEach(item => {
-        const existing = totalsMap.get(item.linen_item_name) || 0;
-        totalsMap.set(item.linen_item_name, existing + item.count);
+        totalsMap.set(item.linen_item_name, (totalsMap.get(item.linen_item_name) || 0) + item.count);
       });
-      
-      const dailyTotals = Array.from(totalsMap.entries()).map(([name, count]) => ({
-        linen_item_name: name,
-        total_count: count,
-      })).sort((a, b) => b.total_count - a.total_count);
-      
+      const dailyTotals = Array.from(totalsMap.entries())
+        .map(([name, total]) => ({ linen_item_name: name, total_count: total }))
+        .sort((a, b) => b.total_count - a.total_count);
       setDailyTotals(dailyTotals);
 
-      // Calculate housekeeper totals
-      const housekeeperMap = new Map<string, { total_items: number; rooms: Set<string> }>();
+      const hkMap = new Map<string, { total_items: number; rooms: Set<string> }>();
       counts.forEach(item => {
-        const key = item.housekeeper_name;
-        if (!housekeeperMap.has(key)) {
-          housekeeperMap.set(key, { total_items: 0, rooms: new Set() });
-        }
-        const existing = housekeeperMap.get(key)!;
-        existing.total_items += item.count;
-        existing.rooms.add(item.room_number);
+        if (!hkMap.has(item.housekeeper_name)) hkMap.set(item.housekeeper_name, { total_items: 0, rooms: new Set() });
+        const agg = hkMap.get(item.housekeeper_name)!;
+        agg.total_items += item.count;
+        agg.rooms.add(item.room_number);
       });
-
-      const housekeeperTotals = Array.from(housekeeperMap.entries()).map(([name, data]) => ({
-        housekeeper_name: name,
-        total_items: data.total_items,
-        room_count: data.rooms.size,
-      })).sort((a, b) => b.total_items - a.total_items);
-      
+      const housekeeperTotals = Array.from(hkMap.entries())
+        .map(([name, agg]) => ({ housekeeper_name: name, total_items: agg.total_items, room_count: agg.rooms.size }))
+        .sort((a, b) => b.total_items - a.total_items);
       setHousekeeperTotals(housekeeperTotals);
     } catch (error) {
       console.error('Error fetching linen data:', error);

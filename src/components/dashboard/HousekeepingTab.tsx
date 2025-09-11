@@ -188,7 +188,7 @@ export function HousekeepingTab() {
             <TabsContent value="dirty-linen" className="space-y-6">
               <div className="space-y-6">
                 <DirtyLinenManagement />
-                {user?.role === 'admin' && <DirtyLinenItemsManagement />}
+                {userRole === 'admin' && <DirtyLinenItemsManagement />}
               </div>
             </TabsContent>
           </>
