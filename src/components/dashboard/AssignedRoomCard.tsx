@@ -487,6 +487,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         roomId={assignment.room_id}
         assignmentId={assignment.id}
         onPhotoUploaded={markAsDND}
+      />
+
+      {/* Dirty Linen Dialog */}
       <DirtyLinenDialog
         open={dirtyLinenDialogOpen}
         onOpenChange={setDirtyLinenDialogOpen}
