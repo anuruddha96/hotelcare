@@ -153,6 +153,23 @@ export function DirtyLinenManagement() {
     }
   };
 
+  const deleteLinenRecord = async (recordId: string) => {
+    try {
+      const { error } = await supabase
+        .from('dirty_linen_counts')
+        .delete()
+        .eq('id', recordId);
+
+      if (error) throw error;
+
+      toast.success('Record deleted successfully');
+      fetchLinenData(); // Refresh data to update all views
+    } catch (error) {
+      console.error('Error deleting linen record:', error);
+      toast.error('Failed to delete record');
+    }
+  };
+
   const exportData = () => {
     const csvContent = [
       ['Date', 'Housekeeper', 'Room', 'Hotel', 'Linen Type', 'Count', 'Recorded At'].join(','),
@@ -447,9 +464,19 @@ export function DirtyLinenManagement() {
                           {format(new Date(item.created_at), 'HH:mm:ss')}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="font-medium">{item.linen_item_name}</div>
-                        <Badge>{item.count} items</Badge>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="font-medium">{item.linen_item_name}</div>
+                          <Badge>{item.count} items</Badge>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => deleteLinenRecord(item.id)}
+                          className="text-xs"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
                       </div>
                     </div>
                   ))}
