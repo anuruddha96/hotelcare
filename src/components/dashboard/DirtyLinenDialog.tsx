@@ -46,18 +46,45 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       fetchLinenItems();
       fetchExistingCounts();
       
-      // Set up real-time subscription
+      // Set up real-time subscription for all changes
       const channel = supabase
         .channel('dirty-linen-changes')
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: 'INSERT',
             schema: 'public',
             table: 'dirty_linen_counts',
             filter: `room_id=eq.${roomId}`
           },
           () => {
+            console.log('Real-time: INSERT detected, refetching counts');
+            fetchExistingCounts();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'dirty_linen_counts',
+            filter: `room_id=eq.${roomId}`
+          },
+          () => {
+            console.log('Real-time: UPDATE detected, refetching counts');
+            fetchExistingCounts();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'dirty_linen_counts',
+            filter: `room_id=eq.${roomId}`
+          },
+          () => {
+            console.log('Real-time: DELETE detected, refetching counts');
             fetchExistingCounts();
           }
         )
