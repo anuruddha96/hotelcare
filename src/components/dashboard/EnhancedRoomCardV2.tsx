@@ -54,6 +54,11 @@ interface Room {
   dnd_marked_by?: {
     full_name: string;
   };
+  guest_nights_stayed?: number;
+  towel_change_required?: boolean;
+  linen_change_required?: boolean;
+  last_towel_change?: string;
+  last_linen_change?: string;
   minibar_usage?: Array<{
     id: string;
     quantity_used: number;
@@ -248,6 +253,27 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
 
         {/* Bottom Section - Badges and Issues */}
         <div className="flex flex-wrap gap-1.5 pt-2">
+          {/* Towel Change Required Badge */}
+          {room.towel_change_required && (
+            <Badge variant="default" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
+              🏺 Towel Change
+            </Badge>
+          )}
+
+          {/* Linen Change Required Badge */}
+          {room.linen_change_required && (
+            <Badge variant="default" className="text-xs bg-purple-100 text-purple-800 border-purple-200">
+              🛏️ Linen Change
+            </Badge>
+          )}
+
+          {/* Guest Nights Badge */}
+          {room.guest_nights_stayed && room.guest_nights_stayed > 0 && (
+            <Badge variant="outline" className="text-xs">
+              🌙 Night {room.guest_nights_stayed}
+            </Badge>
+          )}
+
           {/* Active Issues Badge */}
           {hasActiveIssues && (
             <Badge variant="destructive" className="text-xs">

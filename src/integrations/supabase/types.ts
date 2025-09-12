@@ -739,17 +739,22 @@ export type Database = {
           dnd_marked_by: string | null
           floor_number: number | null
           guest_count: number | null
+          guest_nights_stayed: number | null
           hotel: string
           id: string
           is_checkout_room: boolean | null
           is_dnd: boolean | null
           last_cleaned_at: string | null
           last_cleaned_by: string | null
+          last_linen_change: string | null
+          last_towel_change: string | null
+          linen_change_required: boolean | null
           notes: string | null
           room_name: string | null
           room_number: string
           room_type: string | null
           status: string | null
+          towel_change_required: boolean | null
           updated_at: string
         }
         Insert: {
@@ -760,17 +765,22 @@ export type Database = {
           dnd_marked_by?: string | null
           floor_number?: number | null
           guest_count?: number | null
+          guest_nights_stayed?: number | null
           hotel: string
           id?: string
           is_checkout_room?: boolean | null
           is_dnd?: boolean | null
           last_cleaned_at?: string | null
           last_cleaned_by?: string | null
+          last_linen_change?: string | null
+          last_towel_change?: string | null
+          linen_change_required?: boolean | null
           notes?: string | null
           room_name?: string | null
           room_number: string
           room_type?: string | null
           status?: string | null
+          towel_change_required?: boolean | null
           updated_at?: string
         }
         Update: {
@@ -781,17 +791,22 @@ export type Database = {
           dnd_marked_by?: string | null
           floor_number?: number | null
           guest_count?: number | null
+          guest_nights_stayed?: number | null
           hotel?: string
           id?: string
           is_checkout_room?: boolean | null
           is_dnd?: boolean | null
           last_cleaned_at?: string | null
           last_cleaned_by?: string | null
+          last_linen_change?: string | null
+          last_towel_change?: string | null
+          linen_change_required?: boolean | null
           notes?: string | null
           room_name?: string | null
           room_number?: string
           room_type?: string | null
           status?: string | null
+          towel_change_required?: boolean | null
           updated_at?: string
         }
         Relationships: [

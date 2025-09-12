@@ -43,6 +43,9 @@ interface AssignedRoomCardProps {
       status: string;
       room_name: string | null;
       floor_number: number | null;
+      guest_nights_stayed?: number;
+      towel_change_required?: boolean;
+      linen_change_required?: boolean;
     } | null;
   };
   onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => void;
@@ -267,6 +270,32 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </Badge>
           </div>
           <div className="flex flex-wrap gap-2">
+            {/* Special Requirements Badges */}
+            {assignment.rooms?.towel_change_required && (
+              <Badge 
+                variant="default" 
+                className="bg-blue-100 text-blue-800 border-blue-200 font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0"
+              >
+                🏺 Towel Change
+              </Badge>
+            )}
+            {assignment.rooms?.linen_change_required && (
+              <Badge 
+                variant="default" 
+                className="bg-purple-100 text-purple-800 border-purple-200 font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0"
+              >
+                🛏️ Linen Change
+              </Badge>
+            )}
+            {assignment.rooms?.guest_nights_stayed && assignment.rooms.guest_nights_stayed > 0 && (
+              <Badge 
+                variant="outline" 
+                className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full flex-shrink-0"
+              >
+                🌙 Night {assignment.rooms.guest_nights_stayed}
+              </Badge>
+            )}
+            
             {assignment.priority > 1 && (
               <Badge 
                 variant="outline" 

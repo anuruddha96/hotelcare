@@ -121,7 +121,10 @@ export function HousekeepingStaffView() {
             status,
             room_name,
             floor_number,
-            bed_type
+            bed_type,
+            guest_nights_stayed,
+            towel_change_required,
+            linen_change_required
           )
         `)
         .eq('assigned_to', user.id)
@@ -147,7 +150,7 @@ export function HousekeepingStaffView() {
       if (missingRoomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, guest_nights_stayed, towel_change_required, linen_change_required')
           .in('id', missingRoomIds);
         if (!roomsError && roomRows) {
           const roomMap = Object.fromEntries(roomRows.map((r: any) => [r.id, r]));

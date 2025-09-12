@@ -235,6 +235,28 @@ export function PMSUpload() {
           let newStatus = 'clean';
           let needsCleaning = false;
           let isCheckout = false;
+          let guestNightsStayed = 0;
+          let towelChangeRequired = false;
+          let linenChangeRequired = false;
+
+          // Parse Night/Total column for guest stay information
+          if (row['Night / Total'] && row['Night / Total'].trim() !== '') {
+            const nightTotal = String(row['Night / Total']).trim();
+            // Format could be "2/3" meaning 2nd night out of 3 total nights
+            const match = nightTotal.match(/(\d+)\/(\d+)/);
+            if (match) {
+              guestNightsStayed = parseInt(match[1], 10);
+              const totalNights = parseInt(match[2], 10);
+              
+              // Towel change required every 2 nights
+              towelChangeRequired = guestNightsStayed >= 2 && guestNightsStayed % 2 === 0;
+              
+              // Linen change required every 5 nights
+              linenChangeRequired = guestNightsStayed >= 5 && guestNightsStayed % 5 === 0;
+              
+              console.log(`[PMS] Room ${roomNumber}: Guest stayed ${guestNightsStayed}/${totalNights} nights. Towel change: ${towelChangeRequired}, Linen change: ${linenChangeRequired}`);
+            }
+          }
 
           // Any room with a departure time needs checkout cleaning (regardless of current occupancy)
           if (row.Departure && row.Departure.trim() !== '') {
@@ -284,8 +306,20 @@ export function PMSUpload() {
             notes: row.Note || null,
             is_checkout_room: isCheckout,
             guest_count: row.People || 0,
+            guest_nights_stayed: guestNightsStayed,
+            towel_change_required: towelChangeRequired,
+            linen_change_required: linenChangeRequired,
             updated_at: new Date().toISOString()
           };
+
+          // Set last change dates if changes are required
+          const today = new Date().toISOString().split('T')[0];
+          if (towelChangeRequired) {
+            updateData.last_towel_change = today;
+          }
+          if (linenChangeRequired) {
+            updateData.last_linen_change = today;
+          }
 
           if (isCheckout && row.Departure) {
             updateData.checkout_time = new Date().toISOString();
