@@ -168,7 +168,7 @@ export function ImageCaptureDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5" />
-            {t('imageCapture.title')} - Room {roomNumber}
+            Photo Capture - Room {roomNumber}
           </DialogTitle>
         </DialogHeader>
 
@@ -181,7 +181,7 @@ export function ImageCaptureDialog({
                 variant="outline"
               >
                 <Camera className="h-4 w-4" />
-                {t('imageCapture.takePhoto')}
+                Take Photo
               </Button>
               
               <Button
@@ -190,7 +190,7 @@ export function ImageCaptureDialog({
                 variant="outline"
               >
                 <Upload className="h-4 w-4" />
-                {t('imageCapture.uploadPhoto')}
+                Upload Photo
               </Button>
             </div>
           )}
@@ -222,14 +222,14 @@ export function ImageCaptureDialog({
                   className="flex-1 bg-blue-600 hover:bg-blue-700"
                 >
                   <Camera className="h-4 w-4 mr-2" />
-                  {t('imageCapture.capture')}
+                  Capture
                 </Button>
                 
                 <Button
                   onClick={stopCamera}
                   variant="outline"
                 >
-                  {t('common.cancel')}
+                  Cancel
                 </Button>
               </div>
             </div>
@@ -238,7 +238,7 @@ export function ImageCaptureDialog({
           {capturedPhotos.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <h4 className="text-sm font-medium">{t('imageCapture.capturedPhotos')}</h4>
+                <h4 className="text-sm font-medium">Captured Photos</h4>
                 <Badge variant="outline">{capturedPhotos.length}</Badge>
               </div>
               
@@ -267,7 +267,7 @@ export function ImageCaptureDialog({
           {isUploading && (
             <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-              <span className="text-sm text-blue-800">{t('imageCapture.uploading')}</span>
+              <span className="text-sm text-blue-800">Uploading...</span>
             </div>
           )}
 
@@ -277,13 +277,13 @@ export function ImageCaptureDialog({
               variant="outline"
               className="flex-1"
             >
-              {t('common.close')}
+              Close
             </Button>
             
             {capturedPhotos.length > 0 && !isUploading && (
               <div className="flex items-center gap-1 text-green-600">
                 <CheckCircle className="h-4 w-4" />
-                <span className="text-sm">{t('imageCapture.saved')}</span>
+                <span className="text-sm">Saved</span>
               </div>
             )}
           </div>

@@ -575,6 +575,7 @@ export type Database = {
           assignment_date: string
           assignment_type: Database["public"]["Enums"]["assignment_type"]
           completed_at: string | null
+          completion_photos: string[] | null
           created_at: string
           dnd_marked_at: string | null
           dnd_marked_by: string | null
@@ -598,6 +599,7 @@ export type Database = {
           assignment_date?: string
           assignment_type?: Database["public"]["Enums"]["assignment_type"]
           completed_at?: string | null
+          completion_photos?: string[] | null
           created_at?: string
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
@@ -621,6 +623,7 @@ export type Database = {
           assignment_date?: string
           assignment_type?: Database["public"]["Enums"]["assignment_type"]
           completed_at?: string | null
+          completion_photos?: string[] | null
           created_at?: string
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
