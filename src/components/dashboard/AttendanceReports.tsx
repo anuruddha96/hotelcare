@@ -47,7 +47,7 @@ export const AttendanceReports = () => {
   const [employees, setEmployees] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'top_management';
 
   useEffect(() => {
     if (user && isAdmin) {
@@ -209,7 +209,7 @@ export const AttendanceReports = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5" />
-            Attendance Reports
+            HR Management
           </CardTitle>
         </CardHeader>
         <CardContent>
