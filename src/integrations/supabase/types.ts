@@ -1132,6 +1132,14 @@ export type Database = {
         }
         Returns: Json
       }
+      get_attendance_summary_v2: {
+        Args: {
+          end_date?: string
+          start_date?: string
+          target_user_id?: string
+        }
+        Returns: Json
+      }
       get_current_user_role: {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]

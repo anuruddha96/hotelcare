@@ -138,7 +138,7 @@ export const AttendanceReports = () => {
     const targetUserId = isAdmin && selectedEmployee !== 'all' ? selectedEmployee : (isAdmin ? null : user.id);
     
     const { data: summaryData, error: summaryError } = await supabase
-      .rpc('get_attendance_summary', {
+      .rpc('get_attendance_summary_v2', {
         target_user_id: targetUserId,
         start_date: format(start, 'yyyy-MM-dd'),
         end_date: format(end, 'yyyy-MM-dd')
@@ -146,6 +146,8 @@ export const AttendanceReports = () => {
 
     if (!summaryError && summaryData && typeof summaryData === 'object') {
       setSummary(summaryData as unknown as AttendanceSummary);
+    } else if (summaryError) {
+      console.error('Summary error:', summaryError);
     }
 
     setIsLoading(false);
