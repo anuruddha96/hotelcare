@@ -243,7 +243,7 @@ export function DirtyLinenManagement() {
                   <Shirt className="h-5 w-5 text-blue-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Total Items</p>
+                  <p className="text-sm text-muted-foreground">{t('dirtyLinen.totalItems')}</p>
                   <p className="text-2xl font-bold">
                     {dailyTotals.reduce((sum, item) => sum + item.total_count, 0)}
                   </p>
@@ -257,7 +257,7 @@ export function DirtyLinenManagement() {
                   <Users className="h-5 w-5 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Active Housekeepers</p>
+                  <p className="text-sm text-muted-foreground">{t('dirtyLinen.activeHousekeepers')}</p>
                   <p className="text-2xl font-bold">{housekeeperTotals.length}</p>
                 </div>
               </div>
@@ -269,7 +269,7 @@ export function DirtyLinenManagement() {
                   <Home className="h-5 w-5 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Rooms Processed</p>
+                  <p className="text-sm text-muted-foreground">{t('dirtyLinen.roomsProcessed')}</p>
                   <p className="text-2xl font-bold">
                     {housekeeperTotals.reduce((sum, hk) => sum + hk.room_count, 0)}
                   </p>
@@ -283,7 +283,7 @@ export function DirtyLinenManagement() {
                   <TrendingUp className="h-5 w-5 text-orange-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Avg per Room</p>
+                  <p className="text-sm text-muted-foreground">{t('dirtyLinen.avgPerRoom')}</p>
                   <p className="text-2xl font-bold">
                     {housekeeperTotals.reduce((sum, hk) => sum + hk.room_count, 0) > 0 
                       ? Math.round(dailyTotals.reduce((sum, item) => sum + item.total_count, 0) / housekeeperTotals.reduce((sum, hk) => sum + hk.room_count, 0))
@@ -299,10 +299,10 @@ export function DirtyLinenManagement() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5" />
-                Daily Totals by Item - {format(new Date(selectedDate), 'MMMM dd, yyyy')}
+                {t('dirtyLinen.dailyTotals')} - {format(new Date(selectedDate), 'MMMM dd, yyyy')}
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                Comprehensive view of all dirty linen items collected today
+                {t('dirtyLinen.comprehensive')}
               </p>
             </CardHeader>
             <CardContent>
@@ -365,7 +365,7 @@ export function DirtyLinenManagement() {
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
                   <Shirt className="h-16 w-16 mx-auto mb-4 opacity-30" />
-                  <h3 className="text-lg font-medium mb-2">No Data Available</h3>
+                  <h3 className="text-lg font-medium mb-2">{t('dirtyLinen.noDataAvailable')}</h3>
                   <p className="text-sm">No dirty linen has been recorded for {format(new Date(selectedDate), 'MMMM dd, yyyy')}</p>
                   <p className="text-xs mt-2">Data will appear here once housekeepers start logging dirty linen items</p>
                 </div>

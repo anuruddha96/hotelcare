@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from '@/hooks/useTranslation';
 import { CalendarDays, Clock, MapPin, TrendingUp, Users, Download } from 'lucide-react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 
@@ -40,6 +41,7 @@ interface AttendanceSummary {
 export const AttendanceReports = () => {
   const { user, profile } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [summary, setSummary] = useState<AttendanceSummary | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState('week');
@@ -209,7 +211,7 @@ export const AttendanceReports = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5" />
-            HR Management
+            {t('hr.management')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -219,10 +221,10 @@ export const AttendanceReports = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="week">This Week</SelectItem>
-                <SelectItem value="month">This Month</SelectItem>
-                <SelectItem value="30days">Last 30 Days</SelectItem>
+                <SelectItem value="today">{t('periods.today')}</SelectItem>
+                <SelectItem value="week">{t('periods.thisWeek')}</SelectItem>
+                <SelectItem value="month">{t('periods.thisMonth')}</SelectItem>
+                <SelectItem value="30days">{t('periods.last30Days')}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -232,7 +234,7 @@ export const AttendanceReports = () => {
                   <SelectValue placeholder="Select Employee" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Employees</SelectItem>
+                  <SelectItem value="all">{t('periods.allEmployees')}</SelectItem>
                   {employees.map(emp => (
                     <SelectItem key={emp.id} value={emp.id}>
                       {emp.full_name} - {emp.role}
@@ -244,7 +246,7 @@ export const AttendanceReports = () => {
 
             <Button onClick={exportToCSV} variant="outline" className="flex items-center gap-2">
               <Download className="h-4 w-4" />
-              Export CSV
+              {t('hr.exportCsv')}
             </Button>
           </div>
         </CardContent>
@@ -258,7 +260,7 @@ export const AttendanceReports = () => {
               <div className="flex items-center space-x-2">
                 <CalendarDays className="h-4 w-4 text-blue-600" />
                 <div>
-                  <p className="text-sm font-medium">Total Days</p>
+                  <p className="text-sm font-medium">{t('hr.totalDays')}</p>
                   <p className="text-2xl font-bold">{summary.total_days}</p>
                 </div>
               </div>
@@ -270,7 +272,7 @@ export const AttendanceReports = () => {
               <div className="flex items-center space-x-2">
                 <Clock className="h-4 w-4 text-green-600" />
                 <div>
-                  <p className="text-sm font-medium">Total Hours</p>
+                  <p className="text-sm font-medium">{t('hr.totalHours')}</p>
                   <p className="text-2xl font-bold">{summary.total_hours.toFixed(1)}h</p>
                 </div>
               </div>
@@ -282,7 +284,7 @@ export const AttendanceReports = () => {
               <div className="flex items-center space-x-2">
                 <TrendingUp className="h-4 w-4 text-purple-600" />
                 <div>
-                  <p className="text-sm font-medium">Avg Hours/Day</p>
+                  <p className="text-sm font-medium">{t('hr.avgHoursPerDay')}</p>
                   <p className="text-2xl font-bold">{summary.avg_hours_per_day.toFixed(1)}h</p>
                 </div>
               </div>
@@ -294,7 +296,7 @@ export const AttendanceReports = () => {
               <div className="flex items-center space-x-2">
                 <Users className="h-4 w-4 text-orange-600" />
                 <div>
-                  <p className="text-sm font-medium">Punctual Days</p>
+                  <p className="text-sm font-medium">{t('hr.punctualDays')}</p>
                   <p className="text-2xl font-bold">{summary.punctual_days}/{summary.total_days}</p>
                 </div>
               </div>
@@ -306,7 +308,7 @@ export const AttendanceReports = () => {
       {/* Attendance Records Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Attendance Records</CardTitle>
+          <CardTitle>{t('hr.attendanceRecords')}</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -315,14 +317,14 @@ export const AttendanceReports = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  {isAdmin && <TableHead>Employee</TableHead>}
-                  <TableHead>Check In</TableHead>
-                  <TableHead>Check Out</TableHead>
-                  <TableHead>Hours</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>{t('hr.date')}</TableHead>
+                  {isAdmin && <TableHead>{t('hr.employee')}</TableHead>}
+                  <TableHead>{t('hr.checkIn')}</TableHead>
+                  <TableHead>{t('hr.checkOut')}</TableHead>
+                  <TableHead>{t('hr.hours')}</TableHead>
+                  <TableHead>{t('hr.status')}</TableHead>
+                  <TableHead>{t('hr.location')}</TableHead>
+                  <TableHead>{t('hr.notes')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -364,7 +366,7 @@ export const AttendanceReports = () => {
 
           {!isLoading && attendanceRecords.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
-              No attendance records found for the selected period.
+              {t('hr.noRecordsFound')}
             </div>
           )}
         </CardContent>
