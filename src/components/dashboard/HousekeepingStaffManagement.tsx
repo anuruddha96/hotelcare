@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { UserPlus, Users, Edit } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface HousekeepingStaff {
   id: string;
@@ -24,6 +25,7 @@ interface HousekeepingStaff {
 
 export function HousekeepingStaffManagement() {
   const [staff, setStaff] = useState<HousekeepingStaff[]>([]);
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [hotels, setHotels] = useState<any[]>([]);
@@ -212,7 +214,7 @@ export function HousekeepingStaffManagement() {
   if (!['admin', 'top_management', 'manager', 'housekeeping_manager'].includes(currentUserRole)) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <p>Access restricted to managers and administrators</p>
+        <p className="text-sm">{t('staff.accessRestricted')}</p>
       </div>
     );
   }
@@ -221,16 +223,16 @@ export function HousekeepingStaffManagement() {
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-0">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
-          <Users className="h-5 w-5" />
-          <h3 className="text-lg sm:text-xl font-semibold">Housekeeping Staff</h3>
+          <Users className="h-4 w-4 sm:h-5 sm:w-5" />
+          <h3 className="text-base sm:text-lg sm:text-xl font-semibold">{t('staff.housekeepingStaff')}</h3>
         </div>
         <Button 
           onClick={() => setShowCreateForm(!showCreateForm)}
-          className="w-full sm:w-auto"
+          className="w-full sm:w-auto text-sm"
         >
-          <UserPlus className="h-4 w-4 mr-2" />
-          <span className="sm:hidden">Add New Housekeeper</span>
-          <span className="hidden sm:inline">Add Housekeeper</span>
+          <UserPlus className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+          <span className="sm:hidden">{t('staff.addNewHousekeeper')}</span>
+          <span className="hidden sm:inline">{t('staff.addHousekeeper')}</span>
         </Button>
       </div>
 
@@ -375,42 +377,42 @@ export function HousekeepingStaffManagement() {
         <div className="grid gap-3 sm:gap-4">
           {staff.map((member) => (
             <Card key={member.id}>
-              <CardContent className="p-4">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-start gap-3 sm:gap-4">
-                    <Avatar className="w-10 h-10 sm:w-12 sm:h-12">
-                      <AvatarFallback className="text-sm sm:text-base">
-                        {member.full_name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-sm sm:text-base truncate">{member.full_name}</h4>
-                      <p className="text-xs sm:text-sm text-muted-foreground truncate">
-                        {member.email || 'No email provided'}
-                      </p>
-                      {member.phone_number && (
-                        <p className="text-xs sm:text-sm text-muted-foreground">📞 {member.phone_number}</p>
-                      )}
-                      <p className="text-xs text-blue-600">
-                        Hotel: {member.assigned_hotel || 'All Hotels'}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Added {format(new Date(member.created_at), 'MMM dd, yyyy')}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
-                    <Badge className="bg-orange-500 text-white text-xs" variant="secondary">
-                      Housekeeper
-                    </Badge>
-                    <Button size="sm" variant="outline" onClick={() => openEdit(member)}>
-                      <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                      <span className="ml-1 sm:hidden">Edit</span>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3 sm:gap-4">
+              <Avatar className="w-10 h-10 sm:w-12 sm:h-12">
+                <AvatarFallback className="text-sm sm:text-base">
+                  {member.full_name.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-sm sm:text-base truncate">{member.full_name}</h4>
+                <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                  {member.email || t('staff.noEmailProvided')}
+                </p>
+                {member.phone_number && (
+                  <p className="text-xs sm:text-sm text-muted-foreground">📞 {member.phone_number}</p>
+                )}
+                <p className="text-xs text-blue-600">
+                  Hotel: {member.assigned_hotel || t('staff.allHotels')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('staff.added')} {format(new Date(member.created_at), 'MMM dd, yyyy')}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
+              <Badge className="bg-orange-500 text-white text-xs" variant="secondary">
+                {t('staff.housekeeper')}
+              </Badge>
+              <Button size="sm" variant="outline" onClick={() => openEdit(member)}>
+                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="ml-1 sm:hidden">{t('staff.edit')}</span>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
             </Card>
           ))}
           

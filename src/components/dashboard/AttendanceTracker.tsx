@@ -257,13 +257,13 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'checked_in':
-        return <Badge className="bg-green-500 text-white">Working</Badge>;
+        return <Badge className="bg-green-500 text-white text-xs sm:text-sm">{t('attendance.checkedIn')}</Badge>;
       case 'on_break':
-        return <Badge className="bg-yellow-500 text-white">On Break</Badge>;
+        return <Badge className="bg-yellow-500 text-white text-xs sm:text-sm">{t('attendance.onBreak')}</Badge>;
       case 'checked_out':
-        return <Badge className="bg-gray-500 text-white">Checked Out</Badge>;
+        return <Badge className="bg-gray-500 text-white text-xs sm:text-sm">{t('attendance.checkedOut')}</Badge>;
       default:
-        return <Badge variant="outline">Unknown</Badge>;
+        return <Badge variant="outline" className="text-xs sm:text-sm">Unknown</Badge>;
     }
   };
 
@@ -275,31 +275,31 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     <div className="space-y-6">
       <Card className="w-full max-w-md mx-auto">
         <CardHeader className="text-center">
-          <CardTitle className="flex items-center justify-center gap-2">
-            <Clock className="h-5 w-5" />
-            Attendance
+          <CardTitle className="flex items-center justify-center gap-2 text-base sm:text-lg">
+            <Clock className="h-4 w-4 sm:h-5 sm:w-5" />
+            {t('attendance.title')}
           </CardTitle>
-          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Calendar className="h-4 w-4" />
+          <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-muted-foreground">
+            <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
             {format(new Date(), 'EEEE, MMMM do, yyyy')}
           </div>
         </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 sm:space-y-4 p-3 sm:p-6">
         {location ? (
-          <div className="flex items-center gap-2 p-3 bg-primary/5 rounded-lg border">
-            <MapPin className="h-4 w-4 text-primary" />
-            <div className="flex-1">
-              <p className="text-sm font-medium">Current Location</p>
+          <div className="flex items-center gap-2 p-2 sm:p-3 bg-primary/5 rounded-lg border">
+            <MapPin className="h-3 w-3 sm:h-4 sm:w-4 text-primary flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs sm:text-sm font-medium">{t('attendance.currentLocation')}</p>
               <p className="text-xs text-muted-foreground truncate">{location.address}</p>
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg border border-dashed">
-            <MapPin className="h-4 w-4 text-muted-foreground animate-pulse" />
-            <div className="flex-1">
-              <p className="text-sm font-medium">Getting your location...</p>
-              <p className="text-xs text-muted-foreground">Please allow GPS access for accurate attendance tracking</p>
+          <div className="flex items-center gap-2 p-2 sm:p-3 bg-muted/50 rounded-lg border border-dashed">
+            <MapPin className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground animate-pulse flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs sm:text-sm font-medium">{t('attendance.gettingLocation')}</p>
+              <p className="text-xs text-muted-foreground">{t('attendance.allowGPS')}</p>
             </div>
           </div>
         )}
@@ -312,28 +312,28 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">Check-in:</span>
-                <span className="text-sm">{formatTime(currentRecord.check_in_time)}</span>
+                <span className="text-xs sm:text-sm font-medium">{t('attendance.checkIn')}:</span>
+                <span className="text-xs sm:text-sm">{formatTime(currentRecord.check_in_time)}</span>
               </div>
               
               {currentRecord.check_out_time && (
                 <>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Check-out:</span>
-                    <span className="text-sm">{formatTime(currentRecord.check_out_time)}</span>
+                    <span className="text-xs sm:text-sm font-medium">{t('attendance.checkOut')}:</span>
+                    <span className="text-xs sm:text-sm">{formatTime(currentRecord.check_out_time)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Hours worked:</span>
-                    <span className="text-sm font-bold">
+                    <span className="text-xs sm:text-sm font-medium">{t('attendance.hoursWorked')}:</span>
+                    <span className="text-xs sm:text-sm font-bold">
                       {currentRecord.total_hours ? `${currentRecord.total_hours.toFixed(1)}h` : 'N/A'}
                     </span>
                   </div>
 
                   {/* Special break request option for housekeeping */}
-                  <div className="pt-4 border-t">
+                  <div className="pt-3 sm:pt-4 border-t">
                     <div className="flex flex-col gap-2">
-                      <p className="text-sm text-muted-foreground text-center">
-                        Need a different type of break?
+                      <p className="text-xs sm:text-sm text-muted-foreground text-center">
+                        {t('attendance.differentBreak')}
                       </p>
                       <BreakRequestDialog onRequestSubmitted={() => {}} />
                     </div>
@@ -343,17 +343,18 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             </div>
 
             <Textarea
-              placeholder="Add notes for today..."
+              placeholder={t('attendance.addNotes')}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
+              className="text-sm"
             />
 
             <div className="space-y-4">
               {currentRecord.status === 'checked_in' && (
                 <>
                   <div className="space-y-3">
-                    <div className="text-sm font-medium text-center">Select Break Type:</div>
+                    <div className="text-xs sm:text-sm font-medium text-center">{t('attendance.selectBreakType')}</div>
                     <Select value={selectedBreakType} onValueChange={setSelectedBreakType}>
                       <SelectTrigger className="w-full">
                         <SelectValue />
@@ -384,22 +385,22 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                     <Button
                       onClick={() => handleBreak(true)}
                       variant="outline"
-                      className="w-full bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:scale-105"
+                      className="w-full bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:scale-105 text-sm"
                       disabled={isLoading}
                     >
-                      <Coffee className="h-4 w-4 mr-2" />
-                      Start Break 😌
+                      <Coffee className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+                      {t('attendance.startBreak')}
                     </Button>
                   </div>
                   
                   <Button
                     onClick={handleCheckOut}
                     variant="outline"
-                    className="w-full transition-all duration-300 hover:scale-105"
+                    className="w-full transition-all duration-300 hover:scale-105 text-sm"
                     disabled={isLoading}
                   >
-                    <LogOut className="h-4 w-4 mr-2" />
-                    End Shift
+                    <LogOut className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+                    {t('attendance.endShift')}
                   </Button>
                 </>
               )}
@@ -449,30 +450,31 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             <div className="text-center">
-              <Badge variant="outline">Not Checked In</Badge>
+              <Badge variant="outline" className="text-xs sm:text-sm">{t('attendance.notCheckedIn')}</Badge>
             </div>
 
             <Textarea
-              placeholder="Add notes for today..."
+              placeholder={t('attendance.addNotes')}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
+              className="text-sm"
             />
 
             {/* Swipe to Check-in */}
             <div className="space-y-3">
-              <div className="flex items-center gap-2 p-3 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
-                <div className="text-2xl">🌅</div>
-                <div>
-                  <p className="font-medium text-green-800">Ready to start?</p>
-                  <p className="text-sm text-green-600">Swipe right to check in</p>
+              <div className="flex items-center gap-2 p-2 sm:p-3 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
+                <div className="text-xl sm:text-2xl">🌅</div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-green-800 text-sm sm:text-base">{t('attendance.readyToStart')}</p>
+                  <p className="text-xs sm:text-sm text-green-600">{t('attendance.swipeToCheckIn')}</p>
                 </div>
               </div>
               
               <SwipeAction
-                label="Swipe right to check in"
+                label={t('attendance.swipeToCheckInAction')}
                 onComplete={handleCheckIn}
                 disabled={isLoading || !location}
               />
@@ -480,7 +482,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
             {!location && (
               <div className="text-xs text-muted-foreground text-center">
-                Waiting for location access...
+                {t('attendance.waitingLocation')}
               </div>
             )}
           </div>
@@ -490,8 +492,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
     {/* Admin/HR Break Types Management */}
     {isAdminOrHR && (
-      <div className="mt-8">
-        <h3 className="text-lg font-semibold mb-4">Break Types Management</h3>
+      <div className="mt-6 sm:mt-8">
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t('breakTypes.title')}</h3>
         <BreakTypesManagement />
       </div>
     )}

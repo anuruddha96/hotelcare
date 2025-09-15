@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -27,6 +28,7 @@ interface EasyRoomAssignmentProps {
 
 export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentProps) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string>('');
@@ -130,24 +132,24 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
     return groups;
   }, {} as Record<string, Room[]>);
 
-  return (
+    return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Zap className="h-5 w-5 text-blue-600" />
-          Quick Assign
+        <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+          <Zap className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+          {t('quickAssign.title')}
         </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Select a housekeeper, pick rooms, then assign
+        <p className="text-xs sm:text-sm text-muted-foreground">
+          {t('quickAssign.subtitle')}
         </p>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4 sm:space-y-6 p-4 sm:p-6">
         {/* Staff Selection */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Choose Housekeeper</label>
+          <label className="text-sm font-medium">{t('quickAssign.chooseHousekeeper')}</label>
           <Select value={selectedStaff} onValueChange={setSelectedStaff}>
             <SelectTrigger>
-              <SelectValue placeholder="Select housekeeper..." />
+              <SelectValue placeholder={t('quickAssign.selectHousekeeper')} />
             </SelectTrigger>
             <SelectContent>
               {staff.map((member) => (
@@ -202,35 +204,35 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
             </div>
 
             {/* Assign Action */}
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium text-blue-900">Ready to Assign</h4>
-                  <p className="text-sm text-blue-700">
-                    {selectedRooms.length} room(s) selected
+            <div className="bg-blue-50 p-3 sm:p-4 rounded-lg border border-blue-200">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex-1">
+                  <h4 className="font-medium text-blue-900 text-sm sm:text-base">{t('quickAssign.readyToAssign')}</h4>
+                  <p className="text-xs sm:text-sm text-blue-700">
+                    {selectedRooms.length} {t('quickAssign.roomsSelected')}
                   </p>
                 </div>
                 <Button
                   onClick={assignSelectedRooms}
                   disabled={loading || !selectedStaff || selectedRooms.length === 0}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-blue-600 hover:bg-blue-700 text-sm w-full sm:w-auto"
                 >
-                  <Calendar className="h-4 w-4 mr-2" />
-                  {loading ? 'Assigning...' : 'Assign Selected'}
+                  <Calendar className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+                  {loading ? t('quickAssign.assigning') : t('quickAssign.assignSelected')}
                 </Button>
               </div>
             </div>
           </div>
         ) : (
-          <div className="text-center py-8 text-muted-foreground">
-            <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <h3 className="font-medium mb-2">All Rooms Clean!</h3>
-            <p className="text-sm">No dirty rooms found. Great job team! 🎉</p>
+          <div className="text-center py-6 sm:py-8 text-muted-foreground">
+            <Calendar className="h-10 w-10 sm:h-12 sm:w-12 mx-auto mb-3 sm:mb-4 opacity-50" />
+            <h3 className="font-medium mb-2 text-sm sm:text-base">{t('quickAssign.allRoomsClean')}</h3>
+            <p className="text-xs sm:text-sm">{t('quickAssign.noRoomsFound')}</p>
           </div>
         )}
 
         <div className="text-xs text-muted-foreground bg-gray-50 p-3 rounded">
-          <p><strong>How it works:</strong> Select a housekeeper, choose individual rooms, then click "Assign Selected".</p>
+          <p><strong>{t('quickAssign.howItWorks')}</strong> {t('quickAssign.instructions')}</p>
         </div>
       </CardContent>
     </Card>
