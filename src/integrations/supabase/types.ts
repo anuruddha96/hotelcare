@@ -1124,6 +1124,28 @@ export type Database = {
           role: Database["public"]["Enums"]["user_role"]
         }[]
       }
+      get_attendance_records_secure: {
+        Args: {
+          end_date?: string
+          start_date?: string
+          target_user_id?: string
+        }
+        Returns: {
+          break_duration: number
+          check_in_location: Json
+          check_in_time: string
+          check_out_location: Json
+          check_out_time: string
+          full_name: string
+          id: string
+          notes: string
+          role: string
+          status: string
+          total_hours: number
+          user_id: string
+          work_date: string
+        }[]
+      }
       get_attendance_summary: {
         Args: {
           end_date?: string
@@ -1132,7 +1154,7 @@ export type Database = {
         }
         Returns: Json
       }
-      get_attendance_summary_v2: {
+      get_attendance_summary_secure: {
         Args: {
           end_date?: string
           start_date?: string

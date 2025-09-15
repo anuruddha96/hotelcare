@@ -74,9 +74,11 @@ export function CheckoutRoomsView({ checkoutRooms, dailyCleaningRooms }: Checkou
               <p>No checkout rooms today</p>
             </div>
           ) : (
-            checkoutRooms.map((room) => (
-              <RoomCard key={room.roomNumber} room={room} />
-            ))
+            checkoutRooms
+              .sort((a, b) => parseInt(a.roomNumber) - parseInt(b.roomNumber))
+              .map((room) => (
+                <RoomCard key={room.roomNumber} room={room} />
+              ))
           )}
         </CardContent>
       </Card>
@@ -101,9 +103,11 @@ export function CheckoutRoomsView({ checkoutRooms, dailyCleaningRooms }: Checkou
               <p>No daily cleaning rooms</p>
             </div>
           ) : (
-            dailyCleaningRooms.map((room) => (
-              <RoomCard key={room.roomNumber} room={room} />
-            ))
+            dailyCleaningRooms
+              .sort((a, b) => parseInt(a.roomNumber) - parseInt(b.roomNumber))
+              .map((room) => (
+                <RoomCard key={room.roomNumber} room={room} />
+              ))
           )}
         </CardContent>
       </Card>

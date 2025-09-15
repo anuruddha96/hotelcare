@@ -82,7 +82,14 @@ export function PendingRoomsDialog({
         notes: item.notes,
       }));
 
-      setAssignments(pendingAssignments);
+      // Sort assignments by room number numerically
+      const sortedAssignments = pendingAssignments.sort((a, b) => {
+        const roomA = parseInt(a.room_number) || 0;
+        const roomB = parseInt(b.room_number) || 0;
+        return roomA - roomB;
+      });
+      
+      setAssignments(sortedAssignments);
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
       toast.error(t('common.error'));

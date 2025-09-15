@@ -204,7 +204,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   }, [user?.id, roomId, assignmentId, open]);
 
   const updateCount = (linenItemId: string, newCount: number) => {
-    if (newCount < 0) return;
+    // Allow zero but not negative values
+    if (newCount < 0) newCount = 0;
     
     const updatedCounts = (() => {
       const existing = linenCounts.find(c => c.linen_item_id === linenItemId);
@@ -212,8 +213,11 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
         return linenCounts.map(c => 
           c.linen_item_id === linenItemId ? { ...c, count: newCount } : c
         );
-      } else {
+      } else if (newCount > 0) {
         return [...linenCounts, { linen_item_id: linenItemId, count: newCount }];
+      } else {
+        // If newCount is 0 and no existing record, don't add anything
+        return linenCounts;
       }
     })();
     
@@ -289,7 +293,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     variant="outline"
                     size="sm"
                     className="h-8 w-8 p-0"
-                    onClick={() => updateCount(item.id, getCount(item.id) - 1)}
+                    onClick={() => updateCount(item.id, Math.max(0, getCount(item.id) - 1))}
                     disabled={getCount(item.id) === 0}
                   >
                     <Minus className="h-3 w-3" />

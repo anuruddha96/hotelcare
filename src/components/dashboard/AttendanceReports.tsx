@@ -96,58 +96,59 @@ export const AttendanceReports = () => {
     setIsLoading(true);
     const { start, end } = getDateRange();
 
-    let query = supabase
-      .from('staff_attendance')
-      .select(`
-        *,
-        profiles:user_id (
-          full_name,
-          role
-        )
-      `)
-      .gte('work_date', format(start, 'yyyy-MM-dd'))
-      .lte('work_date', format(end, 'yyyy-MM-dd'))
-      .order('work_date', { ascending: false })
-      .order('check_in_time', { ascending: false });
+    // Use the new security definer function for attendance records
+    const targetUserId = isAdmin && selectedEmployee !== 'all' ? selectedEmployee : (isAdmin ? null : user.id);
+    
+    try {
+      const { data: attendanceData, error: attendanceError } = await supabase
+        .rpc('get_attendance_records_secure', {
+          target_user_id: targetUserId,
+          start_date: format(start, 'yyyy-MM-dd'),
+          end_date: format(end, 'yyyy-MM-dd')
+        });
 
-    // Apply user filter
-    if (isAdmin) {
-      if (selectedEmployee && selectedEmployee !== 'all') {
-        query = query.eq('user_id', selectedEmployee);
+      if (attendanceError) {
+        toast({
+          title: "Error",
+          description: "Failed to fetch attendance data",
+          variant: "destructive"
+        });
+        setIsLoading(false);
+        return;
       }
-    } else {
-      // Non-admin users can only see their own records
-      query = query.eq('user_id', user.id);
-    }
 
-    const { data: attendanceData, error: attendanceError } = await query;
+      // Transform the data to match the expected format
+      const transformedData = (attendanceData || []).map((record: any) => ({
+        ...record,
+        profiles: {
+          full_name: record.full_name,
+          role: record.role
+        }
+      }));
 
-    if (attendanceError) {
+      setAttendanceRecords(transformedData);
+
+      // Fetch summary using the new secure function
+      const { data: summaryData, error: summaryError } = await supabase
+        .rpc('get_attendance_summary_secure', {
+          target_user_id: targetUserId,
+          start_date: format(start, 'yyyy-MM-dd'),
+          end_date: format(end, 'yyyy-MM-dd')
+        });
+
+      if (!summaryError && summaryData && typeof summaryData === 'object') {
+        setSummary(summaryData as unknown as AttendanceSummary);
+      } else if (summaryError) {
+        console.error('Summary error:', summaryError);
+      }
+
+    } catch (error) {
+      console.error('Error fetching attendance data:', error);
       toast({
         title: "Error",
         description: "Failed to fetch attendance data",
         variant: "destructive"
       });
-      setIsLoading(false);
-      return;
-    }
-
-    setAttendanceRecords((attendanceData as any) || []);
-
-    // Fetch summary
-    const targetUserId = isAdmin && selectedEmployee !== 'all' ? selectedEmployee : (isAdmin ? null : user.id);
-    
-    const { data: summaryData, error: summaryError } = await supabase
-      .rpc('get_attendance_summary_v2', {
-        target_user_id: targetUserId,
-        start_date: format(start, 'yyyy-MM-dd'),
-        end_date: format(end, 'yyyy-MM-dd')
-      });
-
-    if (!summaryError && summaryData && typeof summaryData === 'object') {
-      setSummary(summaryData as unknown as AttendanceSummary);
-    } else if (summaryError) {
-      console.error('Summary error:', summaryError);
     }
 
     setIsLoading(false);
