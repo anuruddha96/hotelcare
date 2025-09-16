@@ -529,15 +529,6 @@ const translations = {
     'tickets.access': 'Access',
     'tickets.settings': 'Settings',
     'tickets.new': 'New',
-      'tickets.total': 'Összes',
-      'tickets.open': 'Nyitott', 
-      'tickets.inProgress': 'Folyamatban',
-      'tickets.completed': 'Befejezett',
-      'tickets.searchPlaceholder': 'Jegyek keresése...',
-      'tickets.filters.all': 'Minden...',
-      'tickets.noTicketsFound': 'Jegyek nem találhatók. Hozzon létre egy új jegyet a kezdéshez.',
-    'tickets.filters.all': 'Minden...',
-    'tickets.noTicketsFound': 'No tickets found. Create a new ticket to get started.',
 
     // HR Management - Attendance
     'hr.management': 'Attendance Reports',
