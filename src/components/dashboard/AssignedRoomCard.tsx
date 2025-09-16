@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { 
@@ -16,7 +17,9 @@ import {
   AlertTriangle,
   BedDouble,
   Shirt,
-  Eye
+  Eye,
+  Edit3,
+  ArrowUpDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
@@ -62,6 +65,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [dndPhotoDialogOpen, setDndPhotoDialogOpen] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
+  const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
+  const [newAssignmentType, setNewAssignmentType] = useState(assignment.assignment_type);
 
   useEffect(() => {
     checkAttendanceStatus();
@@ -126,6 +131,30 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     } finally {
       setLoading(false);
       setDndPhotoDialogOpen(false);
+    }
+  };
+
+  const updateAssignmentType = async () => {
+    try {
+      const { data, error } = await supabase.rpc('update_assignment_type', {
+        assignment_id: assignment.id,
+        new_assignment_type: newAssignmentType
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; error?: string };
+      if (result.success) {
+        toast.success('Assignment type updated successfully');
+        setChangeTypeDialogOpen(false);
+        // Refresh the assignment data
+        onStatusUpdate(assignment.id, assignment.status);
+      } else {
+        throw new Error(result.error || 'Unknown error');
+      }
+    } catch (error) {
+      console.error('Error updating assignment type:', error);
+      toast.error('Failed to update assignment type');
     }
   };
 
@@ -477,6 +506,19 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <span className="hidden sm:inline">{t('dirtyLinen.dirtyLinen')}</span>
                 <span className="sm:hidden">{t('dirtyLinen.linen')}</span>
               </Button>
+              
+              {(user?.role === 'manager' || user?.role === 'admin' || user?.role === 'housekeeping_manager') && (
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => setChangeTypeDialogOpen(true)}
+                  className="flex-1 text-xs sm:text-sm min-h-[40px] border-blue-300 text-blue-700 hover:bg-blue-50"
+                >
+                  <ArrowUpDown className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                  <span className="hidden sm:inline">Change Type</span>
+                  <span className="sm:hidden">Type</span>
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -528,6 +570,52 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         roomNumber={assignment.rooms?.room_number || 'Unknown'}
         assignmentId={assignment.id}
       />
+
+      {/* Change Assignment Type Dialog */}
+      <Dialog open={changeTypeDialogOpen} onOpenChange={setChangeTypeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold">
+              Change Assignment Type - Room {assignment.rooms?.room_number}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">
+                Current Type: {getAssignmentTypeLabel(assignment.assignment_type)}
+              </label>
+            </div>
+            <div>
+              <label className="text-sm font-medium">New Assignment Type</label>
+              <Select value={newAssignmentType} onValueChange={(value) => setNewAssignmentType(value as 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning')}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select new type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily_cleaning">Daily Cleaning</SelectItem>
+                  <SelectItem value="checkout_cleaning">Checkout Cleaning</SelectItem>
+                  <SelectItem value="deep_cleaning">Deep Cleaning</SelectItem>
+                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button 
+                variant="outline" 
+                onClick={() => setChangeTypeDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={updateAssignmentType}
+                disabled={newAssignmentType === assignment.assignment_type}
+              >
+                Update Type
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -11,6 +11,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
+import { DNDPhotoDialog } from './DNDPhotoDialog';
 
 interface CompletionDialogProps {
   open: boolean;
@@ -35,6 +36,7 @@ export function CompletionDialog({
   const [isCompleting, setIsCompleting] = useState(false);
   const [showImageCapture, setShowImageCapture] = useState(false);
   const [showDirtyLinen, setShowDirtyLinen] = useState(false);
+  const [showDNDPhoto, setShowDNDPhoto] = useState(false);
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [completionStep, setCompletionStep] = useState(1); // 1: Basic completion, 2: Photos, 3: Dirty linen
 
@@ -81,6 +83,17 @@ export function CompletionDialog({
     setNotes('');
     setCapturedPhotos([]);
     setIsCompleting(false);
+  };
+
+  const handleDNDPhoto = async (photoUrl: string) => {
+    setShowDNDPhoto(false);
+    onTaskCompleted?.();
+    onOpenChange(false);
+    setCompletionStep(1);
+    setNotes('');
+    setCapturedPhotos([]);
+    setIsCompleting(false);
+    toast.success(`Room ${roomNumber} marked as DND with photo evidence`);
   };
 
   const handleClose = () => {
@@ -202,19 +215,29 @@ export function CompletionDialog({
                   </div>
                 )}
 
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => setShowImageCapture(true)}
-                    variant="outline"
-                    className="flex-1"
-                  >
-                    <Camera className="h-4 w-4 mr-2" />
-                    Add Photos
-                  </Button>
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setShowImageCapture(true)}
+                      variant="outline"
+                      className="flex-1"
+                    >
+                      <Camera className="h-4 w-4 mr-2" />
+                      Add Completion Photos
+                    </Button>
+                    
+                    <Button
+                      onClick={() => setShowDNDPhoto(true)}
+                      variant="outline"
+                      className="flex-1 bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100"
+                    >
+                      📷 Mark as DND
+                    </Button>
+                  </div>
                   
                   <Button
                     onClick={handleSkipPhotos}
-                    className="flex-1"
+                    className="w-full"
                   >
                     Continue
                   </Button>
@@ -267,6 +290,15 @@ export function CompletionDialog({
         roomId={roomId}
         roomNumber={roomNumber}
         assignmentId={assignmentId}
+      />
+
+      <DNDPhotoDialog
+        open={showDNDPhoto}
+        onOpenChange={setShowDNDPhoto}
+        roomNumber={roomNumber}
+        roomId={roomId}
+        assignmentId={assignmentId}
+        onPhotoUploaded={handleDNDPhoto}
       />
     </>
   );

@@ -317,7 +317,14 @@ export function RoomManagement() {
       room.hotel.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (room.room_name && room.room_name.toLowerCase().includes(searchQuery.toLowerCase()));
     
-    const matchesHotel = selectedHotel === 'all' || room.hotel === selectedHotel;
+    // Fix hotel filtering by handling both hotel names and IDs
+    const matchesHotel = selectedHotel === 'all' || 
+      room.hotel === selectedHotel ||
+      (selectedHotel === 'memories-budapest' && room.hotel === 'Hotel Memories Budapest') ||
+      (selectedHotel === 'mika-downtown' && room.hotel === 'Hotel Mika Downtown') ||
+      (selectedHotel === 'ottofiori' && room.hotel === 'Hotel Ottofiori') ||
+      (selectedHotel === 'gozsdu-court' && room.hotel === 'Gozsdu Court Budapest');
+    
     const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
     
     return matchesSearch && matchesHotel && matchesStatus;

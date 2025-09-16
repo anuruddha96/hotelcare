@@ -1174,6 +1174,10 @@ export type Database = {
         Args: { p_email: string }
         Returns: string
       }
+      get_hotel_id_from_name: {
+        Args: { hotel_name: string }
+        Returns: string
+      }
       get_hotel_name_from_id: {
         Args: { hotel_id: string }
         Returns: string
@@ -1216,6 +1220,13 @@ export type Database = {
       has_ticket_creation_permission: {
         Args: { _user_id: string }
         Returns: boolean
+      }
+      update_assignment_type: {
+        Args: {
+          assignment_id: string
+          new_assignment_type: Database["public"]["Enums"]["assignment_type"]
+        }
+        Returns: Json
       }
       update_user_credentials: {
         Args: {
