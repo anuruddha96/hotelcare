@@ -576,7 +576,9 @@ export function RoomManagement() {
           <h3 className="text-lg font-semibold text-foreground mb-4">{t('rooms.statusOverview')}</h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {['clean', 'dirty', 'maintenance', 'out_of_order'].map((status) => {
-              const count = rooms.filter(r => r.status === status).length;
+              // Use filtered rooms for count when hotel filter is applied
+              const roomsToCount = selectedHotel === 'all' ? rooms : filteredRooms;
+              const count = roomsToCount.filter(r => r.status === status).length;
               const isActive = activeStatusFilter === status;
               
               const statusConfig = {

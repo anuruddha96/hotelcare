@@ -141,55 +141,47 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   }, [user?.id, roomId]);
 
   const autoSave = useCallback(async (counts: LinenCount[]) => {
-    if (!user?.id || !open) return;
+    if (!user?.id || autoSaving) return;
     
     setAutoSaving(true);
+    const today = new Date().toISOString().split('T')[0];
+    
     try {
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Use upsert approach to handle real-time sync better
-      const operations = [];
-      
+      // Handle each count individually to avoid batch operation issues
       for (const count of counts) {
         if (count.count > 0) {
-          // Upsert the count
-          operations.push(
-            supabase
-              .from('dirty_linen_counts')
-              .upsert({
-                housekeeper_id: user.id,
-                room_id: roomId,
-                assignment_id: assignmentId,
-                linen_item_id: count.linen_item_id,
-                count: count.count,
-                work_date: today
-              }, {
-                onConflict: 'housekeeper_id,room_id,linen_item_id,work_date',
-                ignoreDuplicates: false
-              })
-          );
+          // Insert or update with proper conflict resolution
+          const { error } = await supabase
+            .from('dirty_linen_counts')
+            .upsert({
+              housekeeper_id: user.id,
+              room_id: roomId,
+              assignment_id: assignmentId || null,
+              linen_item_id: count.linen_item_id,
+              count: count.count,
+              work_date: today,
+            }, {
+              onConflict: 'housekeeper_id,room_id,linen_item_id,work_date'
+            });
+            
+          if (error) {
+            console.error('Upsert error for linen item:', count.linen_item_id, error);
+            throw error;
+          }
         } else {
-          // Delete zero counts
-          operations.push(
-            supabase
-              .from('dirty_linen_counts')
-              .delete()
-              .eq('housekeeper_id', user.id)
-              .eq('room_id', roomId)
-              .eq('linen_item_id', count.linen_item_id)
-              .eq('work_date', today)
-          );
+          // Delete zero counts - don't throw on errors for non-existent records
+          const { error } = await supabase
+            .from('dirty_linen_counts')
+            .delete()
+            .eq('housekeeper_id', user.id)
+            .eq('room_id', roomId)
+            .eq('linen_item_id', count.linen_item_id)
+            .eq('work_date', today);
+            
+          if (error) {
+            console.warn('Delete error for linen item:', count.linen_item_id, error);
+          }
         }
-      }
-      
-      // Execute all operations
-      const results = await Promise.all(operations);
-      
-      // Check for errors
-      const errors = results.filter(result => result.error);
-      if (errors.length > 0) {
-        console.error('Save errors:', errors);
-        throw new Error('Failed to save some counts');
       }
       
       setLastSaved(new Date());
@@ -197,11 +189,11 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       
     } catch (error) {
       console.error('Auto-save error:', error);
-      toast.error('Auto-save failed');
+      toast.error('Auto-save failed: ' + (error as any)?.message || 'Unknown error');
     } finally {
       setAutoSaving(false);
     }
-  }, [user?.id, roomId, assignmentId, open]);
+  }, [user?.id, roomId, assignmentId]);
 
   const updateCount = (linenItemId: string, newCount: number) => {
     // Allow zero but not negative values
