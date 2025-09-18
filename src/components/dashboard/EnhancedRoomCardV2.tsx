@@ -253,19 +253,44 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
 
         {/* Bottom Section - Badges and Issues */}
         <div className="flex flex-wrap gap-1.5 pt-2">
-          {/* Towel Change Required Badge */}
-          {room.towel_change_required && (
-            <Badge variant="default" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
-              🏺 Towel Change
-            </Badge>
-          )}
+            {/* Towel Change Required Badge - Mobile Optimized */}
+            {room.towel_change_required && (
+              <div className="w-full p-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg animate-pulse">
+                <div className="flex items-center gap-2">
+                  <div className="text-lg">🏺</div>
+                  <div className="font-bold">TOWEL CHANGE REQUIRED</div>
+                </div>
+                <p className="text-xs opacity-90 mt-1">
+                  Guest stayed {room.guest_nights_stayed} nights
+                </p>
+              </div>
+            )}
 
-          {/* Linen Change Required Badge */}
-          {room.linen_change_required && (
-            <Badge variant="default" className="text-xs bg-purple-100 text-purple-800 border-purple-200">
-              🛏️ Linen Change
-            </Badge>
-          )}
+            {/* Linen Change Required Badge - Mobile Optimized */}
+            {room.linen_change_required && (
+              <div className="w-full p-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg animate-pulse">
+                <div className="flex items-center gap-2">
+                  <div className="text-lg">🛏️</div>
+                  <div className="font-bold">BED LINEN CHANGE REQUIRED</div>
+                </div>
+                <p className="text-xs opacity-90 mt-1">
+                  Guest stayed {room.guest_nights_stayed} nights
+                </p>
+              </div>
+            )}
+
+            {/* Original badges for non-critical items */}
+            {room.towel_change_required && (
+              <Badge variant="default" className="text-xs bg-blue-100 text-blue-800 border-blue-200 hidden">
+                🏺 Towel Change
+              </Badge>
+            )}
+
+            {room.linen_change_required && (
+              <Badge variant="default" className="text-xs bg-purple-100 text-purple-800 border-purple-200 hidden">
+                🛏️ Linen Change
+              </Badge>
+            )}
 
           {/* Guest Nights Badge */}
           {room.guest_nights_stayed && room.guest_nights_stayed > 0 && (

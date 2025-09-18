@@ -10,6 +10,7 @@ import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
+import { PMSUploadHistoryDialog } from './PMSUploadHistoryDialog';
 import * as XLSX from 'xlsx';
 
 interface PMSData {
@@ -40,6 +41,7 @@ export function PMSUpload() {
     assigned: number;
     errors: string[];
   } | null>(null);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
   // Handle background processing notifications
   useEffect(() => {
@@ -354,6 +356,27 @@ export function PMSUpload() {
       setDailyCleaningRooms(dailyCleaningRoomsList);
       setBackgroundUpload(false);
       
+      // Save summary for managers/admins to view later
+      try {
+        const { error: summaryError } = await supabase
+          .from('pms_upload_summary')
+          .insert({
+            uploaded_by: user?.id,
+            processed_rooms: processed.processed,
+            updated_rooms: processed.updated,
+            assigned_rooms: processed.assigned,
+            checkout_rooms: checkoutRoomsList,
+            daily_cleaning_rooms: dailyCleaningRoomsList,
+            errors: processed.errors
+          });
+          
+        if (summaryError) {
+          console.error('Error saving PMS upload summary:', summaryError);
+        }
+      } catch (error) {
+        console.error('Error saving PMS upload summary:', error);
+      }
+      
       // Show completion notification
       const successMessage = `Upload completed! Processed ${processed.processed} rooms, updated ${processed.updated}, assigned ${processed.assigned} new tasks`;
       
@@ -420,13 +443,39 @@ export function PMSUpload() {
           <FileSpreadsheet className="h-5 w-5" />
           {t('pms.title')}
         </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {t('pms.subtitle')}
-        </p>
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="text-sm text-muted-foreground">
+              {t('pms.subtitle')}
+            </p>
+          </div>
+          <Button 
+            variant="outline" 
+            onClick={() => setHistoryDialogOpen(true)}
+            className="text-sm"
+          >
+            View History
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {!uploading && !results && (
           <>
+            {/* Warning about data reset */}
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
+                <div>
+                  <h4 className="font-semibold text-amber-800 mb-1">
+                    Data Reset Warning
+                  </h4>
+                  <p className="text-sm text-amber-700">
+                    Uploading a PMS file will reset all room assignments and data for the current day
+                  </p>
+                </div>
+              </div>
+            </div>
+            
             <div 
               {...getRootProps()} 
               className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
@@ -544,6 +593,10 @@ export function PMSUpload() {
           </div>
         )}
       </CardContent>
-    </Card>
-  );
-}
+        <PMSUploadHistoryDialog
+          open={historyDialogOpen}
+          onOpenChange={setHistoryDialogOpen}
+        />
+      </Card>
+    );
+  }

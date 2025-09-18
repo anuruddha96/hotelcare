@@ -100,8 +100,9 @@ export const AttendanceReports = () => {
     const targetUserId = isAdmin && selectedEmployee !== 'all' ? selectedEmployee : (isAdmin ? null : user.id);
     
     try {
+      // Use hotel-filtered function for better security
       const { data: attendanceData, error: attendanceError } = await supabase
-        .rpc('get_attendance_records_secure', {
+        .rpc('get_attendance_records_hotel_filtered', {
           target_user_id: targetUserId,
           start_date: format(start, 'yyyy-MM-dd'),
           end_date: format(end, 'yyyy-MM-dd')

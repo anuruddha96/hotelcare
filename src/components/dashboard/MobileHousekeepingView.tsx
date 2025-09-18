@@ -49,13 +49,38 @@ export function MobileHousekeepingView() {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | null>(null);
+  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
+  const [linenDialogOpen, setLinenDialogOpen] = useState(false);
+  const [selectedRoom, setSelectedRoom] = useState<{ id: string; room_number: string } | null>(null);
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user?.id) {
+    if (user) {
       fetchAssignments();
-      fetchSummary();
+      
+      // Set up real-time subscription for assignment updates
+      const channel = supabase
+        .channel('mobile-assignments')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'room_assignments',
+            filter: `assigned_to=eq.${user.id}`
+          },
+          () => {
+            fetchAssignments();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
-  }, [user?.id, selectedDate, statusFilter]);
+  }, [user, selectedDate, statusFilter]);
 
   // Real-time subscription for assignment updates - only for new assignments or external changes
   useEffect(() => {
@@ -391,6 +416,23 @@ export function MobileHousekeepingView() {
           </div>
         )}
       </div>
+
+      {/* Dialogs */}
+      {selectedAssignment && (
+        <div>
+          {/* Room Detail Dialog placeholder */}
+        </div>
+      )}
+
+      {selectedRoom && (
+        <DirtyLinenDialog
+          open={linenDialogOpen}
+          onOpenChange={setLinenDialogOpen}
+          roomId={selectedRoom.id}
+          roomNumber={selectedRoom.room_number}
+          assignmentId={selectedAssignmentId}
+        />
+      )}
     </div>
   );
 }

@@ -531,6 +531,59 @@ export type Database = {
         }
         Relationships: []
       }
+      pms_upload_summary: {
+        Row: {
+          assigned_rooms: number | null
+          checkout_rooms: Json | null
+          created_at: string | null
+          daily_cleaning_rooms: Json | null
+          errors: Json | null
+          hotel_filter: string | null
+          id: string
+          processed_rooms: number | null
+          updated_at: string | null
+          updated_rooms: number | null
+          upload_date: string | null
+          uploaded_by: string
+        }
+        Insert: {
+          assigned_rooms?: number | null
+          checkout_rooms?: Json | null
+          created_at?: string | null
+          daily_cleaning_rooms?: Json | null
+          errors?: Json | null
+          hotel_filter?: string | null
+          id?: string
+          processed_rooms?: number | null
+          updated_at?: string | null
+          updated_rooms?: number | null
+          upload_date?: string | null
+          uploaded_by: string
+        }
+        Update: {
+          assigned_rooms?: number | null
+          checkout_rooms?: Json | null
+          created_at?: string | null
+          daily_cleaning_rooms?: Json | null
+          errors?: Json | null
+          hotel_filter?: string | null
+          id?: string
+          processed_rooms?: number | null
+          updated_at?: string | null
+          updated_rooms?: number | null
+          upload_date?: string | null
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_upload_summary_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           assigned_hotel: string | null
@@ -1130,6 +1183,28 @@ export type Database = {
           id: string
           nickname: string
           role: Database["public"]["Enums"]["user_role"]
+        }[]
+      }
+      get_attendance_records_hotel_filtered: {
+        Args: {
+          end_date?: string
+          start_date?: string
+          target_user_id?: string
+        }
+        Returns: {
+          break_duration: number
+          check_in_location: Json
+          check_in_time: string
+          check_out_location: Json
+          check_out_time: string
+          full_name: string
+          id: string
+          notes: string
+          role: string
+          status: string
+          total_hours: number
+          user_id: string
+          work_date: string
         }[]
       }
       get_attendance_records_secure: {

@@ -160,8 +160,6 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
               linen_item_id: count.linen_item_id,
               count: count.count,
               work_date: today,
-            }, {
-              onConflict: 'housekeeper_id,room_id,linen_item_id,work_date'
             });
             
           if (error) {
