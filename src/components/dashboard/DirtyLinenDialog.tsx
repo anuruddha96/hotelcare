@@ -197,6 +197,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     // Allow zero but not negative values
     if (newCount < 0) newCount = 0;
     
+    console.log('Updating count for item:', linenItemId, 'to:', newCount);
+    
     const updatedCounts = (() => {
       const existing = linenCounts.find(c => c.linen_item_id === linenItemId);
       if (existing) {
@@ -219,8 +221,9 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     }
     
     const timeout = setTimeout(() => {
+      console.log('Auto-save triggered for:', updatedCounts);
       autoSave(updatedCounts);
-    }, 1500); // 1.5 second delay
+    }, 800); // Reduced delay for better responsiveness
     
     setAutoSaveTimeout(timeout);
   };
@@ -284,7 +287,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     size="sm"
                     className="h-8 w-8 p-0"
                     onClick={() => updateCount(item.id, Math.max(0, getCount(item.id) - 1))}
-                    disabled={getCount(item.id) === 0}
+                    disabled={autoSaving}
                   >
                     <Minus className="h-3 w-3" />
                   </Button>
@@ -303,6 +306,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     size="sm"
                     className="h-8 w-8 p-0"
                     onClick={() => updateCount(item.id, getCount(item.id) + 1)}
+                    disabled={autoSaving}
                   >
                     <Plus className="h-3 w-3" />
                   </Button>

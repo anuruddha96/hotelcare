@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { DirtyLinenDialog } from './DirtyLinenDialog';
+import { MobileHousekeepingCard } from './MobileHousekeepingCard';
+import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -54,10 +57,12 @@ export function MobileHousekeepingView() {
   const [linenDialogOpen, setLinenDialogOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<{ id: string; room_number: string } | null>(null);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+  const [photoCaptureDialogOpen, setPhotoCaptureDialogOpen] = useState(false);
 
   useEffect(() => {
     if (user) {
       fetchAssignments();
+      fetchSummary();
       
       // Set up real-time subscription for assignment updates
       const channel = supabase
@@ -149,10 +154,10 @@ export function MobileHousekeepingView() {
       console.log('Room IDs to fetch:', roomIds);
       
       if (roomIds.length > 0) {
-        const { data: roomRows, error: roomsError } = await supabase
-          .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type')
-          .in('id', roomIds);
+      const { data: roomRows, error: roomsError } = await supabase
+        .from('rooms')
+        .select('id, room_number, hotel, status, room_name, floor_number, bed_type, guest_nights_stayed, towel_change_required, linen_change_required')
+        .in('id', roomIds);
           
         console.log('Rooms fetch result:', { roomRows, roomsError });
         
@@ -407,10 +412,22 @@ export function MobileHousekeepingView() {
         ) : (
           <div className="space-y-3">
             {assignments.map((assignment) => (
-              <AssignedRoomCard
+              <MobileHousekeepingCard
                 key={assignment.id}
                 assignment={assignment}
-                onStatusUpdate={handleStatusUpdate}
+                onStart={() => handleStatusUpdate(assignment.id, 'in_progress')}
+                onComplete={() => handleStatusUpdate(assignment.id, 'completed')}
+                onTakePhoto={() => {
+                  // Open daily room photo capture
+                  setSelectedRoom({ id: assignment.room_id, room_number: assignment.rooms?.room_number || '' });
+                  setSelectedAssignmentId(assignment.id);
+                  setPhotoCaptureDialogOpen(true);
+                }}
+                onOpenLinen={() => {
+                  setSelectedRoom({ id: assignment.room_id, room_number: assignment.rooms?.room_number || '' });
+                  setSelectedAssignmentId(assignment.id);
+                  setLinenDialogOpen(true);
+                }}
               />
             ))}
           </div>
@@ -425,13 +442,25 @@ export function MobileHousekeepingView() {
       )}
 
       {selectedRoom && (
-        <DirtyLinenDialog
-          open={linenDialogOpen}
-          onOpenChange={setLinenDialogOpen}
-          roomId={selectedRoom.id}
-          roomNumber={selectedRoom.room_number}
-          assignmentId={selectedAssignmentId}
-        />
+        <>
+          <DirtyLinenDialog
+            open={linenDialogOpen}
+            onOpenChange={setLinenDialogOpen}
+            roomId={selectedRoom.id}
+            roomNumber={selectedRoom.room_number}
+            assignmentId={selectedAssignmentId}
+          />
+          
+          <ImageCaptureDialog
+            open={photoCaptureDialogOpen}
+            onOpenChange={setPhotoCaptureDialogOpen}
+            roomNumber={selectedRoom.room_number}
+            assignmentId={selectedAssignmentId || ''}
+            onPhotoCaptured={() => {
+              toast.success('Room photo captured successfully');
+            }}
+          />
+        </>
       )}
     </div>
   );
