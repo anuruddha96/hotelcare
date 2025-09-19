@@ -150,16 +150,19 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       // Handle each count individually to avoid batch operation issues
       for (const count of counts) {
         if (count.count > 0) {
-          // Insert or update with proper conflict resolution
+          // Use upsert with proper conflict resolution on the unique constraint
           const { error } = await supabase
             .from('dirty_linen_counts')
             .upsert({
               housekeeper_id: user.id,
               room_id: roomId,
-              assignment_id: assignmentId || null,
               linen_item_id: count.linen_item_id,
-              count: count.count,
               work_date: today,
+              assignment_id: assignmentId || null,
+              count: count.count,
+            }, {
+              onConflict: 'housekeeper_id,room_id,linen_item_id,work_date',
+              ignoreDuplicates: false
             });
             
           if (error) {
@@ -176,7 +179,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
             .eq('linen_item_id', count.linen_item_id)
             .eq('work_date', today);
             
-          if (error) {
+          if (error && !error.message.includes('No rows deleted')) {
             console.warn('Delete error for linen item:', count.linen_item_id, error);
           }
         }
