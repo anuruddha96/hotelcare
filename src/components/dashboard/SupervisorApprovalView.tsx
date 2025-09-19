@@ -39,9 +39,6 @@ interface PendingAssignment {
     status: string;
     room_name: string | null;
     floor_number: number | null;
-    guest_nights_stayed?: number | null;
-    towel_change_required?: boolean | null;
-    linen_change_required?: boolean | null;
   } | null;
   profiles: {
     full_name: string;
@@ -134,10 +131,7 @@ export function SupervisorApprovalView() {
             hotel,
             status,
             room_name,
-            floor_number,
-            guest_nights_stayed,
-            towel_change_required,
-            linen_change_required
+            floor_number
           ),
           profiles!assigned_to (
             full_name,
@@ -394,40 +388,6 @@ export function SupervisorApprovalView() {
                       {t('housekeeping.assignmentNotes')}
                     </h4>
                     <p className="text-sm text-blue-700">{assignment.notes}</p>
-                  </div>
-                )}
-
-                {/* Towel and Linen Change Requirements */}
-                {(assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && (
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-foreground mb-2">Special Requirements Completed:</h4>
-                    {assignment.rooms?.towel_change_required && (
-                      <div className="p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <div className="text-xl">🏺</div>
-                          <div>
-                            <div className="font-bold">TOWEL CHANGE COMPLETED</div>
-                            <p className="text-sm opacity-90">
-                              Guest stayed {assignment.rooms?.guest_nights_stayed} nights
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    
-                    {assignment.rooms?.linen_change_required && (
-                      <div className="p-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <div className="text-xl">🛏️</div>
-                          <div>
-                            <div className="font-bold">BED LINEN CHANGE COMPLETED</div>
-                            <p className="text-sm opacity-90">
-                              Guest stayed {assignment.rooms?.guest_nights_stayed} nights
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
 

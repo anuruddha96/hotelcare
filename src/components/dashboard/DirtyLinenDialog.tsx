@@ -150,19 +150,16 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       // Handle each count individually to avoid batch operation issues
       for (const count of counts) {
         if (count.count > 0) {
-          // Use upsert with proper conflict resolution on the unique constraint
+          // Insert or update with proper conflict resolution
           const { error } = await supabase
             .from('dirty_linen_counts')
             .upsert({
               housekeeper_id: user.id,
               room_id: roomId,
-              linen_item_id: count.linen_item_id,
-              work_date: today,
               assignment_id: assignmentId || null,
+              linen_item_id: count.linen_item_id,
               count: count.count,
-            }, {
-              onConflict: 'housekeeper_id,room_id,linen_item_id,work_date',
-              ignoreDuplicates: false
+              work_date: today,
             });
             
           if (error) {
@@ -179,7 +176,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
             .eq('linen_item_id', count.linen_item_id)
             .eq('work_date', today);
             
-          if (error && !error.message.includes('No rows deleted')) {
+          if (error) {
             console.warn('Delete error for linen item:', count.linen_item_id, error);
           }
         }
@@ -199,8 +196,6 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   const updateCount = (linenItemId: string, newCount: number) => {
     // Allow zero but not negative values
     if (newCount < 0) newCount = 0;
-    
-    console.log('Updating count for item:', linenItemId, 'to:', newCount);
     
     const updatedCounts = (() => {
       const existing = linenCounts.find(c => c.linen_item_id === linenItemId);
@@ -224,9 +219,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     }
     
     const timeout = setTimeout(() => {
-      console.log('Auto-save triggered for:', updatedCounts);
       autoSave(updatedCounts);
-    }, 800); // Reduced delay for better responsiveness
+    }, 1500); // 1.5 second delay
     
     setAutoSaveTimeout(timeout);
   };
@@ -290,7 +284,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     size="sm"
                     className="h-8 w-8 p-0"
                     onClick={() => updateCount(item.id, Math.max(0, getCount(item.id) - 1))}
-                    disabled={autoSaving}
+                    disabled={getCount(item.id) === 0}
                   >
                     <Minus className="h-3 w-3" />
                   </Button>
@@ -309,7 +303,6 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     size="sm"
                     className="h-8 w-8 p-0"
                     onClick={() => updateCount(item.id, getCount(item.id) + 1)}
-                    disabled={autoSaving}
                   >
                     <Plus className="h-3 w-3" />
                   </Button>
