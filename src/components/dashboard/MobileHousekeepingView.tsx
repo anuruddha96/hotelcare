@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { DirtyLinenDialog } from './DirtyLinenDialog';
+import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -54,6 +56,7 @@ export function MobileHousekeepingView() {
   const [linenDialogOpen, setLinenDialogOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<{ id: string; room_number: string } | null>(null);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+  const [imageCaptureDialogOpen, setImageCaptureDialogOpen] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -231,6 +234,13 @@ export function MobileHousekeepingView() {
       console.error('Error fetching summary:', error);
     }
   };
+
+  // Initialize summary on component mount
+  useEffect(() => {
+    if (user?.id) {
+      fetchSummary();
+    }
+  }, [user?.id, selectedDate]);
 
   const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
     setAssignments(prev => {
@@ -431,6 +441,21 @@ export function MobileHousekeepingView() {
           roomId={selectedRoom.id}
           roomNumber={selectedRoom.room_number}
           assignmentId={selectedAssignmentId}
+        />
+      )}
+
+      {/* Daily Room Photo Capture Dialog */}
+      {selectedRoom && (
+        <ImageCaptureDialog
+          open={imageCaptureDialogOpen}
+          onOpenChange={setImageCaptureDialogOpen}
+          roomId={selectedRoom.id}
+          roomNumber={selectedRoom.room_number}
+          assignmentId={selectedAssignmentId}
+          onPhotoCaptured={(photoUrl) => {
+            console.log('Daily room photo captured:', photoUrl);
+            toast.success('Daily room photo captured successfully');
+          }}
         />
       )}
     </div>
