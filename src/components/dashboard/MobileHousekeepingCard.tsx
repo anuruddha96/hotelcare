@@ -183,9 +183,9 @@ export function MobileHousekeepingCard({
               <Camera className="h-4 w-4 mr-1" />
               {t('common.details')}
             </Button>
-            <Button variant="outline" onClick={onOpenLinen} className="h-10">
+            <Button variant="outline" onClick={onOpenLinen} className="h-10 flex items-center justify-center">
               <Shirt className="h-4 w-4 mr-1" />
-              {t('dirtyLinen.title')}
+              <span className="truncate">{t('dirtyLinen.title')}</span>
             </Button>
           </div>
         </div>

@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle, Camera, Shirt } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
@@ -417,11 +417,42 @@ export function MobileHousekeepingView() {
         ) : (
           <div className="space-y-3">
             {assignments.map((assignment) => (
-              <AssignedRoomCard
-                key={assignment.id}
-                assignment={assignment}
-                onStatusUpdate={handleStatusUpdate}
-              />
+              <div key={assignment.id}>
+                <AssignedRoomCard
+                  assignment={assignment}
+                  onStatusUpdate={handleStatusUpdate}
+                />
+                
+                {/* Mobile Action Buttons for Photo and Linen */}
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      setSelectedRoom({ id: assignment.room_id, room_number: assignment.rooms?.room_number || '' });
+                      setSelectedAssignmentId(assignment.id);
+                      setImageCaptureDialogOpen(true);
+                    }}
+                    className="h-10"
+                  >
+                    <Camera className="h-4 w-4 mr-1" />
+                    Daily Photo
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      setSelectedRoom({ id: assignment.room_id, room_number: assignment.rooms?.room_number || '' });
+                      setSelectedAssignmentId(assignment.id);
+                      setLinenDialogOpen(true);
+                    }}
+                    className="h-10 flex items-center justify-center"
+                  >
+                    <Shirt className="h-4 w-4 mr-1" />
+                    <span className="truncate">Dirty Linen</span>
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -445,16 +476,15 @@ export function MobileHousekeepingView() {
       )}
 
       {/* Daily Room Photo Capture Dialog */}
-      {selectedRoom && (
+      {selectedRoom && selectedAssignmentId && (
         <ImageCaptureDialog
           open={imageCaptureDialogOpen}
           onOpenChange={setImageCaptureDialogOpen}
-          roomId={selectedRoom.id}
           roomNumber={selectedRoom.room_number}
           assignmentId={selectedAssignmentId}
-          onPhotoCaptured={(photoUrl) => {
-            console.log('Daily room photo captured:', photoUrl);
-            toast.success('Daily room photo captured successfully');
+          onPhotoCaptured={(photoUrls) => {
+            console.log('Daily room photos captured:', photoUrls);
+            toast.success('Daily room photos captured successfully');
           }}
         />
       )}
