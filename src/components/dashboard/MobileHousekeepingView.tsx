@@ -423,21 +423,8 @@ export function MobileHousekeepingView() {
                   onStatusUpdate={handleStatusUpdate}
                 />
                 
-                {/* Mobile Action Buttons for Photo and Linen */}
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => {
-                      setSelectedRoom({ id: assignment.room_id, room_number: assignment.rooms?.room_number || '' });
-                      setSelectedAssignmentId(assignment.id);
-                      setImageCaptureDialogOpen(true);
-                    }}
-                    className="h-10"
-                  >
-                    <Camera className="h-4 w-4 mr-1" />
-                    Daily Photo
-                  </Button>
+                {/* Single Dirty Linen Action Button */}
+                <div className="mt-2">
                   <Button 
                     variant="outline" 
                     size="sm"
@@ -446,10 +433,10 @@ export function MobileHousekeepingView() {
                       setSelectedAssignmentId(assignment.id);
                       setLinenDialogOpen(true);
                     }}
-                    className="h-10 flex items-center justify-center"
+                    className="w-full h-10 flex items-center justify-center"
                   >
-                    <Shirt className="h-4 w-4 mr-1" />
-                    <span className="truncate">Dirty Linen</span>
+                    <Shirt className="h-4 w-4 mr-2" />
+                    <span>Dirty Linen</span>
                   </Button>
                 </div>
               </div>

@@ -150,7 +150,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       // Handle each count individually to avoid batch operation issues
       for (const count of counts) {
         if (count.count > 0) {
-          // Insert or update with proper conflict resolution
+          // Use upsert with proper on_conflict handling
           const { error } = await supabase
             .from('dirty_linen_counts')
             .upsert({
@@ -160,6 +160,9 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
               linen_item_id: count.linen_item_id,
               count: count.count,
               work_date: today,
+            }, {
+              onConflict: 'housekeeper_id,room_id,linen_item_id,work_date',
+              ignoreDuplicates: false
             });
             
           if (error) {
