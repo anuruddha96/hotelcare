@@ -150,7 +150,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       // Handle each count individually to avoid batch operation issues
       for (const count of counts) {
         if (count.count > 0) {
-          // Insert or update with proper conflict resolution
+          // Use upsert with proper on_conflict handling
           const { error } = await supabase
             .from('dirty_linen_counts')
             .upsert({
@@ -160,6 +160,9 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
               linen_item_id: count.linen_item_id,
               count: count.count,
               work_date: today,
+            }, {
+              onConflict: 'housekeeper_id,room_id,linen_item_id,work_date',
+              ignoreDuplicates: false
             });
             
           if (error) {
@@ -200,10 +203,12 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     const updatedCounts = (() => {
       const existing = linenCounts.find(c => c.linen_item_id === linenItemId);
       if (existing) {
+        // Update existing count
         return linenCounts.map(c => 
           c.linen_item_id === linenItemId ? { ...c, count: newCount } : c
         );
       } else if (newCount > 0) {
+        // Add new count only if greater than 0
         return [...linenCounts, { linen_item_id: linenItemId, count: newCount }];
       } else {
         // If newCount is 0 and no existing record, don't add anything
@@ -219,10 +224,21 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     }
     
     const timeout = setTimeout(() => {
-      autoSave(updatedCounts);
+      // Include all items for save, even zero counts (will be deleted server-side)
+      const allCounts = linenItems.map(item => ({
+        linen_item_id: item.id,
+        count: getCountFromUpdated(item.id, updatedCounts)
+      }));
+      autoSave(allCounts);
     }, 1500); // 1.5 second delay
     
     setAutoSaveTimeout(timeout);
+  };
+
+  // Helper function to get count from updated array
+  const getCountFromUpdated = (linenItemId: string, counts: LinenCount[]): number => {
+    const item = counts.find(count => count.linen_item_id === linenItemId);
+    return item ? item.count : 0;
   };
 
   const getCount = (linenItemId: string): number => {

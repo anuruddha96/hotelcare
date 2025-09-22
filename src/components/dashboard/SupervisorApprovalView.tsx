@@ -39,6 +39,9 @@ interface PendingAssignment {
     status: string;
     room_name: string | null;
     floor_number: number | null;
+    towel_change_required?: boolean;
+    linen_change_required?: boolean;
+    guest_nights_stayed?: number;
   } | null;
   profiles: {
     full_name: string;
