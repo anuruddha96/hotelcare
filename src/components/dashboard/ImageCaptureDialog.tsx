@@ -46,16 +46,6 @@ export function ImageCaptureDialog({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
-        
-        // Wait for video to load metadata before showing camera
-        await new Promise((resolve) => {
-          const onLoadedMetadata = () => {
-            videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
-            resolve(null);
-          };
-          videoRef.current?.addEventListener('loadedmetadata', onLoadedMetadata);
-        });
-        
         setShowCamera(true);
       }
     } catch (error) {

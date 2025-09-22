@@ -76,9 +76,11 @@ export const AttendanceReports = () => {
   };
 
   const fetchEmployees = async () => {
-    // Use the new hotel-filtered function
     const { data, error } = await supabase
-      .rpc('get_employees_by_hotel');
+      .from('profiles')
+      .select('id, full_name, role')
+      .neq('role', 'admin')
+      .order('full_name');
 
     if (error) {
       console.error('Error fetching employees:', error);

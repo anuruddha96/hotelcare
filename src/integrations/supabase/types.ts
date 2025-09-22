@@ -314,39 +314,6 @@ export type Database = {
           },
         ]
       }
-      hotel_configurations: {
-        Row: {
-          created_at: string | null
-          hotel_id: string
-          hotel_name: string
-          id: string
-          is_active: boolean | null
-          organization_id: string | null
-          settings: Json | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          hotel_id: string
-          hotel_name: string
-          id?: string
-          is_active?: boolean | null
-          organization_id?: string | null
-          settings?: Json | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          hotel_id?: string
-          hotel_name?: string
-          id?: string
-          is_active?: boolean | null
-          organization_id?: string | null
-          settings?: Json | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
       hotels: {
         Row: {
           created_at: string
@@ -530,39 +497,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      organizations: {
-        Row: {
-          created_at: string | null
-          id: string
-          is_active: boolean | null
-          name: string
-          settings: Json | null
-          slug: string
-          subscription_tier: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          is_active?: boolean | null
-          name: string
-          settings?: Json | null
-          slug: string
-          subscription_tier?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          is_active?: boolean | null
-          name?: string
-          settings?: Json | null
-          slug?: string
-          subscription_tier?: string | null
-          updated_at?: string | null
-        }
-        Relationships: []
       }
       password_reset_otps: {
         Row: {
@@ -1322,17 +1256,6 @@ export type Database = {
       get_email_case_insensitive: {
         Args: { p_email: string }
         Returns: string
-      }
-      get_employees_by_hotel: {
-        Args: Record<PropertyKey, never>
-        Returns: {
-          assigned_hotel: string
-          created_at: string
-          email: string
-          full_name: string
-          id: string
-          role: Database["public"]["Enums"]["user_role"]
-        }[]
       }
       get_hotel_id_from_name: {
         Args: { hotel_name: string }

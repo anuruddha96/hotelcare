@@ -78,15 +78,14 @@ export function HousekeepingStaffManagement() {
   const fetchHousekeepingStaff = async () => {
     setLoading(true);
     try {
-      // Use the hotel-filtered function to ensure managers only see their hotel's staff
       const { data, error } = await supabase
-        .rpc('get_employees_by_hotel');
+        .from('profiles')
+        .select('*')
+        .eq('role', 'housekeeping')
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
-      
-      // Filter only housekeeping staff from the result
-      const housekeepingStaff = (data || []).filter(staff => staff.role === 'housekeeping');
-      setStaff(housekeepingStaff);
+      setStaff(data || []);
     } catch (error: any) {
       toast({
         title: 'Error',

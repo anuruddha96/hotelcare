@@ -49,18 +49,15 @@ export function DNDPhotoDialog({
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await new Promise((resolve) => {
-          const onLoadedMetadata = () => {
-            videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
-            resolve(null);
-          };
-          videoRef.current?.addEventListener('loadedmetadata', onLoadedMetadata);
-        });
         setCameraActive(true);
       }
     } catch (error) {
       console.error('Error accessing camera:', error);
-      toast.error("Unable to access camera. Please use file upload instead.");
+      showToast({
+        title: "Camera Error",
+        description: "Unable to access camera. Please use file upload instead.",
+        variant: "destructive"
+      });
     }
   };
 
