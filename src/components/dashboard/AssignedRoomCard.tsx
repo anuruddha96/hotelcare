@@ -417,25 +417,42 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           )}
           
           {assignment.status === 'in_progress' && (
-            <div className="flex gap-3 w-full sm:w-auto">
-              <Button
-                size="lg"
-                onClick={() => updateAssignmentStatus('completed')}
-                disabled={loading}
-                className="flex-1 sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-              >
-                <CheckCircle className="h-5 w-5" />
-                {t('housekeeping.complete')}
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => setDndPhotoDialogOpen(true)}
-                disabled={loading}
-                className="flex-1 sm:w-auto border-orange-300 text-orange-700 hover:bg-orange-50"
-              >
-                📷 DND
-              </Button>
+            <div className="space-y-3">
+              {/* Primary action buttons */}
+              <div className="flex gap-3 w-full sm:w-auto">
+                <Button
+                  size="lg"
+                  onClick={() => updateAssignmentStatus('completed')}
+                  disabled={loading}
+                  className="flex-1 sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <CheckCircle className="h-5 w-5" />
+                  {t('housekeeping.complete')}
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setDndPhotoDialogOpen(true)}
+                  disabled={loading}
+                  className="flex-1 sm:w-auto border-orange-300 text-orange-700 hover:bg-orange-50"
+                >
+                  📷 DND
+                </Button>
+              </div>
+              
+              {/* Secondary action - Dirty Linen Collection */}
+              <div className="flex gap-2">
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => setDirtyLinenDialogOpen(true)}
+                  className="flex-1 text-xs sm:text-sm min-h-[40px] border-purple-300 text-purple-700 hover:bg-purple-50"
+                >
+                  <Shirt className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                  <span className="hidden sm:inline">{t('dirtyLinen.dirtyLinen')}</span>
+                  <span className="sm:hidden">{t('dirtyLinen.linen')}</span>
+                </Button>
+              </div>
             </div>
           )}
 
@@ -483,7 +500,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </DialogContent>
           </Dialog>
 
-          {assignment.rooms && (
+          {assignment.rooms && assignment.status !== 'in_progress' && (
             <div className="flex gap-2">
               <Button 
                 size="sm" 
@@ -500,7 +517,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 size="sm" 
                 variant="outline"
                 onClick={() => setDirtyLinenDialogOpen(true)}
-                className="flex-1 text-xs sm:text-sm min-h-[40px]"
+                className="flex-1 text-xs sm:text-sm min-h-[40px] border-purple-300 text-purple-700 hover:bg-purple-50"
               >
                 <Shirt className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">{t('dirtyLinen.dirtyLinen')}</span>

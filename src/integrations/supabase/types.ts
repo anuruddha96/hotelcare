@@ -1327,6 +1327,7 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: {
           assigned_hotel: string
+          created_at: string
           email: string
           full_name: string
           id: string

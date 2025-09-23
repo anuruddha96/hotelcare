@@ -84,8 +84,11 @@ export function HousekeepingStaffManagement() {
 
       if (error) throw error;
       
-      // Filter only housekeeping staff from the result
-      const housekeepingStaff = (data || []).filter(staff => staff.role === 'housekeeping');
+      // Filter only housekeeping staff from the result and add created_at field
+      const housekeepingStaff = (data || []).filter(staff => staff.role === 'housekeeping').map(staff => ({
+        ...staff,
+        created_at: staff.created_at || new Date().toISOString()
+      }));
       setStaff(housekeepingStaff);
     } catch (error: any) {
       toast({
