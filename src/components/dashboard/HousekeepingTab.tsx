@@ -15,9 +15,8 @@ import { CompanySettings } from './CompanySettings';
 import { AttendanceTracker } from './AttendanceTracker';
 import { DirtyLinenManagement } from './DirtyLinenManagement';
 import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
-import { DNDPhotosManagement } from './DNDPhotosManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
-import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Eye } from 'lucide-react';
+import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 export function HousekeepingTab() {
@@ -72,10 +71,10 @@ export function HousekeepingTab() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className={`
           ${hasManagerAccess 
-            ? 'flex flex-wrap overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
+            ? 'flex flex-nowrap overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
             : 'grid w-full grid-cols-1'
           }
-          ${hasManagerAccess ? 'sm:grid sm:grid-cols-8 sm:justify-center sm:gap-2' : ''}
+          ${hasManagerAccess ? 'sm:grid sm:grid-cols-8 sm:justify-center' : ''}
         `}>
           {hasManagerAccess && (
             <>
@@ -140,14 +139,6 @@ export function HousekeepingTab() {
                 <span className="hidden sm:inline">{t('dirtyLinen.dirtyLinen')}</span>
                 <span className="sm:hidden">{t('dirtyLinen.linen')}</span>
               </TabsTrigger>
-              <TabsTrigger 
-                value="dnd-photos" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Eye className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">DND Photos</span>
-                <span className="sm:hidden">Photos</span>
-              </TabsTrigger>
             </>
           )}
           <TabsTrigger
@@ -199,17 +190,6 @@ export function HousekeepingTab() {
                 <DirtyLinenManagement />
                 {userRole === 'admin' && <DirtyLinenItemsManagement />}
               </div>
-            </TabsContent>
-
-            <TabsContent value="dirty-linen" className="space-y-6">
-              <div className="space-y-6">
-                <DirtyLinenManagement />
-                {userRole === 'admin' && <DirtyLinenItemsManagement />}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="dnd-photos" className="space-y-6">
-              <DNDPhotosManagement />
             </TabsContent>
           </>
         )}
