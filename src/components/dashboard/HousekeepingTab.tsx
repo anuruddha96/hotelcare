@@ -12,11 +12,12 @@ import { PerformanceLeaderboard } from './PerformanceLeaderboard';
 import { SupervisorApprovalView } from './SupervisorApprovalView';
 import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { CompanySettings } from './CompanySettings';
-import { AttendanceTracker } from './AttendanceTracker';
+import { AttendanceManagement } from './AttendanceManagement';
+import { DailyPhotosManagement } from './DailyPhotosManagement';
 import { DirtyLinenManagement } from './DirtyLinenManagement';
 import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
-import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt } from 'lucide-react';
+import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 export function HousekeepingTab() {
@@ -71,7 +72,7 @@ export function HousekeepingTab() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className={`
           ${hasManagerAccess 
-            ? 'flex flex-nowrap overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
+            ? 'flex flex-wrap overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
             : 'grid w-full grid-cols-1'
           }
           ${hasManagerAccess ? 'sm:grid sm:grid-cols-8 sm:justify-center' : ''}
@@ -132,12 +133,20 @@ export function HousekeepingTab() {
                 <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
               </TabsTrigger>
               <TabsTrigger 
-                value="dirty-linen" 
+                value="daily-photos" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
-                <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">{t('dirtyLinen.dirtyLinen')}</span>
-                <span className="sm:hidden">{t('dirtyLinen.linen')}</span>
+                <Camera className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Daily Photos</span>
+                <span className="sm:hidden">Photos</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="attendance" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">{t('hr.management')}</span>
+                <span className="sm:hidden">{t('hr.management')}</span>
               </TabsTrigger>
             </>
           )}
@@ -183,6 +192,14 @@ export function HousekeepingTab() {
                 <SupervisorApprovalView />
                 <BreakRequestApprovalView />
               </div>
+            </TabsContent>
+
+            <TabsContent value="daily-photos" className="space-y-6">
+              <DailyPhotosManagement />
+            </TabsContent>
+
+            <TabsContent value="attendance" className="space-y-6">
+              <AttendanceManagement />
             </TabsContent>
 
             <TabsContent value="dirty-linen" className="space-y-6">

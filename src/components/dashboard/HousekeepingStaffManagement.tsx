@@ -84,9 +84,18 @@ export function HousekeepingStaffManagement() {
 
       if (error) throw error;
       
-      // Filter only housekeeping staff from the result
-      const housekeepingStaff = (data || []).filter(staff => staff.role === 'housekeeping');
-      setStaff(housekeepingStaff);
+      // Show all relevant staff for managers - not just housekeeping
+      const staffToShow = (data || []).filter(staff => 
+        // For housekeeping managers, show housekeeping and related roles
+        currentUserRole === 'housekeeping_manager' ? 
+          ['housekeeping', 'reception', 'maintenance'].includes(staff.role) :
+          // For other managers and admins, show all operational staff
+          ['housekeeping', 'reception', 'maintenance', 'marketing', 'control_finance', 'front_office'].includes(staff.role)
+      ).map(staff => ({
+        ...staff,
+        created_at: staff.created_at || new Date().toISOString()
+      }));
+      setStaff(staffToShow);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -404,9 +413,15 @@ export function HousekeepingStaffManagement() {
             </div>
             
             <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
-              <Badge className="bg-orange-500 text-white text-xs" variant="secondary">
-                {t('staff.housekeeper')}
-              </Badge>
+                <Badge className="bg-blue-500 text-white text-xs" variant="secondary">
+                  {member.role === 'housekeeping' ? t('staff.housekeeper') : 
+                   member.role === 'reception' ? 'Reception' :
+                   member.role === 'maintenance' ? 'Maintenance' :
+                   member.role === 'marketing' ? 'Marketing' :
+                   member.role === 'control_finance' ? 'Finance' :
+                   member.role === 'front_office' ? 'Front Office' :
+                   member.role}
+                </Badge>
               <Button size="sm" variant="outline" onClick={() => openEdit(member)}>
                 <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="ml-1 sm:hidden">{t('staff.edit')}</span>

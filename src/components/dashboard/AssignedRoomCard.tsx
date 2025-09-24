@@ -403,86 +403,90 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         )}
 
         {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          {assignment.status === 'assigned' && (
-            <Button
-              size="lg"
-              onClick={() => updateAssignmentStatus('in_progress')}
-              disabled={loading}
-              className="w-full sm:w-auto"
-            >
-              <Play className="h-5 w-5" />
-              {t('housekeeping.start')}
-            </Button>
-          )}
-          
-          {assignment.status === 'in_progress' && (
-            <div className="flex gap-3 w-full sm:w-auto">
+        <div className="space-y-4">
+          {/* Primary Action Buttons */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            {assignment.status === 'assigned' && (
               <Button
                 size="lg"
-                onClick={() => updateAssignmentStatus('completed')}
+                onClick={() => updateAssignmentStatus('in_progress')}
                 disabled={loading}
-                className="flex-1 sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-              >
-                <CheckCircle className="h-5 w-5" />
-                {t('housekeeping.complete')}
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => setDndPhotoDialogOpen(true)}
-                disabled={loading}
-                className="flex-1 sm:w-auto border-orange-300 text-orange-700 hover:bg-orange-50"
-              >
-                📷 DND
-              </Button>
-            </div>
-          )}
-
-          <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
-            <DialogTrigger asChild>
-              <Button 
-                size="lg" 
-                variant="outline" 
                 className="w-full sm:w-auto"
               >
-                <MessageSquare className="h-5 w-5" />
-                {t('housekeeping.addNote')}
+                <Play className="h-5 w-5" />
+                {t('housekeeping.start')}
               </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle className="text-xl font-bold text-slate-800">
-                  {t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number || 'N/A'}
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <Textarea
-                  placeholder={t('housekeeping.enterNote')}
-                  value={newNote}
-                  onChange={(e) => setNewNote(e.target.value)}
-                  className="min-h-[100px] border-2 border-slate-200 focus:border-blue-400 rounded-lg"
-                />
-                <div className="flex justify-end gap-3">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setNoteDialogOpen(false)}
-                    className="border-2 border-slate-300 text-slate-700 hover:bg-slate-50 px-6 py-2 rounded-lg font-semibold"
-                  >
-                    {t('common.cancel')}
-                  </Button>
-                  <Button 
-                    onClick={addNote} 
-                    disabled={!newNote.trim()}
-                    className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-6 py-2 rounded-lg font-semibold shadow-md hover:shadow-lg transition-all"
-                  >
-                    {t('housekeeping.addNote')}
-                  </Button>
-                </div>
+            )}
+            
+            {assignment.status === 'in_progress' && (
+              <div className="flex gap-3 w-full sm:w-auto">
+                <Button
+                  size="lg"
+                  onClick={() => updateAssignmentStatus('completed')}
+                  disabled={loading}
+                  className="flex-1 sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <CheckCircle className="h-5 w-5" />
+                  {t('housekeeping.complete')}
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setDndPhotoDialogOpen(true)}
+                  disabled={loading}
+                  className="flex-1 sm:w-auto border-orange-300 text-orange-700 hover:bg-orange-50"
+                >
+                  📷 DND
+                </Button>
               </div>
-            </DialogContent>
-          </Dialog>
+            )}
 
+            <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+              <DialogTrigger asChild>
+                <Button 
+                  size="lg" 
+                  variant="outline" 
+                  className="w-full sm:w-auto"
+                >
+                  <MessageSquare className="h-5 w-5" />
+                  {t('housekeeping.addNote')}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="text-xl font-bold text-slate-800">
+                    {t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number || 'N/A'}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <Textarea
+                    placeholder={t('housekeeping.enterNote')}
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                    className="min-h-[100px] border-2 border-slate-200 focus:border-blue-400 rounded-lg"
+                  />
+                  <div className="flex justify-end gap-3">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setNoteDialogOpen(false)}
+                      className="border-2 border-slate-300 text-slate-700 hover:bg-slate-50 px-6 py-2 rounded-lg font-semibold"
+                    >
+                      {t('common.cancel')}
+                    </Button>
+                    <Button 
+                      onClick={addNote} 
+                      disabled={!newNote.trim()}
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-6 py-2 rounded-lg font-semibold shadow-md hover:shadow-lg transition-all"
+                    >
+                      {t('housekeeping.addNote')}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {/* Secondary Action Buttons */}
           {assignment.rooms && (
             <div className="flex gap-2">
               <Button 
@@ -494,17 +498,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">{t('housekeeping.roomDetails')}</span>
                 <span className="sm:hidden">{t('dirtyLinen.details')}</span>
-              </Button>
-              
-              <Button 
-                size="sm" 
-                variant="outline"
-                onClick={() => setDirtyLinenDialogOpen(true)}
-                className="flex-1 text-xs sm:text-sm min-h-[40px]"
-              >
-                <Shirt className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">{t('dirtyLinen.dirtyLinen')}</span>
-                <span className="sm:hidden">{t('dirtyLinen.linen')}</span>
               </Button>
               
               {(user?.role === 'manager' || user?.role === 'admin' || user?.role === 'housekeeping_manager') && (
@@ -519,6 +512,38 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   <span className="sm:hidden">Type</span>
                 </Button>
               )}
+            </div>
+          )}
+
+          {/* Required Actions - Only show when in progress */}
+          {assignment.status === 'in_progress' && (
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-lg border border-blue-200">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs">
+                  📋
+                </div>
+                <h4 className="font-semibold text-blue-800">Required Actions</h4>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  size="lg"
+                  onClick={() => setDndPhotoDialogOpen(true)}
+                  disabled={loading}
+                  className="bg-blue-600 hover:bg-blue-700 text-white p-4 h-auto flex flex-col items-center gap-2"
+                >
+                  <div className="text-2xl">📷</div>
+                  <span className="text-sm font-medium">Daily Photo</span>
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={() => setDirtyLinenDialogOpen(true)}
+                  disabled={loading}
+                  className="bg-green-600 hover:bg-green-700 text-white p-4 h-auto flex flex-col items-center gap-2"
+                >
+                  <Shirt className="h-6 w-6" />
+                  <span className="text-sm font-medium">Dirty Linen</span>
+                </Button>
+              </div>
             </div>
           )}
         </div>
