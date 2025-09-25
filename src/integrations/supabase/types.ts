@@ -306,6 +306,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "dnd_photos_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "fk_dnd_photos_marked_by"
             columns: ["marked_by"]
             isOneToOne: false

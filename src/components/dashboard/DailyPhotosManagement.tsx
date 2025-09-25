@@ -80,16 +80,17 @@ export function DailyPhotosManagement() {
     try {
       const { start, end } = getDateRange();
       
+      // First get the photos with proper joins
       let query = supabase
         .from('dnd_photos')
         .select(`
           *,
-          rooms!inner (
+          rooms (
             room_number,
             hotel,
             room_name
           ),
-          profiles!inner (
+          profiles (
             full_name
           )
         `)
@@ -97,15 +98,29 @@ export function DailyPhotosManagement() {
         .lte('assignment_date', format(end, 'yyyy-MM-dd'))
         .order('marked_at', { ascending: false });
 
-      if (hotelFilter !== 'all') {
-        query = query.eq('rooms.hotel', hotelFilter);
-      }
-
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching DND photos:', error);
+        setPhotos([]);
+        return;
+      }
       
-      setPhotos(data || []);
+      // Filter by hotel if specified
+      let filteredData = data || [];
+      if (hotelFilter !== 'all') {
+        filteredData = filteredData.filter(photo => 
+          photo.rooms?.hotel === hotelFilter
+        );
+      }
+      
+      // Only set photos that have valid room and profile data
+      const validPhotos = filteredData.filter(photo => 
+        photo.rooms && photo.profiles && 
+        photo.rooms.room_number && photo.rooms.hotel
+      );
+      
+      setPhotos(validPhotos);
     } catch (error) {
       console.error('Error fetching DND photos:', error);
       setPhotos([]);

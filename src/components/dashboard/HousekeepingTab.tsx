@@ -72,10 +72,9 @@ export function HousekeepingTab() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className={`
           ${hasManagerAccess 
-            ? 'flex flex-wrap overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
+            ? 'flex overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
             : 'grid w-full grid-cols-1'
           }
-          ${hasManagerAccess ? 'sm:grid sm:grid-cols-8 sm:justify-center' : ''}
         `}>
           {hasManagerAccess && (
             <>

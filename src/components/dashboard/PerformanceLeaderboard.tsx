@@ -27,6 +27,7 @@ export function PerformanceLeaderboard() {
   const { user } = useAuth();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [personalStats, setPersonalStats] = useState<PerformanceStats | null>(null);
+  const [enhancedStats, setEnhancedStats] = useState<any>(null);
   const [timeframe, setTimeframe] = useState('7');
   const [loading, setLoading] = useState(true);
 
@@ -39,13 +40,48 @@ export function PerformanceLeaderboard() {
     
     setLoading(true);
     try {
+      // Fetch leaderboard data
       const { data: leaderboardData } = await supabase.rpc('get_housekeeping_leaderboard', {
         days_back: parseInt(timeframe)
       });
 
+      // Fetch basic stats
       const { data: statsData } = await supabase.rpc('get_housekeeper_performance_stats', {
         target_housekeeper_id: user.id,
         days_back: parseInt(timeframe)
+      });
+
+      // Fetch enhanced performance data with separate daily/checkout metrics
+      const { data: dailyPerformance } = await supabase
+        .from('housekeeping_performance')
+        .select('*')
+        .eq('housekeeper_id', user.id)
+        .eq('assignment_type', 'daily_cleaning')
+        .gte('assignment_date', new Date(Date.now() - parseInt(timeframe) * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+
+      const { data: checkoutPerformance } = await supabase
+        .from('housekeeping_performance')
+        .select('*')
+        .eq('housekeeper_id', user.id)
+        .eq('assignment_type', 'checkout_cleaning')
+        .gte('assignment_date', new Date(Date.now() - parseInt(timeframe) * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+
+      // Calculate separate metrics for compensation
+      const dailyAvgTime = dailyPerformance?.length ? 
+        dailyPerformance.reduce((sum, p) => sum + p.actual_duration_minutes, 0) / dailyPerformance.length : 0;
+      
+      const checkoutAvgTime = checkoutPerformance?.length ?
+        checkoutPerformance.reduce((sum, p) => sum + p.actual_duration_minutes, 0) / checkoutPerformance.length : 0;
+
+      setEnhancedStats({
+        daily_avg_time: dailyAvgTime,
+        checkout_avg_time: checkoutAvgTime,
+        daily_completed: dailyPerformance?.length || 0,
+        checkout_completed: checkoutPerformance?.length || 0,
+        daily_efficiency: dailyPerformance?.length ? 
+          dailyPerformance.reduce((sum, p) => sum + p.efficiency_score, 0) / dailyPerformance.length : 0,
+        checkout_efficiency: checkoutPerformance?.length ?
+          checkoutPerformance.reduce((sum, p) => sum + p.efficiency_score, 0) / checkoutPerformance.length : 0
       });
 
       setLeaderboard(leaderboardData || []);
@@ -103,44 +139,103 @@ export function PerformanceLeaderboard() {
       </div>
 
       {personalStats && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-4 sm:mb-6">
-          <Card>
-            <CardContent className="p-3 sm:p-4 text-center">
-              <Clock className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-blue-500" />
-              <div className="text-xl sm:text-2xl font-bold">{Math.round(personalStats.avg_duration_minutes)}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Avg Minutes</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4 text-center">
-              <TrendingUp className={`h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 ${getEfficiencyColor(personalStats.avg_efficiency_score)}`} />
-              <div className={`text-xl sm:text-2xl font-bold ${getEfficiencyColor(personalStats.avg_efficiency_score)}`}>
-                {Math.round(personalStats.avg_efficiency_score)}%
-              </div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Efficiency</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4 text-center">
-              <Target className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-green-500" />
-              <div className="text-xl sm:text-2xl font-bold">{personalStats.total_completed}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Completed</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4 text-center">
-              <Star className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-purple-500" />
-              <div className="text-xl sm:text-2xl font-bold">{personalStats.best_time_minutes}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Best Time</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 sm:p-4 text-center">
-              <Medal className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-orange-500" />
-              <div className="text-xl sm:text-2xl font-bold">{personalStats.total_rooms_today}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">Today</div>
-            </CardContent>
-          </Card>
+        <div className="space-y-6">
+          {/* Enhanced Performance Metrics for Compensation */}
+          {enhancedStats && (
+            <Card className="border-2 border-primary/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-primary">
+                  <Trophy className="h-5 w-5" />
+                  Compensation Performance Metrics
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <Clock className="h-8 w-8 mx-auto mb-2 text-blue-600" />
+                    <div className="text-2xl font-bold text-blue-800">{Math.round(enhancedStats.daily_avg_time)}</div>
+                    <div className="text-sm text-blue-600">Daily Room AHT (min)</div>
+                    <div className="text-xs text-muted-foreground">{enhancedStats.daily_completed} rooms</div>
+                  </div>
+                  
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <Clock className="h-8 w-8 mx-auto mb-2 text-green-600" />
+                    <div className="text-2xl font-bold text-green-800">{Math.round(enhancedStats.checkout_avg_time)}</div>
+                    <div className="text-sm text-green-600">Checkout Room AHT (min)</div>
+                    <div className="text-xs text-muted-foreground">{enhancedStats.checkout_completed} rooms</div>
+                  </div>
+                  
+                  <div className="text-center p-4 bg-purple-50 rounded-lg">
+                    <TrendingUp className="h-8 w-8 mx-auto mb-2 text-purple-600" />
+                    <div className="text-2xl font-bold text-purple-800">{Math.round(enhancedStats.daily_efficiency)}%</div>
+                    <div className="text-sm text-purple-600">Daily Efficiency</div>
+                    <div className="text-xs text-muted-foreground">vs. estimated time</div>
+                  </div>
+                  
+                  <div className="text-center p-4 bg-orange-50 rounded-lg">
+                    <TrendingUp className="h-8 w-8 mx-auto mb-2 text-orange-600" />
+                    <div className="text-2xl font-bold text-orange-800">{Math.round(enhancedStats.checkout_efficiency)}%</div>
+                    <div className="text-sm text-orange-600">Checkout Efficiency</div>
+                    <div className="text-xs text-muted-foreground">vs. estimated time</div>
+                  </div>
+                </div>
+                
+                <div className="text-center p-4 bg-gradient-to-r from-yellow-50 to-amber-50 rounded-lg border-2 border-yellow-200">
+                  <div className="text-lg font-semibold text-amber-800 mb-2">Performance Rating</div>
+                  <div className="flex justify-center items-center gap-4">
+                    <div>
+                      <div className="text-3xl font-bold text-yellow-600">{Math.round(personalStats.avg_efficiency_score)}%</div>
+                      <div className="text-sm text-amber-700">Overall Score</div>
+                    </div>
+                    <div>
+                      {getEfficiencyBadge(personalStats.avg_efficiency_score)}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* Basic Stats Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+            <Card>
+              <CardContent className="p-3 sm:p-4 text-center">
+                <Clock className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-blue-500" />
+                <div className="text-xl sm:text-2xl font-bold">{Math.round(personalStats.avg_duration_minutes)}</div>
+                <div className="text-xs sm:text-sm text-muted-foreground">Avg Minutes</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4 text-center">
+                <TrendingUp className={`h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 ${getEfficiencyColor(personalStats.avg_efficiency_score)}`} />
+                <div className={`text-xl sm:text-2xl font-bold ${getEfficiencyColor(personalStats.avg_efficiency_score)}`}>
+                  {Math.round(personalStats.avg_efficiency_score)}%
+                </div>
+                <div className="text-xs sm:text-sm text-muted-foreground">Efficiency</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4 text-center">
+                <Target className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-green-500" />
+                <div className="text-xl sm:text-2xl font-bold">{personalStats.total_completed}</div>
+                <div className="text-xs sm:text-sm text-muted-foreground">Completed</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4 text-center">
+                <Star className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-purple-500" />
+                <div className="text-xl sm:text-2xl font-bold">{personalStats.best_time_minutes}</div>
+                <div className="text-xs sm:text-sm text-muted-foreground">Best Time</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-3 sm:p-4 text-center">
+                <Medal className="h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1.5 sm:mb-2 text-orange-500" />
+                <div className="text-xl sm:text-2xl font-bold">{personalStats.total_rooms_today}</div>
+                <div className="text-xs sm:text-sm text-muted-foreground">Today</div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 

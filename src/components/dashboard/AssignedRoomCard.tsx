@@ -19,7 +19,8 @@ import {
   Shirt,
   Eye,
   Edit3,
-  ArrowUpDown
+  ArrowUpDown,
+  Camera
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
@@ -419,26 +420,15 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             )}
             
             {assignment.status === 'in_progress' && (
-              <div className="flex gap-3 w-full sm:w-auto">
-                <Button
-                  size="lg"
-                  onClick={() => updateAssignmentStatus('completed')}
-                  disabled={loading}
-                  className="flex-1 sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <CheckCircle className="h-5 w-5" />
-                  {t('housekeeping.complete')}
-                </Button>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={() => setDndPhotoDialogOpen(true)}
-                  disabled={loading}
-                  className="flex-1 sm:w-auto border-orange-300 text-orange-700 hover:bg-orange-50"
-                >
-                  📷 DND
-                </Button>
-              </div>
+              <Button
+                size="lg"
+                onClick={() => updateAssignmentStatus('completed')}
+                disabled={loading}
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+              >
+                <CheckCircle className="h-5 w-5" />
+                {t('housekeeping.complete')}
+              </Button>
             )}
 
             <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
@@ -463,87 +453,86 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     placeholder={t('housekeeping.enterNote')}
                     value={newNote}
                     onChange={(e) => setNewNote(e.target.value)}
-                    className="min-h-[100px] border-2 border-slate-200 focus:border-blue-400 rounded-lg"
+                    className="min-h-[80px] border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   />
-                  <div className="flex justify-end gap-3">
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={addNote} 
+                      disabled={!newNote.trim()} 
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+                    >
+                      {t('housekeeping.addNote')}
+                    </Button>
                     <Button 
                       variant="outline" 
                       onClick={() => setNoteDialogOpen(false)}
-                      className="border-2 border-slate-300 text-slate-700 hover:bg-slate-50 px-6 py-2 rounded-lg font-semibold"
+                      className="border-slate-300 text-slate-600 hover:bg-slate-50"
                     >
                       {t('common.cancel')}
-                    </Button>
-                    <Button 
-                      onClick={addNote} 
-                      disabled={!newNote.trim()}
-                      className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-6 py-2 rounded-lg font-semibold shadow-md hover:shadow-lg transition-all"
-                    >
-                      {t('housekeeping.addNote')}
                     </Button>
                   </div>
                 </div>
               </DialogContent>
             </Dialog>
+
+            <Button 
+              size="lg"
+              variant="outline" 
+              onClick={() => setRoomDetailOpen(true)} 
+              className="w-full sm:w-auto"
+            >
+              <Eye className="h-5 w-5" />
+              {t('common.details')}
+            </Button>
           </div>
 
-          {/* Secondary Action Buttons */}
-          {assignment.rooms && (
+          {/* Required Actions Section - Group DND Photo and Dirty Linen for In-Progress Tasks */}
+          {assignment.status === 'in_progress' && (
+            <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border-2 border-dashed border-amber-200">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                <span className="font-semibold text-amber-800">Required Actions</span>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Daily Photo Button */}
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setDndPhotoDialogOpen(true)}
+                  className="flex items-center gap-3 h-12 border-amber-300 text-amber-700 hover:bg-amber-100"
+                >
+                  <Camera className="h-5 w-5" />
+                  <span>Daily Photo</span>
+                </Button>
+
+                {/* Dirty Linen Button */}
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setDirtyLinenDialogOpen(true)}
+                  className="flex items-center gap-3 h-12 border-amber-300 text-amber-700 hover:bg-amber-100"
+                >
+                  <Shirt className="h-5 w-5" />
+                  <span>Dirty Linen</span>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Management Action Buttons */}
+          {assignment.rooms && (user?.role === 'manager' || user?.role === 'admin' || user?.role === 'housekeeping_manager') && (
             <div className="flex gap-2">
               <Button 
                 size="sm" 
                 variant="outline"
-                onClick={() => setRoomDetailOpen(true)}
-                className="flex-1 text-xs sm:text-sm min-h-[40px]"
+                onClick={() => setChangeTypeDialogOpen(true)}
+                className="flex-1 text-xs sm:text-sm min-h-[40px] border-blue-300 text-blue-700 hover:bg-blue-50"
               >
-                <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">{t('housekeeping.roomDetails')}</span>
-                <span className="sm:hidden">{t('dirtyLinen.details')}</span>
+                <ArrowUpDown className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Change Type</span>
+                <span className="sm:hidden">Type</span>
               </Button>
-              
-              {(user?.role === 'manager' || user?.role === 'admin' || user?.role === 'housekeeping_manager') && (
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => setChangeTypeDialogOpen(true)}
-                  className="flex-1 text-xs sm:text-sm min-h-[40px] border-blue-300 text-blue-700 hover:bg-blue-50"
-                >
-                  <ArrowUpDown className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                  <span className="hidden sm:inline">Change Type</span>
-                  <span className="sm:hidden">Type</span>
-                </Button>
-              )}
-            </div>
-          )}
-
-          {/* Required Actions - Only show when in progress */}
-          {assignment.status === 'in_progress' && (
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-lg border border-blue-200">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs">
-                  📋
-                </div>
-                <h4 className="font-semibold text-blue-800">Required Actions</h4>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  size="lg"
-                  onClick={() => setDndPhotoDialogOpen(true)}
-                  disabled={loading}
-                  className="bg-blue-600 hover:bg-blue-700 text-white p-4 h-auto flex flex-col items-center gap-2"
-                >
-                  <div className="text-2xl">📷</div>
-                  <span className="text-sm font-medium">Daily Photo</span>
-                </Button>
-                <Button
-                  size="lg"
-                  onClick={() => setDirtyLinenDialogOpen(true)}
-                  disabled={loading}
-                  className="bg-green-600 hover:bg-green-700 text-white p-4 h-auto flex flex-col items-center gap-2"
-                >
-                  <Shirt className="h-6 w-6" />
-                  <span className="text-sm font-medium">Dirty Linen</span>
-                </Button>
-              </div>
             </div>
           )}
         </div>
