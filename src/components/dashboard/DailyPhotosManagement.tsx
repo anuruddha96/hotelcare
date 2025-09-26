@@ -134,42 +134,50 @@ export function DailyPhotosManagement() {
     setPhotoDialogOpen(true);
   };
 
+  const getImageUrl = (photoUrl: string) => {
+    if (photoUrl.startsWith('http')) {
+      return photoUrl; // Already a full URL
+    }
+    
+    // If it's just a filename, construct the full storage URL
+    const { data } = supabase.storage
+      .from('dnd-photos')
+      .getPublicUrl(photoUrl);
+    
+    return data.publicUrl;
+  };
+
   const downloadPhoto = async (photo: DNDPhoto) => {
     try {
-      // Extract filename from photo_url - handle both bucket path and full URL
+      // Extract filename from photo_url
       const filename = photo.photo_url.includes('/') 
         ? photo.photo_url.split('/').pop() || ''
         : photo.photo_url;
 
+      // Try to download from storage first
       const { data, error } = await supabase.storage
         .from('dnd-photos')
         .download(filename);
 
       if (error) {
         console.error('Storage download error:', error);
-        // Try direct download as fallback
-        const link = document.createElement('a');
-        link.href = photo.photo_url;
-        link.download = `room-${photo.rooms?.room_number}-${format(new Date(photo.marked_at), 'yyyy-MM-dd-HHmm')}.jpg`;
-        link.target = '_blank';
-        link.click();
-        return;
+        throw error;
       }
 
+      // Create blob URL and download
       const url = URL.createObjectURL(data);
       const a = document.createElement('a');
       a.href = url;
       a.download = `room-${photo.rooms?.room_number}-${format(new Date(photo.marked_at), 'yyyy-MM-dd-HHmm')}.jpg`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading photo:', error);
-      // Final fallback - direct download
-      const link = document.createElement('a');
-      link.href = photo.photo_url;
-      link.download = `room-${photo.rooms?.room_number}-${format(new Date(photo.marked_at), 'yyyy-MM-dd-HHmm')}.jpg`;
-      link.target = '_blank';
-      link.click();
+      // Fallback: try to open image URL directly
+      const imageUrl = getImageUrl(photo.photo_url);
+      window.open(imageUrl, '_blank');
     }
   };
 
@@ -221,7 +229,7 @@ export function DailyPhotosManagement() {
                 <Card key={photo.id} className="overflow-hidden hover:shadow-lg transition-shadow">
                    <div className="aspect-video relative bg-gray-100">
                      <img
-                       src={photo.photo_url}
+                       src={getImageUrl(photo.photo_url)}
                        alt={`Room ${photo.rooms?.room_number} photo`}
                        className="w-full h-full object-cover"
                        onError={(e) => {
@@ -307,13 +315,13 @@ export function DailyPhotosManagement() {
           </DialogHeader>
           {selectedPhoto && (
             <div className="space-y-4">
-              <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
-                <img
-                  src={selectedPhoto.photo_url}
-                  alt={`Room ${selectedPhoto.rooms?.room_number} photo`}
-                  className="w-full h-full object-contain"
-                />
-              </div>
+               <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
+                 <img
+                   src={getImageUrl(selectedPhoto.photo_url)}
+                   alt={`Room ${selectedPhoto.rooms?.room_number} photo`}
+                   className="w-full h-full object-contain"
+                 />
+               </div>
               
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
