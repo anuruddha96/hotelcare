@@ -136,11 +136,25 @@ export function DailyPhotosManagement() {
 
   const downloadPhoto = async (photo: DNDPhoto) => {
     try {
+      // Extract filename from photo_url - handle both bucket path and full URL
+      const filename = photo.photo_url.includes('/') 
+        ? photo.photo_url.split('/').pop() || ''
+        : photo.photo_url;
+
       const { data, error } = await supabase.storage
         .from('dnd-photos')
-        .download(photo.photo_url.split('/').pop() || '');
+        .download(filename);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Storage download error:', error);
+        // Try direct download as fallback
+        const link = document.createElement('a');
+        link.href = photo.photo_url;
+        link.download = `room-${photo.rooms?.room_number}-${format(new Date(photo.marked_at), 'yyyy-MM-dd-HHmm')}.jpg`;
+        link.target = '_blank';
+        link.click();
+        return;
+      }
 
       const url = URL.createObjectURL(data);
       const a = document.createElement('a');
@@ -150,6 +164,12 @@ export function DailyPhotosManagement() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading photo:', error);
+      // Final fallback - direct download
+      const link = document.createElement('a');
+      link.href = photo.photo_url;
+      link.download = `room-${photo.rooms?.room_number}-${format(new Date(photo.marked_at), 'yyyy-MM-dd-HHmm')}.jpg`;
+      link.target = '_blank';
+      link.click();
     }
   };
 
@@ -199,12 +219,16 @@ export function DailyPhotosManagement() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {photos.map((photo) => (
                 <Card key={photo.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-                  <div className="aspect-video relative bg-gray-100">
-                    <img
-                      src={photo.photo_url}
-                      alt={`Room ${photo.rooms?.room_number} photo`}
-                      className="w-full h-full object-cover"
-                    />
+                   <div className="aspect-video relative bg-gray-100">
+                     <img
+                       src={photo.photo_url}
+                       alt={`Room ${photo.rooms?.room_number} photo`}
+                       className="w-full h-full object-cover"
+                       onError={(e) => {
+                         console.error('Failed to load image:', photo.photo_url);
+                         (e.target as HTMLImageElement).src = '/placeholder.svg';
+                       }}
+                     />
                     <div className="absolute top-2 right-2 flex gap-1">
                       <Button
                         size="sm"

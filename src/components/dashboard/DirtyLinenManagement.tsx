@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Shirt, Calendar, Users, BarChart3, Download, Home, TrendingUp, Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Shirt, Calendar, Users, BarChart3, Download, Home, TrendingUp, Trash2, User } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -36,6 +38,7 @@ interface HousekeeperTotal {
 
 export function DirtyLinenManagement() {
   const { t } = useTranslation();
+  const { user, profile } = useAuth();
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [linenCounts, setLinenCounts] = useState<LinenCount[]>([]);
   const [dailyTotals, setDailyTotals] = useState<DailyTotal[]>([]);
@@ -43,6 +46,8 @@ export function DirtyLinenManagement() {
   const [loading, setLoading] = useState(false);
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('all');
   const [housekeepers, setHousekeepers] = useState<{ id: string; name: string }[]>([]);
+  const [myLinenCounts, setMyLinenCounts] = useState<LinenCount[]>([]);
+  const [myDailyTotals, setMyDailyTotals] = useState<DailyTotal[]>([]);
 
   useEffect(() => {
     fetchHousekeepers();
@@ -81,10 +86,26 @@ export function DirtyLinenManagement() {
       const { data: countsRows, error: countsError } = await countsQuery;
       if (countsError) throw countsError;
 
+      // Also fetch current user's data if they are a housekeeper
+      let myCountsRows: any[] = [];
+      if (user && profile?.role === 'housekeeping') {
+        const { data: myData, error: myError } = await supabase
+          .from('dirty_linen_counts')
+          .select('id, count, work_date, created_at, housekeeper_id, room_id, linen_item_id')
+          .eq('work_date', selectedDate)
+          .eq('housekeeper_id', user.id)
+          .order('created_at', { ascending: false });
+        
+        if (!myError) {
+          myCountsRows = myData || [];
+        }
+      }
+
       const countsData = countsRows || [];
-      const housekeeperIds = Array.from(new Set(countsData.map((r: any) => r.housekeeper_id)));
-      const roomIds = Array.from(new Set(countsData.map((r: any) => r.room_id)));
-      const linenIds = Array.from(new Set(countsData.map((r: any) => r.linen_item_id)));
+      const allCountsData = [...countsData, ...myCountsRows];
+      const housekeeperIds = Array.from(new Set(allCountsData.map((r: any) => r.housekeeper_id)));
+      const roomIds = Array.from(new Set(allCountsData.map((r: any) => r.room_id)));
+      const linenIds = Array.from(new Set(allCountsData.map((r: any) => r.linen_item_id)));
 
       // 2) Fetch lookups in parallel (only if we have ids)
       const [profilesRes, roomsRes, linenRes] = await Promise.all([
@@ -107,7 +128,7 @@ export function DirtyLinenManagement() {
       const roomMap = new Map<string, { room_number: string; hotel: string }>((roomsRes.data || []).map((r: any) => [r.id, { room_number: r.room_number, hotel: r.hotel }]));
       const linenMap = new Map<string, string>((linenRes.data || []).map((l: any) => [l.id, l.display_name]));
 
-      // 3) Build view models
+      // 3) Build view models for main data
       const counts: LinenCount[] = countsData.map((row: any) => {
         const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
         return {
@@ -124,7 +145,24 @@ export function DirtyLinenManagement() {
 
       setLinenCounts(counts);
 
-      // 4) Aggregations
+      // Build view models for current user's data
+      const myCounts: LinenCount[] = myCountsRows.map((row: any) => {
+        const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
+        return {
+          id: row.id,
+          housekeeper_name: profileMap.get(row.housekeeper_id) || 'Unknown',
+          room_number: room.room_number,
+          hotel: room.hotel,
+          linen_item_name: linenMap.get(row.linen_item_id) || 'Item',
+          count: row.count,
+          work_date: row.work_date,
+          created_at: row.created_at,
+        };
+      });
+
+      setMyLinenCounts(myCounts);
+
+      // 4) Aggregations for main data
       const totalsMap = new Map<string, number>();
       counts.forEach(item => {
         totalsMap.set(item.linen_item_name, (totalsMap.get(item.linen_item_name) || 0) + item.count);
@@ -133,6 +171,16 @@ export function DirtyLinenManagement() {
         .map(([name, total]) => ({ linen_item_name: name, total_count: total }))
         .sort((a, b) => b.total_count - a.total_count);
       setDailyTotals(dailyTotals);
+
+      // Aggregations for current user's data
+      const myTotalsMap = new Map<string, number>();
+      myCounts.forEach(item => {
+        myTotalsMap.set(item.linen_item_name, (myTotalsMap.get(item.linen_item_name) || 0) + item.count);
+      });
+      const myDailyTotals = Array.from(myTotalsMap.entries())
+        .map(([name, total]) => ({ linen_item_name: name, total_count: total }))
+        .sort((a, b) => b.total_count - a.total_count);
+      setMyDailyTotals(myDailyTotals);
 
       const hkMap = new Map<string, { total_items: number; rooms: Set<string> }>();
       counts.forEach(item => {
@@ -155,6 +203,20 @@ export function DirtyLinenManagement() {
 
   const deleteLinenRecord = async (recordId: string) => {
     try {
+      // Only allow housekeepers to delete their own records for today
+      if (profile?.role === 'housekeeping') {
+        const recordToDelete = myLinenCounts.find(record => record.id === recordId);
+        if (!recordToDelete) {
+          toast.error('Record not found or you do not have permission to delete it');
+          return;
+        }
+        
+        if (recordToDelete.work_date !== selectedDate) {
+          toast.error('You can only delete records from today');
+          return;
+        }
+      }
+
       const { error } = await supabase
         .from('dirty_linen_counts')
         .delete()
@@ -232,6 +294,9 @@ export function DirtyLinenManagement() {
           <TabsTrigger value="overview">{t('dirtyLinen.overview')}</TabsTrigger>
           <TabsTrigger value="detailed">{t('dirtyLinen.detailedRecords')}</TabsTrigger>
           <TabsTrigger value="housekeepers">{t('dirtyLinen.byHousekeeper')}</TabsTrigger>
+          {profile?.role === 'housekeeping' && (
+            <TabsTrigger value="myRecords">My Daily Records</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -527,6 +592,156 @@ export function DirtyLinenManagement() {
             </CardContent>
           </Card>
         </TabsContent>
+        
+        {/* My Records Tab - Only for Housekeepers */}
+        {profile?.role === 'housekeeping' && (
+          <TabsContent value="myRecords" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  My Dirty Linen Records - {format(new Date(selectedDate), 'MMMM dd, yyyy')}
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  View and manage your dirty linen records for today
+                </p>
+              </CardHeader>
+              <CardContent>
+                {myLinenCounts.length > 0 ? (
+                  <>
+                    {/* My Daily Summary */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                      <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-blue-100 rounded-lg">
+                            <Shirt className="h-5 w-5 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Total Items</p>
+                            <p className="text-2xl font-bold">
+                              {myDailyTotals.reduce((sum, item) => sum + item.total_count, 0)}
+                            </p>
+                          </div>
+                        </div>
+                      </Card>
+                      
+                      <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-green-100 rounded-lg">
+                            <Home className="h-5 w-5 text-green-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Rooms Processed</p>
+                            <p className="text-2xl font-bold">
+                              {new Set(myLinenCounts.map(r => r.room_number)).size}
+                            </p>
+                          </div>
+                        </div>
+                      </Card>
+                      
+                      <Card className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-purple-100 rounded-lg">
+                            <BarChart3 className="h-5 w-5 text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Item Types</p>
+                            <p className="text-2xl font-bold">{myDailyTotals.length}</p>
+                          </div>
+                        </div>
+                      </Card>
+                    </div>
+
+                    {/* My Totals by Item Type */}
+                    <div className="mb-6">
+                      <h4 className="font-medium mb-3">My Daily Totals by Item Type</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {myDailyTotals.map((item) => (
+                          <Card key={item.linen_item_name} className="p-3">
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium text-sm">{item.linen_item_name}</span>
+                              <Badge variant="secondary" className="font-bold">
+                                {item.total_count}
+                              </Badge>
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* My Detailed Records */}
+                    <div>
+                      <h4 className="font-medium mb-3">My Detailed Records (Can Delete Today's Records)</h4>
+                      <div className="space-y-3">
+                        {myLinenCounts.map((item) => (
+                          <Card key={item.id} className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-4">
+                                  <Badge variant="outline">Room {item.room_number}</Badge>
+                                  <Badge variant="secondary">{item.hotel}</Badge>
+                                  <span className="text-sm text-muted-foreground">
+                                    {format(new Date(item.created_at), 'HH:mm')}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right">
+                                    <div className="font-medium">{item.linen_item_name}</div>
+                                    <Badge>{item.count} items</Badge>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {item.work_date === selectedDate && (
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      className="ml-4"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Delete Record</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Are you sure you want to delete this linen record? 
+                                        This will remove {item.count} {item.linen_item_name} from room {item.room_number}.
+                                        This action cannot be undone.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => deleteLinenRecord(item.id)}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        Delete
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              )}
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Shirt className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                    <h3 className="text-lg font-medium mb-2">No Records Yet</h3>
+                    <p className="text-sm">You haven't recorded any dirty linen for {format(new Date(selectedDate), 'MMMM dd, yyyy')}</p>
+                    <p className="text-xs mt-2">Start logging dirty linen items from your room assignments</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
