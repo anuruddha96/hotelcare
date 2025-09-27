@@ -708,6 +708,7 @@ export type Database = {
           assigned_to: string
           assignment_date: string
           assignment_type: Database["public"]["Enums"]["assignment_type"]
+          break_periods: Json | null
           completed_at: string | null
           completion_photos: string[] | null
           created_at: string
@@ -725,6 +726,7 @@ export type Database = {
           supervisor_approved: boolean | null
           supervisor_approved_at: string | null
           supervisor_approved_by: string | null
+          total_break_time_minutes: number | null
           updated_at: string
         }
         Insert: {
@@ -732,6 +734,7 @@ export type Database = {
           assigned_to: string
           assignment_date?: string
           assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          break_periods?: Json | null
           completed_at?: string | null
           completion_photos?: string[] | null
           created_at?: string
@@ -749,6 +752,7 @@ export type Database = {
           supervisor_approved?: boolean | null
           supervisor_approved_at?: string | null
           supervisor_approved_by?: string | null
+          total_break_time_minutes?: number | null
           updated_at?: string
         }
         Update: {
@@ -756,6 +760,7 @@ export type Database = {
           assigned_to?: string
           assignment_date?: string
           assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          break_periods?: Json | null
           completed_at?: string | null
           completion_photos?: string[] | null
           created_at?: string
@@ -773,6 +778,7 @@ export type Database = {
           supervisor_approved?: boolean | null
           supervisor_approved_at?: string | null
           supervisor_approved_by?: string | null
+          total_break_time_minutes?: number | null
           updated_at?: string
         }
         Relationships: [

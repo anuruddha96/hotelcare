@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
-import { TimerComponent } from './TimerComponent';
+import { PausableTimerComponent } from './PausableTimerComponent';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 
@@ -383,7 +383,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
               {assignment.status === 'in_progress' && assignment.started_at && (
                 <div className="bg-background px-3 py-2 rounded-md shadow-sm border border-border">
-                  <TimerComponent startedAt={assignment.started_at} />
+                  <PausableTimerComponent 
+                    assignmentId={assignment.id}
+                    startedAt={assignment.started_at} 
+                    userId={user?.id || ''}
+                  />
                 </div>
               )}
             </div>

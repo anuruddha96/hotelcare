@@ -59,6 +59,7 @@ export function HousekeepingManagerView() {
   const [workingRoomDialogOpen, setWorkingRoomDialogOpen] = useState(false);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
   const [doneRoomsDialogOpen, setDoneRoomsDialogOpen] = useState(false);
+  const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
@@ -211,6 +212,26 @@ export function HousekeepingManagerView() {
     }
   };
 
+  const fetchStaffAttendance = async () => {
+    try {
+      const today = selectedDate;
+      const { data } = await supabase
+        .from('staff_attendance')
+        .select('user_id, status, break_type')
+        .eq('work_date', today);
+
+      const attendanceMap: Record<string, any> = {};
+      data?.forEach(record => {
+        attendanceMap[record.user_id] = record;
+      });
+      
+      setStaffAttendance(attendanceMap);
+    } catch (error) {
+      console.error('Error fetching staff attendance:', error);
+    }
+  };
+
+
   const handleAssignmentCreated = () => {
     fetchTeamAssignments();
     fetchRoomAssignments();
@@ -331,6 +352,11 @@ export function HousekeepingManagerView() {
                     <CardTitle className="text-lg">{staff.full_name}</CardTitle>
                     {staff.nickname && (
                       <p className="text-sm text-muted-foreground">({staff.nickname})</p>
+                    )}
+                    {staffAttendance[staff.id]?.status === 'on_break' && (
+                      <Badge className="bg-yellow-500 text-white text-xs mt-1">
+                        On Break - {staffAttendance[staff.id]?.break_type || 'Break'}
+                      </Badge>
                     )}
                   </div>
                   <Badge variant={assignment?.total_assigned ? "default" : "secondary"}>
