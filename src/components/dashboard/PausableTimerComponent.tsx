@@ -164,14 +164,14 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <Badge variant="outline" className={`${getTimerColor()} border-current`}>
-        {isOnBreak ? <Pause className="h-3 w-3 mr-1" /> : <Clock className="h-3 w-3 mr-1" />}
-        {formatTime(elapsed)}
-        {isOnBreak && ' (Paused)'}
+    <div className="flex flex-col gap-1 min-w-0">
+      <Badge variant="outline" className={`${getTimerColor()} border-current text-xs px-2 py-1 flex items-center gap-1 w-fit`}>
+        {isOnBreak ? <Pause className="h-3 w-3 flex-shrink-0" /> : <Clock className="h-3 w-3 flex-shrink-0" />}
+        <span className="truncate">{formatTime(elapsed)}</span>
+        {isOnBreak && <span className="text-xs">(Paused)</span>}
       </Badge>
       {totalBreakTime > 0 && (
-        <Badge variant="secondary" className="text-xs">
+        <Badge variant="secondary" className="text-xs px-2 py-1 w-fit">
           Break: {formatTime(totalBreakTime)}
         </Badge>
       )}

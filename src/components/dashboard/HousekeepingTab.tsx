@@ -140,6 +140,14 @@ export function HousekeepingTab() {
                 <span className="sm:hidden">Photos</span>
               </TabsTrigger>
               <TabsTrigger 
+                value="dirty-linen" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Dirty Linen</span>
+                <span className="sm:hidden">Linen</span>
+              </TabsTrigger>
+              <TabsTrigger 
                 value="attendance" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
