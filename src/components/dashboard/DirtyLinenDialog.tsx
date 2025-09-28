@@ -243,13 +243,9 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       clearTimeout(autoSaveTimeout);
     }
     
-    // Immediate save for better responsiveness
+    // Save all updated counts to prevent inconsistencies
     const timeout = setTimeout(() => {
-      // Save immediately without waiting
-      autoSave([{
-        linen_item_id: linenItemId,
-        count: newCount
-      }]);
+      autoSave(updatedCounts);
     }, 300); // Reduced delay for better UX
     
     setAutoSaveTimeout(timeout);
@@ -303,6 +299,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                 variant={showMyRecords ? "default" : "outline"}
                 size="sm"
                 onClick={() => setShowMyRecords(!showMyRecords)}
+                className={showMyRecords ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "border-primary text-primary hover:bg-primary/10"}
               >
                 My Records ({myRecords.length})
               </Button>

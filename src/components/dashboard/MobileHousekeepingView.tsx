@@ -422,39 +422,6 @@ export function MobileHousekeepingView() {
                   assignment={assignment}
                   onStatusUpdate={handleStatusUpdate}
                 />
-                
-                {/* Essential Action Buttons - Prominent UI */}
-                <div className="mt-3 p-3 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg border-l-4 border-primary">
-                  <p className="text-xs font-medium text-primary mb-2">📋 Required Actions</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button 
-                      variant="default" 
-                      size="sm"
-                      onClick={() => {
-                        setSelectedRoom({ id: assignment.room_id, room_number: assignment.rooms?.room_number || '' });
-                        setSelectedAssignmentId(assignment.id);
-                        setImageCaptureDialogOpen(true);
-                      }}
-                      className="h-12 bg-blue-600 hover:bg-blue-700 flex flex-col items-center justify-center gap-1"
-                    >
-                      <Camera className="h-4 w-4" />
-                      <span className="text-xs">Daily Photo</span>
-                    </Button>
-                    <Button 
-                      variant="default" 
-                      size="sm"
-                      onClick={() => {
-                        setSelectedRoom({ id: assignment.room_id, room_number: assignment.rooms?.room_number || '' });
-                        setSelectedAssignmentId(assignment.id);
-                        setLinenDialogOpen(true);
-                      }}
-                      className="h-12 bg-green-600 hover:bg-green-700 flex flex-col items-center justify-center gap-1"
-                    >
-                      <Shirt className="h-4 w-4" />
-                      <span className="text-xs">Dirty Linen</span>
-                    </Button>
-                  </div>
-                </div>
               </div>
             ))}
           </div>
