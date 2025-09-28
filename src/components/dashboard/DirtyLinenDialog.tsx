@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
-import { Shirt, Plus, Minus, CheckCircle, Trash2 } from 'lucide-react';
+import { Shirt, Plus, CheckCircle, Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 interface DirtyLinenDialogProps {
@@ -67,11 +67,11 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           {
             event: '*',
             schema: 'public',
-            table: 'dirty_linen_counts',
-            filter: `room_id=eq.${roomId}`
+            table: 'dirty_linen_counts'
           },
-          () => {
+          (payload) => {
             console.log('Real-time: dirty linen change detected, refetching');
+            // Refetch both current room counts and all user records
             fetchExistingCounts();
             fetchMyRecords();
           }
@@ -140,12 +140,14 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           linen_item_id,
           count,
           work_date,
-          rooms!inner(room_number),
-          dirty_linen_items!inner(display_name)
+          room_id,
+          rooms(room_number),
+          dirty_linen_items(display_name)
         `)
         .eq('housekeeper_id', user.id)
         .eq('work_date', today)
-        .gt('count', 0);
+        .gt('count', 0)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
       
@@ -397,17 +399,6 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     </Label>
                     
                     <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => updateCount(item.id, Math.max(0, getCount(item.id) - 1))}
-                        disabled={getCount(item.id) === 0}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      
                       <Input
                         type="number"
                         min="0"
