@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { 
   MapPin, 
   Calendar, 
@@ -13,9 +14,14 @@ import {
   AlertTriangle, 
   Wrench, 
   XCircle,
-  Ticket
+  Ticket,
+  Camera,
+  Shirt
 } from 'lucide-react';
 import { format } from 'date-fns';
+
+import { DirtyLinenDialog } from './DirtyLinenDialog';
+import { ImageCaptureDialog } from './ImageCaptureDialog';
 
 interface Room {
   id: string;
@@ -43,9 +49,14 @@ interface Room {
 interface EnhancedRoomCardProps {
   room: Room;
   onClick?: () => void;
+  assignmentId?: string;
+  showActions?: boolean;
 }
 
-export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
+export function EnhancedRoomCard({ room, onClick, assignmentId, showActions = false }: EnhancedRoomCardProps) {
+  const [dndDialogOpen, setDndDialogOpen] = useState(false);
+  const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
+  const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'clean': return 'bg-green-100 text-green-800 border-green-200';
@@ -178,6 +189,51 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
           </div>
         )}
 
+        {/* Action buttons for housekeepers */}
+        {showActions && (
+          <div className="mt-3 pt-3 border-t space-y-2">
+            <div className="text-xs font-medium text-muted-foreground mb-2">Required Actions</div>
+            <div className="grid grid-cols-1 gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDailyPhotoDialogOpen(true);
+                }}
+                className="flex items-center gap-2 text-xs"
+              >
+                <Camera className="h-3 w-3" />
+                Daily Photo
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDirtyLinenDialogOpen(true);
+                }}
+                className="flex items-center gap-2 text-xs"
+              >
+                <Shirt className="h-3 w-3" />
+                Dirty Linen
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDndDialogOpen(true);
+                }}
+                className="flex items-center gap-2 text-xs text-orange-600 border-orange-200 hover:bg-orange-50"
+              >
+                <AlertTriangle className="h-3 w-3" />
+                Mark as DND
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Urgent indicators */}
         {(room.status === 'out_of_order' || hasActiveTickets) && (
           <div className="mt-2 flex items-center gap-1 text-xs text-destructive">
@@ -186,6 +242,27 @@ export function EnhancedRoomCard({ room, onClick }: EnhancedRoomCardProps) {
           </div>
         )}
       </CardContent>
+
+      {/* Dialogs */}
+      {/* DND Dialog will be added in next update */}
+
+      <ImageCaptureDialog
+        open={dailyPhotoDialogOpen}
+        onOpenChange={setDailyPhotoDialogOpen}
+        roomNumber={room.room_number}
+        assignmentId={assignmentId}
+        onPhotoCaptured={() => {
+          // Refresh room data if needed
+        }}
+      />
+
+      <DirtyLinenDialog
+        open={dirtyLinenDialogOpen}
+        onOpenChange={setDirtyLinenDialogOpen}
+        roomId={room.id}
+        roomNumber={room.room_number}
+        assignmentId={assignmentId}
+      />
     </Card>
   );
 }

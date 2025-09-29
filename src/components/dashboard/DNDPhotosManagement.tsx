@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
-import { Camera, Calendar, Hotel, User, Eye, Download } from 'lucide-react';
+import { AlertTriangle, Calendar, Hotel, User, Eye, Download } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 
 interface DNDPhoto {
@@ -29,7 +29,7 @@ interface DNDPhoto {
   };
 }
 
-export function DailyPhotosManagement() {
+export function DNDPhotosManagement() {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [photos, setPhotos] = useState<DNDPhoto[]>([]);
@@ -80,7 +80,6 @@ export function DailyPhotosManagement() {
     try {
       const { start, end } = getDateRange();
       
-      // First get the photos with proper joins
       let query = supabase
         .from('dnd_photos')
         .select(`
@@ -106,7 +105,6 @@ export function DailyPhotosManagement() {
         return;
       }
       
-      // Filter by hotel if specified
       let filteredData = data || [];
       if (hotelFilter !== 'all') {
         filteredData = filteredData.filter(photo => 
@@ -114,7 +112,6 @@ export function DailyPhotosManagement() {
         );
       }
       
-      // Only set photos that have valid room and profile data
       const validPhotos = filteredData.filter(photo => 
         photo.rooms && photo.profiles && 
         photo.rooms.room_number && photo.rooms.hotel
@@ -136,10 +133,9 @@ export function DailyPhotosManagement() {
 
   const getImageUrl = (photoUrl: string) => {
     if (photoUrl.startsWith('http')) {
-      return photoUrl; // Already a full URL
+      return photoUrl;
     }
     
-    // If it's just a filename, construct the full storage URL
     const { data } = supabase.storage
       .from('dnd-photos')
       .getPublicUrl(photoUrl);
@@ -149,12 +145,10 @@ export function DailyPhotosManagement() {
 
   const downloadPhoto = async (photo: DNDPhoto) => {
     try {
-      // Extract filename from photo_url
       const filename = photo.photo_url.includes('/') 
         ? photo.photo_url.split('/').pop() || ''
         : photo.photo_url;
 
-      // Try to download from storage first
       const { data, error } = await supabase.storage
         .from('dnd-photos')
         .download(filename);
@@ -164,18 +158,16 @@ export function DailyPhotosManagement() {
         throw error;
       }
 
-      // Create blob URL and download
       const url = URL.createObjectURL(data);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `room-${photo.rooms?.room_number}-${format(new Date(photo.marked_at), 'yyyy-MM-dd-HHmm')}.jpg`;
+      a.download = `dnd-room-${photo.rooms?.room_number}-${format(new Date(photo.marked_at), 'yyyy-MM-dd-HHmm')}.jpg`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading photo:', error);
-      // Fallback: try to open image URL directly
       const imageUrl = getImageUrl(photo.photo_url);
       window.open(imageUrl, '_blank');
     }
@@ -186,8 +178,8 @@ export function DailyPhotosManagement() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Camera className="h-5 w-5" />
-            All Daily Room Photos (Combined)
+            <AlertTriangle className="h-5 w-5 text-orange-500" />
+            Do Not Disturb (DND) Photos Management
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -226,17 +218,23 @@ export function DailyPhotosManagement() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {photos.map((photo) => (
-                <Card key={photo.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+                <Card key={photo.id} className="overflow-hidden hover:shadow-lg transition-shadow border-orange-200">
                    <div className="aspect-video relative bg-gray-100">
                      <img
                        src={getImageUrl(photo.photo_url)}
-                       alt={`Room ${photo.rooms?.room_number} photo`}
+                       alt={`DND Room ${photo.rooms?.room_number} photo`}
                        className="w-full h-full object-cover"
                        onError={(e) => {
                          console.error('Failed to load image:', photo.photo_url);
                          (e.target as HTMLImageElement).src = '/placeholder.svg';
                        }}
                      />
+                    <div className="absolute top-2 left-2">
+                      <Badge variant="destructive" className="flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        DND
+                      </Badge>
+                    </div>
                     <div className="absolute top-2 right-2 flex gap-1">
                       <Button
                         size="sm"
@@ -296,8 +294,8 @@ export function DailyPhotosManagement() {
 
               {photos.length === 0 && !loading && (
                 <div className="col-span-full text-center py-8 text-muted-foreground">
-                  <Camera className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No photos found for the selected period</p>
+                  <AlertTriangle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No DND photos found for the selected period</p>
                 </div>
               )}
             </div>
@@ -309,8 +307,9 @@ export function DailyPhotosManagement() {
       <Dialog open={photoDialogOpen} onOpenChange={setPhotoDialogOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>
-              Room {selectedPhoto?.rooms?.room_number} - {selectedPhoto?.rooms?.hotel}
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              DND Room {selectedPhoto?.rooms?.room_number} - {selectedPhoto?.rooms?.hotel}
             </DialogTitle>
           </DialogHeader>
           {selectedPhoto && (
@@ -318,7 +317,7 @@ export function DailyPhotosManagement() {
                <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
                  <img
                    src={getImageUrl(selectedPhoto.photo_url)}
-                   alt={`Room ${selectedPhoto.rooms?.room_number} photo`}
+                   alt={`DND Room ${selectedPhoto.rooms?.room_number} photo`}
                    className="w-full h-full object-contain"
                  />
                </div>
@@ -331,7 +330,7 @@ export function DailyPhotosManagement() {
                   <strong>Hotel:</strong> {selectedPhoto.rooms?.hotel}
                 </div>
                 <div>
-                  <strong>Taken by:</strong> {selectedPhoto.profiles?.full_name}
+                  <strong>Marked by:</strong> {selectedPhoto.profiles?.full_name}
                 </div>
                 <div>
                   <strong>Date:</strong> {format(new Date(selectedPhoto.marked_at), 'MMM dd, yyyy HH:mm')}

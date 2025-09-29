@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Trophy, Clock, TrendingUp, Medal, Star, Target } from 'lucide-react';
+import { PerformanceDetailDialog } from './PerformanceDetailDialog';
 import { useAuth } from '@/hooks/useAuth';
 
 interface LeaderboardEntry {
@@ -38,6 +39,17 @@ export function PerformanceLeaderboard() {
   const [enhancedStats, setEnhancedStats] = useState<any>(null);
   const [timeframe, setTimeframe] = useState('7');
   const [loading, setLoading] = useState(true);
+  const [detailDialog, setDetailDialog] = useState<{
+    open: boolean;
+    housekeeperId: string;
+    fullName: string;
+    metric: 'score' | 'checkout' | 'daily' | 'punctual' | 'breaks';
+  }>({
+    open: false,
+    housekeeperId: '',
+    fullName: '',
+    metric: 'score'
+  });
 
   useEffect(() => {
     fetchData();
@@ -409,19 +421,43 @@ export function PerformanceLeaderboard() {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-4">
-                    <div className="text-center">
+                    <div className="text-center cursor-pointer hover:bg-yellow-50 p-2 rounded" 
+                         onClick={() => setDetailDialog({
+                           open: true, 
+                           housekeeperId: entry.housekeeper_id, 
+                           fullName: entry.full_name, 
+                           metric: 'score'
+                         })}>
                       <div className="text-lg font-bold text-yellow-600">{entry.performance_score || 0}</div>
                       <div className="text-xs text-muted-foreground">Score</div>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center cursor-pointer hover:bg-blue-50 p-2 rounded"
+                         onClick={() => setDetailDialog({
+                           open: true, 
+                           housekeeperId: entry.housekeeper_id, 
+                           fullName: entry.full_name, 
+                           metric: 'daily'
+                         })}>
                       <div className="text-base font-bold text-blue-600">{Math.round(entry.daily_avg_time || 0)}m</div>
                       <div className="text-xs text-muted-foreground">Daily</div>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center cursor-pointer hover:bg-green-50 p-2 rounded"
+                         onClick={() => setDetailDialog({
+                           open: true, 
+                           housekeeperId: entry.housekeeper_id, 
+                           fullName: entry.full_name, 
+                           metric: 'checkout'
+                         })}>
                       <div className="text-base font-bold text-green-600">{Math.round(entry.checkout_avg_time || 0)}m</div>
                       <div className="text-xs text-muted-foreground">Checkout</div>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center cursor-pointer hover:bg-purple-50 p-2 rounded"
+                         onClick={() => setDetailDialog({
+                           open: true, 
+                           housekeeperId: entry.housekeeper_id, 
+                           fullName: entry.full_name, 
+                           metric: 'punctual'
+                         })}>
                       <div className="text-base font-bold text-purple-600">{Math.round(entry.attendance_rate || 0)}%</div>
                       <div className="text-xs text-muted-foreground">Punctual</div>
                     </div>
@@ -435,6 +471,15 @@ export function PerformanceLeaderboard() {
           )}
         </CardContent>
       </Card>
+
+      <PerformanceDetailDialog
+        open={detailDialog.open}
+        onOpenChange={(open) => setDetailDialog(prev => ({ ...prev, open }))}
+        housekeeperId={detailDialog.housekeeperId}
+        fullName={detailDialog.fullName}
+        metric={detailDialog.metric}
+        timeframe={timeframe}
+      />
     </div>
   );
 }

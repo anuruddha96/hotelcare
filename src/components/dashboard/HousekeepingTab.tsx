@@ -14,10 +14,12 @@ import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { CompanySettings } from './CompanySettings';
 import { AttendanceManagement } from './AttendanceManagement';
 import { DailyPhotosManagement } from './DailyPhotosManagement';
+import { DNDPhotosManagement } from './DNDPhotosManagement';
+import { CompletionPhotosManagement } from './CompletionPhotosManagement';
 import { DirtyLinenManagement } from './DirtyLinenManagement';
 import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
-import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera } from 'lucide-react';
+import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 export function HousekeepingTab() {
@@ -132,12 +134,20 @@ export function HousekeepingTab() {
                 <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
               </TabsTrigger>
               <TabsTrigger 
-                value="daily-photos" 
+                value="completion-photos" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
-                <Camera className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Daily Photos</span>
-                <span className="sm:hidden">Photos</span>
+                <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Completion Photos</span>
+                <span className="sm:hidden">Completion</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="dnd-photos" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">DND Photos</span>
+                <span className="sm:hidden">DND</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="dirty-linen" 
@@ -201,8 +211,12 @@ export function HousekeepingTab() {
               </div>
             </TabsContent>
 
-            <TabsContent value="daily-photos" className="space-y-6">
-              <DailyPhotosManagement />
+            <TabsContent value="completion-photos" className="space-y-6">
+              <CompletionPhotosManagement />
+            </TabsContent>
+
+            <TabsContent value="dnd-photos" className="space-y-6">
+              <DNDPhotosManagement />
             </TabsContent>
 
             <TabsContent value="attendance" className="space-y-6">
