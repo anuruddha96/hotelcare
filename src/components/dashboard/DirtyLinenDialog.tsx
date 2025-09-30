@@ -312,51 +312,81 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
         {showMyRecords ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">My Daily Collections</h3>
-              <Badge variant="outline">
+              <h3 className="text-lg font-semibold">My Dirty Linen Cart</h3>
+              <Badge variant="outline" className="bg-blue-50">
                 {myRecords.reduce((total, record) => total + record.count, 0)} Total Items
               </Badge>
             </div>
             
+            <p className="text-sm text-muted-foreground">
+              Items collected from different rooms today. You can remove items if collected by mistake.
+            </p>
+            
             {myRecords.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No dirty linen recorded today
+              <div className="text-center py-8">
+                <div className="bg-muted rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                  <Shirt className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <p className="text-muted-foreground">No dirty linen collected today</p>
+                <p className="text-sm text-muted-foreground mt-1">Start collecting from rooms to see them here</p>
               </div>
             ) : (
               <div className="space-y-2">
                 {myRecords.map((record) => (
-                  <Card key={record.id} className="p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="font-mono">
-                          Room {record.room_number}
-                        </Badge>
-                        <span className="font-medium">{record.display_name}</span>
-                        <Badge variant="secondary">
-                          {record.count} items
-                        </Badge>
+                  <Card key={record.id} className="p-4 hover:shadow-md transition-shadow">
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="default" className="font-mono text-xs">
+                              Room {record.room_number}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(record.work_date).toLocaleDateString()}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center gap-3">
+                            <span className="font-semibold text-base">{record.display_name}</span>
+                            <div className="flex items-center gap-1">
+                              <Shirt className="h-4 w-4 text-primary" />
+                              <Badge variant="secondary" className="text-sm font-bold">
+                                × {record.count}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Remove from Cart</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to remove "{record.display_name}" from Room {record.room_number}? 
+                                This will permanently delete this record.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction 
+                                onClick={() => deleteRecord(record.id)}
+                                className="bg-red-600 hover:bg-red-700"
+                              >
+                                Remove
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Record</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete this dirty linen record? This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => deleteRecord(record.id)}>
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
                     </div>
                   </Card>
                 ))}

@@ -138,8 +138,8 @@ export function HousekeepingTab() {
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Completion Photos</span>
-                <span className="sm:hidden">Completion</span>
+                <span className="hidden sm:inline">Daily Cleaned Room Photos</span>
+                <span className="sm:hidden">Daily Photos</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="dnd-photos" 
