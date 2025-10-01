@@ -19,6 +19,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
+import { CompletionDataView } from './CompletionDataView';
 
 interface PendingAssignment {
   id: string;
@@ -388,7 +389,7 @@ export function SupervisorApprovalView() {
                   </div>
                 )}
 
-                {assignment.notes && (
+                 {assignment.notes && (
                   <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                     <h4 className="font-semibold text-blue-800 mb-2">
                       {t('housekeeping.assignmentNotes')}
@@ -396,6 +397,14 @@ export function SupervisorApprovalView() {
                     <p className="text-sm text-blue-700">{assignment.notes}</p>
                   </div>
                  )}
+
+                 {/* Completion Photos, DND Photos, and Dirty Linen */}
+                 <CompletionDataView
+                   assignmentId={assignment.id}
+                   roomId={assignment.room_id}
+                   assignmentDate={assignment.assignment_date}
+                   housekeeperId={assignment.assigned_to}
+                 />
 
                 {/* Towel and Linen Change Requirements */}
                 {(assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && (

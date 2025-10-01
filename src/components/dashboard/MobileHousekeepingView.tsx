@@ -452,8 +452,8 @@ export function MobileHousekeepingView() {
           onOpenChange={setImageCaptureDialogOpen}
           roomNumber={selectedRoom.room_number}
           assignmentId={selectedAssignmentId}
-          onPhotoCaptured={(photoUrls) => {
-            console.log('Daily room photos captured:', photoUrls);
+          onPhotoCaptured={() => {
+            console.log('Daily room photos captured');
             toast.success('Daily room photos captured successfully');
           }}
         />

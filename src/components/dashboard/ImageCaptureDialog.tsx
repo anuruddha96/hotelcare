@@ -12,8 +12,8 @@ interface ImageCaptureDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roomNumber: string;
-  assignmentId: string;
-  onPhotoCaptured?: (photoUrls: string[]) => void;
+  assignmentId?: string;
+  onPhotoCaptured?: () => void;
 }
 
 export function ImageCaptureDialog({
@@ -150,7 +150,7 @@ export function ImageCaptureDialog({
       if (updateError) throw updateError;
 
       toast.success('Photo uploaded successfully');
-      onPhotoCaptured?.(updatedPhotos);
+      onPhotoCaptured?.();
     } catch (error) {
       console.error('Error uploading photo:', error);
       toast.error('Failed to upload photo');

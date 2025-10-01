@@ -66,8 +66,7 @@ export function CompletionDialog({
     }
   };
 
-  const handlePhotoCaptured = (photoUrls: string[]) => {
-    setCapturedPhotos(photoUrls);
+  const handlePhotoCaptured = () => {
     setShowImageCapture(false);
     toast.success('Photos saved successfully');
   };
@@ -85,7 +84,7 @@ export function CompletionDialog({
     setIsCompleting(false);
   };
 
-  const handleDNDPhoto = async (photoUrl: string) => {
+  const handleDNDPhoto = () => {
     setShowDNDPhoto(false);
     onTaskCompleted?.();
     onOpenChange(false);

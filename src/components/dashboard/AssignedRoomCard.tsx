@@ -92,7 +92,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  const markAsDND = async (photoUrl: string) => {
+  const markAsDND = async () => {
     setLoading(true);
     try {
       const now = new Date().toISOString();

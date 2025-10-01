@@ -22,6 +22,7 @@ import { format } from 'date-fns';
 
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
+import { DNDPhotoDialog } from './DNDPhotoDialog';
 
 interface Room {
   id: string;
@@ -189,11 +190,11 @@ export function EnhancedRoomCard({ room, onClick, assignmentId, showActions = fa
           </div>
         )}
 
-        {/* Action buttons for housekeepers */}
-        {showActions && (
+        {/* Action buttons for housekeepers when cleaning */}
+        {showActions && assignmentId && (
           <div className="mt-3 pt-3 border-t space-y-2">
-            <div className="text-xs font-medium text-muted-foreground mb-2">Required Actions</div>
-            <div className="grid grid-cols-1 gap-2">
+            <div className="text-xs font-medium text-muted-foreground mb-2">Capture During Cleaning</div>
+            <div className="grid grid-cols-3 gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -201,22 +202,10 @@ export function EnhancedRoomCard({ room, onClick, assignmentId, showActions = fa
                   e.stopPropagation();
                   setDailyPhotoDialogOpen(true);
                 }}
-                className="flex items-center gap-2 text-xs"
+                className="flex flex-col items-center gap-1 h-auto py-2 text-xs"
               >
-                <Camera className="h-3 w-3" />
-                Daily Photo
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDirtyLinenDialogOpen(true);
-                }}
-                className="flex items-center gap-2 text-xs"
-              >
-                <Shirt className="h-3 w-3" />
-                Dirty Linen
+                <Camera className="h-4 w-4" />
+                <span>Daily Photo</span>
               </Button>
               <Button
                 variant="outline"
@@ -225,10 +214,22 @@ export function EnhancedRoomCard({ room, onClick, assignmentId, showActions = fa
                   e.stopPropagation();
                   setDndDialogOpen(true);
                 }}
-                className="flex items-center gap-2 text-xs text-orange-600 border-orange-200 hover:bg-orange-50"
+                className="flex flex-col items-center gap-1 h-auto py-2 text-xs border-orange-200 hover:bg-orange-50"
               >
-                <AlertTriangle className="h-3 w-3" />
-                Mark as DND
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <span className="text-orange-600">DND Photo</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDirtyLinenDialogOpen(true);
+                }}
+                className="flex flex-col items-center gap-1 h-auto py-2 text-xs"
+              >
+                <Shirt className="h-4 w-4" />
+                <span>Dirty Linen</span>
               </Button>
             </div>
           </div>
@@ -244,25 +245,27 @@ export function EnhancedRoomCard({ room, onClick, assignmentId, showActions = fa
       </CardContent>
 
       {/* Dialogs */}
-      {/* DND Dialog will be added in next update */}
+      {assignmentId && (
+        <>
+          <ImageCaptureDialog
+            open={dailyPhotoDialogOpen}
+            onOpenChange={setDailyPhotoDialogOpen}
+            roomNumber={room.room_number}
+            assignmentId={assignmentId}
+            onPhotoCaptured={() => {
+              // Refresh room data if needed
+            }}
+          />
 
-      <ImageCaptureDialog
-        open={dailyPhotoDialogOpen}
-        onOpenChange={setDailyPhotoDialogOpen}
-        roomNumber={room.room_number}
-        assignmentId={assignmentId}
-        onPhotoCaptured={() => {
-          // Refresh room data if needed
-        }}
-      />
-
-      <DirtyLinenDialog
-        open={dirtyLinenDialogOpen}
-        onOpenChange={setDirtyLinenDialogOpen}
-        roomId={room.id}
-        roomNumber={room.room_number}
-        assignmentId={assignmentId}
-      />
+          <DirtyLinenDialog
+            open={dirtyLinenDialogOpen}
+            onOpenChange={setDirtyLinenDialogOpen}
+            roomId={room.id}
+            roomNumber={room.room_number}
+            assignmentId={assignmentId}
+          />
+        </>
+      )}
     </Card>
   );
 }

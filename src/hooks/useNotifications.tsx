@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from './useAuth';
 import { useTranslation } from './useTranslation';
+import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
 
 // Add CSS for flash animation
 if (typeof document !== 'undefined') {
@@ -25,11 +26,18 @@ export function useNotifications() {
   const { t } = useTranslation();
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
 
-  // Initialize notification permission status
+  // Initialize notification permission status and service worker
   useEffect(() => {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
+
+    // Register service worker for persistent notifications
+    serviceWorkerManager.register().then((registration) => {
+      if (registration) {
+        console.log('Service Worker registered for notifications');
+      }
+    });
   }, []);
 
   // Request notification permission with iOS Safari compatibility
@@ -204,21 +212,34 @@ export function useNotifications() {
     }
   }, []);
 
-  // Show browser notification
+  // Show browser notification using Service Worker for persistence
   const showBrowserNotification = useCallback(async (title: string, message: string) => {
     if ('Notification' in window && Notification.permission === 'granted') {
-      const notification = new Notification(title, {
-        body: message,
-        icon: '/favicon.ico',
-        badge: '/favicon.ico',
-        tag: 'hotel-notification',
-        requireInteraction: false
-      });
+      try {
+        // Use service worker for persistent notifications
+        await serviceWorkerManager.sendNotification(title, message, {
+          timestamp: Date.now(),
+          url: window.location.href
+        });
+        
+        return true;
+      } catch (error) {
+        console.error('Service Worker notification failed, using fallback:', error);
+        
+        // Fallback to regular notification
+        const notification = new Notification(title, {
+          body: message,
+          icon: '/favicon.ico',
+          badge: '/favicon.ico',
+          tag: 'hotel-notification',
+          requireInteraction: true
+        } as any);
 
-      // Auto-close after 5 seconds
-      setTimeout(() => notification.close(), 5000);
-      
-      return notification;
+        // Auto-close after 8 seconds
+        setTimeout(() => notification.close(), 8000);
+        
+        return notification;
+      }
     }
     return null;
   }, []);
