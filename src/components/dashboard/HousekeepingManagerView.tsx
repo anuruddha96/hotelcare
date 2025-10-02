@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Users, Plus, Calendar, CheckCircle, Trash2 } from 'lucide-react';
+import { Users, Plus, Calendar, CheckCircle, Trash2, Clock } from 'lucide-react';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
 import { CompactRoomCard } from './CompactRoomCard';
 import { RoomAssignmentDialog } from './RoomAssignmentDialog';
@@ -18,6 +18,59 @@ import { PendingRoomsDialog } from './PendingRoomsDialog';
 import { DoneRoomsDialog } from './DoneRoomsDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+
+// Real-time Break Timer Display Component for Managers
+function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; startedAt: string }) {
+  const [elapsed, setElapsed] = useState(0);
+  const [breakDuration, setBreakDuration] = useState(30);
+
+  useEffect(() => {
+    const fetchBreakDuration = async () => {
+      const { data } = await supabase
+        .from('break_types')
+        .select('duration_minutes')
+        .eq('name', breakType)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (data) setBreakDuration(data.duration_minutes);
+    };
+
+    fetchBreakDuration();
+  }, [breakType]);
+
+  useEffect(() => {
+    const updateTimer = () => {
+      const startTime = new Date(startedAt).getTime();
+      const now = Date.now();
+      const elapsedSeconds = Math.floor((now - startTime) / 1000);
+      setElapsed(elapsedSeconds);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [startedAt]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const timeRemaining = (breakDuration * 60) - elapsed;
+  const isOvertime = timeRemaining <= 0;
+
+  return (
+    <div className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs font-semibold ${
+      isOvertime ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-blue-100 text-blue-700'
+    }`}>
+      <Clock className="h-3 w-3" />
+      <span>{formatTime(Math.abs(elapsed))}</span>
+      {isOvertime && <span className="text-red-600">⚠️ Overtime</span>}
+    </div>
+  );
+}
 
 interface HousekeepingStaff {
   id: string;
@@ -374,9 +427,17 @@ export function HousekeepingManagerView() {
                       <p className="text-sm text-muted-foreground">({staff.nickname})</p>
                     )}
                     {staffAttendance[staff.id]?.status === 'on_break' && (
-                      <Badge className="bg-yellow-500 text-white text-xs mt-1">
-                        On Break - {staffAttendance[staff.id]?.break_type || 'Break'}
-                      </Badge>
+                      <div className="mt-2 space-y-1">
+                        <Badge className="bg-amber-500 text-white text-xs font-semibold">
+                          🕐 On Break - {staffAttendance[staff.id]?.break_type || 'Break'}
+                        </Badge>
+                        {staffAttendance[staff.id]?.break_started_at && (
+                          <BreakTimerDisplay 
+                            breakType={staffAttendance[staff.id]?.break_type || 'break'}
+                            startedAt={staffAttendance[staff.id]?.break_started_at}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
                   <Badge variant={assignment?.total_assigned ? "default" : "secondary"}>

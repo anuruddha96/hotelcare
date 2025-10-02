@@ -223,6 +223,14 @@ export default function Auth() {
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 sm:px-6">
+          {/* Friendly Sign-in Reminder */}
+          <div className="mb-6 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg p-3 text-center shadow-md">
+            <p className="text-sm font-medium flex items-center justify-center gap-2">
+              <span className="text-lg">👋</span>
+              <span>Hi there! Please sign in to continue</span>
+            </p>
+          </div>
+          
           <div className="w-full">
             <h3 className="text-lg font-semibold text-center mb-4">Sign In</h3>
             

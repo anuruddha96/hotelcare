@@ -78,24 +78,31 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
   };
 
   return (
-    <div className="text-center space-y-2">
-      <Badge variant="outline" className="text-sm">
+    <div className="flex flex-col items-center justify-center space-y-3 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200 shadow-sm">
+      {/* Break Type Badge */}
+      <Badge variant="outline" className="text-sm font-semibold bg-white border-blue-300 text-blue-700 px-3 py-1">
         {getBreakTypeName()}
       </Badge>
-      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${getTimerColor()}`}>
-        <Clock className="h-4 w-4" />
-        <span className="font-mono text-lg font-bold">
+      
+      {/* Timer Display */}
+      <div className={`relative inline-flex items-center gap-3 px-6 py-4 rounded-2xl shadow-md ${getTimerColor()} transition-all duration-300`}>
+        <Clock className="h-6 w-6" />
+        <span className="font-mono text-3xl font-bold tracking-tight">
           {formatTime(timeRemaining)}
         </span>
       </div>
+      
+      {/* Status Messages */}
       {isOvertime && (
-        <div className="text-xs text-red-600 font-medium">
-          Break time exceeded
+        <div className="flex items-center gap-2 bg-red-100 text-red-700 px-4 py-2 rounded-full animate-pulse">
+          <span className="text-lg">⚠️</span>
+          <span className="text-sm font-semibold">Break time exceeded</span>
         </div>
       )}
       {timeRemaining <= 300 && timeRemaining > 0 && (
-        <div className="text-xs text-orange-600 font-medium">
-          Break ending soon
+        <div className="flex items-center gap-2 bg-orange-100 text-orange-700 px-4 py-2 rounded-full">
+          <span className="text-lg">⏰</span>
+          <span className="text-sm font-semibold">Break ending soon</span>
         </div>
       )}
     </div>
