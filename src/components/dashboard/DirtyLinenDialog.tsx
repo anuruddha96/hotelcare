@@ -53,46 +53,6 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   const [autoSaveTimeout, setAutoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
   const [showMyRecords, setShowMyRecords] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      fetchLinenItems();
-      fetchExistingCounts();
-      fetchMyRecords();
-      
-      // Set up real-time subscription for all changes
-      const channel = supabase
-        .channel('dirty-linen-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'dirty_linen_counts'
-          },
-          (payload) => {
-            console.log('Real-time: dirty linen change detected, refetching');
-            // Refetch both current room counts and all user records
-            fetchExistingCounts();
-            fetchMyRecords();
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [open, roomId]);
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (autoSaveTimeout) {
-        clearTimeout(autoSaveTimeout);
-      }
-    };
-  }, [autoSaveTimeout]);
-
   const fetchLinenItems = async () => {
     try {
       const { data, error } = await supabase
@@ -141,6 +101,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           count,
           work_date,
           room_id,
+          created_at,
           rooms(room_number),
           dirty_linen_items(display_name)
         `)
@@ -165,6 +126,46 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       console.error('Error fetching my records:', error);
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    if (open) {
+      fetchLinenItems();
+      fetchExistingCounts();
+      fetchMyRecords();
+      
+      // Set up real-time subscription for all changes
+      const channel = supabase
+        .channel('dirty-linen-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'dirty_linen_counts'
+          },
+          (payload) => {
+            console.log('Real-time: dirty linen change detected, refetching');
+            // Refetch both current room counts and all user records
+            fetchExistingCounts();
+            fetchMyRecords();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [open, roomId, fetchExistingCounts, fetchMyRecords]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+      }
+    };
+  }, [autoSaveTimeout]);
 
   const autoSave = useCallback(async (counts: LinenCount[]) => {
     if (!user?.id || autoSaving) return;
@@ -210,13 +211,16 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       setLastSaved(new Date());
       console.log('Auto-save completed successfully');
       
+      // Refresh the cart immediately after save
+      fetchMyRecords();
+      
     } catch (error) {
       console.error('Auto-save error:', error);
       toast.error('Auto-save failed: ' + (error as any)?.message || 'Unknown error');
     } finally {
       setAutoSaving(false);
     }
-  }, [user?.id, roomId, assignmentId]);
+  }, [user?.id, roomId, assignmentId, fetchMyRecords]);
 
   const updateCount = (linenItemId: string, newCount: number) => {
     // Allow zero but not negative values
