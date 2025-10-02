@@ -56,19 +56,29 @@ export function CompletionDataView({
         .eq('id', assignmentId)
         .single();
 
-      if (!assignmentError && assignmentData) {
-        setCompletionPhotos(assignmentData.completion_photos || []);
+      if (assignmentError) {
+        console.error('Error fetching completion photos:', assignmentError);
+      }
+      
+      if (assignmentData) {
+        const photos = assignmentData.completion_photos || [];
+        console.log('Completion photos found:', photos.length);
+        setCompletionPhotos(photos);
       }
 
-      // Fetch DND photos
+      // Fetch DND photos - try both assignment_id and date-based filtering
       const { data: dndData, error: dndError } = await supabase
         .from('dnd_photos')
         .select('*')
-        .eq('room_id', roomId)
-        .eq('assignment_date', assignmentDate)
+        .or(`assignment_id.eq.${assignmentId},and(room_id.eq.${roomId},assignment_date.eq.${assignmentDate})`)
         .order('marked_at', { ascending: false });
 
-      if (!dndError && dndData) {
+      if (dndError) {
+        console.error('Error fetching DND photos:', dndError);
+      }
+      
+      if (dndData) {
+        console.log('DND photos found:', dndData.length);
         setDndPhotos(dndData);
       }
 
@@ -87,7 +97,12 @@ export function CompletionDataView({
         .eq('room_id', roomId)
         .eq('work_date', assignmentDate);
 
-      if (!linenError && linenData) {
+      if (linenError) {
+        console.error('Error fetching dirty linen:', linenError);
+      }
+      
+      if (linenData) {
+        console.log('Dirty linen records found:', linenData.length);
         setDirtyLinen(linenData as any);
       }
     } catch (error) {
@@ -107,16 +122,20 @@ export function CompletionDataView({
 
   const hasData = completionPhotos.length > 0 || dndPhotos.length > 0 || dirtyLinen.length > 0;
 
-  if (!hasData) {
-    return null;
-  }
-
   return (
     <div className="space-y-3">
       <h4 className="font-semibold text-foreground flex items-center gap-2">
         <ImageIcon className="h-4 w-4" />
         Captured Data During Cleaning
       </h4>
+
+      {!hasData && (
+        <Card className="p-4 bg-amber-50 border-amber-200">
+          <p className="text-sm text-amber-800 text-center">
+            ⚠️ No photos or data captured during cleaning. Please verify with housekeeper.
+          </p>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {/* Daily Completion Photos */}
