@@ -175,7 +175,6 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
           🕐 Break Time: {formatTime(totalBreakTime)}
         </Badge>
       )}
-      <span className="text-[10px] text-muted-foreground">Work time (break excluded)</span>
     </div>
   );
 }

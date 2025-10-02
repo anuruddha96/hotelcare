@@ -500,7 +500,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <span className="font-semibold text-amber-800">Required Actions</span>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 {/* Daily Photo Button */}
                 <Button
                   size="lg"
@@ -532,6 +532,17 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 >
                   <Shirt className="h-5 w-5" />
                   <span>Dirty Linen</span>
+                </Button>
+
+                {/* Minibar Consumption Button */}
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setRoomDetailOpen(true)}
+                  className="flex items-center gap-3 h-12 border-purple-300 text-purple-700 hover:bg-purple-100"
+                >
+                  <BedDouble className="h-5 w-5" />
+                  <span>Minibar</span>
                 </Button>
               </div>
             </div>

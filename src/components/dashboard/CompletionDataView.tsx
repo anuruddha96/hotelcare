@@ -66,11 +66,11 @@ export function CompletionDataView({
         setCompletionPhotos(photos);
       }
 
-      // Fetch DND photos - try both assignment_id and date-based filtering
+      // Fetch ONLY DND photos attached to this specific assignment
       const { data: dndData, error: dndError } = await supabase
         .from('dnd_photos')
         .select('*')
-        .or(`assignment_id.eq.${assignmentId},and(room_id.eq.${roomId},assignment_date.eq.${assignmentDate})`)
+        .eq('assignment_id', assignmentId)
         .order('marked_at', { ascending: false });
 
       if (dndError) {
@@ -78,7 +78,7 @@ export function CompletionDataView({
       }
       
       if (dndData) {
-        console.log('DND photos found:', dndData.length);
+        console.log('DND photos found for this assignment:', dndData.length);
         setDndPhotos(dndData);
       }
 

@@ -317,7 +317,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">My Dirty Linen Cart</h3>
-              <Badge variant="outline" className="bg-blue-50">
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                 {myRecords.reduce((total, record) => total + record.count, 0)} Total Items
               </Badge>
             </div>
@@ -327,37 +327,46 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
             </p>
             
             {myRecords.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="bg-muted rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                  <Shirt className="h-8 w-8 text-muted-foreground" />
+              <div className="text-center py-12 bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border-2 border-dashed border-slate-200">
+                <div className="bg-white rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center shadow-sm">
+                  <Shirt className="h-10 w-10 text-slate-400" />
                 </div>
-                <p className="text-muted-foreground">No dirty linen collected today</p>
-                <p className="text-sm text-muted-foreground mt-1">Start collecting from rooms to see them here</p>
+                <p className="text-slate-600 font-medium text-base">No dirty linen collected today</p>
+                <p className="text-sm text-slate-500 mt-2">Start collecting from rooms to see them here</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {myRecords.map((record) => (
-                  <Card key={record.id} className="p-4 hover:shadow-md transition-shadow">
-                    <div className="space-y-3">
-                      <div className="flex items-start justify-between">
+              <div className="space-y-3">
+                {myRecords.map((record, index) => (
+                  <Card key={record.id} className="overflow-hidden border-l-4 border-l-primary hover:shadow-lg transition-all duration-200">
+                    <div className="p-4">
+                      <div className="flex items-center justify-between gap-4">
                         <div className="flex-1 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="default" className="font-mono text-xs">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="default" className="font-mono text-xs bg-primary/90">
                               Room {record.room_number}
                             </Badge>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(record.work_date).toLocaleDateString()}
+                              {new Date(record.work_date).toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric',
+                                year: 'numeric'
+                              })}
                             </span>
+                            {index === 0 && (
+                              <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-green-200">
+                                Latest
+                              </Badge>
+                            )}
                           </div>
                           
                           <div className="flex items-center gap-3">
-                            <span className="font-semibold text-base">{record.display_name}</span>
-                            <div className="flex items-center gap-1">
-                              <Shirt className="h-4 w-4 text-primary" />
-                              <Badge variant="secondary" className="text-sm font-bold">
-                                × {record.count}
-                              </Badge>
+                            <div className="flex items-center gap-2">
+                              <Shirt className="h-5 w-5 text-primary" />
+                              <span className="font-semibold text-base">{record.display_name}</span>
                             </div>
+                            <Badge variant="outline" className="text-base font-bold px-3 py-1 bg-blue-50">
+                              × {record.count}
+                            </Badge>
                           </div>
                         </div>
                         
@@ -365,17 +374,17 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                           <AlertDialogTrigger asChild>
                             <Button 
                               variant="ghost" 
-                              size="sm" 
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              size="icon"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50 shrink-0"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Trash2 className="h-5 w-5" />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Remove from Cart</AlertDialogTitle>
+                              <AlertDialogTitle>Remove from Cart?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to remove "{record.display_name}" from Room {record.room_number}? 
+                                Are you sure you want to remove <strong>{record.display_name}</strong> ({record.count} items) from Room {record.room_number}? 
                                 This will permanently delete this record.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
