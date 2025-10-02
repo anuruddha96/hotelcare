@@ -22,6 +22,7 @@ import {
   ArrowUpDown,
   Camera
 } from 'lucide-react';
+import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
@@ -64,6 +65,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
   const [dndPhotoDialogOpen, setDndPhotoDialogOpen] = useState(false);
+  const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
@@ -490,7 +492,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </Button>
           </div>
 
-          {/* Required Actions Section - Group DND Photo and Dirty Linen for In-Progress Tasks */}
+          {/* Required Actions Section - Daily Photo, DND Photo and Dirty Linen for In-Progress Tasks */}
           {assignment.status === 'in_progress' && (
             <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border-2 border-dashed border-amber-200">
               <div className="flex items-center gap-2 mb-3">
@@ -498,16 +500,27 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <span className="font-semibold text-amber-800">Required Actions</span>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {/* Daily Photo Button */}
                 <Button
                   size="lg"
                   variant="outline"
-                  onClick={() => setDndPhotoDialogOpen(true)}
-                  className="flex items-center gap-3 h-12 border-amber-300 text-amber-700 hover:bg-amber-100"
+                  onClick={() => setDailyPhotoDialogOpen(true)}
+                  className="flex items-center gap-3 h-12 border-blue-300 text-blue-700 hover:bg-blue-100"
                 >
                   <Camera className="h-5 w-5" />
                   <span>Daily Photo</span>
+                </Button>
+
+                {/* DND Photo Button */}
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setDndPhotoDialogOpen(true)}
+                  className="flex items-center gap-3 h-12 border-orange-300 text-orange-700 hover:bg-orange-100"
+                >
+                  <AlertTriangle className="h-5 w-5" />
+                  <span>DND Photo</span>
                 </Button>
 
                 {/* Dirty Linen Button */}
@@ -569,6 +582,17 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           onOpenChange={setRoomDetailOpen}
         />
       )}
+
+      {/* Daily Photo Dialog */}
+      <ImageCaptureDialog
+        open={dailyPhotoDialogOpen}
+        onOpenChange={setDailyPhotoDialogOpen}
+        roomNumber={assignment.rooms?.room_number || 'N/A'}
+        assignmentId={assignment.id}
+        onPhotoCaptured={() => {
+          toast.success('Daily photo saved for supervisor approval');
+        }}
+      />
 
       {/* DND Photo Dialog */}
       <DNDPhotoDialog

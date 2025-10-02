@@ -66,6 +66,7 @@ export function HousekeepingManagerView() {
     fetchHousekeepingStaff();
     fetchTeamAssignments();
     fetchRoomAssignments();
+    fetchStaffAttendance();
   }, [selectedDate]);
 
   // Real-time subscriptions for live updates
@@ -106,9 +107,28 @@ export function HousekeepingManagerView() {
       )
       .subscribe();
 
+    // Subscribe to staff attendance changes (for break status)
+    const attendanceChannel = supabase
+      .channel('attendance-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'staff_attendance',
+          filter: `work_date=eq.${selectedDate}`
+        },
+        () => {
+          console.log('Attendance change detected, refreshing attendance data');
+          fetchStaffAttendance();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(profilesChannel);
       supabase.removeChannel(assignmentsChannel);
+      supabase.removeChannel(attendanceChannel);
     };
   }, [selectedDate]);
 
