@@ -35,6 +35,11 @@ export function ImageCaptureDialog({
 
   const startCamera = useCallback(async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error('Camera not supported on this device. Please use the upload option.');
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: 'environment', // Use back camera on mobile
@@ -47,20 +52,25 @@ export function ImageCaptureDialog({
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         
-        // Wait for video to load metadata before showing camera
-        await new Promise((resolve) => {
-          const onLoadedMetadata = () => {
-            videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
-            resolve(null);
-          };
-          videoRef.current?.addEventListener('loadedmetadata', onLoadedMetadata);
-        });
-        
-        setShowCamera(true);
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play();
+          setShowCamera(true);
+        };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error accessing camera:', error);
-      toast.error('Could not access camera. Please try uploading a photo instead.');
+      let errorMessage = 'Could not access camera. ';
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage += 'Please allow camera permissions and try again.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage += 'No camera found on this device.';
+      } else {
+        errorMessage += 'Please try uploading a photo instead.';
+      }
+      
+      toast.error(errorMessage);
     }
   }, []);
 
@@ -216,29 +226,35 @@ export function ImageCaptureDialog({
 
           {showCamera && (
             <div className="space-y-4">
-              <div className="relative">
+              <div className="relative bg-black rounded-lg overflow-hidden">
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
-                  className="w-full rounded-lg"
+                  className="w-full h-[300px] object-cover rounded-lg"
                 />
                 <canvas ref={canvasRef} className="hidden" />
+                
+                {/* Camera overlay guide */}
+                <div className="absolute inset-0 pointer-events-none">
+                  <div className="absolute inset-4 border-2 border-white/50 rounded-lg"></div>
+                </div>
               </div>
               
               <div className="flex gap-2">
                 <Button
                   onClick={capturePhoto}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-lg py-6"
                 >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Capture
+                  <Camera className="h-5 w-5 mr-2" />
+                  📸 Take Photo
                 </Button>
                 
                 <Button
                   onClick={stopCamera}
                   variant="outline"
+                  className="px-6"
                 >
                   Cancel
                 </Button>

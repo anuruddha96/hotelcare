@@ -62,12 +62,16 @@ function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; starte
   const isOvertime = timeRemaining <= 0;
 
   return (
-    <div className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs font-semibold ${
-      isOvertime ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-blue-100 text-blue-700'
+    <div className={`text-xs space-y-1 px-2 py-1 rounded ${
+      isOvertime ? 'bg-red-50' : 'bg-blue-50'
     }`}>
-      <Clock className="h-3 w-3" />
-      <span>{formatTime(Math.abs(elapsed))}</span>
-      {isOvertime && <span className="text-red-600">⚠️ Overtime</span>}
+      <div className="flex items-center gap-1">
+        <Clock className="h-3 w-3" />
+        <span className="font-medium">Break: {formatTime(elapsed)}</span>
+      </div>
+      <div className={`font-semibold ${isOvertime ? 'text-red-600 animate-pulse' : 'text-green-600'}`}>
+        {isOvertime ? '⚠️ Over by ' + formatTime(Math.abs(timeRemaining)) : `⏱️ ${formatTime(Math.abs(timeRemaining))} remaining`}
+      </div>
     </div>
   );
 }

@@ -383,66 +383,68 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-4 sm:space-y-6 pr-2">
-          {/* Room Status Section */}
-          <Card>
-            <CardHeader className="pb-3 sm:pb-4">
-              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                {getStatusIcon(room.status)}
-                <span>Room Status</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 sm:space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-                <Badge className={`${getStatusColor(room.status)} w-fit`}>
-                  {t(`room.status.${room.status}` as any)}
-                </Badge>
-                
-                <Select value={room.status} onValueChange={handleStatusChange}>
-                  <SelectTrigger className="w-full sm:w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="clean">{t('room.status.clean')}</SelectItem>
-                    <SelectItem value="dirty">{t('room.status.dirty')}</SelectItem>
-                    <SelectItem value="maintenance">{t('room.status.maintenance')}</SelectItem>
-                    <SelectItem value="out_of_order">{t('room.status.out_of_order')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">Notes</label>
-                <Textarea
-                  value={roomNotes}
-                  onChange={(e) => setRoomNotes(e.target.value)}
-                  placeholder="Add room notes..."
-                  className="mt-1"
-                  rows={2}
-                />
-              </div>
-
-              {room.last_cleaned_at && (
-                <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
-                  <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Last cleaned: {new Date(room.last_cleaned_at).toLocaleString()}</span>
+          {/* Room Status Section - Hidden for housekeepers */}
+          {profile?.role !== 'housekeeping' && (
+            <Card>
+              <CardHeader className="pb-3 sm:pb-4">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  {getStatusIcon(room.status)}
+                  <span>Room Status</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 sm:space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                  <Badge className={`${getStatusColor(room.status)} w-fit`}>
+                    {t(`room.status.${room.status}` as any)}
+                  </Badge>
+                  
+                  <Select value={room.status} onValueChange={handleStatusChange}>
+                    <SelectTrigger className="w-full sm:w-48">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="clean">{t('room.status.clean')}</SelectItem>
+                      <SelectItem value="dirty">{t('room.status.dirty')}</SelectItem>
+                      <SelectItem value="maintenance">{t('room.status.maintenance')}</SelectItem>
+                      <SelectItem value="out_of_order">{t('room.status.out_of_order')}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
 
-              {/* DND Photos Button for Managers/Admins */}
-              {profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role) && (
-                <div className="pt-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setDndPhotosOpen(true)}
-                    className="w-full sm:w-auto"
-                  >
-                    <Camera className="h-4 w-4 mr-2" />
-                    View DND Photos
-                  </Button>
+                <div>
+                  <label className="text-sm font-medium">Notes</label>
+                  <Textarea
+                    value={roomNotes}
+                    onChange={(e) => setRoomNotes(e.target.value)}
+                    placeholder="Add room notes..."
+                    className="mt-1"
+                    rows={2}
+                  />
                 </div>
-              )}
-            </CardContent>
-          </Card>
+
+                {room.last_cleaned_at && (
+                  <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+                    <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>Last cleaned: {new Date(room.last_cleaned_at).toLocaleString()}</span>
+                  </div>
+                )}
+
+                {/* DND Photos Button for Managers/Admins */}
+                {profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role) && (
+                  <div className="pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setDndPhotosOpen(true)}
+                      className="w-full sm:w-auto"
+                    >
+                      <Camera className="h-4 w-4 mr-2" />
+                      View DND Photos
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Minibar Section */}
           <Card>

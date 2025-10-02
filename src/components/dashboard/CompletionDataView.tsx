@@ -30,6 +30,16 @@ interface DNDPhoto {
   marked_at: string;
 }
 
+interface MinibarUsage {
+  id: string;
+  quantity_used: number;
+  usage_date: string;
+  minibar_items: {
+    name: string;
+    price: number;
+  };
+}
+
 export function CompletionDataView({ 
   assignmentId, 
   roomId, 
@@ -40,6 +50,7 @@ export function CompletionDataView({
   const [completionPhotos, setCompletionPhotos] = useState<string[]>([]);
   const [dndPhotos, setDndPhotos] = useState<DNDPhoto[]>([]);
   const [dirtyLinen, setDirtyLinen] = useState<DirtyLinenItem[]>([]);
+  const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -105,6 +116,30 @@ export function CompletionDataView({
         console.log('Dirty linen records found:', linenData.length);
         setDirtyLinen(linenData as any);
       }
+
+      // Fetch minibar usage
+      const { data: minibarData, error: minibarError } = await supabase
+        .from('room_minibar_usage')
+        .select(`
+          id,
+          quantity_used,
+          usage_date,
+          minibar_items (
+            name,
+            price
+          )
+        `)
+        .eq('room_id', roomId)
+        .eq('is_cleared', false);
+
+      if (minibarError) {
+        console.error('Error fetching minibar usage:', minibarError);
+      }
+      
+      if (minibarData) {
+        console.log('Minibar usage found:', minibarData.length);
+        setMinibarUsage(minibarData as any);
+      }
     } catch (error) {
       console.error('Error fetching completion data:', error);
     } finally {
@@ -120,7 +155,7 @@ export function CompletionDataView({
     );
   }
 
-  const hasData = completionPhotos.length > 0 || dndPhotos.length > 0 || dirtyLinen.length > 0;
+  const hasData = completionPhotos.length > 0 || dndPhotos.length > 0 || dirtyLinen.length > 0 || minibarUsage.length > 0;
 
   return (
     <div className="space-y-3">
@@ -274,6 +309,57 @@ export function CompletionDataView({
                   <div className="flex items-center justify-between font-semibold">
                     <span>Total Items:</span>
                     <span>{dirtyLinen.reduce((sum, item) => sum + item.count, 0)} pieces</span>
+                  </div>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Minibar Usage */}
+        {minibarUsage.length > 0 && (
+          <Dialog>
+            <DialogTrigger asChild>
+              <Card className="p-3 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🍷</span>
+                    <span className="text-sm font-medium text-green-900">Minibar</span>
+                  </div>
+                  <Badge variant="secondary" className="bg-green-200 text-green-800">
+                    €{minibarUsage.reduce((sum, item) => sum + (item.quantity_used * item.minibar_items.price), 0).toFixed(2)}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-green-700">
+                  <span>View consumption</span>
+                  <ChevronRight className="h-3 w-3" />
+                </div>
+              </Card>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Minibar Consumption</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2">
+                {minibarUsage.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                    <div className="flex-1">
+                      <span className="font-medium">{item.minibar_items.name}</span>
+                      <div className="text-sm text-muted-foreground">
+                        €{item.minibar_items.price.toFixed(2)} × {item.quantity_used}
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="font-semibold">
+                      €{(item.minibar_items.price * item.quantity_used).toFixed(2)}
+                    </Badge>
+                  </div>
+                ))}
+                <div className="pt-3 border-t">
+                  <div className="flex items-center justify-between font-semibold text-lg">
+                    <span>Total:</span>
+                    <span className="text-green-600">
+                      €{minibarUsage.reduce((sum, item) => sum + (item.quantity_used * item.minibar_items.price), 0).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               </div>
