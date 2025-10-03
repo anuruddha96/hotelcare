@@ -21,6 +21,7 @@ export type Database = {
           break_type_id: string
           created_at: string
           id: string
+          organization_slug: string | null
           reason: string
           rejection_reason: string | null
           requested_at: string
@@ -35,6 +36,7 @@ export type Database = {
           break_type_id: string
           created_at?: string
           id?: string
+          organization_slug?: string | null
           reason: string
           rejection_reason?: string | null
           requested_at?: string
@@ -49,6 +51,7 @@ export type Database = {
           break_type_id?: string
           created_at?: string
           id?: string
+          organization_slug?: string | null
           reason?: string
           rejection_reason?: string | null
           requested_at?: string
@@ -127,6 +130,7 @@ export type Database = {
           created_at: string | null
           id: string
           image_url: string | null
+          organization_slug: string | null
           ticket_id: string
           user_id: string
         }
@@ -135,6 +139,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           image_url?: string | null
+          organization_slug?: string | null
           ticket_id: string
           user_id: string
         }
@@ -143,6 +148,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           image_url?: string | null
+          organization_slug?: string | null
           ticket_id?: string
           user_id?: string
         }
@@ -201,6 +207,7 @@ export type Database = {
           housekeeper_id: string
           id: string
           linen_item_id: string
+          organization_slug: string | null
           room_id: string
           updated_at: string
           work_date: string
@@ -212,6 +219,7 @@ export type Database = {
           housekeeper_id: string
           id?: string
           linen_item_id: string
+          organization_slug?: string | null
           room_id: string
           updated_at?: string
           work_date?: string
@@ -223,6 +231,7 @@ export type Database = {
           housekeeper_id?: string
           id?: string
           linen_item_id?: string
+          organization_slug?: string | null
           room_id?: string
           updated_at?: string
           work_date?: string
@@ -276,6 +285,7 @@ export type Database = {
           marked_at: string
           marked_by: string
           notes: string | null
+          organization_slug: string | null
           photo_url: string
           room_id: string
           updated_at: string
@@ -288,6 +298,7 @@ export type Database = {
           marked_at?: string
           marked_by: string
           notes?: string | null
+          organization_slug?: string | null
           photo_url: string
           room_id: string
           updated_at?: string
@@ -300,6 +311,7 @@ export type Database = {
           marked_at?: string
           marked_by?: string
           notes?: string | null
+          organization_slug?: string | null
           photo_url?: string
           room_id?: string
           updated_at?: string
@@ -384,6 +396,7 @@ export type Database = {
           id: string
           is_resolved: boolean
           note_type: string
+          organization_slug: string | null
           resolved_at: string | null
           resolved_by: string | null
           room_id: string
@@ -397,6 +410,7 @@ export type Database = {
           id?: string
           is_resolved?: boolean
           note_type?: string
+          organization_slug?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
           room_id: string
@@ -410,6 +424,7 @@ export type Database = {
           id?: string
           is_resolved?: boolean
           note_type?: string
+          organization_slug?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
           room_id?: string
@@ -429,6 +444,7 @@ export type Database = {
           estimated_duration_minutes: number | null
           housekeeper_id: string
           id: string
+          organization_slug: string | null
           room_id: string
           started_at: string
           updated_at: string
@@ -444,6 +460,7 @@ export type Database = {
           estimated_duration_minutes?: number | null
           housekeeper_id: string
           id?: string
+          organization_slug?: string | null
           room_id: string
           started_at: string
           updated_at?: string
@@ -459,6 +476,7 @@ export type Database = {
           estimated_duration_minutes?: number | null
           housekeeper_id?: string
           id?: string
+          organization_slug?: string | null
           room_id?: string
           started_at?: string
           updated_at?: string
@@ -613,6 +631,7 @@ export type Database = {
           errors: Json | null
           hotel_filter: string | null
           id: string
+          organization_slug: string | null
           processed_rooms: number | null
           updated_at: string | null
           updated_rooms: number | null
@@ -627,6 +646,7 @@ export type Database = {
           errors?: Json | null
           hotel_filter?: string | null
           id?: string
+          organization_slug?: string | null
           processed_rooms?: number | null
           updated_at?: string | null
           updated_rooms?: number | null
@@ -641,6 +661,7 @@ export type Database = {
           errors?: Json | null
           hotel_filter?: string | null
           id?: string
+          organization_slug?: string | null
           processed_rooms?: number | null
           updated_at?: string | null
           updated_rooms?: number | null
@@ -663,9 +684,12 @@ export type Database = {
           created_at: string | null
           email: string
           full_name: string
+          hotel_id: string | null
           id: string
+          is_super_admin: boolean | null
           last_login: string | null
           nickname: string | null
+          organization_slug: string | null
           phone_number: string | null
           preferred_language: string | null
           profile_picture_url: string | null
@@ -677,9 +701,12 @@ export type Database = {
           created_at?: string | null
           email: string
           full_name: string
+          hotel_id?: string | null
           id: string
+          is_super_admin?: boolean | null
           last_login?: string | null
           nickname?: string | null
+          organization_slug?: string | null
           phone_number?: string | null
           preferred_language?: string | null
           profile_picture_url?: string | null
@@ -691,9 +718,12 @@ export type Database = {
           created_at?: string | null
           email?: string
           full_name?: string
+          hotel_id?: string | null
           id?: string
+          is_super_admin?: boolean | null
           last_login?: string | null
           nickname?: string | null
+          organization_slug?: string | null
           phone_number?: string | null
           preferred_language?: string | null
           profile_picture_url?: string | null
@@ -718,6 +748,7 @@ export type Database = {
           id: string
           is_dnd: boolean | null
           notes: string | null
+          organization_slug: string | null
           priority: number
           ready_to_clean: boolean
           room_id: string
@@ -744,6 +775,7 @@ export type Database = {
           id?: string
           is_dnd?: boolean | null
           notes?: string | null
+          organization_slug?: string | null
           priority?: number
           ready_to_clean?: boolean
           room_id: string
@@ -770,6 +802,7 @@ export type Database = {
           id?: string
           is_dnd?: boolean | null
           notes?: string | null
+          organization_slug?: string | null
           priority?: number
           ready_to_clean?: boolean
           room_id?: string
@@ -819,6 +852,7 @@ export type Database = {
           id: string
           is_cleared: boolean | null
           minibar_item_id: string
+          organization_slug: string | null
           quantity_used: number | null
           recorded_by: string | null
           room_id: string
@@ -831,6 +865,7 @@ export type Database = {
           id?: string
           is_cleared?: boolean | null
           minibar_item_id: string
+          organization_slug?: string | null
           quantity_used?: number | null
           recorded_by?: string | null
           room_id: string
@@ -843,6 +878,7 @@ export type Database = {
           id?: string
           is_cleared?: boolean | null
           minibar_item_id?: string
+          organization_slug?: string | null
           quantity_used?: number | null
           recorded_by?: string | null
           room_id?: string
@@ -893,6 +929,7 @@ export type Database = {
           last_towel_change: string | null
           linen_change_required: boolean | null
           notes: string | null
+          organization_slug: string | null
           room_name: string | null
           room_number: string
           room_type: string | null
@@ -919,6 +956,7 @@ export type Database = {
           last_towel_change?: string | null
           linen_change_required?: boolean | null
           notes?: string | null
+          organization_slug?: string | null
           room_name?: string | null
           room_number: string
           room_type?: string | null
@@ -945,6 +983,7 @@ export type Database = {
           last_towel_change?: string | null
           linen_change_required?: boolean | null
           notes?: string | null
+          organization_slug?: string | null
           room_name?: string | null
           room_number?: string
           room_type?: string | null
@@ -976,6 +1015,7 @@ export type Database = {
           created_at: string
           id: string
           notes: string | null
+          organization_slug: string | null
           status: string
           total_hours: number | null
           updated_at: string
@@ -995,6 +1035,7 @@ export type Database = {
           created_at?: string
           id?: string
           notes?: string | null
+          organization_slug?: string | null
           status?: string
           total_hours?: number | null
           updated_at?: string
@@ -1014,6 +1055,7 @@ export type Database = {
           created_at?: string
           id?: string
           notes?: string | null
+          organization_slug?: string | null
           status?: string
           total_hours?: number | null
           updated_at?: string
@@ -1098,6 +1140,7 @@ export type Database = {
           description: string
           hotel: string | null
           id: string
+          organization_slug: string | null
           photo_url: string | null
           priority: Database["public"]["Enums"]["ticket_priority"]
           resolution_text: string | null
@@ -1123,6 +1166,7 @@ export type Database = {
           description: string
           hotel?: string | null
           id?: string
+          organization_slug?: string | null
           photo_url?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
           resolution_text?: string | null
@@ -1148,6 +1192,7 @@ export type Database = {
           description?: string
           hotel?: string | null
           id?: string
+          organization_slug?: string | null
           photo_url?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
           resolution_text?: string | null
@@ -1382,6 +1427,10 @@ export type Database = {
           department: string
         }[]
       }
+      get_user_organization_slug: {
+        Args: { user_id: string }
+        Returns: string
+      }
       get_user_role: {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
@@ -1392,6 +1441,10 @@ export type Database = {
       }
       has_ticket_creation_permission: {
         Args: { _user_id: string }
+        Returns: boolean
+      }
+      is_super_admin: {
+        Args: { user_id: string }
         Returns: boolean
       }
       update_assignment_type: {
