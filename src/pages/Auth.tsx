@@ -37,8 +37,8 @@ export default function Auth() {
     );
   }
 
-  if (!user) {
-    return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
+  if (user) {
+    return <Navigate to={`/${organizationSlug || 'rdhotels'}`} replace />;
   }
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
