@@ -17,8 +17,7 @@ import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { VisualNotificationOverlay, useVisualNotifications } from './VisualNotificationOverlay';
-import { OrganizationManagement } from '@/components/admin/OrganizationManagement';
-import { HotelOnboarding } from '@/components/admin/HotelOnboarding';
+import { AdminTabs } from '@/components/admin/AdminTabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -585,18 +584,7 @@ export function Dashboard() {
           {/* Admin Tab - Organization & Hotel Management */}
           {profile?.role === 'admin' && (
             <TabsContent value="admin" className="space-y-6">
-              <Tabs defaultValue="organizations" className="w-full">
-                <TabsList>
-                  <TabsTrigger value="organizations">Organizations</TabsTrigger>
-                  <TabsTrigger value="hotels">Hotels</TabsTrigger>
-                </TabsList>
-                <TabsContent value="organizations">
-                  <OrganizationManagement />
-                </TabsContent>
-                <TabsContent value="hotels">
-                  <HotelOnboarding />
-                </TabsContent>
-              </Tabs>
+              <AdminTabs />
             </TabsContent>
           )}
         </Tabs>

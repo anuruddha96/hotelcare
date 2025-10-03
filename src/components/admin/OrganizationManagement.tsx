@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Plus, Building2, Settings, Trash2 } from 'lucide-react';
+import { Plus, Building2, Settings, Trash2, ExternalLink } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface Organization {
   id: string;
@@ -19,6 +20,7 @@ interface Organization {
 }
 
 export const OrganizationManagement = () => {
+  const navigate = useNavigate();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -179,9 +181,14 @@ export const OrganizationManagement = () => {
               </div>
 
               <div className="flex gap-2 pt-2">
-                <Button variant="outline" size="sm" className="flex-1">
-                  <Settings className="w-4 h-4 mr-1" />
-                  Configure
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="flex-1"
+                  onClick={() => navigate(`/${org.slug}`)}
+                >
+                  <ExternalLink className="w-4 h-4 mr-1" />
+                  View Dashboard
                 </Button>
               </div>
             </div>
