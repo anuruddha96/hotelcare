@@ -26,7 +26,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { User, Edit, Trash2, UserPlus } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { User, Edit, Trash2, UserPlus, Shield } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 
@@ -39,6 +40,7 @@ interface Profile {
   role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager';
   created_at: string;
   assigned_hotel?: string;
+  is_super_admin?: boolean;
 }
 
 interface UserManagementDialogProps {
@@ -67,9 +69,11 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     phone_number: '',
     role: 'housekeeping' as Profile['role'],
     assigned_hotel: '',
+    is_super_admin: false,
   });
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
+  const [currentUserIsSuperAdmin, setCurrentUserIsSuperAdmin] = useState(false);
   const [hotels, setHotels] = useState<any[]>([]);
   const [generatedCredentials, setGeneratedCredentials] = useState<{username: string; password: string; email: string} | null>(null);
   useEffect(() => {
@@ -84,12 +88,13 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, is_super_admin')
         .eq('id', (await supabase.auth.getUser()).data.user?.id)
         .single();
 
       if (error) throw error;
       setCurrentUserRole(data?.role || '');
+      setCurrentUserIsSuperAdmin(data?.is_super_admin || false);
     } catch (error: any) {
       console.error('Error fetching current user role:', error);
     }
@@ -266,6 +271,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       phone_number: user.phone_number || '',
       role: user.role,
       assigned_hotel: user.assigned_hotel || '',
+      is_super_admin: user.is_super_admin || false,
     });
     setEditDialogOpen(true);
   };
@@ -307,6 +313,19 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         profileUpdates.assigned_hotel = null;
       }
 
+      // Only super admins can set is_super_admin flag
+      if (currentUserRole === 'admin') {
+        const { data: currentUser } = await supabase
+          .from('profiles')
+          .select('is_super_admin')
+          .eq('id', (await supabase.auth.getUser()).data.user?.id)
+          .single();
+        
+        if (currentUser?.is_super_admin) {
+          profileUpdates.is_super_admin = editUserData.is_super_admin;
+        }
+      }
+
       const { error: profileError } = await supabase
         .from('profiles')
         .update(profileUpdates)
@@ -330,6 +349,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         phone_number: '',
         role: 'housekeeping',
         assigned_hotel: '',
+        is_super_admin: false,
       });
     } catch (error: any) {
       toast({
@@ -436,9 +456,17 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                         </div>
                         
                         <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
-                          <Badge className={`${getRoleColor(user.role)} text-xs`} variant="secondary">
-                            {getRoleLabel(user.role)}
-                          </Badge>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge className={`${getRoleColor(user.role)} text-xs`} variant="secondary">
+                              {getRoleLabel(user.role)}
+                            </Badge>
+                            {user.is_super_admin && (
+                              <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                                <Shield className="h-3 w-3" />
+                                Super Admin
+                              </Badge>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1">
                             {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? (
                               <Button
@@ -847,6 +875,27 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     Password changes take effect immediately for admin overrides
                   </p>
                 </div>
+                
+                {currentUserIsSuperAdmin && (
+                  <div className="space-y-2 p-4 border rounded-lg bg-muted/50">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="edit_super_admin"
+                        checked={editUserData.is_super_admin}
+                        onCheckedChange={(checked) => setEditUserData({ ...editUserData, is_super_admin: checked as boolean })}
+                      />
+                      <div className="flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-destructive" />
+                        <Label htmlFor="edit_super_admin" className="text-sm font-semibold cursor-pointer">
+                          Super Admin
+                        </Label>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground ml-6">
+                      Super Admins can create and manage organizations across the entire system
+                    </p>
+                  </div>
+                )}
               </div>
               
               <div className="flex justify-end gap-2 mt-4 flex-shrink-0 pt-4 border-t">

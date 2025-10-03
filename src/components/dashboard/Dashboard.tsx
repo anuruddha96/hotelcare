@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useTenant } from '@/contexts/TenantContext';
 import { supabase } from '@/integrations/supabase/client';
 import { TicketCard } from './TicketCard';
 import { CreateTicketDialog } from './CreateTicketDialog';
@@ -24,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock } from 'lucide-react';
+import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Ticket {
@@ -51,6 +52,7 @@ interface Ticket {
 export function Dashboard() {
   const { profile } = useAuth();
   const { t } = useTranslation();
+  const { organization, hotels } = useTenant();
   const { notifications, addNotification, removeNotification } = useVisualNotifications();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -261,6 +263,31 @@ export function Dashboard() {
         notifications={notifications}
         onDismiss={removeNotification}
       />
+      
+      {/* Organization Info Banner - Super Admin & Admin only */}
+      {(profile?.role === 'admin' || profile?.is_super_admin) && organization && (
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-background border-b">
+          <div className="container mx-auto px-4 py-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <Building2 className="h-5 w-5 text-primary" />
+                <div>
+                  <h2 className="font-semibold text-sm">{organization.name}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {hotels.length} {hotels.length === 1 ? 'Hotel' : 'Hotels'} • Organization Slug: /{organization.slug}
+                  </p>
+                </div>
+              </div>
+              {profile?.is_super_admin && (
+                <Badge variant="destructive" className="flex items-center gap-1">
+                  <Shield className="h-3 w-3" />
+                  Super Admin Access
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
