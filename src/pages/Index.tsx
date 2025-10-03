@@ -1,10 +1,11 @@
 import { useAuth } from '@/hooks/useAuth';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 
 const Index = () => {
   const { user, loading } = useAuth();
+  const { organizationSlug } = useParams<{ organizationSlug: string }>();
 
   if (loading) {
     return (
@@ -15,7 +16,7 @@ const Index = () => {
   }
 
   if (!user) {
-    return <Navigate to="/auth" replace />;
+    return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
   }
 
   return (

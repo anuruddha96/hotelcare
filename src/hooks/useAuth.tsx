@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 } else {
                   console.warn('Profile not available, creating default profile...', profileError);
                   try {
-                    const { data: upserted, error: upsertErr } = await supabase
+                  const { data: upserted, error: upsertErr } = await supabase
                       .from('profiles')
                       .upsert({
                         id: session.user.id,
@@ -70,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         nickname: (session.user.user_metadata as any)?.username || session.user.email?.split('@')[0],
                         role: 'housekeeping',
                         assigned_hotel: (session.user.user_metadata as any)?.assigned_hotel || null,
+                        organization_slug: 'rdhotels',
                         last_login: new Date().toISOString(),
                       })
                       .select()
@@ -130,6 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                       nickname: (session.user.user_metadata as any)?.username || session.user.email?.split('@')[0],
                       role: 'housekeeping',
                       assigned_hotel: (session.user.user_metadata as any)?.assigned_hotel || null,
+                      organization_slug: 'rdhotels',
                       last_login: new Date().toISOString(),
                     })
                     .select()

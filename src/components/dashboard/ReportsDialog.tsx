@@ -139,18 +139,8 @@ export function ReportsDialog({ trigger }: ReportsDialogProps) {
       query = query.lte('created_at', dateRange.to.toISOString());
     }
     if (selectedHotel && selectedHotel !== 'all') {
-      // Fix hotel filtering by handling both hotel names and IDs
-      if (selectedHotel === 'memories-budapest') {
-        query = query.eq('hotel', 'Hotel Memories Budapest');
-      } else if (selectedHotel === 'mika-downtown') {
-        query = query.eq('hotel', 'Hotel Mika Downtown');
-      } else if (selectedHotel === 'ottofiori') {
-        query = query.eq('hotel', 'Hotel Ottofiori');
-      } else if (selectedHotel === 'gozsdu-court') {
-        query = query.eq('hotel', 'Gozsdu Court Budapest');
-      } else {
-        query = query.eq('hotel', selectedHotel);
-      }
+      // Dynamic hotel filtering
+      query = query.eq('hotel', selectedHotel);
     }
 
     const { data, error } = await query;

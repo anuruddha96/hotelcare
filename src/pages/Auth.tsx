@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useParams, Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Navigate } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { Eye, EyeOff } from 'lucide-react';
@@ -16,6 +16,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 
 export default function Auth() {
  const { signIn, signUp, user, loading } = useAuth();
+  const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
@@ -36,8 +37,8 @@ export default function Auth() {
     );
   }
 
-  if (user) {
-    return <Navigate to="/" replace />;
+  if (!user) {
+    return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
   }
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {

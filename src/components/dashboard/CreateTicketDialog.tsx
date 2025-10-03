@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { useTenant } from '@/contexts/TenantContext';
 import {
   Dialog,
   DialogContent,
@@ -18,7 +19,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { AttachmentUpload } from './AttachmentUpload';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
-import { hotels } from './HotelFilter';
 import { Lightbulb, Star, Zap, AlertTriangle, Wrench, Droplet, Thermometer, Bed, Wifi, Utensils } from 'lucide-react';
 
 interface CreateTicketDialogProps {
@@ -148,7 +148,14 @@ const priorityConfig = {
 
 export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: CreateTicketDialogProps) {
   const { profile } = useAuth();
+  const { hotels: tenantHotels } = useTenant();
   const { t } = useTranslation();
+  
+  // Build hotels list from tenant context
+  const hotels = tenantHotels.map(h => ({ 
+    id: h.hotel_id, 
+    name: h.hotel_name 
+  }));
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [canCreateTickets, setCanCreateTickets] = useState(true);

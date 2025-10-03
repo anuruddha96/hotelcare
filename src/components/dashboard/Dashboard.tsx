@@ -16,6 +16,8 @@ import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { VisualNotificationOverlay, useVisualNotifications } from './VisualNotificationOverlay';
+import { OrganizationManagement } from '@/components/admin/OrganizationManagement';
+import { HotelOnboarding } from '@/components/admin/HotelOnboarding';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -64,7 +66,6 @@ export function Dashboard() {
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
 
-  // Listen for visual notification events
   useEffect(() => {
     const handleVisualNotification = (event: CustomEvent) => {
       const { title, message, type } = event.detail;
@@ -84,7 +85,6 @@ export function Dashboard() {
     'finance_manager', 'top_management_manager'
   ].includes(profile.role);
   
-  // Only admin can access: Manage Users, Access Control, Ticket Permissions, Company Settings
   const canManageUsers = profile?.role === 'admin';
   
   const isManager = profile?.role && [
@@ -100,7 +100,6 @@ export function Dashboard() {
     console.log('Profile role:', profile?.role);
     console.log('Profile id:', profile?.id);
     
-    // Guard: wait for profile to be available to avoid null access during initial load
     if (!profile || !profile.id) {
       console.log('No profile or profile.id, returning empty tickets');
       setTickets([]);
@@ -109,7 +108,6 @@ export function Dashboard() {
     }
 
     try {
-      // Always fetch tickets with profile information
       const selectColumns = `
         *,
         created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
@@ -117,7 +115,6 @@ export function Dashboard() {
         closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)
       `;
       
-      // Simplified query - RLS policy now handles all access control and excludes closed tickets
       let query = supabase
         .from('tickets')
         .select(selectColumns as any)
@@ -158,7 +155,6 @@ export function Dashboard() {
     }
   };
 
-  // Function to search closed tickets using secure RPC
   const searchClosedTickets = async (searchTerm: string) => {
     try {
       const { data, error } = await supabase.rpc('search_closed_tickets' as any, {
@@ -193,9 +189,6 @@ export function Dashboard() {
     const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
     const matchesDepartment = departmentFilter === 'all' || ticket.department === departmentFilter;
     
-    // Hide completed tickets by default unless:
-    // 1. User is specifically searching by ticket number or room number, OR
-    // 2. User has explicitly selected "completed" status filter
     const isSearchingSpecific = searchQuery.trim() !== '' && (
       ticket.ticket_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
       ticket.room_number.toLowerCase().includes(searchQuery.toLowerCase())
@@ -217,7 +210,6 @@ export function Dashboard() {
 
   const counts = getTicketCounts();
 
-  // Check today's attendance status
   const checkTodayAttendance = async () => {
     if (!profile?.id) return;
     
@@ -242,7 +234,6 @@ export function Dashboard() {
     
     switch (role) {
       case 'housekeeping':
-        // For housekeepers: show work status first if not checked in or on break, then tasks after check-in
         return (!attendanceStatus || attendanceStatus === 'on_break') ? "attendance" : "housekeeping";
       case 'housekeeping_manager':
         return "housekeeping";
@@ -261,6 +252,7 @@ export function Dashboard() {
   useEffect(() => {
     setActiveTab(getDefaultTab(profile?.role));
   }, [profile?.role, attendanceStatus]);
+
   return (
     <div className="min-h-screen bg-background">
       <AutoAssignmentService />
@@ -311,7 +303,7 @@ export function Dashboard() {
                 </TabsTrigger>
               </TabsList>
             ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
-              <TabsList className="grid w-full min-w-[400px] max-w-lg grid-cols-4 h-10 sm:h-12">
+              <TabsList className="grid w-full min-w-[400px] max-w-lg grid-cols-5 h-10 sm:h-12">
                 <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.tickets')}</span>
@@ -328,6 +320,12 @@ export function Dashboard() {
                   <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
+                {profile?.role === 'admin' && (
+                  <TabsTrigger value="admin" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                    <Settings className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>Admin</span>
+                  </TabsTrigger>
+                )}
               </TabsList>
             ) : (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12">
@@ -349,7 +347,6 @@ export function Dashboard() {
         </div>
 
           <TabsContent value="tickets" className="space-y-6">
-            {/* Ticket Management Header */}
             <div className="flex flex-col gap-3 sm:gap-4 justify-between items-start">
               <div>
                 <h2 className="text-xl sm:text-2xl font-bold text-foreground">
@@ -417,174 +414,164 @@ export function Dashboard() {
                     </Button>
                   </>
                 )}
-                
                 {canCreateTickets && (
-                  <Button onClick={() => setCreateDialogOpen(true)} size="sm" className="text-xs sm:text-sm">
+                  <Button
+                    onClick={() => setCreateDialogOpen(true)}
+                    size="sm"
+                    className="text-xs sm:text-sm"
+                  >
                     <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                    <span className="hidden sm:inline">New Ticket</span>
+                    <span className="hidden sm:inline">{t('dashboard.newTicket')}</span>
                     <span className="sm:hidden">New</span>
                   </Button>
                 )}
               </div>
             </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.total')}</p>
-          <p className="text-xl sm:text-2xl font-bold">{counts.total}</p>
-        </div>
-        <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.open')}</p>
-          <p className="text-xl sm:text-2xl font-bold text-blue-600">{counts.open}</p>
-        </div>
-        <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.inProgress')}</p>
-          <p className="text-xl sm:text-2xl font-bold text-yellow-600">{counts.inProgress}</p>
-        </div>
-        <div className="bg-card border rounded-lg p-3 sm:p-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">{t('tickets.completed')}</p>
-          <p className="text-xl sm:text-2xl font-bold text-green-600">{counts.completed}</p>
-        </div>
-      </div>
+            <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs sm:text-sm font-medium">Total</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xl sm:text-2xl font-bold">{counts.total}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs sm:text-sm font-medium">Open</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xl sm:text-2xl font-bold text-yellow-500">{counts.open}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs sm:text-sm font-medium">In Progress</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xl sm:text-2xl font-bold text-blue-500">{counts.inProgress}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs sm:text-sm font-medium">Completed</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xl sm:text-2xl font-bold text-green-500">{counts.completed}</div>
+                </CardContent>
+              </Card>
+            </div>
 
-      {/* Search and Filters */}
-      <div className="flex flex-col gap-3">
-        <div className="relative flex-1 p-3 bg-gradient-to-r from-primary/5 to-primary/10 rounded-lg border border-primary/20 shadow-sm">
-          <Search className="absolute left-6 top-1/2 transform -translate-y-1/2 h-4 w-4 text-primary" />
-          <Input
-            placeholder={`🔍 ${t('tickets.search')}`}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-9 sm:h-10 text-sm bg-background/80 border-primary/30 focus:border-primary focus:ring-primary/20"
-          />
-        </div>
-        
-        <div className="flex gap-2 overflow-x-auto">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[110px] sm:w-[140px] h-9 text-xs sm:text-sm">
-              <Filter className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('tickets.allStatus')}</SelectItem>
-              <SelectItem value="open">{t('tickets.open')}</SelectItem>
-              <SelectItem value="in_progress">{t('tickets.inProgress')}</SelectItem>
-              <SelectItem value="completed">{t('tickets.completed')}</SelectItem>
-            </SelectContent>
-          </Select>
-          
-          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-[110px] sm:w-[140px] h-9 text-xs sm:text-sm">
-              <SelectValue placeholder="Priority" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('tickets.allPriority')}</SelectItem>
-              <SelectItem value="urgent">{t('tickets.priority.urgent')}</SelectItem>
-              <SelectItem value="high">{t('tickets.priority.high')}</SelectItem>
-              <SelectItem value="medium">{t('tickets.priority.medium')}</SelectItem>
-              <SelectItem value="low">{t('tickets.priority.low')}</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-            <SelectTrigger className="w-[120px] sm:w-[150px] h-9 text-xs sm:text-sm">
-              <SelectValue placeholder="Department" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Departments</SelectItem>
-              <SelectItem value="maintenance">Maintenance</SelectItem>
-              <SelectItem value="housekeeping">Housekeeping</SelectItem>
-              <SelectItem value="reception">Reception</SelectItem>
-              <SelectItem value="marketing">Marketing</SelectItem>
-              <SelectItem value="finance">Finance</SelectItem>
-              <SelectItem value="control">Control</SelectItem>
-              <SelectItem value="hr">HR</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Tickets Grid */}
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
-      ) : filteredTickets.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">
-            {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' || departmentFilter !== 'all' 
-              ? 'No tickets match your filters. Try adjusting your search criteria.' 
-              : 'No tickets found. Create a new ticket to get started.'
-            }
-          </p>
-        </div>
-      ) : profile?.role === 'admin' ? (
-        // Admin view: Group tickets by hotel
-        <div className="space-y-6">
-          {Object.entries(
-            filteredTickets.reduce((acc, ticket) => {
-              const hotel = ticket.hotel || 'Unassigned Hotel';
-              if (!acc[hotel]) acc[hotel] = [];
-              acc[hotel].push(ticket);
-              return acc;
-            }, {} as Record<string, Ticket[]>)
-          ).map(([hotelName, hotelTickets]) => (
-            <Card key={hotelName} className="overflow-hidden">
-              <CardHeader className="bg-muted/30 pb-3">
-                <CardTitle className="flex items-center justify-between">
-                  <span className="text-lg">{hotelName}</span>
-                  <Badge variant="secondary" className="ml-2">
-                    {hotelTickets.length} ticket{hotelTickets.length !== 1 ? 's' : ''}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {hotelTickets.map((ticket) => (
-                    <TicketCard
-                      key={ticket.id}
-                      ticket={ticket}
-                      onClick={() => setSelectedTicket(ticket)}
-                    />
-                  ))}
+            <div className="flex flex-col gap-3 sm:gap-4">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search tickets by number, title, or room..."
+                    className="pl-8"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        // Regular view: Simple grid
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredTickets.map((ticket) => (
-            <TicketCard
-              key={ticket.id}
-              ticket={ticket}
-              onClick={() => setSelectedTicket(ticket)}
-            />
-          ))}
-        </div>
-      )}
+                <div className="flex gap-2">
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-full sm:w-[130px]">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                    <SelectTrigger className="w-full sm:w-[130px]">
+                      <SelectValue placeholder="Priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Priority</SelectItem>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                    <SelectTrigger className="w-full sm:w-[150px]">
+                      <SelectValue placeholder="Department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Departments</SelectItem>
+                      <SelectItem value="maintenance">Maintenance</SelectItem>
+                      <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                      <SelectItem value="reception">Reception</SelectItem>
+                      <SelectItem value="front_office">Front Office</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
 
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            ) : filteredTickets.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' || departmentFilter !== 'all'
+                  ? 'No tickets match your filters'
+                  : 'No tickets found'}
+              </div>
+            ) : (
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+                {filteredTickets.map((ticket) => (
+                  <TicketCard
+                    key={ticket.id}
+                    ticket={ticket}
+                    onClick={() => setSelectedTicket(ticket)}
+                  />
+                ))}
+              </div>
+            )}
           </TabsContent>
 
-          <TabsContent value="rooms">
+          <TabsContent value="rooms" className="space-y-6">
             <RoomManagement />
           </TabsContent>
 
-          <TabsContent value="housekeeping">
+          <TabsContent value="housekeeping" className="space-y-6">
             <HousekeepingTab />
           </TabsContent>
-          
+
           <TabsContent value="attendance" className="space-y-6">
-            <AttendanceTracker onStatusChange={setAttendanceStatus} />
-            {(profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager') && (
-              <div className="mt-8">
-                <h3 className="text-lg font-semibold mb-4">HR & Admin Dashboard</h3>
+            {(profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold">Work Status & Attendance</h2>
+                <AttendanceTracker />
                 <AttendanceReports />
               </div>
             )}
           </TabsContent>
+
+          {/* Admin Tab - Organization & Hotel Management */}
+          {profile?.role === 'admin' && (
+            <TabsContent value="admin" className="space-y-6">
+              <Tabs defaultValue="organizations" className="w-full">
+                <TabsList>
+                  <TabsTrigger value="organizations">Organizations</TabsTrigger>
+                  <TabsTrigger value="hotels">Hotels</TabsTrigger>
+                </TabsList>
+                <TabsContent value="organizations">
+                  <OrganizationManagement />
+                </TabsContent>
+                <TabsContent value="hotels">
+                  <HotelOnboarding />
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Dialogs */}
@@ -601,7 +588,7 @@ export function Dashboard() {
             onOpenChange={() => setSelectedTicket(null)}
             onTicketUpdated={() => {
               fetchTickets();
-              setSelectedTicket(null); // Close dialog after update
+              setSelectedTicket(null);
             }}
           />
         )}
