@@ -17,6 +17,7 @@ export function SwipeAction({ label, onComplete, disabled = false }: SwipeAction
 
   const begin = (x: number) => {
     if (disabled || isCompleted) return;
+    console.log('Swipe started at:', x);
     setIsDragging(true);
     startX.current = x;
     setDragDistance(0);
@@ -32,11 +33,15 @@ export function SwipeAction({ label, onComplete, disabled = false }: SwipeAction
     if (!isDragging || disabled || isCompleted) return;
     setIsDragging(false);
 
-    if (dragDistance >= maxDistance * 0.8) {
+    // Lower threshold to 70% for easier completion
+    if (dragDistance >= maxDistance * 0.7) {
       setIsCompleted(true);
       setDragDistance(maxDistance);
+      console.log('Swipe completed, calling onComplete');
       try {
         await onComplete();
+      } catch (error) {
+        console.error('Error in onComplete:', error);
       } finally {
         // reset after action so the control can be reused
         setTimeout(() => {

@@ -136,6 +136,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   };
 
   const handleCheckIn = async () => {
+    console.log('handleCheckIn called', { user: !!user, location: !!location });
+    
     if (!user || !location) {
       toast({
         title: "Error",
@@ -147,30 +149,40 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
     setIsLoading(true);
     
-    const { error } = await supabase
-      .from('staff_attendance')
-      .insert({
-        user_id: user.id,
-        check_in_location: location,
-        notes: notes || null,
-        status: 'checked_in'
-      });
+    try {
+      const { error } = await supabase
+        .from('staff_attendance')
+        .insert({
+          user_id: user.id,
+          check_in_location: location,
+          notes: notes || null,
+          status: 'checked_in'
+        });
 
-    if (error) {
+      if (error) {
+        console.error('Check-in error:', error);
+        toast({
+          title: "Error",
+          description: "Failed to check in. Please try again.",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Welcome to Your Shift!", 
+          description: "You're all set! Time to shine ✨",
+        });
+        await fetchTodaysAttendance();
+      }
+    } catch (error) {
+      console.error('Check-in exception:', error);
       toast({
         title: "Error",
-        description: "Failed to check in. Please try again.",
+        description: "An unexpected error occurred",
         variant: "destructive"
       });
-    } else {
-      toast({
-        title: "Welcome to Your Shift!", 
-        description: "You're all set! Time to shine ✨",
-      });
-      fetchTodaysAttendance();
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
 
   const handleCheckOut = async () => {
