@@ -220,9 +220,12 @@ export function PMSUpload() {
             .select('id, status, room_number, room_type, is_checkout_room, hotel')
             .eq('room_number', roomNumber);
 
-          // Filter by selected hotel if available
+          // Filter by selected hotel if available - check both hotel_id and hotel_name
           if (selectedHotel) {
-            roomQuery = roomQuery.eq('hotel', selectedHotel);
+            const { data: hotelName } = await supabase
+              .rpc('get_hotel_name_from_id', { hotel_id: selectedHotel });
+            
+            roomQuery = roomQuery.or(`hotel.eq.${selectedHotel},hotel.eq.${hotelName}`);
           }
 
           const { data: rooms, error: roomError } = await roomQuery;

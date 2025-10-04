@@ -121,9 +121,12 @@ export function Dashboard() {
         .select(selectColumns as any)
         .order('created_at', { ascending: false });
 
-      // Filter by assigned hotel if user has one selected
+      // Filter by assigned hotel if user has one selected - check both hotel_id and hotel_name
       if (profile.assigned_hotel) {
-        query = query.eq('hotel', profile.assigned_hotel);
+        const { data: hotelName } = await supabase
+          .rpc('get_hotel_name_from_id', { hotel_id: profile.assigned_hotel });
+        
+        query = query.or(`hotel.eq.${profile.assigned_hotel},hotel.eq.${hotelName}`);
       }
 
       const { data, error } = await query;
