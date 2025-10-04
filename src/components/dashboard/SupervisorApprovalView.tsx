@@ -126,6 +126,30 @@ export function SupervisorApprovalView() {
     try {
       const dateStr = selectedDate.toISOString().split('T')[0];
       
+      // Get current user's profile to get assigned hotel
+      const { data: currentUser } = await supabase.auth.getUser();
+      if (!currentUser.user) return;
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', currentUser.user.id)
+        .single();
+
+      if (profileError) throw profileError;
+
+      // Get hotel name from hotel_id if needed
+      const userHotelId = profile?.assigned_hotel;
+      let userHotelName = userHotelId;
+
+      if (userHotelId) {
+        const { data: hotelName } = await supabase
+          .rpc('get_hotel_name_from_id', { hotel_id: userHotelId });
+        if (hotelName) {
+          userHotelName = hotelName;
+        }
+      }
+      
       const { data, error } = await supabase
         .from('room_assignments')
         .select(`
@@ -151,7 +175,16 @@ export function SupervisorApprovalView() {
         .order('completed_at', { ascending: false });
 
       if (error) throw error;
-      const assignments = (data as any) || [];
+      
+      // Filter assignments by the user's selected hotel
+      let assignments = (data as any) || [];
+      if (userHotelName) {
+        assignments = assignments.filter((assignment: any) => 
+          assignment.rooms?.hotel === userHotelName || 
+          assignment.rooms?.hotel === userHotelId
+        );
+      }
+      
       setPendingAssignments(assignments);
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
