@@ -84,35 +84,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Listen for auth changes FIRST (following Supabase best practices)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!isMounted) return;
+        
+        console.log('Auth state changed:', event, session?.user?.email);
+        // Only synchronous state updates in callback
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        // Defer profile fetching to prevent deadlock
+        if (session?.user) {
+          setTimeout(() => {
+            if (isMounted) {
+              fetchProfile(session.user.id, session.user.email, session.user.user_metadata);
+            }
+          }, 0);
+        } else {
+          setProfile(null);
+        }
+      }
+    );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isMounted) return;
       
       setSession(session);
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        await fetchProfile(session.user.id, session.user.email, session.user.user_metadata);
+        fetchProfile(session.user.id, session.user.email, session.user.user_metadata).finally(() => {
+          if (isMounted) setLoading(false);
+        });
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
     });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!isMounted) return;
-        
-        console.log('Auth state changed:', event, session?.user?.email);
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user.id, session.user.email, session.user.user_metadata);
-        } else {
-          setProfile(null);
-        }
-      }
-    );
 
     return () => {
       isMounted = false;
