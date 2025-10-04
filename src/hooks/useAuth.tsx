@@ -47,54 +47,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          setTimeout(async () => {
-            if (!isMounted) return;
+          try {
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .maybeSingle();
+
+            if (profileData && !profileError) {
+              console.log('Profile fetched:', profileData);
+              setProfile(profileData as any);
+            } else {
+              console.warn('Profile not available, creating default profile...', profileError);
               try {
-                const { data: profileData, error: profileError } = await supabase
+                const { data: upserted, error: upsertErr } = await supabase
                   .from('profiles')
-                  .select('*')
-                  .eq('id', session.user.id)
+                  .upsert({
+                    id: session.user.id,
+                    email: session.user.email!,
+                    full_name: (session.user.user_metadata as any)?.full_name || session.user.email?.split('@')[0] || 'New User',
+                    nickname: (session.user.user_metadata as any)?.username || session.user.email?.split('@')[0],
+                    role: 'housekeeping',
+                    assigned_hotel: (session.user.user_metadata as any)?.assigned_hotel || null,
+                    organization_slug: 'rdhotels',
+                    last_login: new Date().toISOString(),
+                  })
+                  .select()
                   .maybeSingle();
 
-                if (profileData && !profileError) {
-                  console.log('Profile fetched:', profileData);
-                  setProfile(profileData as any);
+                if (upsertErr) {
+                  console.error('Failed to create default profile:', upsertErr);
+                  setProfile(null);
                 } else {
-                  console.warn('Profile not available, creating default profile...', profileError);
-                  try {
-                  const { data: upserted, error: upsertErr } = await supabase
-                      .from('profiles')
-                      .upsert({
-                        id: session.user.id,
-                        email: session.user.email!,
-                        full_name: (session.user.user_metadata as any)?.full_name || session.user.email?.split('@')[0] || 'New User',
-                        nickname: (session.user.user_metadata as any)?.username || session.user.email?.split('@')[0],
-                        role: 'housekeeping',
-                        assigned_hotel: (session.user.user_metadata as any)?.assigned_hotel || null,
-                        organization_slug: 'rdhotels',
-                        last_login: new Date().toISOString(),
-                      })
-                      .select()
-                      .maybeSingle();
-
-                    if (upsertErr) {
-                      console.error('Failed to create default profile:', upsertErr);
-                      setProfile(null);
-                    } else {
-                      console.log('Default profile created:', upserted);
-                      setProfile(upserted as any);
-                    }
-                  } catch (e) {
-                    console.error('Default profile creation exception:', e);
-                    setProfile(null);
-                  }
+                  console.log('Default profile created:', upserted);
+                  setProfile(upserted as any);
                 }
-              } catch (error) {
-                console.error('Profile fetch error:', error);
+              } catch (e) {
+                console.error('Default profile creation exception:', e);
                 setProfile(null);
               }
-              setLoading(false);
-          }, 0);
+            }
+          } catch (error) {
+            console.error('Profile fetch error:', error);
+            setProfile(null);
+          } finally {
+            setLoading(false);
+          }
         } else {
           setProfile(null);
           setLoading(false);
@@ -102,60 +100,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!isMounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        setTimeout(async () => {
-          if (!isMounted) return;
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle();
+
+          if (profileData && !profileError) {
+            console.log('Profile fetched:', profileData);
+            setProfile(profileData as any);
+          } else {
+            console.warn('Profile not available, creating default profile...', profileError);
             try {
-              const { data: profileData, error: profileError } = await supabase
+              const { data: upserted, error: upsertErr } = await supabase
                 .from('profiles')
-                .select('*')
-                .eq('id', session.user.id)
+                .upsert({
+                  id: session.user.id,
+                  email: session.user.email!,
+                  full_name: (session.user.user_metadata as any)?.full_name || session.user.email?.split('@')[0] || 'New User',
+                  nickname: (session.user.user_metadata as any)?.username || session.user.email?.split('@')[0],
+                  role: 'housekeeping',
+                  assigned_hotel: (session.user.user_metadata as any)?.assigned_hotel || null,
+                  organization_slug: 'rdhotels',
+                  last_login: new Date().toISOString(),
+                })
+                .select()
                 .maybeSingle();
 
-              if (profileData && !profileError) {
-                console.log('Profile fetched:', profileData);
-                setProfile(profileData as any);
+              if (upsertErr) {
+                console.error('Failed to create default profile:', upsertErr);
+                setProfile(null);
               } else {
-                console.warn('Profile not available, creating default profile...', profileError);
-                try {
-                  const { data: upserted, error: upsertErr } = await supabase
-                    .from('profiles')
-                    .upsert({
-                      id: session.user.id,
-                      email: session.user.email!,
-                      full_name: (session.user.user_metadata as any)?.full_name || session.user.email?.split('@')[0] || 'New User',
-                      nickname: (session.user.user_metadata as any)?.username || session.user.email?.split('@')[0],
-                      role: 'housekeeping',
-                      assigned_hotel: (session.user.user_metadata as any)?.assigned_hotel || null,
-                      organization_slug: 'rdhotels',
-                      last_login: new Date().toISOString(),
-                    })
-                    .select()
-                    .maybeSingle();
-
-                  if (upsertErr) {
-                    console.error('Failed to create default profile:', upsertErr);
-                    setProfile(null);
-                  } else {
-                    console.log('Default profile created:', upserted);
-                    setProfile(upserted as any);
-                  }
-                } catch (e) {
-                  console.error('Default profile creation exception:', e);
-                  setProfile(null);
-                }
+                console.log('Default profile created:', upserted);
+                setProfile(upserted as any);
               }
-            } catch (error) {
-              console.error('Profile fetch error:', error);
+            } catch (e) {
+              console.error('Default profile creation exception:', e);
               setProfile(null);
             }
-            setLoading(false);
-        }, 0);
+          }
+        } catch (error) {
+          console.error('Profile fetch error:', error);
+          setProfile(null);
+        } finally {
+          setLoading(false);
+        }
       } else {
         setLoading(false);
       }
