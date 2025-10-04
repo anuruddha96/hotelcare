@@ -229,21 +229,46 @@ export function HousekeepingManagerView() {
         .eq('id', user?.id)
         .single();
 
-      // Fetch assignments for selected date and compute counts in JS (avoids unsupported group())
-      let query = supabase
+      // Fetch assignments for selected date
+      const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
-        .select('assigned_to,status,rooms!inner(hotel)')
+        .select('assigned_to, status, room_id')
         .eq('assignment_date', selectedDate);
 
-      // Filter by hotel if assigned - check both hotel_id and hotel_name
+      if (assignmentsError) throw assignmentsError;
+
+      // Get room details separately to avoid FK/RLS issues with inner join
+      const roomIds = Array.from(new Set((assignmentsData || []).map(a => a.room_id).filter(Boolean)));
+      let roomMap = new Map<string, any>();
+      
+      if (roomIds.length > 0) {
+        const { data: roomsData } = await supabase
+          .from('rooms')
+          .select('id, hotel')
+          .in('id', roomIds);
+        
+        if (roomsData) {
+          roomsData.forEach(room => roomMap.set(room.id, room));
+        }
+      }
+
+      // Filter assignments by hotel if needed
+      let filteredData = assignmentsData || [];
       if (profileData?.assigned_hotel) {
         const { data: hotelName } = await supabase
           .rpc('get_hotel_name_from_id', { hotel_id: profileData.assigned_hotel });
         
-        query = query.or(`rooms.hotel.eq.${profileData.assigned_hotel},rooms.hotel.eq.${hotelName}`);
+        filteredData = filteredData.filter((assignment: any) => {
+          const room = roomMap.get(assignment.room_id);
+          return room && (
+            room.hotel === profileData.assigned_hotel || 
+            room.hotel === hotelName
+          );
+        });
       }
 
-      const { data, error } = await query;
+      const data = filteredData;
+      const error = null;
 
       if (error) throw error;
 

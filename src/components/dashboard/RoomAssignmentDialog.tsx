@@ -205,7 +205,8 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           assignment_type: assignmentType,
           priority: 2, // Standard priority for all housekeeping tasks
           estimated_duration: estimatedDuration,
-          notes: notes.trim() || null
+          notes: notes.trim() || null,
+          ready_to_clean: assignmentType === 'checkout_cleaning' ? true : false
         };
       });
 

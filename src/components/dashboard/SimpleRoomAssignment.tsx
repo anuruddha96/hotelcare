@@ -105,7 +105,8 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
         assignment_type: type,
         priority: type === 'checkout_cleaning' ? 2 : 1,
         estimated_duration: type === 'checkout_cleaning' ? 45 : 30,
-        notes: `Quick assignment - ${type.replace('_', ' ')}`
+        notes: `Quick assignment - ${type.replace('_', ' ')}`,
+        ready_to_clean: type === 'checkout_cleaning' ? true : false
       }));
 
       console.log('Creating assignments:', assignments);
