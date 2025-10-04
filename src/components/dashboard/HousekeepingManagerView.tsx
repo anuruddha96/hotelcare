@@ -191,10 +191,24 @@ export function HousekeepingManagerView() {
 
   const fetchHousekeepingStaff = async () => {
     try {
-      const { data, error } = await supabase
+      // Get current user's assigned hotel first
+      const { data: profileData } = await supabase
         .from('profiles')
-        .select('id, full_name, nickname, email')
+        .select('assigned_hotel')
+        .eq('id', user?.id)
+        .single();
+
+      let query = supabase
+        .from('profiles')
+        .select('id, full_name, nickname, email, assigned_hotel')
         .eq('role', 'housekeeping');
+
+      // Filter staff by assigned hotel if one is selected
+      if (profileData?.assigned_hotel) {
+        query = query.eq('assigned_hotel', profileData.assigned_hotel);
+      }
+
+      const { data, error } = await query.order('full_name');
 
       if (error) throw error;
       setHousekeepingStaff(data || []);
@@ -208,11 +222,25 @@ export function HousekeepingManagerView() {
 
   const fetchTeamAssignments = async () => {
     try {
+      // Get current user's assigned hotel
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', user?.id)
+        .single();
+
       // Fetch assignments for selected date and compute counts in JS (avoids unsupported group())
-      const { data, error } = await supabase
+      let query = supabase
         .from('room_assignments')
-        .select('assigned_to,status')
+        .select('assigned_to,status,rooms!inner(hotel)')
         .eq('assignment_date', selectedDate);
+
+      // Filter by hotel if assigned
+      if (profileData?.assigned_hotel) {
+        query = query.eq('rooms.hotel', profileData.assigned_hotel);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -261,7 +289,14 @@ export function HousekeepingManagerView() {
 
   const fetchRoomAssignments = async () => {
     try {
-      const { data, error } = await supabase
+      // Get current user's assigned hotel
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', user?.id)
+        .single();
+
+      let query = supabase
         .from('room_assignments')
         .select(`
           id,
@@ -271,6 +306,13 @@ export function HousekeepingManagerView() {
           rooms!inner(room_number, hotel)
         `)
         .eq('assignment_date', selectedDate);
+
+      // Filter by hotel if assigned
+      if (profileData?.assigned_hotel) {
+        query = query.eq('rooms.hotel', profileData.assigned_hotel);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 

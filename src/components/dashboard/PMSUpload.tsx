@@ -30,6 +30,7 @@ export function PMSUpload() {
   const { t } = useTranslation();
   const { user, profile } = useAuth();
   const userRole = profile?.role;
+  const selectedHotel = profile?.assigned_hotel; // Get selected hotel from profile
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [backgroundUpload, setBackgroundUpload] = useState(false);
@@ -213,14 +214,21 @@ export function PMSUpload() {
           // Extract room number from complex room name
           const roomNumber = extractRoomNumber(String(row.Room).trim());
           
-          // Find the room by extracted number
-          const { data: rooms, error: roomError } = await supabase
+          // Find the room by extracted number with hotel filter
+          let roomQuery = supabase
             .from('rooms')
-            .select('id, status, room_number, room_type, is_checkout_room')
+            .select('id, status, room_number, room_type, is_checkout_room, hotel')
             .eq('room_number', roomNumber);
 
+          // Filter by selected hotel if available
+          if (selectedHotel) {
+            roomQuery = roomQuery.eq('hotel', selectedHotel);
+          }
+
+          const { data: rooms, error: roomError } = await roomQuery;
+
           if (roomError || !rooms || rooms.length === 0) {
-            processed.errors.push(`Room ${row.Room} (extracted: ${roomNumber}) not found in system`);
+            processed.errors.push(`Room ${row.Room} (extracted: ${roomNumber}) not found in ${selectedHotel || 'any hotel'}`);
             continue;
           }
 
@@ -459,7 +467,42 @@ export function PMSUpload() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!uploading && !results && (
+        {/* Hotel Selection Warning */}
+        {selectedHotel && (
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div>
+                <h4 className="font-semibold text-blue-800 mb-1">
+                  Hotel Filter Active
+                </h4>
+                <p className="text-sm text-blue-700">
+                  Currently operating on: <strong>{selectedHotel}</strong>
+                  <br />
+                  Only rooms in this hotel will be affected by the PMS upload.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {!selectedHotel && (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
+              <div>
+                <h4 className="font-semibold text-amber-800 mb-1">
+                  No Hotel Selected
+                </h4>
+                <p className="text-sm text-amber-700">
+                  Please select a hotel from the switcher at the top to upload PMS data.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {!uploading && !results && selectedHotel && (
           <>
             {/* Warning about data reset */}
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -470,25 +513,26 @@ export function PMSUpload() {
                     Data Reset Warning
                   </h4>
                   <p className="text-sm text-amber-700">
-                    Uploading a PMS file will reset all room assignments and data for the current day
+                    Uploading a PMS file will reset all room assignments and data for {selectedHotel} for the current day
                   </p>
                 </div>
               </div>
             </div>
             
-            <div 
-              {...getRootProps()} 
-              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                isDragActive 
-                  ? 'border-primary bg-primary/5' 
-                  : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
-              }`}
-            >
-              <input {...getInputProps()} />
-              <Upload className={`h-12 w-12 mx-auto mb-4 transition-colors ${
-                isDragActive ? 'text-primary' : 'text-muted-foreground'
-              }`} />
-              <div className="space-y-2">
+            {selectedHotel && (
+              <div 
+                {...getRootProps()} 
+                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                  isDragActive 
+                    ? 'border-primary bg-primary/5' 
+                    : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
+                }`}
+              >
+                <input {...getInputProps()} />
+                <Upload className={`h-12 w-12 mx-auto mb-4 transition-colors ${
+                  isDragActive ? 'text-primary' : 'text-muted-foreground'
+                }`} />
+                <div className="space-y-2">
                 <h3 className="font-medium">
                   {isDragActive ? t('pms.dropHere') : t('pms.title')}
                 </h3>
@@ -500,6 +544,7 @@ export function PMSUpload() {
                 </p>
               </div>
             </div>
+            )}
           </>
         )}
 

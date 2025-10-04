@@ -118,15 +118,29 @@ export function RoomManagement() {
       const base = supabase.from('rooms');
 
       if (profile?.role === 'admin' || profile?.role === 'manager') {
-        const res = await base
-          .select('*, is_checkout_room, checkout_time, guest_count, last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)' as any)
+        let query = base
+          .select('*, is_checkout_room, checkout_time, guest_count, last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)' as any);
+        
+        // Filter by assigned hotel if user has one selected
+        if (profile.assigned_hotel) {
+          query = query.eq('hotel', profile.assigned_hotel);
+        }
+        
+        const res = await query
           .order('hotel', { ascending: true })
           .order('room_number', { ascending: true });
         roomsData = res.data;
         error = res.error;
       } else {
-        const res = await base
-          .select('*, is_checkout_room, checkout_time, guest_count')
+        let query = base
+          .select('*, is_checkout_room, checkout_time, guest_count');
+        
+        // Filter by assigned hotel if user has one selected
+        if (profile.assigned_hotel) {
+          query = query.eq('hotel', profile.assigned_hotel);
+        }
+        
+        const res = await query
           .order('hotel', { ascending: true })
           .order('room_number', { ascending: true });
         roomsData = res.data;

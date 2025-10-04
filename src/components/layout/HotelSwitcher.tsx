@@ -43,7 +43,12 @@ export function HotelSwitcher() {
       if (error) throw error;
 
       setCurrentHotel(hotelId);
-      toast.success(`Switched to ${hotelId}`);
+      
+      // Find the hotel name for the toast
+      const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
+      const hotelName = selectedHotelData?.hotel_name || hotelId;
+      
+      toast.success(`Switched to ${hotelName}`);
       
       // Reload the page to refresh all data for the new hotel
       window.location.reload();
@@ -53,7 +58,8 @@ export function HotelSwitcher() {
     }
   };
 
-  const currentHotelName = currentHotel || 'All Hotels';
+  const currentHotelData = hotels.find(h => h.hotel_id === currentHotel);
+  const currentHotelName = currentHotelData?.hotel_name || currentHotel || 'All Hotels';
 
   return (
     <DropdownMenu>

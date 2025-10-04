@@ -121,6 +121,11 @@ export function Dashboard() {
         .select(selectColumns as any)
         .order('created_at', { ascending: false });
 
+      // Filter by assigned hotel if user has one selected
+      if (profile.assigned_hotel) {
+        query = query.eq('hotel', profile.assigned_hotel);
+      }
+
       const { data, error } = await query;
       
       if (error) throw error;
