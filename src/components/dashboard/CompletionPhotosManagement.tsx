@@ -27,7 +27,7 @@ interface CompletionPhoto {
 }
 
 export function CompletionPhotosManagement() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [photos, setPhotos] = useState<CompletionPhoto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,11 +36,33 @@ export function CompletionPhotosManagement() {
   const [dateFilter, setDateFilter] = useState('today');
   const [hotelFilter, setHotelFilter] = useState('all');
   const [hotels, setHotels] = useState<any[]>([]);
+  const [userHotelName, setUserHotelName] = useState<string>('');
 
   useEffect(() => {
     fetchHotels();
-    fetchCompletionPhotos();
-  }, [dateFilter, hotelFilter]);
+    fetchUserHotelName();
+  }, [profile]);
+
+  useEffect(() => {
+    if (userHotelName) {
+      fetchCompletionPhotos();
+    }
+  }, [dateFilter, hotelFilter, userHotelName]);
+
+  const fetchUserHotelName = async () => {
+    if (!profile?.assigned_hotel) return;
+    
+    try {
+      const { data, error } = await supabase
+        .rpc('get_hotel_name_from_id', { hotel_id: profile.assigned_hotel });
+      
+      if (error) throw error;
+      setUserHotelName(data || profile.assigned_hotel);
+    } catch (error) {
+      console.error('Error fetching user hotel name:', error);
+      setUserHotelName(profile.assigned_hotel);
+    }
+  };
 
   const fetchHotels = async () => {
     try {
@@ -73,6 +95,8 @@ export function CompletionPhotosManagement() {
   };
 
   const fetchCompletionPhotos = async () => {
+    if (!userHotelName) return;
+    
     setLoading(true);
     try {
       const { start, end } = getDateRange();
@@ -102,7 +126,12 @@ export function CompletionPhotosManagement() {
         return;
       }
       
-      let filteredData = data || [];
+      // Filter by user's assigned hotel first, then by hotelFilter if needed
+      let filteredData = (data || []).filter(photo => 
+        photo.rooms?.hotel === userHotelName || 
+        photo.rooms?.hotel === profile?.assigned_hotel
+      );
+      
       if (hotelFilter !== 'all') {
         filteredData = filteredData.filter(photo => 
           photo.rooms?.hotel === hotelFilter
