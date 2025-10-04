@@ -9,6 +9,7 @@ import { LanguageSwitcher } from '@/components/dashboard/LanguageSwitcher';
 import { ReportsDialog } from '@/components/dashboard/ReportsDialog';
 import { ProfileDialog } from '@/components/dashboard/ProfileDialog';
 import { SettingsDialog } from '@/components/dashboard/SettingsDialog';
+import { HotelSwitcher } from '@/components/layout/HotelSwitcher';
 import { LogOut, Settings, User } from 'lucide-react';
 import {
   DropdownMenu,
@@ -81,6 +82,7 @@ export function Header() {
         {/* Right Section with Horizontal Scroll */}
         <div className="flex items-center gap-1 sm:gap-3 overflow-x-auto scrollbar-hide max-w-[60%] sm:max-w-none">
           <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+            <HotelSwitcher />
             <LanguageSwitcher />
             
             {(profile?.role === 'admin' || profile?.role === 'manager') && (

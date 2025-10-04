@@ -4,9 +4,19 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Hotel, Plus, AlertCircle } from 'lucide-react';
+import { Hotel, Plus, AlertCircle, Trash2 } from 'lucide-react';
 import { HotelOnboarding } from './HotelOnboarding';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface HotelConfig {
   id: string;
@@ -25,6 +35,8 @@ export const HotelManagementView = () => {
   const [hotels, setHotels] = useState<HotelConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [hotelToDelete, setHotelToDelete] = useState<HotelConfig | null>(null);
 
   useEffect(() => {
     fetchHotels();
@@ -57,6 +69,27 @@ export const HotelManagementView = () => {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteHotel = async () => {
+    if (!hotelToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from('hotel_configurations')
+        .delete()
+        .eq('id', hotelToDelete.id);
+
+      if (error) throw error;
+
+      toast.success('Hotel deleted successfully');
+      setDeleteDialogOpen(false);
+      setHotelToDelete(null);
+      fetchHotels();
+    } catch (error: any) {
+      toast.error('Failed to delete hotel');
+      console.error(error);
     }
   };
 
@@ -130,8 +163,21 @@ export const HotelManagementView = () => {
                 <p className="text-xs text-muted-foreground">/{hotel.organizations.slug}</p>
               </div>
 
-              <div className="text-xs text-muted-foreground">
-                Created: {new Date(hotel.created_at).toLocaleDateString()}
+              <div className="flex items-center justify-between pt-2">
+                <div className="text-xs text-muted-foreground">
+                  Created: {new Date(hotel.created_at).toLocaleDateString()}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setHotelToDelete(hotel);
+                    setDeleteDialogOpen(true);
+                  }}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
               </div>
             </div>
           </Card>
@@ -148,6 +194,27 @@ export const HotelManagementView = () => {
           </Button>
         </div>
       )}
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Hotel</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{hotelToDelete?.hotel_name}</strong>? 
+              This action cannot be undone. All data associated with this hotel will remain in the database but will no longer be accessible through this hotel configuration.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteHotel}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Hotel
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

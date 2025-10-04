@@ -185,7 +185,7 @@ export const OrganizationManagement = () => {
                   variant="outline" 
                   size="sm" 
                   className="flex-1"
-                  onClick={() => navigate(`/${org.slug}`)}
+                  onClick={() => window.location.href = `/${org.slug}`}
                 >
                   <ExternalLink className="w-4 h-4 mr-1" />
                   View Dashboard
