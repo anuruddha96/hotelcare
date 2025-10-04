@@ -78,7 +78,16 @@ export function HousekeepingStaffManagement() {
   const fetchHousekeepingStaff = async () => {
     setLoading(true);
     try {
-      // Use the hotel-filtered function to ensure managers only see their hotel's staff
+      // Get current user profile to check assigned hotel
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+
+      if (profileError) throw profileError;
+
+      // Use the hotel-filtered function which already respects assigned_hotel
       const { data, error } = await supabase
         .rpc('get_employees_by_hotel');
 

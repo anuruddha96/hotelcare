@@ -56,11 +56,18 @@ export function DirtyLinenManagement() {
 
   const fetchHousekeepers = async () => {
     try {
-      const { data, error } = await supabase
+      // Filter by assigned hotel if user has one
+      let query = supabase
         .from('profiles')
-        .select('id, full_name')
+        .select('id, full_name, assigned_hotel')
         .eq('role', 'housekeeping')
         .order('full_name');
+
+      if (profile?.assigned_hotel) {
+        query = query.eq('assigned_hotel', profile.assigned_hotel);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setHousekeepers(data?.map(h => ({ id: h.id, name: h.full_name })) || []);
@@ -108,7 +115,12 @@ export function DirtyLinenManagement() {
       const linenIds = Array.from(new Set(allCountsData.map((r: any) => r.linen_item_id)));
 
       // 2) Fetch lookups in parallel (only if we have ids)
-      const [profilesRes, roomsRes, linenRes] = await Promise.all([
+      // Also get hotel name for filtering
+      const hotelNamePromise = profile?.assigned_hotel 
+        ? supabase.rpc('get_hotel_name_from_id', { hotel_id: profile.assigned_hotel })
+        : Promise.resolve({ data: null });
+
+      const [profilesRes, roomsRes, linenRes, hotelNameRes] = await Promise.all([
         housekeeperIds.length > 0
           ? supabase.from('profiles').select('id, full_name').in('id', housekeeperIds)
           : Promise.resolve({ data: [], error: null } as any),
@@ -118,6 +130,7 @@ export function DirtyLinenManagement() {
         linenIds.length > 0
           ? supabase.from('dirty_linen_items').select('id, display_name').in('id', linenIds)
           : Promise.resolve({ data: [], error: null } as any),
+        hotelNamePromise,
       ]);
 
       if (profilesRes.error) throw profilesRes.error;
@@ -127,38 +140,55 @@ export function DirtyLinenManagement() {
       const profileMap = new Map<string, string>((profilesRes.data || []).map((p: any) => [p.id, p.full_name]));
       const roomMap = new Map<string, { room_number: string; hotel: string }>((roomsRes.data || []).map((r: any) => [r.id, { room_number: r.room_number, hotel: r.hotel }]));
       const linenMap = new Map<string, string>((linenRes.data || []).map((l: any) => [l.id, l.display_name]));
+      const hotelName = hotelNameRes.data;
 
-      // 3) Build view models for main data
-      const counts: LinenCount[] = countsData.map((row: any) => {
-        const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
-        return {
-          id: row.id,
-          housekeeper_name: profileMap.get(row.housekeeper_id) || 'Unknown',
-          room_number: room.room_number,
-          hotel: room.hotel,
-          linen_item_name: linenMap.get(row.linen_item_id) || 'Item',
-          count: row.count,
-          work_date: row.work_date,
-          created_at: row.created_at,
-        };
-      });
+      // 3) Build view models for main data - filter by hotel if assigned
+      const counts: LinenCount[] = countsData
+        .map((row: any) => {
+          const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
+          return {
+            id: row.id,
+            housekeeper_name: profileMap.get(row.housekeeper_id) || 'Unknown',
+            room_number: room.room_number,
+            hotel: room.hotel,
+            linen_item_name: linenMap.get(row.linen_item_id) || 'Item',
+            count: row.count,
+            work_date: row.work_date,
+            created_at: row.created_at,
+          };
+        })
+        .filter(count => {
+          // Filter by assigned hotel if user has one
+          if (profile?.assigned_hotel) {
+            return count.hotel === profile.assigned_hotel || count.hotel === hotelName;
+          }
+          return true;
+        });
 
       setLinenCounts(counts);
 
-      // Build view models for current user's data
-      const myCounts: LinenCount[] = myCountsRows.map((row: any) => {
-        const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
-        return {
-          id: row.id,
-          housekeeper_name: profileMap.get(row.housekeeper_id) || 'Unknown',
-          room_number: room.room_number,
-          hotel: room.hotel,
-          linen_item_name: linenMap.get(row.linen_item_id) || 'Item',
-          count: row.count,
-          work_date: row.work_date,
-          created_at: row.created_at,
-        };
-      });
+      // Build view models for current user's data - also filter by hotel
+      const myCounts: LinenCount[] = myCountsRows
+        .map((row: any) => {
+          const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
+          return {
+            id: row.id,
+            housekeeper_name: profileMap.get(row.housekeeper_id) || 'Unknown',
+            room_number: room.room_number,
+            hotel: room.hotel,
+            linen_item_name: linenMap.get(row.linen_item_id) || 'Item',
+            count: row.count,
+            work_date: row.work_date,
+            created_at: row.created_at,
+          };
+        })
+        .filter(count => {
+          // Filter by assigned hotel if user has one
+          if (profile?.assigned_hotel) {
+            return count.hotel === profile.assigned_hotel || count.hotel === hotelName;
+          }
+          return true;
+        });
 
       setMyLinenCounts(myCounts);
 

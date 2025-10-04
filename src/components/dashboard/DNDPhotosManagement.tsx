@@ -30,7 +30,7 @@ interface DNDPhoto {
 }
 
 export function DNDPhotosManagement() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [photos, setPhotos] = useState<DNDPhoto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -43,7 +43,7 @@ export function DNDPhotosManagement() {
   useEffect(() => {
     fetchHotels();
     fetchDNDPhotos();
-  }, [dateFilter, hotelFilter]);
+  }, [dateFilter, hotelFilter, profile?.assigned_hotel]);
 
   const fetchHotels = async () => {
     try {
@@ -105,10 +105,17 @@ export function DNDPhotosManagement() {
         return;
       }
       
+      // Filter by hotel - use profile's assigned_hotel if available, otherwise use hotelFilter
       let filteredData = data || [];
-      if (hotelFilter !== 'all') {
+      const effectiveHotelFilter = profile?.assigned_hotel || hotelFilter;
+      
+      if (effectiveHotelFilter !== 'all') {
+        // Get hotel name from hotel_id if needed
+        const { data: hotelName } = await supabase
+          .rpc('get_hotel_name_from_id', { hotel_id: effectiveHotelFilter });
+        
         filteredData = filteredData.filter(photo => 
-          photo.rooms?.hotel === hotelFilter
+          photo.rooms?.hotel === effectiveHotelFilter || photo.rooms?.hotel === hotelName
         );
       }
       

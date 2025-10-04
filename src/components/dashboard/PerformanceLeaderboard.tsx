@@ -93,11 +93,24 @@ export function PerformanceLeaderboard() {
     try {
       const dateFrom = new Date(Date.now() - parseInt(timeframe) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      // Fetch all housekeepers
-      const { data: housekeepers } = await supabase
+      // Get current user profile to check assigned hotel
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', user.id)
+        .single();
+
+      // Fetch housekeepers - filter by hotel if assigned
+      let housekeeperQuery = supabase
         .from('profiles')
         .select('id, full_name')
         .eq('role', 'housekeeping');
+
+      if (profileData?.assigned_hotel) {
+        housekeeperQuery = housekeeperQuery.eq('assigned_hotel', profileData.assigned_hotel);
+      }
+
+      const { data: housekeepers } = await housekeeperQuery;
 
       if (!housekeepers || housekeepers.length === 0) {
         setLeaderboard([]);
