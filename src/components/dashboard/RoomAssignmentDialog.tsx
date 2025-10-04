@@ -206,7 +206,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           priority: 2, // Standard priority for all housekeeping tasks
           estimated_duration: estimatedDuration,
           notes: notes.trim() || null,
-          ready_to_clean: assignmentType === 'checkout_cleaning' ? true : false
+          ready_to_clean: false // Managers must mark checkout rooms as ready from pending view
         };
       });
 

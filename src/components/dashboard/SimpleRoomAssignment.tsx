@@ -106,7 +106,7 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
         priority: type === 'checkout_cleaning' ? 2 : 1,
         estimated_duration: type === 'checkout_cleaning' ? 45 : 30,
         notes: `Quick assignment - ${type.replace('_', ' ')}`,
-        ready_to_clean: type === 'checkout_cleaning' ? true : false
+        ready_to_clean: false // Managers must mark checkout rooms as ready from pending view
       }));
 
       console.log('Creating assignments:', assignments);
