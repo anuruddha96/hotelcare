@@ -156,7 +156,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
           user_id: user.id,
           check_in_location: location,
           notes: notes || null,
-          status: 'checked_in'
+          status: 'checked_in',
+          organization_slug: profile?.organization_slug || 'rdhotels'
         });
 
       if (error) {

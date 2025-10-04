@@ -15,6 +15,7 @@ interface Profile {
   last_login?: string;
   assigned_hotel?: string;
   is_super_admin?: boolean;
+  organization_slug?: string;
 }
 
 interface AuthContextType {
