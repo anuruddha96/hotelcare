@@ -450,27 +450,28 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
           <Card>
             <CardHeader className="pb-3 sm:pb-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                  <Wine className="h-4 w-4 sm:h-5 sm:w-5" />
-                  <span>Minibar Usage</span>
-                </CardTitle>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="text-sm font-medium text-primary">
-                    Total: €{getTotalMinibarValue().toFixed(2)}
+                <div className="flex items-center justify-between gap-2 w-full">
+                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                    <Wine className="h-4 w-4 sm:h-5 sm:w-5" />
+                    <span>Minibar Usage</span>
+                  </CardTitle>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Badge className="text-base sm:text-lg font-bold px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md">
+                      Total: €{getTotalMinibarValue().toFixed(2)}
+                    </Badge>
+                    {minibarUsage.length > 0 && (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={clearMinibarUsage}
+                        className="text-xs sm:text-sm"
+                      >
+                        <span className="hidden sm:inline">Clear for Checkout</span>
+                        <span className="sm:hidden">Clear</span>
+                      </Button>
+                    )}
                   </div>
-                  {minibarUsage.length > 0 && (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={clearMinibarUsage}
-                      className="text-xs sm:text-sm"
-                    >
-                      <span className="hidden sm:inline">Clear for Checkout</span>
-                      <span className="sm:hidden">Clear</span>
-                    </Button>
-                  )}
                 </div>
-              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-2 sm:space-y-3">

@@ -1,10 +1,13 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Camera, Upload, X, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -17,6 +20,11 @@ interface DNDPhotoDialogProps {
   onPhotoUploaded?: () => void;
 }
 
+interface CapturedPhoto {
+  dataUrl: string;
+  blob: Blob;
+}
+
 export function DNDPhotoDialog({
   open,
   onOpenChange,
@@ -26,11 +34,12 @@ export function DNDPhotoDialog({
   onPhotoUploaded
 }: DNDPhotoDialogProps) {
   const { user } = useAuth();
-  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const { t } = useTranslation();
+  const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
   const [notes, setNotes] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -38,6 +47,16 @@ export function DNDPhotoDialog({
 
   const startCamera = useCallback(async () => {
     try {
+      setShowCamera(true);
+      setIsCameraLoading(true);
+      
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error('Camera not supported on this device. Please use the upload option.');
+        setShowCamera(false);
+        setIsCameraLoading(false);
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: 'environment',
@@ -50,19 +69,32 @@ export function DNDPhotoDialog({
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         
-        await new Promise((resolve) => {
-          const onLoadedMetadata = () => {
-            videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
-            resolve(null);
-          };
-          videoRef.current?.addEventListener('loadedmetadata', onLoadedMetadata);
-        });
-        
-        setShowCamera(true);
+        videoRef.current.onloadedmetadata = () => {
+          if (videoRef.current) {
+            videoRef.current.play().catch(err => {
+              console.error('Error playing video:', err);
+              toast.error('Could not start camera preview');
+              setIsCameraLoading(false);
+            });
+            setIsCameraLoading(false);
+          }
+        };
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error accessing camera:', error);
-      toast.error('Could not access camera. Please try uploading a photo instead.');
+      let errorMessage = 'Could not access camera. ';
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage += 'Please allow camera permissions in your browser settings.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage += 'No camera found on this device.';
+      } else {
+        errorMessage += 'Please try uploading a photo instead.';
+      }
+      
+      toast.error(errorMessage);
+      setShowCamera(false);
+      setIsCameraLoading(false);
     }
   }, []);
 
@@ -71,7 +103,11 @@ export function DNDPhotoDialog({
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setShowCamera(false);
+    setIsCameraLoading(false);
   }, []);
 
   const capturePhoto = useCallback(() => {
@@ -89,72 +125,82 @@ export function DNDPhotoDialog({
 
     canvas.toBlob((blob) => {
       if (blob) {
-        const file = new File([blob], `dnd-${roomNumber}-${Date.now()}.jpg`, { type: 'image/jpeg' });
-        setSelectedPhoto(file);
-        setPhotoPreview(URL.createObjectURL(blob));
+        const photoUrl = URL.createObjectURL(blob);
+        setCapturedPhotos(prev => [...prev, {
+          dataUrl: photoUrl,
+          blob
+        }]);
+        toast.success('Photo captured successfully');
+        stopCamera();
       }
-    }, 'image/jpeg', 0.8);
+    }, 'image/jpeg', 0.95);
+  }, [stopCamera]);
 
-    stopCamera();
-  }, [roomNumber, stopCamera]);
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      setSelectedPhoto(file);
-      setPhotoPreview(URL.createObjectURL(file));
-    }
-  }, []);
+    Array.from(files).forEach(file => {
+      if (file.type.startsWith('image/')) {
+        const photoUrl = URL.createObjectURL(file);
+        setCapturedPhotos(prev => [...prev, {
+          dataUrl: photoUrl,
+          blob: file
+        }]);
+      }
+    });
 
-  const uploadPhoto = async (file: File) => {
-    if (!user?.id) return null;
-
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${roomId}/${Date.now()}.${fileExt}`;
-      
-      const { data, error } = await supabase.storage
-        .from('dnd-photos')
-        .upload(fileName, file);
-
-      if (error) throw error;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('dnd-photos')
-        .getPublicUrl(data.path);
-
-      return publicUrl;
-    } catch (error) {
-      console.error('Error uploading photo:', error);
-      throw error;
+    if (files.length > 0) {
+      toast.success(`${files.length} photo(s) added`);
     }
   };
 
-  const handleSubmit = async () => {
-    if (!selectedPhoto || !user?.id) {
-      toast.error('Please capture or select a photo');
-      return;
-    }
+  const removePhoto = (index: number) => {
+    setCapturedPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadPhotos = async () => {
+    if (!user || capturedPhotos.length === 0) return;
 
     setIsUploading(true);
+    const uploadedUrls: string[] = [];
+
     try {
-      // Upload photo
-      const photoUrl = await uploadPhoto(selectedPhoto);
-      if (!photoUrl) throw new Error('Failed to upload photo');
+      for (const photo of capturedPhotos) {
+        const fileName = `${user.id}/${roomNumber}/dnd_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        
+        const { data, error } = await supabase.storage
+          .from('dnd-photos')
+          .upload(fileName, photo.blob, {
+            contentType: 'image/jpeg',
+            cacheControl: '3600',
+            upsert: false
+          });
 
-      // Save DND record
-      const { error: dndError } = await supabase
-        .from('dnd_photos')
-        .insert({
-          room_id: roomId,
-          assignment_id: assignmentId || null,
-          marked_by: user.id,
-          photo_url: photoUrl,
-          notes: notes || null,
-          assignment_date: new Date().toISOString().split('T')[0]
-        });
+        if (error) throw error;
 
-      if (dndError) throw dndError;
+        const { data: { publicUrl } } = supabase.storage
+          .from('dnd-photos')
+          .getPublicUrl(data.path);
+
+        uploadedUrls.push(publicUrl);
+      }
+
+      // Save DND records for each photo
+      for (const photoUrl of uploadedUrls) {
+        const { error: dndError } = await supabase
+          .from('dnd_photos')
+          .insert({
+            room_id: roomId,
+            assignment_id: assignmentId || null,
+            marked_by: user.id,
+            photo_url: photoUrl,
+            notes: notes || null,
+            assignment_date: new Date().toISOString().split('T')[0]
+          });
+
+        if (dndError) throw dndError;
+      }
 
       // Update room status to DND
       const { error: roomError } = await supabase
@@ -168,12 +214,12 @@ export function DNDPhotoDialog({
 
       if (roomError) throw roomError;
 
-      toast.success('DND photo captured and room marked as Do Not Disturb');
+      toast.success(`Successfully uploaded ${uploadedUrls.length} DND photo(s) and marked room as Do Not Disturb`);
       onPhotoUploaded?.();
       handleClose();
-    } catch (error) {
-      console.error('Error submitting DND photo:', error);
-      toast.error('Failed to submit DND photo');
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast.error('Failed to upload photos: ' + error.message);
     } finally {
       setIsUploading(false);
     }
@@ -181,18 +227,15 @@ export function DNDPhotoDialog({
 
   const handleClose = () => {
     stopCamera();
-    if (photoPreview) {
-      URL.revokeObjectURL(photoPreview);
-    }
-    setSelectedPhoto(null);
-    setPhotoPreview(null);
+    capturedPhotos.forEach(photo => URL.revokeObjectURL(photo.dataUrl));
+    setCapturedPhotos([]);
     setNotes('');
     onOpenChange(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-orange-600" />
@@ -201,65 +244,72 @@ export function DNDPhotoDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-            <p className="text-sm text-orange-800">
-              Capture a photo showing the DND notice on the door as evidence.
+          <div className="p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg">
+            <p className="text-sm text-orange-800 dark:text-orange-200">
+              Capture photos showing the DND notice on the door as evidence. You can capture multiple photos.
             </p>
           </div>
 
-          {!selectedPhoto && !showCamera && (
-            <div className="grid grid-cols-2 gap-3">
+          {!showCamera ? (
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button
+                type="button"
                 onClick={startCamera}
-                className="flex items-center gap-2"
                 variant="outline"
+                className="flex-1"
               >
-                <Camera className="h-4 w-4" />
+                <Camera className="h-4 w-4 mr-2" />
                 Take Photo
               </Button>
-              
               <Button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-2"
                 variant="outline"
+                className="flex-1"
               >
-                <Upload className="h-4 w-4" />
-                Upload Photo
+                <Upload className="h-4 w-4 mr-2" />
+                Upload Photos
               </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleFileUpload}
+                className="hidden"
+              />
             </div>
-          )}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-
-          {showCamera && (
+          ) : (
             <div className="space-y-3">
-              <div className="relative">
+              <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
+                {isCameraLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+                    <div className="text-white text-center">
+                      <Camera className="h-8 w-8 mx-auto mb-2 animate-pulse" />
+                      <p>Starting camera...</p>
+                    </div>
+                  </div>
+                )}
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
-                  className="w-full rounded-lg"
+                  className="w-full h-full object-cover"
                 />
-                <canvas ref={canvasRef} className="hidden" />
               </div>
-              
               <div className="flex gap-2">
                 <Button
+                  type="button"
                   onClick={capturePhoto}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  className="flex-1"
+                  disabled={isCameraLoading}
                 >
                   <Camera className="h-4 w-4 mr-2" />
                   Capture
                 </Button>
-                
                 <Button
+                  type="button"
                   onClick={stopCamera}
                   variant="outline"
                 >
@@ -269,29 +319,43 @@ export function DNDPhotoDialog({
             </div>
           )}
 
-          {photoPreview && (
-            <div className="space-y-3">
-              <div className="relative">
-                <img
-                  src={photoPreview}
-                  alt="DND photo preview"
-                  className="w-full rounded-lg border"
-                />
-                <Button
-                  onClick={() => {
-                    URL.revokeObjectURL(photoPreview);
-                    setPhotoPreview(null);
-                    setSelectedPhoto(null);
-                  }}
-                  variant="destructive"
-                  size="sm"
-                  className="absolute top-2 right-2"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+          <canvas ref={canvasRef} className="hidden" />
 
-              <div className="space-y-2">
+          {/* Captured Photos */}
+          {capturedPhotos.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Captured Photos ({capturedPhotos.length})</Label>
+                {isUploading && <Badge variant="secondary">Uploading...</Badge>}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {capturedPhotos.map((photo, index) => (
+                  <Card key={index} className="relative overflow-hidden">
+                    <img
+                      src={photo.dataUrl}
+                      alt={`DND photo ${index + 1}`}
+                      className="w-full h-32 object-cover"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="destructive"
+                      className="absolute top-2 right-2 h-8 w-8"
+                      onClick={() => removePhoto(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                    <div className="absolute bottom-2 left-2">
+                      <Badge className="flex items-center gap-1">
+                        <Camera className="h-3 w-3" />
+                        {index + 1}
+                      </Badge>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+              
+              <div className="space-y-2 mt-4">
                 <Label htmlFor="notes">Notes (Optional)</Label>
                 <Textarea
                   id="notes"
@@ -304,31 +368,30 @@ export function DNDPhotoDialog({
             </div>
           )}
 
+          {/* Action Buttons */}
           <div className="flex gap-2">
             <Button
+              type="button"
               onClick={handleClose}
               variant="outline"
               className="flex-1"
               disabled={isUploading}
             >
-              Cancel
+              Close
             </Button>
-            
-            {selectedPhoto && (
+            {capturedPhotos.length > 0 && (
               <Button
-                onClick={handleSubmit}
-                className="flex-1 bg-orange-600 hover:bg-orange-700"
+                type="button"
+                onClick={uploadPhotos}
                 disabled={isUploading}
+                className="flex-1 bg-orange-600 hover:bg-orange-700"
               >
                 {isUploading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Submitting...
-                  </>
+                  <>Uploading...</>
                 ) : (
                   <>
                     <CheckCircle className="h-4 w-4 mr-2" />
-                    Submit DND
+                    Upload {capturedPhotos.length} Photo(s)
                   </>
                 )}
               </Button>

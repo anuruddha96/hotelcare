@@ -126,14 +126,6 @@ export function HousekeepingTab() {
                 <span className="xs:hidden">{t('housekeeping.pmsUpload')}</span>
               </TabsTrigger>
               <TabsTrigger 
-                value="quick-assign" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Zap className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.quickAssign')}</span>
-                <span className="xs:hidden">{t('housekeeping.quickAssign')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
                 value="completion-photos" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
@@ -193,15 +185,6 @@ export function HousekeepingTab() {
 
             <TabsContent value="pms-upload" className="space-y-6">
               <PMSUpload />
-            </TabsContent>
-
-            <TabsContent value="quick-assign" className="space-y-6">
-              <EasyRoomAssignment onAssignmentCreated={() => {
-                // Refresh the team view if it's active
-                if (activeTab === 'manage') {
-                  // This will be handled by the HousekeepingManagerView component
-                }
-              }} />
             </TabsContent>
 
             <TabsContent value="supervisor" className="space-y-6">

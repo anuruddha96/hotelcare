@@ -93,32 +93,53 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     
     try {
       const today = new Date().toISOString().split('T')[0];
-      const { data, error } = await supabase
+      
+      // Fetch dirty linen counts
+      const { data: countsData, error: countsError } = await supabase
         .from('dirty_linen_counts')
-        .select(`
-          id,
-          linen_item_id,
-          count,
-          work_date,
-          room_id,
-          created_at,
-          rooms(room_number),
-          dirty_linen_items(display_name)
-        `)
+        .select('id, linen_item_id, count, work_date, room_id, created_at')
         .eq('housekeeper_id', user.id)
         .eq('work_date', today)
         .gt('count', 0)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (countsError) throw countsError;
       
-      const records = (data || []).map(record => ({
+      if (!countsData || countsData.length === 0) {
+        setMyRecords([]);
+        return;
+      }
+
+      // Fetch room details separately
+      const roomIds = Array.from(new Set(countsData.map(c => c.room_id)));
+      const { data: roomsData, error: roomsError } = await supabase
+        .from('rooms')
+        .select('id, room_number')
+        .in('id', roomIds);
+
+      if (roomsError) throw roomsError;
+
+      // Fetch linen item details separately
+      const linenItemIds = Array.from(new Set(countsData.map(c => c.linen_item_id)));
+      const { data: linenItemsData, error: linenItemsError } = await supabase
+        .from('dirty_linen_items')
+        .select('id, display_name')
+        .in('id', linenItemIds);
+
+      if (linenItemsError) throw linenItemsError;
+
+      // Create lookup maps
+      const roomsMap = new Map(roomsData?.map(r => [r.id, r.room_number]) || []);
+      const linenItemsMap = new Map(linenItemsData?.map(l => [l.id, l.display_name]) || []);
+      
+      // Combine the data
+      const records = countsData.map(record => ({
         id: record.id,
         linen_item_id: record.linen_item_id,
         count: record.count,
         work_date: record.work_date,
-        room_number: (record.rooms as any)?.room_number || 'Unknown',
-        display_name: (record.dirty_linen_items as any)?.display_name || 'Unknown Item'
+        room_number: roomsMap.get(record.room_id) || 'Unknown',
+        display_name: linenItemsMap.get(record.linen_item_id) || 'Unknown Item'
       }));
       
       setMyRecords(records);
