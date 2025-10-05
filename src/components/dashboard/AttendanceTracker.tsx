@@ -456,7 +456,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                     You've completed your shift successfully
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    Rest well and see you tomorrow! ✨
+                    Rest well and see you on your next working day! ✨
                   </div>
                 </div>
               )}

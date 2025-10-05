@@ -8,6 +8,7 @@ import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle,
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
+import { EnhancedImageCaptureDialog } from './EnhancedImageCaptureDialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -447,7 +448,7 @@ export function MobileHousekeepingView() {
 
       {/* Daily Room Photo Capture Dialog */}
       {selectedRoom && selectedAssignmentId && (
-        <ImageCaptureDialog
+        <EnhancedImageCaptureDialog
           open={imageCaptureDialogOpen}
           onOpenChange={setImageCaptureDialogOpen}
           roomNumber={selectedRoom.room_number}

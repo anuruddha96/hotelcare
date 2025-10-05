@@ -22,6 +22,7 @@ import { format } from 'date-fns';
 
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
+import { EnhancedImageCaptureDialog } from './EnhancedImageCaptureDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
 
 interface Room {
@@ -247,7 +248,7 @@ export function EnhancedRoomCard({ room, onClick, assignmentId, showActions = fa
       {/* Dialogs */}
       {assignmentId && (
         <>
-          <ImageCaptureDialog
+          <EnhancedImageCaptureDialog
             open={dailyPhotoDialogOpen}
             onOpenChange={setDailyPhotoDialogOpen}
             roomNumber={room.room_number}

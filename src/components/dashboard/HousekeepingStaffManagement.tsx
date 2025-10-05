@@ -35,6 +35,7 @@ export function HousekeepingStaffManagement() {
     phone_number: '',
     email: '',
     assigned_hotel: '',
+    username: '',
   });
   const [generatedCredentials, setGeneratedCredentials] = useState<{username: string, password: string, email: string} | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -116,12 +117,42 @@ export function HousekeepingStaffManagement() {
     }
   };
 
+  // Auto-generate username
+  const generateUsername = async (fullName: string) => {
+    const firstName = fullName.trim().split(' ')[0];
+    
+    // Get the highest number used for this first name
+    const { data } = await supabase
+      .from('profiles')
+      .select('nickname')
+      .ilike('nickname', `${firstName}_%`)
+      .order('created_at', { ascending: false });
+    
+    let nextNumber = 1;
+    if (data && data.length > 0) {
+      // Extract numbers from existing usernames
+      const numbers = data
+        .map(p => p.nickname?.match(/_(\d+)$/)?.[1])
+        .filter(Boolean)
+        .map(n => parseInt(n as string));
+      
+      if (numbers.length > 0) {
+        nextNumber = Math.max(...numbers) + 1;
+      }
+    }
+    
+    return `${firstName}_${String(nextNumber).padStart(4, '0')}`;
+  };
+
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     
     try {
       console.log('Creating staff with data:', newStaffData);
+      
+      // Auto-generate username if not provided
+      const username = newStaffData.username || await generateUsername(newStaffData.full_name);
       
       // Call edge function which creates auth user and profile atomically
       const { data, error } = await supabase.functions.invoke('create-housekeeper', {
@@ -131,6 +162,7 @@ export function HousekeepingStaffManagement() {
           email: newStaffData.email || null,
           phone_number: newStaffData.phone_number || null,
           assigned_hotel: newStaffData.assigned_hotel || null,
+          username: username,
         },
       });
 
@@ -175,6 +207,7 @@ export function HousekeepingStaffManagement() {
         phone_number: '',
         email: '',
         assigned_hotel: '',
+        username: '',
       });
       setShowCreateForm(false);
       
@@ -320,6 +353,19 @@ export function HousekeepingStaffManagement() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="staff_username">Username (Auto-generated)</Label>
+                  <Input
+                    id="staff_username"
+                    value={newStaffData.username}
+                    onChange={(e) => setNewStaffData({ ...newStaffData, username: e.target.value })}
+                    placeholder="Leave blank for auto-generation (e.g., John_0001)"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank to auto-generate format: FirstName_0001
+                  </p>
                 </div>
               </div>
               

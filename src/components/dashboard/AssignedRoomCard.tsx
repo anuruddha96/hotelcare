@@ -23,6 +23,7 @@ import {
   Camera
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
+import { EnhancedImageCaptureDialog } from './EnhancedImageCaptureDialog';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
@@ -595,7 +596,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       )}
 
       {/* Daily Photo Dialog */}
-      <ImageCaptureDialog
+      <EnhancedImageCaptureDialog
         open={dailyPhotoDialogOpen}
         onOpenChange={setDailyPhotoDialogOpen}
         roomNumber={assignment.rooms?.room_number || 'N/A'}
