@@ -45,6 +45,7 @@ export function EnhancedImageCaptureDialog({
   const [categorizedPhotos, setCategorizedPhotos] = useState<CategorizedPhoto[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<PhotoCategory>('door');
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -53,8 +54,13 @@ export function EnhancedImageCaptureDialog({
 
   const startCamera = useCallback(async () => {
     try {
+      setShowCamera(true);
+      setIsCameraLoading(true);
+      
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         toast.error('Camera not supported on this device. Please use the upload option.');
+        setShowCamera(false);
+        setIsCameraLoading(false);
         return;
       }
 
@@ -75,8 +81,9 @@ export function EnhancedImageCaptureDialog({
             videoRef.current.play().catch(err => {
               console.error('Error playing video:', err);
               toast.error('Could not start camera preview');
+              setIsCameraLoading(false);
             });
-            setShowCamera(true);
+            setIsCameraLoading(false);
           }
         };
       }
@@ -93,6 +100,8 @@ export function EnhancedImageCaptureDialog({
       }
       
       toast.error(errorMessage);
+      setShowCamera(false);
+      setIsCameraLoading(false);
     }
   }, []);
 
@@ -105,6 +114,7 @@ export function EnhancedImageCaptureDialog({
       videoRef.current.srcObject = null;
     }
     setShowCamera(false);
+    setIsCameraLoading(false);
   }, []);
 
   const capturePhoto = useCallback(() => {
@@ -284,13 +294,21 @@ export function EnhancedImageCaptureDialog({
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="relative rounded-lg overflow-hidden bg-black">
+              <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
+                {isCameraLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+                    <div className="text-white text-center">
+                      <Camera className="h-8 w-8 mx-auto mb-2 animate-pulse" />
+                      <p>Starting camera...</p>
+                    </div>
+                  </div>
+                )}
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
-                  className="w-full"
+                  className="w-full h-full object-cover"
                 />
               </div>
               <div className="flex gap-2">
@@ -298,6 +316,7 @@ export function EnhancedImageCaptureDialog({
                   type="button"
                   onClick={capturePhoto}
                   className="flex-1"
+                  disabled={isCameraLoading}
                 >
                   <Camera className="h-4 w-4 mr-2" />
                   Capture
