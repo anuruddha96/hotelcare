@@ -333,6 +333,69 @@ export type Database = {
           },
         ]
       }
+      general_tasks: {
+        Row: {
+          assigned_by: string
+          assigned_date: string
+          assigned_to: string
+          completed_at: string | null
+          completion_photos: string[] | null
+          created_at: string
+          estimated_duration: number | null
+          hotel: string
+          id: string
+          notes: string | null
+          organization_slug: string | null
+          priority: number
+          started_at: string | null
+          status: string
+          task_description: string | null
+          task_name: string
+          task_type: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_by: string
+          assigned_date?: string
+          assigned_to: string
+          completed_at?: string | null
+          completion_photos?: string[] | null
+          created_at?: string
+          estimated_duration?: number | null
+          hotel: string
+          id?: string
+          notes?: string | null
+          organization_slug?: string | null
+          priority?: number
+          started_at?: string | null
+          status?: string
+          task_description?: string | null
+          task_name: string
+          task_type?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_by?: string
+          assigned_date?: string
+          assigned_to?: string
+          completed_at?: string | null
+          completion_photos?: string[] | null
+          created_at?: string
+          estimated_duration?: number | null
+          hotel?: string
+          id?: string
+          notes?: string | null
+          organization_slug?: string | null
+          priority?: number
+          started_at?: string | null
+          status?: string
+          task_description?: string | null
+          task_name?: string
+          task_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hotel_configurations: {
         Row: {
           created_at: string | null
@@ -487,6 +550,138 @@ export type Database = {
             columns: ["assignment_id"]
             isOneToOne: false
             referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lost_and_found: {
+        Row: {
+          assignment_id: string | null
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          found_date: string
+          id: string
+          item_description: string
+          notes: string | null
+          organization_slug: string | null
+          photo_urls: string[] | null
+          reported_by: string
+          room_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          assignment_id?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          found_date?: string
+          id?: string
+          item_description: string
+          notes?: string | null
+          organization_slug?: string | null
+          photo_urls?: string[] | null
+          reported_by: string
+          room_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          assignment_id?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          found_date?: string
+          id?: string
+          item_description?: string
+          notes?: string | null
+          organization_slug?: string | null
+          photo_urls?: string[] | null
+          reported_by?: string
+          room_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lost_and_found_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lost_and_found_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maintenance_issues: {
+        Row: {
+          assignment_id: string | null
+          created_at: string
+          id: string
+          issue_description: string
+          notes: string | null
+          organization_slug: string | null
+          photo_urls: string[] | null
+          priority: string
+          reported_by: string
+          resolved_at: string | null
+          resolved_by: string | null
+          room_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          assignment_id?: string | null
+          created_at?: string
+          id?: string
+          issue_description: string
+          notes?: string | null
+          organization_slug?: string | null
+          photo_urls?: string[] | null
+          priority?: string
+          reported_by: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          room_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          assignment_id?: string | null
+          created_at?: string
+          id?: string
+          issue_description?: string
+          notes?: string | null
+          organization_slug?: string | null
+          photo_urls?: string[] | null
+          priority?: string
+          reported_by?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          room_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_issues_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maintenance_issues_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
         ]

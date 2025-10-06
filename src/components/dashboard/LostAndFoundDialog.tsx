@@ -1,53 +1,39 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Camera, Upload, X, CheckCircle, DoorOpen, Bath, Bed, Coffee } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { Camera, Upload, X, Package, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-interface EnhancedImageCaptureDialogProps {
+interface LostAndFoundDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roomNumber: string;
+  roomId: string;
   assignmentId?: string;
-  onPhotoCaptured?: () => void;
+  onItemReported?: () => void;
 }
 
-type PhotoCategory = 'trash_bin' | 'bathroom' | 'bed' | 'minibar' | 'tea_coffee_table';
-
-interface CategorizedPhoto {
-  category: PhotoCategory;
-  dataUrl: string;
-  blob: Blob;
-}
-
-const PHOTO_CATEGORIES = [
-  { key: 'trash_bin' as PhotoCategory, label: 'Trash Bin', icon: DoorOpen },
-  { key: 'bathroom' as PhotoCategory, label: 'Bathroom', icon: Bath },
-  { key: 'bed' as PhotoCategory, label: 'Bed', icon: Bed },
-  { key: 'minibar' as PhotoCategory, label: 'Minibar', icon: Coffee },
-  { key: 'tea_coffee_table' as PhotoCategory, label: 'Tea/Coffee Table', icon: Coffee },
-];
-
-export function EnhancedImageCaptureDialog({
+export function LostAndFoundDialog({
   open,
   onOpenChange,
   roomNumber,
+  roomId,
   assignmentId,
-  onPhotoCaptured
-}: EnhancedImageCaptureDialogProps) {
+  onItemReported
+}: LostAndFoundDialogProps) {
   const { user } = useAuth();
-  const { t } = useTranslation();
-  const [categorizedPhotos, setCategorizedPhotos] = useState<CategorizedPhoto[]>([]);
+  const [description, setDescription] = useState('');
+  const [notes, setNotes] = useState('');
+  const [photos, setPhotos] = useState<{ dataUrl: string; blob: Blob }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [isCameraLoading, setIsCameraLoading] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<PhotoCategory>('trash_bin');
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -59,7 +45,7 @@ export function EnhancedImageCaptureDialog({
       setIsCameraLoading(true);
       
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast.error('Camera not supported on this device. Please use the upload option.');
+        toast.error('Camera not supported on this device');
         setShowCamera(false);
         setIsCameraLoading(false);
         return;
@@ -90,17 +76,7 @@ export function EnhancedImageCaptureDialog({
       }
     } catch (error: any) {
       console.error('Error accessing camera:', error);
-      let errorMessage = 'Could not access camera. ';
-      
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        errorMessage += 'Please allow camera permissions in your browser settings.';
-      } else if (error.name === 'NotFoundError') {
-        errorMessage += 'No camera found on this device.';
-      } else {
-        errorMessage += 'Please try uploading a photo instead.';
-      }
-      
-      toast.error(errorMessage);
+      toast.error('Could not access camera');
       setShowCamera(false);
       setIsCameraLoading(false);
     }
@@ -134,16 +110,12 @@ export function EnhancedImageCaptureDialog({
     canvas.toBlob((blob) => {
       if (blob) {
         const photoUrl = URL.createObjectURL(blob);
-        setCategorizedPhotos(prev => [...prev, {
-          category: selectedCategory,
-          dataUrl: photoUrl,
-          blob
-        }]);
-        toast.success(`${PHOTO_CATEGORIES.find(c => c.key === selectedCategory)?.label} photo captured`);
+        setPhotos(prev => [...prev, { dataUrl: photoUrl, blob }]);
+        toast.success('Photo captured');
         stopCamera();
       }
     }, 'image/jpeg', 0.95);
-  }, [selectedCategory, stopCamera]);
+  }, [stopCamera]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -152,11 +124,7 @@ export function EnhancedImageCaptureDialog({
     Array.from(files).forEach(file => {
       if (file.type.startsWith('image/')) {
         const photoUrl = URL.createObjectURL(file);
-        setCategorizedPhotos(prev => [...prev, {
-          category: selectedCategory,
-          dataUrl: photoUrl,
-          blob: file
-        }]);
+        setPhotos(prev => [...prev, { dataUrl: photoUrl, blob: file }]);
       }
     });
 
@@ -165,15 +133,23 @@ export function EnhancedImageCaptureDialog({
     }
   };
 
-  const uploadPhotos = async () => {
-    if (!user || categorizedPhotos.length === 0) return;
+  const removePhoto = (index: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    if (!user || !description.trim()) {
+      toast.error('Please enter item description');
+      return;
+    }
 
     setIsUploading(true);
     const uploadedUrls: string[] = [];
 
     try {
-      for (const photo of categorizedPhotos) {
-        const fileName = `${user.id}/${roomNumber}/${photo.category}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+      // Upload photos if any
+      for (const photo of photos) {
+        const fileName = `${user.id}/${roomNumber}/lost_found_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         
         const { data, error } = await supabase.storage
           .from('room-photos')
@@ -192,46 +168,42 @@ export function EnhancedImageCaptureDialog({
         uploadedUrls.push(publicUrl);
       }
 
-      // Update room assignment with photos
-      if (assignmentId) {
-        const { error: updateError } = await supabase
-          .from('room_assignments')
-          .update({
-            completion_photos: uploadedUrls
-          })
-          .eq('id', assignmentId);
+      // Create lost and found item
+      const { error: insertError } = await supabase
+        .from('lost_and_found')
+        .insert({
+          room_id: roomId,
+          assignment_id: assignmentId,
+          reported_by: user.id,
+          item_description: description,
+          photo_urls: uploadedUrls,
+          notes: notes || null,
+          status: 'pending'
+        });
 
-        if (updateError) throw updateError;
-      }
+      if (insertError) throw insertError;
 
-      toast.success(`Successfully uploaded ${uploadedUrls.length} photo(s)`);
+      toast.success('Lost & Found item reported successfully');
       
-      if (onPhotoCaptured) {
-        onPhotoCaptured();
+      if (onItemReported) {
+        onItemReported();
       }
       
       handleClose();
     } catch (error: any) {
-      console.error('Upload error:', error);
-      toast.error('Failed to upload photos: ' + error.message);
+      console.error('Error reporting item:', error);
+      toast.error('Failed to report item: ' + error.message);
     } finally {
       setIsUploading(false);
     }
   };
 
-  const removePhoto = (index: number) => {
-    setCategorizedPhotos(prev => prev.filter((_, i) => i !== index));
-  };
-
   const handleClose = () => {
     stopCamera();
-    setCategorizedPhotos([]);
+    setDescription('');
+    setNotes('');
+    setPhotos([]);
     onOpenChange(false);
-  };
-
-  const getPhotoCategoryIcon = (category: PhotoCategory) => {
-    const Icon = PHOTO_CATEGORIES.find(c => c.key === category)?.icon || Camera;
-    return Icon;
   };
 
   return (
@@ -239,29 +211,31 @@ export function EnhancedImageCaptureDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Camera className="h-5 w-5" />
-            Photo Capture - Room {roomNumber}
+            <Package className="h-5 w-5 text-primary" />
+            Lost & Found - Room {roomNumber}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Category Selection */}
           <div className="space-y-2">
-            <Label>Select Photo Category</Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {PHOTO_CATEGORIES.map(({ key, label, icon: Icon }) => (
-                <Button
-                  key={key}
-                  type="button"
-                  variant={selectedCategory === key ? "default" : "outline"}
-                  onClick={() => setSelectedCategory(key)}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </Button>
-              ))}
-            </div>
+            <Label htmlFor="description">Item Description *</Label>
+            <Input
+              id="description"
+              placeholder="e.g., Blue umbrella, Black wallet, etc."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="notes">Additional Notes (Optional)</Label>
+            <Textarea
+              id="notes"
+              placeholder="Any additional details about the item..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+            />
           </div>
 
           {!showCamera ? (
@@ -335,46 +309,32 @@ export function EnhancedImageCaptureDialog({
 
           <canvas ref={canvasRef} className="hidden" />
 
-          {/* Captured Photos */}
-          {categorizedPhotos.length > 0 && (
+          {photos.length > 0 && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Captured Photos ({categorizedPhotos.length})</Label>
-                {isUploading && <Badge variant="secondary">Uploading...</Badge>}
-              </div>
+              <Label>Photos ({photos.length})</Label>
               <div className="grid grid-cols-2 gap-3">
-                {categorizedPhotos.map((photo, index) => {
-                  const Icon = getPhotoCategoryIcon(photo.category);
-                  return (
-                    <Card key={index} className="relative overflow-hidden">
-                      <img
-                        src={photo.dataUrl}
-                        alt={`${photo.category} ${index + 1}`}
-                        className="w-full h-32 object-cover"
-                      />
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="destructive"
-                        className="absolute top-2 right-2 h-8 w-8"
-                        onClick={() => removePhoto(index)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                      <div className="absolute bottom-2 left-2">
-                        <Badge className="flex items-center gap-1">
-                          <Icon className="h-3 w-3" />
-                          {PHOTO_CATEGORIES.find(c => c.key === photo.category)?.label}
-                        </Badge>
-                      </div>
-                    </Card>
-                  );
-                })}
+                {photos.map((photo, index) => (
+                  <Card key={index} className="relative overflow-hidden">
+                    <img
+                      src={photo.dataUrl}
+                      alt={`Photo ${index + 1}`}
+                      className="w-full h-32 object-cover"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="destructive"
+                      className="absolute top-2 right-2 h-8 w-8"
+                      onClick={() => removePhoto(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </Card>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Action Buttons */}
           <div className="flex gap-2">
             <Button
               type="button"
@@ -383,25 +343,23 @@ export function EnhancedImageCaptureDialog({
               className="flex-1"
               disabled={isUploading}
             >
-              Close
+              Cancel
             </Button>
-            {categorizedPhotos.length > 0 && (
-              <Button
-                type="button"
-                onClick={uploadPhotos}
-                disabled={isUploading}
-                className="flex-1"
-              >
-                {isUploading ? (
-                  <>Uploading...</>
-                ) : (
-                  <>
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Upload {categorizedPhotos.length} Photo(s)
-                  </>
-                )}
-              </Button>
-            )}
+            <Button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isUploading || !description.trim()}
+              className="flex-1"
+            >
+              {isUploading ? (
+                <>Reporting...</>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Report Item
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </DialogContent>

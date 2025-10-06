@@ -20,7 +20,8 @@ import {
   Eye,
   Edit3,
   ArrowUpDown,
-  Camera
+  Camera,
+  Package
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { EnhancedImageCaptureDialog } from './EnhancedImageCaptureDialog';
@@ -29,6 +30,8 @@ import { RoomDetailDialog } from './RoomDetailDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
 import { CompletionChecklistDialog } from './CompletionChecklistDialog';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
+import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
+import { LostAndFoundDialog } from './LostAndFoundDialog';
 import { PausableTimerComponent } from './PausableTimerComponent';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
@@ -73,6 +76,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
   const [newAssignmentType, setNewAssignmentType] = useState(assignment.assignment_type);
+  const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
+  const [lostFoundDialogOpen, setLostFoundDialogOpen] = useState(false);
 
   useEffect(() => {
     checkAttendanceStatus();
@@ -534,49 +539,71 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <span className="font-semibold text-amber-800">Required Actions</span>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {/* Room Photos Button */}
                 <Button
-                  size="lg"
+                  size="sm"
                   variant="outline"
                   onClick={() => setDailyPhotoDialogOpen(true)}
-                  className="flex items-center gap-3 h-12 border-blue-300 text-blue-700 hover:bg-blue-100"
+                  className="flex flex-col items-center gap-1 h-16 border-blue-300 text-blue-700 hover:bg-blue-100"
                 >
-                  <Camera className="h-5 w-5" />
-                  <span>Room Photos</span>
+                  <Camera className="h-4 w-4" />
+                  <span className="text-xs">Room Photos</span>
                 </Button>
 
                 {/* DND Photo Button */}
                 <Button
-                  size="lg"
+                  size="sm"
                   variant="outline"
                   onClick={() => setDndPhotoDialogOpen(true)}
-                  className="flex items-center gap-3 h-12 border-orange-300 text-orange-700 hover:bg-orange-100"
+                  className="flex flex-col items-center gap-1 h-16 border-orange-300 text-orange-700 hover:bg-orange-100"
                 >
-                  <AlertTriangle className="h-5 w-5" />
-                  <span>DND Photo</span>
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="text-xs">DND Photo</span>
                 </Button>
 
                 {/* Dirty Linen Button */}
                 <Button
-                  size="lg"
+                  size="sm"
                   variant="outline"
                   onClick={() => setDirtyLinenDialogOpen(true)}
-                  className="flex items-center gap-3 h-12 border-amber-300 text-amber-700 hover:bg-amber-100"
+                  className="flex flex-col items-center gap-1 h-16 border-amber-300 text-amber-700 hover:bg-amber-100"
                 >
-                  <Shirt className="h-5 w-5" />
-                  <span>Dirty Linen</span>
+                  <Shirt className="h-4 w-4" />
+                  <span className="text-xs">Dirty Linen</span>
                 </Button>
 
                 {/* Minibar Consumption Button */}
                 <Button
-                  size="lg"
+                  size="sm"
                   variant="outline"
                   onClick={() => setRoomDetailOpen(true)}
-                  className="flex items-center gap-3 h-12 border-purple-300 text-purple-700 hover:bg-purple-100"
+                  className="flex flex-col items-center gap-1 h-16 border-purple-300 text-purple-700 hover:bg-purple-100"
                 >
-                  <BedDouble className="h-5 w-5" />
-                  <span>Minibar</span>
+                  <BedDouble className="h-4 w-4" />
+                  <span className="text-xs">Minibar</span>
+                </Button>
+
+                {/* Lost & Found Button */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setLostFoundDialogOpen(true)}
+                  className="flex flex-col items-center gap-1 h-16 border-green-300 text-green-700 hover:bg-green-100"
+                >
+                  <Package className="h-4 w-4" />
+                  <span className="text-xs">Lost & Found</span>
+                </Button>
+
+                {/* Maintenance Issue Button */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setMaintenanceDialogOpen(true)}
+                  className="flex flex-col items-center gap-1 h-16 border-red-300 text-red-700 hover:bg-red-100"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="text-xs">Maintenance</span>
                 </Button>
               </div>
             </div>
@@ -682,6 +709,30 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         onOpenChange={setChecklistDialogOpen}
         onConfirm={() => updateAssignmentStatus('completed')}
         roomNumber={assignment.rooms?.room_number || 'Unknown'}
+      />
+
+      {/* Maintenance Issue Dialog */}
+      <MaintenanceIssueDialog
+        open={maintenanceDialogOpen}
+        onOpenChange={setMaintenanceDialogOpen}
+        roomNumber={assignment.rooms?.room_number || 'Unknown'}
+        roomId={assignment.room_id}
+        assignmentId={assignment.id}
+        onIssueReported={() => {
+          toast.success('Maintenance issue reported successfully');
+        }}
+      />
+
+      {/* Lost & Found Dialog */}
+      <LostAndFoundDialog
+        open={lostFoundDialogOpen}
+        onOpenChange={setLostFoundDialogOpen}
+        roomNumber={assignment.rooms?.room_number || 'Unknown'}
+        roomId={assignment.room_id}
+        assignmentId={assignment.id}
+        onItemReported={() => {
+          toast.success('Lost & Found item reported successfully');
+        }}
       />
 
       {/* Change Assignment Type Dialog */}

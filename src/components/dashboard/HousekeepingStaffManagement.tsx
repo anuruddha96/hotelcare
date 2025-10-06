@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { UserPlus, Users, Edit } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { UserPlus, Users, Edit, Home } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -274,25 +275,37 @@ export function HousekeepingStaffManagement() {
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-0">
-      {/* Room Assignment Summary for Managers/Admins */}
-      {(['admin', 'top_management', 'manager', 'housekeeping_manager'].includes(currentUserRole)) && (
-        <RoomAssignmentSummary />
-      )}
+      <Tabs defaultValue="staff" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="staff" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Team Management
+          </TabsTrigger>
+          <TabsTrigger value="summary" className="flex items-center gap-2">
+            <Home className="h-4 w-4" />
+            Room Assignment Summary
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 sm:h-5 sm:w-5" />
-          <h3 className="text-base sm:text-lg sm:text-xl font-semibold">{t('staff.housekeepingStaff')}</h3>
-        </div>
-        <Button 
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          className="w-full sm:w-auto text-sm"
-        >
-          <UserPlus className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-          <span className="sm:hidden">{t('staff.addNewHousekeeper')}</span>
-          <span className="hidden sm:inline">{t('staff.addHousekeeper')}</span>
-        </Button>
-      </div>
+        <TabsContent value="summary" className="mt-4">
+          <RoomAssignmentSummary />
+        </TabsContent>
+
+        <TabsContent value="staff" className="mt-4 space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 sm:h-5 sm:w-5" />
+              <h3 className="text-base sm:text-lg sm:text-xl font-semibold">{t('staff.housekeepingStaff')}</h3>
+            </div>
+            <Button 
+              onClick={() => setShowCreateForm(!showCreateForm)}
+              className="w-full sm:w-auto text-sm"
+            >
+              <UserPlus className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+              <span className="sm:hidden">{t('staff.addNewHousekeeper')}</span>
+              <span className="hidden sm:inline">{t('staff.addHousekeeper')}</span>
+            </Button>
+          </div>
 
       {showCreateForm && (
         <Card>
@@ -507,46 +520,48 @@ export function HousekeepingStaffManagement() {
         </div>
       )}
 
-      {/* Edit Dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Edit Housekeeper</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit_full_name">Full Name</Label>
-              <Input id="edit_full_name" value={editData.full_name} onChange={(e) => setEditData({ ...editData, full_name: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit_phone">Phone</Label>
-              <Input id="edit_phone" value={editData.phone_number} onChange={(e) => setEditData({ ...editData, phone_number: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit_email">Email</Label>
-              <Input id="edit_email" type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit_hotel">Assigned Hotel</Label>
-              <Select value={editData.assigned_hotel} onValueChange={(v) => setEditData({ ...editData, assigned_hotel: v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select hotel" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">All Hotels</SelectItem>
-                  {hotels.map((hotel) => (
-                    <SelectItem key={hotel.id} value={hotel.name}>{hotel.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-              <Button onClick={saveEdit} disabled={loading}>Save</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          {/* Edit Dialog */}
+          <Dialog open={editOpen} onOpenChange={setEditOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Edit Housekeeper</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit_full_name">Full Name</Label>
+                  <Input id="edit_full_name" value={editData.full_name} onChange={(e) => setEditData({ ...editData, full_name: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_phone">Phone</Label>
+                  <Input id="edit_phone" value={editData.phone_number} onChange={(e) => setEditData({ ...editData, phone_number: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_email">Email</Label>
+                  <Input id="edit_email" type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_hotel">Assigned Hotel</Label>
+                  <Select value={editData.assigned_hotel} onValueChange={(v) => setEditData({ ...editData, assigned_hotel: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select hotel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">All Hotels</SelectItem>
+                      {hotels.map((hotel) => (
+                        <SelectItem key={hotel.id} value={hotel.name}>{hotel.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+                  <Button onClick={saveEdit} disabled={loading}>Save</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

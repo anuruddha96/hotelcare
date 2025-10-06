@@ -275,59 +275,41 @@ export function RoomAssignmentSummary() {
                     <h3 className="font-semibold text-lg sticky top-0 bg-background py-2 border-b">
                       {hotel}
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
                       {hotelAssignments.map((assignment) => (
                         <Card
                           key={assignment.room_id}
                           className={cn(
-                            "border-2 transition-all",
-                            assignment.status === 'completed' && "border-green-200 bg-green-50",
-                            assignment.status === 'in_progress' && "border-blue-200 bg-blue-50",
-                            assignment.status === 'assigned' && "border-yellow-200 bg-yellow-50",
-                            assignment.status === 'unassigned' && "border-gray-200 bg-gray-50"
+                            "border transition-all hover:shadow-md",
+                            assignment.status === 'completed' && "border-green-300 bg-green-50",
+                            assignment.status === 'in_progress' && "border-blue-300 bg-blue-50",
+                            assignment.status === 'assigned' && "border-yellow-300 bg-yellow-50",
+                            assignment.status === 'unassigned' && "border-gray-300 bg-gray-50"
                           )}
                         >
-                          <CardContent className="p-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Home className="h-4 w-4" />
-                                <span className="font-bold text-lg">{assignment.room_number}</span>
-                              </div>
-                              {getStatusBadge(assignment.status)}
+                          <CardContent className="p-2 space-y-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-base">{assignment.room_number}</span>
+                              {assignment.status === 'completed' && <CheckCircle2 className="h-3 w-3 text-green-600" />}
+                              {assignment.status === 'in_progress' && <Clock className="h-3 w-3 text-blue-600" />}
+                              {assignment.status === 'assigned' && <AlertCircle className="h-3 w-3 text-yellow-600" />}
                             </div>
 
                             {assignment.housekeeper_name ? (
-                              <div className="flex items-center gap-2 bg-white/50 rounded p-2">
-                                <Avatar className="h-6 w-6">
-                                  <AvatarFallback className="text-xs">
-                                    {assignment.housekeeper_name.charAt(0).toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">
-                                    {assignment.housekeeper_name}
+                              <div className="space-y-0.5">
+                                <p className="text-xs font-medium truncate" title={assignment.housekeeper_name}>
+                                  {assignment.housekeeper_name}
+                                </p>
+                                {assignment.assignment_type && (
+                                  <p className="text-[10px] text-muted-foreground truncate">
+                                    {getAssignmentTypeLabel(assignment.assignment_type)}
                                   </p>
-                                  {assignment.assignment_type && (
-                                    <p className="text-xs text-muted-foreground">
-                                      {getAssignmentTypeLabel(assignment.assignment_type)}
-                                      {assignment.estimated_duration && ` • ${assignment.estimated_duration}min`}
-                                    </p>
-                                  )}
-                                </div>
+                                )}
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2 bg-white/50 rounded p-2">
-                                <User className="h-4 w-4 text-gray-400" />
-                                <span className="text-sm text-gray-500 italic">
-                                  {assignment.status === 'unassigned' ? 'No Show' : 'Not Assigned'}
-                                </span>
-                              </div>
-                            )}
-
-                            {assignment.priority > 1 && (
-                              <Badge variant="destructive" className="text-xs">
-                                Priority: {assignment.priority}
-                              </Badge>
+                              <p className="text-xs text-gray-500 italic truncate">
+                                {assignment.status === 'unassigned' ? 'Clean - No Show' : 'Unassigned'}
+                              </p>
                             )}
                           </CardContent>
                         </Card>
