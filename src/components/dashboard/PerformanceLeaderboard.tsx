@@ -224,7 +224,10 @@ export function PerformanceLeaderboard() {
       const avgEfficiency = allPerformanceData.length > 0 ?
         Math.round(allPerformanceData.reduce((sum, p) => sum + p.efficiency_score, 0) / allPerformanceData.length) : 0;
       
-      const bestTime = allMinutes.length > 0 ? Math.min(...allMinutes) : 0;
+      // Filter out unrealistic times (< 5 minutes - likely DND or forgotten submissions)
+      // and extremely high times (> 180 minutes - likely errors)
+      const realisticTimes = allMinutes.filter(m => m >= 5 && m <= 180);
+      const bestTime = realisticTimes.length > 0 ? Math.min(...realisticTimes) : 0;
 
       setOverviewStats({
         avgMinutes,
@@ -293,18 +296,45 @@ export function PerformanceLeaderboard() {
         </Tabs>
       </div>
 
-      {/* Scoring Explanation */}
-      <Alert className="bg-blue-50 border-blue-200">
-        <Info className="h-4 w-4 text-blue-600" />
-        <AlertDescription className="text-sm text-blue-900">
-          <div className="font-semibold mb-2">How Performance Score is Calculated:</div>
-          <div className="space-y-1 text-xs">
-            <div>• <strong>Speed (35pts):</strong> Daily cleaning (20pts) + Checkout cleaning (15pts) - Faster = More points</div>
-            <div>• <strong>Punctuality (30pts):</strong> Based on check-in times before 9:00 AM</div>
-            <div>• <strong>Productivity (25pts):</strong> Total rooms completed (0.5pt per room, max 25pts)</div>
-            <div>• <strong>Efficiency (20pts):</strong> Average efficiency score from completed tasks</div>
+      {/* Scoring Explanation - Mobile Optimized */}
+      <Alert className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-300 shadow-sm">
+        <div className="flex items-start gap-3">
+          <Info className="h-5 w-5 text-blue-600 mt-1 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <AlertDescription className="text-blue-900">
+              <div className="font-bold text-base sm:text-lg mb-3 text-blue-800">📊 Performance Score Breakdown</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+                <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
+                  <div className="font-bold text-blue-800 mb-1">⚡ Speed (35pts)</div>
+                  <div className="text-blue-700">Daily: 20pts • Checkout: 15pts</div>
+                  <div className="text-blue-600 text-xs mt-1">Faster completion = Higher score</div>
+                </div>
+                <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
+                  <div className="font-bold text-blue-800 mb-1">⏰ Punctuality (30pts)</div>
+                  <div className="text-blue-700">Check-in before 9:00 AM</div>
+                  <div className="text-blue-600 text-xs mt-1">Early arrivals earn more points</div>
+                </div>
+                <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
+                  <div className="font-bold text-blue-800 mb-1">🎯 Productivity (25pts)</div>
+                  <div className="text-blue-700">0.5pt per room (max 25pts)</div>
+                  <div className="text-blue-600 text-xs mt-1">More rooms = Higher score</div>
+                </div>
+                <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
+                  <div className="font-bold text-blue-800 mb-1">✨ Efficiency (20pts)</div>
+                  <div className="text-blue-700">Task completion quality</div>
+                  <div className="text-blue-600 text-xs mt-1">Based on estimated vs actual time</div>
+                </div>
+              </div>
+              <div className="mt-3 p-2 bg-blue-100 rounded-lg">
+                <p className="text-xs text-blue-800">
+                  <strong>🏆 Selection Criteria:</strong> Top performers are ranked by total score (max 110pts). 
+                  Ties are broken by: 1) Speed, 2) Punctuality, 3) Total rooms completed. 
+                  Scores update automatically based on performance data.
+                </p>
+              </div>
+            </AlertDescription>
           </div>
-        </AlertDescription>
+        </div>
       </Alert>
 
       {/* Overview Stats */}
@@ -348,7 +378,7 @@ export function PerformanceLeaderboard() {
             <div className="text-3xl font-bold">{overviewStats.bestTime}</div>
             <div className="text-sm text-muted-foreground">Best Time</div>
             <div className="text-xs text-muted-foreground mt-1">
-              Fastest room completion (minutes)
+              Fastest realistic completion (5-180 min)
             </div>
           </CardContent>
         </Card>

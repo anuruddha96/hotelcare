@@ -11,7 +11,8 @@ import {
   RefreshCw, 
   Clock, 
   User,
-  MapPin
+  MapPin,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -422,12 +423,20 @@ export function SupervisorApprovalView() {
                   </div>
                 )}
 
+                 {/* Important Assignment Notes - Prominently Displayed */}
                  {assignment.notes && (
-                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <h4 className="font-semibold text-blue-800 mb-2">
-                      {t('housekeeping.assignmentNotes')}
-                    </h4>
-                    <p className="text-sm text-blue-700">{assignment.notes}</p>
+                  <div className="relative p-5 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-xl border-2 border-amber-300 shadow-lg mb-4">
+                    <div className="absolute -top-3 -left-3 bg-amber-400 text-white rounded-full p-2 shadow-md">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <div className="ml-6">
+                      <h4 className="font-bold text-amber-900 mb-2 text-lg flex items-center gap-2">
+                        📝 {t('housekeeping.assignmentNotes')}
+                      </h4>
+                      <p className="text-base text-amber-800 leading-relaxed font-semibold bg-white/60 p-3 rounded-lg border border-amber-200">
+                        {assignment.notes}
+                      </p>
+                    </div>
                   </div>
                  )}
 

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Clock, MapPin, User, Camera, PlayCircle, AlertTriangle, Shirt } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { format } from 'date-fns';
 
 interface MobileHousekeepingCardProps {
@@ -21,7 +22,7 @@ export function MobileHousekeepingCard({
   onTakePhoto,
   onOpenLinen 
 }: MobileHousekeepingCardProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
 
   const getStatusBadge = () => {
     switch (assignment.status) {
@@ -190,11 +191,21 @@ export function MobileHousekeepingCard({
           </div>
         </div>
 
-        {/* Notes */}
+        {/* Important Assignment Notes - Prominently Displayed */}
         {assignment.notes && (
-          <div className="p-2 bg-muted/30 rounded mt-3">
-            <p className="text-sm font-medium mb-1">{t('housekeeping.assignmentNotes')}</p>
-            <p className="text-sm text-muted-foreground">{assignment.notes}</p>
+          <div className="relative p-4 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-lg border-2 border-amber-300 mt-3 shadow-md">
+            <div className="absolute -top-2 -left-2 bg-amber-400 text-white rounded-full p-1.5 shadow-md">
+              <AlertTriangle className="h-3 w-3" />
+            </div>
+            <div className="ml-4">
+              <p className="text-xs font-bold text-amber-900 mb-1">📝 {t('housekeeping.assignmentNotes')}</p>
+              <p className="text-xs text-amber-800 font-semibold bg-white/60 p-2 rounded border border-amber-200">
+                {shouldTranslateContent(language) 
+                  ? translateText(assignment.notes, language)
+                  : assignment.notes
+                }
+              </p>
+            </div>
           </div>
         )}
       </CardContent>

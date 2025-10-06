@@ -126,13 +126,25 @@ export function PMSUpload() {
       return match[1];
     }
     
-    // Pattern 11: TRP rooms with or without SH (e.g., "3TRP-006", "59TRP-209SH" -> "006", "209")
-    match = cleanName.match(/\d+TRP-(\d{3})(?:SH)?/);
+    // Pattern 11: TRP rooms with or without SH (e.g., "3TRP-006", "59TRP-209SH", "TRP-105" -> "006", "209", "105")
+    match = cleanName.match(/(?:\d+)?TRP-?(\d{3})(?:SH)?/);
     if (match) {
       return match[1];
     }
     
-    // Pattern 12: QDR rooms (e.g., "9QDR-038", "26QDR-114" -> "038", "114")
+    // Pattern 12: CQ rooms (Comfort Queen) (e.g., "CQ-405" -> "405")
+    match = cleanName.match(/CQ-(\d{3})/);
+    if (match) {
+      return match[1];
+    }
+    
+    // Pattern 13: QRP rooms (Quad Room Premium) (e.g., "QRP-406", "66EC.QRP216" -> "406", "216")
+    match = cleanName.match(/QRP-?(\d{3})/);
+    if (match) {
+      return match[1];
+    }
+    
+    // Pattern 14: QDR rooms (e.g., "9QDR-038", "26QDR-114" -> "038", "114")
     match = cleanName.match(/\d+QDR-(\d{3})/);
     if (match) {
       return match[1];
@@ -251,6 +263,7 @@ export function PMSUpload() {
           let guestNightsStayed = 0;
           let towelChangeRequired = false;
           let linenChangeRequired = false;
+          let isNoShow = false;
 
           // Parse Night/Total column for guest stay information
           if (row['Night / Total'] && row['Night / Total'].trim() !== '') {
@@ -302,8 +315,13 @@ export function PMSUpload() {
               status: 'daily_cleaning',
               notes: row.Note
             });
-          } else if (row.Status === 'untidy' || row.Status === 'dirty') {
-            // Room marked as dirty in PMS
+          } else if (row.Occupied === 'No' && row.Status === 'Untidy' && row.Arrival) {
+            // No Show (NS) - Guest didn't show up, room was prepared but unused
+            isNoShow = true;
+            newStatus = 'clean'; // Room is clean but was prepared for no-show
+            console.log(`[PMS] Room ${roomNumber}: No Show detected (Occupied: No, Status: Untidy with Arrival)`);
+          } else if (row.Status === 'Untidy' || row.Status === 'untidy' || row.Status === 'dirty') {
+            // Room marked as dirty/untidy in PMS
             newStatus = 'dirty';
             needsCleaning = true;
             console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${row.Status})`);
@@ -314,9 +332,13 @@ export function PMSUpload() {
           console.log(`[PMS] Room ${roomNumber}: Status change ${currentStatus} -> ${newStatus}`);
 
           // Update room status and checkout information
+          const roomNotes = row.Note ? String(row.Note).trim() : null;
+          const statusNote = isNoShow ? 'No Show (NS)' : null;
+          const combinedNotes = [statusNote, roomNotes].filter(Boolean).join(' - ');
+          
           const updateData: any = { 
             status: newStatus,
-            notes: row.Note || null,
+            notes: combinedNotes || null,
             is_checkout_room: isCheckout,
             guest_count: row.People || 0,
             guest_nights_stayed: guestNightsStayed,
