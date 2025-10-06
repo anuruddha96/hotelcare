@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -40,6 +40,16 @@ interface MinibarUsage {
   };
 }
 
+interface MaintenanceIssue {
+  id: string;
+  issue_description: string;
+  photo_urls: string[];
+  priority: string;
+  status: string;
+  notes: string | null;
+  created_at: string;
+}
+
 export function CompletionDataView({ 
   assignmentId, 
   roomId, 
@@ -51,6 +61,7 @@ export function CompletionDataView({
   const [dndPhotos, setDndPhotos] = useState<DNDPhoto[]>([]);
   const [dirtyLinen, setDirtyLinen] = useState<DirtyLinenItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
+  const [maintenanceIssues, setMaintenanceIssues] = useState<MaintenanceIssue[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -140,6 +151,22 @@ export function CompletionDataView({
         console.log('Minibar usage found:', minibarData.length);
         setMinibarUsage(minibarData as any);
       }
+
+      // Fetch maintenance issues for this assignment
+      const { data: maintenanceData, error: maintenanceError } = await supabase
+        .from('maintenance_issues')
+        .select('*')
+        .eq('assignment_id', assignmentId)
+        .order('created_at', { ascending: false });
+
+      if (maintenanceError) {
+        console.error('Error fetching maintenance issues:', maintenanceError);
+      }
+      
+      if (maintenanceData) {
+        console.log('Maintenance issues found:', maintenanceData.length);
+        setMaintenanceIssues(maintenanceData);
+      }
     } catch (error) {
       console.error('Error fetching completion data:', error);
     } finally {
@@ -155,7 +182,7 @@ export function CompletionDataView({
     );
   }
 
-  const hasData = completionPhotos.length > 0 || dndPhotos.length > 0 || dirtyLinen.length > 0 || minibarUsage.length > 0;
+  const hasData = completionPhotos.length > 0 || dndPhotos.length > 0 || dirtyLinen.length > 0 || minibarUsage.length > 0 || maintenanceIssues.length > 0;
 
   return (
     <div className="space-y-3">
@@ -362,6 +389,89 @@ export function CompletionDataView({
                     </span>
                   </div>
                 </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Maintenance Issues - Prominently Displayed */}
+        {maintenanceIssues.length > 0 && (
+          <Dialog>
+            <DialogTrigger asChild>
+              <Card className="p-3 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-red-50 to-red-100 border-red-300 border-2 shadow-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                    <span className="text-sm font-bold text-red-900">⚠️ Maintenance</span>
+                  </div>
+                  <Badge variant="destructive" className="bg-red-600 text-white pulse-animation">
+                    {maintenanceIssues.length}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-red-700 font-semibold">
+                  <span>REQUIRES ATTENTION</span>
+                  <ChevronRight className="h-3 w-3" />
+                </div>
+              </Card>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="h-5 w-5" />
+                  Maintenance Issues Reported
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {maintenanceIssues.map((issue) => (
+                  <Card key={issue.id} className="border-2 border-destructive/30 bg-destructive/5">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Badge className={
+                          issue.priority === 'urgent' || issue.priority === 'high'
+                            ? 'bg-red-600 text-white'
+                            : issue.priority === 'medium'
+                            ? 'bg-yellow-500 text-white'
+                            : 'bg-green-500 text-white'
+                        }>
+                          {issue.priority.toUpperCase()} PRIORITY
+                        </Badge>
+                        <Badge variant="outline">
+                          {issue.status.replace('_', ' ').toUpperCase()}
+                        </Badge>
+                      </div>
+                      
+                      <div className="p-3 bg-white rounded-lg border border-destructive/20">
+                        <p className="font-semibold text-destructive mb-1">Issue Description:</p>
+                        <p className="text-foreground">{issue.issue_description}</p>
+                        {issue.notes && (
+                          <p className="text-muted-foreground mt-2 text-sm">
+                            Notes: {issue.notes}
+                          </p>
+                        )}
+                      </div>
+
+                      {issue.photo_urls && issue.photo_urls.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="font-semibold text-sm">📷 Photos ({issue.photo_urls.length}):</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {issue.photo_urls.map((url, idx) => (
+                              <img
+                                key={idx}
+                                src={url}
+                                alt={`Maintenance ${idx + 1}`}
+                                className="w-full h-24 object-cover rounded-lg border-2 border-destructive/30"
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-muted-foreground">
+                        Reported at: {new Date(issue.created_at).toLocaleString()}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             </DialogContent>
           </Dialog>

@@ -19,6 +19,8 @@ import { DNDPhotosManagement } from './DNDPhotosManagement';
 import { CompletionPhotosManagement } from './CompletionPhotosManagement';
 import { DirtyLinenManagement } from './DirtyLinenManagement';
 import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
+import { MaintenancePhotosManagement } from './MaintenancePhotosManagement';
+import { GeneralTasksManagement } from './GeneralTasksManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
 import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -151,6 +153,22 @@ export function HousekeepingTab() {
                 <span className="sm:hidden">Linen</span>
               </TabsTrigger>
               <TabsTrigger 
+                value="maintenance-photos" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-destructive" />
+                <span className="hidden sm:inline">Maintenance Issues</span>
+                <span className="sm:hidden">Maintenance</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="general-tasks" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">General Tasks</span>
+                <span className="sm:hidden">Tasks</span>
+              </TabsTrigger>
+              <TabsTrigger 
                 value="attendance" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
@@ -220,6 +238,14 @@ export function HousekeepingTab() {
                 <DirtyLinenManagement />
                 {userRole === 'admin' && <DirtyLinenItemsManagement />}
               </div>
+            </TabsContent>
+
+            <TabsContent value="maintenance-photos" className="space-y-6">
+              <MaintenancePhotosManagement />
+            </TabsContent>
+
+            <TabsContent value="general-tasks" className="space-y-6">
+              <GeneralTasksManagement />
             </TabsContent>
           </>
         )}

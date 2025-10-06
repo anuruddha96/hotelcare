@@ -241,6 +241,33 @@ export function SupervisorApprovalView() {
       const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
       if (!assignment) return;
 
+      // First, check if there's already an active assignment for this room on the same date
+      const { data: existingAssignments, error: checkError } = await supabase
+        .from('room_assignments')
+        .select('id, assigned_to, status')
+        .eq('room_id', assignment.room_id)
+        .eq('assignment_date', assignment.assignment_date)
+        .in('status', ['assigned', 'in_progress'])
+        .neq('id', selectedAssignment);
+
+      if (checkError) throw checkError;
+
+      // Cancel or mark as superseded any existing active assignments for this room
+      if (existingAssignments && existingAssignments.length > 0) {
+        const { error: updateError } = await supabase
+          .from('room_assignments')
+          .update({
+            status: 'completed',
+            supervisor_approved: true,
+            supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
+            supervisor_approved_at: new Date().toISOString(),
+            notes: 'Reassigned to another housekeeper'
+          })
+          .in('id', existingAssignments.map(a => a.id));
+
+        if (updateError) throw updateError;
+      }
+
       // Create new assignment for the selected housekeeper
       const { error } = await supabase
         .from('room_assignments')
@@ -251,12 +278,13 @@ export function SupervisorApprovalView() {
           assignment_date: assignment.assignment_date,
           assignment_type: assignment.assignment_type,
           estimated_duration: assignment.estimated_duration,
-          notes: `Reassigned room - Previous completion needs review`
+          priority: assignment.priority,
+          notes: `Reassigned - Previous completion needs review`
         });
 
       if (error) throw error;
 
-      // Mark the current assignment as supervisor approved (so it disappears from pending)
+      // Mark the current assignment as approved (remove from pending list)
       await supabase
         .from('room_assignments')
         .update({

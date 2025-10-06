@@ -168,7 +168,7 @@ export function MaintenanceIssueDialog({
         uploadedUrls.push(publicUrl);
       }
 
-      // Create maintenance issue
+      // Create maintenance issue with pending status (for supervisor approval)
       const { error: insertError } = await supabase
         .from('maintenance_issues')
         .insert({
@@ -177,13 +177,13 @@ export function MaintenanceIssueDialog({
           reported_by: user.id,
           issue_description: description,
           photo_urls: uploadedUrls,
-          status: 'pending',
+          status: 'pending', // This will go to supervisor for approval first
           priority: priority
         });
 
       if (insertError) throw insertError;
 
-      toast.success('Maintenance issue reported successfully');
+      toast.success('Maintenance issue reported and sent for supervisor approval');
       
       if (onIssueReported) {
         onIssueReported();
