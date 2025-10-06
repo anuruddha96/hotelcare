@@ -12,6 +12,7 @@ import { UserPlus, Users, Edit } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
+import { RoomAssignmentSummary } from './RoomAssignmentSummary';
 
 interface HousekeepingStaff {
   id: string;
@@ -273,6 +274,11 @@ export function HousekeepingStaffManagement() {
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-0">
+      {/* Room Assignment Summary for Managers/Admins */}
+      {(['admin', 'top_management', 'manager', 'housekeeping_manager'].includes(currentUserRole)) && (
+        <RoomAssignmentSummary />
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 sm:h-5 sm:w-5" />

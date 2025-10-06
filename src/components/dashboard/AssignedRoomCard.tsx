@@ -27,6 +27,7 @@ import { EnhancedImageCaptureDialog } from './EnhancedImageCaptureDialog';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
+import { CompletionChecklistDialog } from './CompletionChecklistDialog';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { PausableTimerComponent } from './PausableTimerComponent';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -68,6 +69,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [dndPhotoDialogOpen, setDndPhotoDialogOpen] = useState(false);
   const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
+  const [checklistDialogOpen, setChecklistDialogOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
   const [newAssignmentType, setNewAssignmentType] = useState(assignment.assignment_type);
@@ -460,7 +462,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {assignment.status === 'in_progress' && (
               <Button
                 size="lg"
-                onClick={() => updateAssignmentStatus('completed')}
+                onClick={() => setChecklistDialogOpen(true)}
                 disabled={loading}
                 className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
               >
@@ -597,6 +599,24 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           )}
         </div>
 
+        {/* Allow Dirty Linen access for completed rooms */}
+        {assignment.status === 'completed' && (
+          <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+            <p className="text-sm text-purple-800 mb-2">
+              Need to update data after completion?
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setDirtyLinenDialogOpen(true)}
+              className="w-full border-purple-300 text-purple-700 hover:bg-purple-100"
+            >
+              <Shirt className="h-4 w-4 mr-2" />
+              Update Dirty Linen
+            </Button>
+          </div>
+        )}
+
         {/* Room Status Indicator */}
         {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
           <div className="flex items-center gap-3 p-4 bg-muted/50 border border-border rounded-lg shadow-sm">
@@ -654,6 +674,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         roomId={assignment.room_id}
         roomNumber={assignment.rooms?.room_number || 'Unknown'}
         assignmentId={assignment.id}
+      />
+
+      {/* Completion Checklist Dialog */}
+      <CompletionChecklistDialog
+        open={checklistDialogOpen}
+        onOpenChange={setChecklistDialogOpen}
+        onConfirm={() => updateAssignmentStatus('completed')}
+        roomNumber={assignment.rooms?.room_number || 'Unknown'}
       />
 
       {/* Change Assignment Type Dialog */}

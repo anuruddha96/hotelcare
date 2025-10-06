@@ -208,7 +208,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      // Use 'local' scope to ensure complete sign out
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) {
+        console.error('Sign out error:', error);
+        // Force clear local state even if API call fails
+        setUser(null);
+        setSession(null);
+        setProfile(null);
+      }
+    } catch (error) {
+      console.error('Unexpected sign out error:', error);
+      // Force clear local state
+      setUser(null);
+      setSession(null);
+      setProfile(null);
+    }
   };
 
   return (

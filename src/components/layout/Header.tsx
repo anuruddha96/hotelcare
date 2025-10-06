@@ -10,6 +10,7 @@ import { ReportsDialog } from '@/components/dashboard/ReportsDialog';
 import { ProfileDialog } from '@/components/dashboard/ProfileDialog';
 import { SettingsDialog } from '@/components/dashboard/SettingsDialog';
 import { HotelSwitcher } from '@/components/layout/HotelSwitcher';
+import { RoomAssignmentSummary } from '@/components/dashboard/RoomAssignmentSummary';
 import { LogOut, Settings, User } from 'lucide-react';
 import {
   DropdownMenu,
