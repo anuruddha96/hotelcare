@@ -49,6 +49,8 @@ export function WorkingRoomDetailDialog({
   const fetchWorkingAssignment = async () => {
     setLoading(true);
     try {
+      // Changed from .single() to get all in-progress rooms and take the first one
+      // This fixes the issue where multiple working rooms caused .single() to fail
       const { data, error } = await supabase
         .from('room_assignments')
         .select(`
@@ -68,22 +70,25 @@ export function WorkingRoomDetailDialog({
         .eq('assigned_to', staffId)
         .eq('assignment_date', selectedDate)
         .eq('status', 'in_progress')
-        .single();
+        .order('started_at', { ascending: false }) // Most recently started first
+        .limit(1);
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) throw error;
 
-      if (data) {
+      // Get the first (most recent) working room
+      if (data && data.length > 0) {
+        const firstRoom = data[0];
         setAssignment({
-          id: data.id,
-          room_number: data.rooms.room_number,
-          hotel: data.rooms.hotel,
-          assignment_type: data.assignment_type,
-          started_at: data.started_at,
-          estimated_duration: data.estimated_duration,
-          ready_to_clean: data.ready_to_clean,
-          status: data.status,
-          room_status: data.rooms.status,
-          is_checkout_room: data.rooms.is_checkout_room,
+          id: firstRoom.id,
+          room_number: firstRoom.rooms.room_number,
+          hotel: firstRoom.rooms.hotel,
+          assignment_type: firstRoom.assignment_type,
+          started_at: firstRoom.started_at,
+          estimated_duration: firstRoom.estimated_duration,
+          ready_to_clean: firstRoom.ready_to_clean,
+          status: firstRoom.status,
+          room_status: firstRoom.rooms.status,
+          is_checkout_room: firstRoom.rooms.is_checkout_room,
         });
       } else {
         setAssignment(null);
