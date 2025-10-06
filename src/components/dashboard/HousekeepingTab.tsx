@@ -9,6 +9,7 @@ import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
 import { PMSUpload } from './PMSUpload';
 import { EasyRoomAssignment } from './EasyRoomAssignment';
 import { PerformanceLeaderboard } from './PerformanceLeaderboard';
+import { MinibarTrackingView } from './MinibarTrackingView';
 import { SupervisorApprovalView } from './SupervisorApprovalView';
 import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { CompanySettings } from './CompanySettings';
@@ -157,6 +158,14 @@ export function HousekeepingTab() {
                 <span className="hidden sm:inline">{t('hr.management')}</span>
                 <span className="sm:hidden">{t('hr.management')}</span>
               </TabsTrigger>
+              <TabsTrigger 
+                value="minibar" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">{t('minibar.tracking')}</span>
+                <span className="sm:hidden">Minibar</span>
+              </TabsTrigger>
             </>
           )}
           <TabsTrigger
@@ -218,6 +227,12 @@ export function HousekeepingTab() {
         <TabsContent value="assignments" className="space-y-6">
           <HousekeepingStaffView />
         </TabsContent>
+
+        {hasManagerAccess && (
+          <TabsContent value="minibar" className="space-y-6">
+            <MinibarTrackingView />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

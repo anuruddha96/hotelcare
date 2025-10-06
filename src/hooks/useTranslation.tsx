@@ -393,6 +393,10 @@ const translations = {
     // Dirty Linen
     'dirtyLinen.dirtyLinen': 'Dirty Linen',
     'dirtyLinen.linen': 'Linen',
+    'linen.total': 'Total',
+    'linen.count': 'Count',
+    'team.rooms': 'rooms',
+    'pms.processedRooms': 'Processed Rooms',
     'dirtyLinen.details': 'Details',
     'dirtyLinen.title': 'Dirty Linen Count',
     'dirtyLinen.todaysCount': "Today's Count",
@@ -526,6 +530,16 @@ const translations = {
     'staff.updated': 'Updated',
     'staff.staffMemberUpdated': 'Staff member updated successfully',
     'staff.accessRestricted': 'Access restricted to managers and administrators',
+    
+    // Minibar Tracking
+    'minibar.usage': 'Minibar Usage',
+    'minibar.items': 'Minibar Items',
+    'minibar.tracking': 'Minibar Tracking',
+    'minibar.history': 'Minibar History',
+    'minibar.summary': 'Minibar Summary',
+    'minibar.totalRevenue': 'Total Revenue',
+    'minibar.roomsWithUsage': 'Rooms with Usage',
+    'minibar.noData': 'No minibar usage data',
     
     // All Tickets
     'tickets.allTickets': 'All Tickets',
