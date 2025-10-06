@@ -21,8 +21,9 @@ import { DirtyLinenManagement } from './DirtyLinenManagement';
 import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
 import { MaintenancePhotosManagement } from './MaintenancePhotosManagement';
 import { GeneralTasksManagement } from './GeneralTasksManagement';
+import { LostAndFoundManagement } from './LostAndFoundManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
-import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle, Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 export function HousekeepingTab() {
@@ -49,13 +50,32 @@ export function HousekeepingTab() {
   // Full management access: admin, top_management, manager, housekeeping_manager, marketing, control_finance, hr, front_office
   const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
   
-  // Set the default active tab based on manager access - prioritize approvals
+  // Set the default active tab based on manager access and PMS upload status
   useEffect(() => {
-    if (hasManagerAccess) {
-      setActiveTab('supervisor'); // Default to pending approvals for managers
-    } else {
-      setActiveTab('assignments');
-    }
+    const checkPMSUploadStatus = async () => {
+      if (hasManagerAccess) {
+        // Check if PMS upload has been done today
+        const today = new Date().toISOString().split('T')[0];
+        const { data } = await supabase
+          .from('pms_upload_summary')
+          .select('id')
+          .gte('upload_date', `${today}T00:00:00`)
+          .lte('upload_date', `${today}T23:59:59`)
+          .limit(1);
+
+        // If no upload today, default to PMS upload tab
+        if (!data || data.length === 0) {
+          setActiveTab('pms-upload');
+        } else {
+          // Otherwise, default to pending approvals
+          setActiveTab('supervisor');
+        }
+      } else {
+        setActiveTab('assignments');
+      }
+    };
+    
+    checkPMSUploadStatus();
   }, [hasManagerAccess]);
   
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
@@ -169,6 +189,14 @@ export function HousekeepingTab() {
                 <span className="sm:hidden">Tasks</span>
               </TabsTrigger>
               <TabsTrigger 
+                value="lost-and-found" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Package className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Lost & Found</span>
+                <span className="sm:hidden">L&F</span>
+              </TabsTrigger>
+              <TabsTrigger 
                 value="attendance" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
@@ -246,6 +274,10 @@ export function HousekeepingTab() {
 
             <TabsContent value="general-tasks" className="space-y-6">
               <GeneralTasksManagement />
+            </TabsContent>
+
+            <TabsContent value="lost-and-found" className="space-y-6">
+              <LostAndFoundManagement />
             </TabsContent>
           </>
         )}

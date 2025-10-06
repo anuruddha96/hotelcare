@@ -128,7 +128,7 @@ export function CompletionDataView({
         setDirtyLinen(linenData as any);
       }
 
-      // Fetch minibar usage
+      // Fetch ONLY minibar usage for TODAY's assignment (not historical data)
       const { data: minibarData, error: minibarError } = await supabase
         .from('room_minibar_usage')
         .select(`
@@ -141,7 +141,9 @@ export function CompletionDataView({
           )
         `)
         .eq('room_id', roomId)
-        .eq('is_cleared', false);
+        .eq('is_cleared', false)
+        .gte('usage_date', `${assignmentDate}T00:00:00`)
+        .lte('usage_date', `${assignmentDate}T23:59:59`);
 
       if (minibarError) {
         console.error('Error fetching minibar usage:', minibarError);

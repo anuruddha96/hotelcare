@@ -5,8 +5,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import {
   Table,
   TableBody,
@@ -37,6 +39,7 @@ interface MinibarSummary {
 
 export function MinibarTrackingView() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [usageRecords, setUsageRecords] = useState<MinibarUsageRecord[]>([]);
   const [summary, setSummary] = useState<MinibarSummary>({
@@ -45,10 +48,55 @@ export function MinibarTrackingView() {
     roomsWithUsage: 0,
   });
   const [loading, setLoading] = useState(false);
+  const [userRole, setUserRole] = useState<string>('');
 
   useEffect(() => {
+    fetchUserRole();
     fetchMinibarData();
   }, [selectedDate]);
+
+  const fetchUserRole = async () => {
+    if (user?.id) {
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      setUserRole(data?.role || '');
+    }
+  };
+
+  const handleDeleteRecord = async (recordId: string) => {
+    if (!confirm('Are you sure you want to delete this minibar record?')) return;
+    
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('room_minibar_usage')
+        .delete()
+        .eq('id', recordId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Minibar record deleted successfully',
+      });
+
+      fetchMinibarData();
+    } catch (error: any) {
+      console.error('Error deleting record:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete minibar record',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canDelete = ['admin', 'manager', 'housekeeping_manager'].includes(userRole);
 
   const fetchMinibarData = async () => {
     setLoading(true);
@@ -205,6 +253,7 @@ export function MinibarTrackingView() {
                     <TableHead className="text-right">{t('linen.total')}</TableHead>
                     <TableHead>Recorded By</TableHead>
                     <TableHead>Time</TableHead>
+                    {canDelete && <TableHead className="text-right">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -226,6 +275,18 @@ export function MinibarTrackingView() {
                       <TableCell className="text-sm text-muted-foreground">
                         {format(new Date(record.usage_date), 'HH:mm')}
                       </TableCell>
+                      {canDelete && (
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteRecord(record.id)}
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
