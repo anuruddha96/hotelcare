@@ -181,7 +181,7 @@ export function CompletionDataView({
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Camera className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-900">Daily Photos</span>
+                    <span className="text-sm font-medium text-blue-900">Room Photos</span>
                   </div>
                   <Badge variant="secondary" className="bg-blue-200 text-blue-800">
                     {completionPhotos.length}

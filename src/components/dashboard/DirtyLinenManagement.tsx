@@ -10,9 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Shirt, Calendar, Users, BarChart3, Download, Home, TrendingUp, Trash2, User } from 'lucide-react';
-import { format, subDays } from 'date-fns';
+import { format, subDays, eachDayOfInterval } from 'date-fns';
 import { toast } from 'sonner';
+import { DateRange } from 'react-day-picker';
 
 interface LinenCount {
   id: string;
@@ -39,7 +42,10 @@ interface HousekeeperTotal {
 export function DirtyLinenManagement() {
   const { t } = useTranslation();
   const { user, profile } = useAuth();
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
+    from: new Date(),
+    to: new Date(),
+  });
   const [linenCounts, setLinenCounts] = useState<LinenCount[]>([]);
   const [dailyTotals, setDailyTotals] = useState<DailyTotal[]>([]);
   const [housekeeperTotals, setHousekeeperTotals] = useState<HousekeeperTotal[]>([]);
@@ -52,7 +58,7 @@ export function DirtyLinenManagement() {
   useEffect(() => {
     fetchHousekeepers();
     fetchLinenData();
-  }, [selectedDate, selectedHousekeeper]);
+  }, [dateRange, selectedHousekeeper]);
 
   const fetchHousekeepers = async () => {
     try {
@@ -79,11 +85,16 @@ export function DirtyLinenManagement() {
   const fetchLinenData = async () => {
     setLoading(true);
     try {
+      // Generate array of dates from range
+      const dates = dateRange?.from && dateRange?.to 
+        ? eachDayOfInterval({ start: dateRange.from, end: dateRange.to }).map(d => format(d, 'yyyy-MM-dd'))
+        : [format(new Date(), 'yyyy-MM-dd')];
+
       // 1) Fetch raw counts without relying on FK relationships
       let countsQuery = supabase
         .from('dirty_linen_counts')
         .select('id, count, work_date, created_at, housekeeper_id, room_id, linen_item_id')
-        .eq('work_date', selectedDate)
+        .in('work_date', dates)
         .order('created_at', { ascending: false });
 
       if (selectedHousekeeper !== 'all') {
@@ -99,7 +110,7 @@ export function DirtyLinenManagement() {
         const { data: myData, error: myError } = await supabase
           .from('dirty_linen_counts')
           .select('id, count, work_date, created_at, housekeeper_id, room_id, linen_item_id')
-          .eq('work_date', selectedDate)
+          .in('work_date', dates)
           .eq('housekeeper_id', user.id)
           .order('created_at', { ascending: false });
         
@@ -241,7 +252,7 @@ export function DirtyLinenManagement() {
           return;
         }
         
-        if (recordToDelete.work_date !== selectedDate) {
+        if (recordToDelete.work_date !== format(new Date(), 'yyyy-MM-dd')) {
           toast.error('You can only delete records from today');
           return;
         }
@@ -280,7 +291,10 @@ export function DirtyLinenManagement() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dirty-linen-report-${selectedDate}.csv`;
+    const dateLabel = dateRange?.from && dateRange?.to 
+      ? `${format(dateRange.from, 'yyyy-MM-dd')}_to_${format(dateRange.to, 'yyyy-MM-dd')}`
+      : format(new Date(), 'yyyy-MM-dd');
+    a.download = `dirty-linen-report-${dateLabel}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -294,13 +308,37 @@ export function DirtyLinenManagement() {
           <h2 className="text-xl font-semibold">{t('dirtyLinen.management')}</h2>
         </div>
         
-        <div className="flex gap-2">
-          <Input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-auto"
-          />
+        <div className="flex gap-2 flex-wrap">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-auto justify-start text-left font-normal">
+                <Calendar className="mr-2 h-4 w-4" />
+                {dateRange?.from ? (
+                  dateRange.to ? (
+                    <>
+                      {format(dateRange.from, "LLL dd, y")} -{" "}
+                      {format(dateRange.to, "LLL dd, y")}
+                    </>
+                  ) : (
+                    format(dateRange.from, "LLL dd, y")
+                  )
+                ) : (
+                  <span>Pick dates</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <CalendarComponent
+                initialFocus
+                mode="range"
+                defaultMonth={dateRange?.from}
+                selected={dateRange}
+                onSelect={setDateRange}
+                numberOfMonths={2}
+                className="pointer-events-auto"
+              />
+            </PopoverContent>
+          </Popover>
           <Select value={selectedHousekeeper} onValueChange={setSelectedHousekeeper}>
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="Select housekeeper" />
@@ -394,7 +432,9 @@ export function DirtyLinenManagement() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5" />
-                {t('dirtyLinen.dailyTotals')} - {format(new Date(selectedDate), 'MMMM dd, yyyy')}
+                {t('dirtyLinen.dailyTotals')} - {dateRange?.from && dateRange?.to 
+                  ? `${format(dateRange.from, 'MMM dd')} - ${format(dateRange.to, 'MMM dd, yyyy')}`
+                  : format(new Date(), 'MMMM dd, yyyy')}
               </CardTitle>
               <p className="text-sm text-muted-foreground">
                 {t('dirtyLinen.comprehensive')}
@@ -461,7 +501,7 @@ export function DirtyLinenManagement() {
                 <div className="text-center py-12 text-muted-foreground">
                   <Shirt className="h-16 w-16 mx-auto mb-4 opacity-30" />
                   <h3 className="text-lg font-medium mb-2">{t('dirtyLinen.noDataAvailable')}</h3>
-                  <p className="text-sm">No dirty linen has been recorded for {format(new Date(selectedDate), 'MMMM dd, yyyy')}</p>
+                  <p className="text-sm">No dirty linen has been recorded for the selected date range</p>
                   <p className="text-xs mt-2">Data will appear here once housekeepers start logging dirty linen items</p>
                 </div>
               )}
@@ -630,7 +670,9 @@ export function DirtyLinenManagement() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <User className="h-5 w-5" />
-                  My Dirty Linen Records - {format(new Date(selectedDate), 'MMMM dd, yyyy')}
+                  My Dirty Linen Records - {dateRange?.from && dateRange?.to 
+                    ? `${format(dateRange.from, 'MMM dd')} - ${format(dateRange.to, 'MMM dd, yyyy')}`
+                    : format(new Date(), 'MMMM dd, yyyy')}
                 </CardTitle>
                 <p className="text-sm text-muted-foreground">
                   View and manage your dirty linen records for today
@@ -722,7 +764,7 @@ export function DirtyLinenManagement() {
                                 </div>
                               </div>
                               
-                              {item.work_date === selectedDate && (
+                              {item.work_date === format(new Date(), 'yyyy-MM-dd') && (
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
                                     <Button
@@ -764,7 +806,7 @@ export function DirtyLinenManagement() {
                   <div className="text-center py-12 text-muted-foreground">
                     <Shirt className="h-16 w-16 mx-auto mb-4 opacity-30" />
                     <h3 className="text-lg font-medium mb-2">No Records Yet</h3>
-                    <p className="text-sm">You haven't recorded any dirty linen for {format(new Date(selectedDate), 'MMMM dd, yyyy')}</p>
+                    <p className="text-sm">You haven't recorded any dirty linen for the selected period</p>
                     <p className="text-xs mt-2">Start logging dirty linen items from your room assignments</p>
                   </div>
                 )}

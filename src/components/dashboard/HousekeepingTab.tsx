@@ -75,7 +75,7 @@ export function HousekeepingTab() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className={`
           ${hasManagerAccess 
-            ? 'flex overflow-x-auto scrollbar-hide w-full justify-start gap-1 p-1' 
+            ? 'inline-flex overflow-x-auto overflow-y-hidden w-full justify-start gap-1 p-1 h-auto flex-nowrap scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent' 
             : 'grid w-full grid-cols-1'
           }
         `}>
@@ -131,8 +131,8 @@ export function HousekeepingTab() {
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Daily Cleaned Room Photos</span>
-                <span className="sm:hidden">Daily Photos</span>
+                <span className="hidden sm:inline">Room Completion Photos</span>
+                <span className="sm:hidden">Room Photos</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="dnd-photos" 

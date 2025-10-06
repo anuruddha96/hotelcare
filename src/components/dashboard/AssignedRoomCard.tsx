@@ -182,6 +182,30 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       return;
     }
 
+    // Check if user already has a room in progress
+    if (newStatus === 'in_progress') {
+      const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      const { data: activeAssignments, error: checkError } = await supabase
+        .from('room_assignments')
+        .select('id, rooms(room_number)')
+        .eq('assigned_to', user?.id)
+        .eq('status', 'in_progress')
+        .eq('assignment_date', today)
+        .neq('id', assignment.id);
+
+      if (checkError) {
+        console.error('Error checking active assignments:', checkError);
+      } else if (activeAssignments && activeAssignments.length > 0) {
+        const activeRoomNumber = (activeAssignments[0] as any).rooms?.room_number || 'another room';
+        showToast({
+          title: "Already Working on a Room",
+          description: `Please complete ${activeRoomNumber} before starting work on this room. You can only work on one room at a time.`,
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const updateData: any = { status: newStatus };
@@ -509,7 +533,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                {/* Daily Photo Button */}
+                {/* Room Photos Button */}
                 <Button
                   size="lg"
                   variant="outline"
@@ -517,7 +541,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   className="flex items-center gap-3 h-12 border-blue-300 text-blue-700 hover:bg-blue-100"
                 >
                   <Camera className="h-5 w-5" />
-                  <span>Daily Photo</span>
+                  <span>Room Photos</span>
                 </Button>
 
                 {/* DND Photo Button */}
@@ -602,14 +626,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         />
       )}
 
-      {/* Daily Photo Dialog */}
+      {/* Room Photos Dialog */}
       <EnhancedImageCaptureDialog
         open={dailyPhotoDialogOpen}
         onOpenChange={setDailyPhotoDialogOpen}
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         assignmentId={assignment.id}
         onPhotoCaptured={() => {
-          toast.success('Daily photo saved for supervisor approval');
+          toast.success('Room photos saved for supervisor approval');
         }}
       />
 

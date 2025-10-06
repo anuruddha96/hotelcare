@@ -27,7 +27,7 @@ interface CategorizedPhoto {
 }
 
 const PHOTO_CATEGORIES = [
-  { key: 'door' as PhotoCategory, label: 'Door', icon: DoorOpen },
+  { key: 'door' as PhotoCategory, label: 'Trash Bin', icon: DoorOpen },
   { key: 'bathroom' as PhotoCategory, label: 'Bathroom', icon: Bath },
   { key: 'bed' as PhotoCategory, label: 'Bed', icon: Bed },
   { key: 'minibar' as PhotoCategory, label: 'Minibar', icon: Coffee },

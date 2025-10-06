@@ -206,7 +206,7 @@ export function EnhancedRoomCard({ room, onClick, assignmentId, showActions = fa
                 className="flex flex-col items-center gap-1 h-auto py-2 text-xs"
               >
                 <Camera className="h-4 w-4" />
-                <span>Daily Photo</span>
+                <span>Room Photos</span>
               </Button>
               <Button
                 variant="outline"
