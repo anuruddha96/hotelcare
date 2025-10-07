@@ -401,7 +401,7 @@ export function MobileHousekeepingView() {
         {/* Hotel Assignment Info */}
         {profile?.assigned_hotel && (
           <div className="text-xs text-muted-foreground p-2 bg-muted rounded-md mb-4">
-            <p className="font-medium">Hotel Assignment: {profile.assigned_hotel}</p>
+            <p className="font-medium">{t('tasks.hotelAssignment')}: {profile.assigned_hotel}</p>
           </div>
         )}
 

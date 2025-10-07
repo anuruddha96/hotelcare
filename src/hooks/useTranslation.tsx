@@ -157,6 +157,16 @@ const translations = {
     'room.waiting': 'WAITING',
     'room.dirty': 'Dirty',
     
+    // Room Card Details
+    'roomCard.roomName': 'Room Name',
+    'roomCard.estimatedTime': 'Estimated Time',
+    'roomCard.towelChangeRequired': 'TOWEL CHANGE REQUIRED',
+    'roomCard.linenChangeRequired': 'BED LINEN CHANGE REQUIRED',
+    'roomCard.changeLinenMessage': 'Change bed linen',
+    'roomCard.guestStayed': 'Guest stayed',
+    'roomCard.nights': 'nights',
+    'roomCard.roomStatusAlert': 'Room Status Alert',
+    
     // Clean Types
     'cleanType.checkout': 'Checkout Clean',
     'cleanType.daily': 'Daily Clean',
@@ -717,6 +727,29 @@ const translations = {
     'room.status.maintenance': 'Maintenance',
     'room.status.out_of_order': 'Out of Order',
     
+    // Room Details
+    'room.roomName': 'Szoba Név',
+    'room.estimatedTime': 'Becsült Idő',
+    'room.complete': 'Befejezés',
+    'room.addNote': 'Jegyzet hozzáadása',
+    'room.roomStatusAlert': 'Szoba Állapot Figyelmeztetés',
+    'room.roomStatus': 'Szoba Állapota',
+    'room.hotel': 'Szálloda',
+    'room.floor': 'Emelet',
+    'room.start': 'Kezdés',
+    'room.waiting': 'VÁRAKOZÁS',
+    'room.dirty': 'Piszkos',
+    
+    // Room Card Details
+    'roomCard.roomName': 'Szoba Név',
+    'roomCard.estimatedTime': 'Becsült Idő',
+    'roomCard.towelChangeRequired': 'TÖRÖLKÖZŐ CSERE SZÜKSÉGES',
+    'roomCard.linenChangeRequired': 'ÁGYNEMŰ CSERE SZÜKSÉGES',
+    'roomCard.changeLinenMessage': 'Ágynemű cseréje',
+    'roomCard.guestStayed': 'A vendég',
+    'roomCard.nights': 'éjszakát töltött',
+    'roomCard.roomStatusAlert': 'Szoba Állapot Figyelmeztetés',
+    
     // Create Room
     'createRoom.title': 'Create New Room',
     'createRoom.hotel': 'Hotel',
@@ -1088,6 +1121,58 @@ const translations = {
     
     // Minibar Tracking
     'minibar.usage': 'Uso del Minibar',
+    
+    // Room Details
+    'room.roomName': 'Nombre de la Habitación',
+    'room.estimatedTime': 'Tiempo Estimado',
+    'room.complete': 'Completar',
+    'room.addNote': 'Añadir Nota',
+    'room.roomStatusAlert': 'Alerta de Estado de Habitación',
+    'room.roomStatus': 'Estado de la Habitación',
+    'room.hotel': 'Hotel',
+    'room.floor': 'Piso',
+    'room.start': 'Comenzar',
+    'room.waiting': 'ESPERANDO',
+    'room.dirty': 'Sucio',
+    
+    // Room Card Details
+    'roomCard.roomName': 'Nombre de la Habitación',
+    'roomCard.estimatedTime': 'Tiempo Estimado',
+    'roomCard.towelChangeRequired': 'CAMBIO DE TOALLAS REQUERIDO',
+    'roomCard.linenChangeRequired': 'CAMBIO DE ROPA DE CAMA REQUERIDO',
+    'roomCard.changeLinenMessage': 'Cambiar ropa de cama',
+    'roomCard.guestStayed': 'El huésped se quedó',
+    'roomCard.nights': 'noches',
+    'roomCard.roomStatusAlert': 'Alerta de Estado de Habitación',
+    
+    // Task Status
+    'tasks.totalForToday': 'Total de Tareas para Hoy',
+    'tasks.inProgress': 'En Progreso',
+    'tasks.waiting': 'Esperando',
+    'tasks.completed': 'Completado',
+    'tasks.todaysTasks': 'Tareas de Hoy',
+    'tasks.hotelAssignment': 'Asignación de Hotel',
+    'tasks.tasks': 'tareas',
+    
+    // Priority
+    'priority.low': 'Prioridad Baja',
+    'priority.medium': 'Prioridad Media',
+    'priority.high': 'Prioridad Alta',
+    'priority.urgent': 'Urgente',
+    
+    // Clean Types
+    'cleanType.checkout': 'Limpieza de Salida',
+    'cleanType.daily': 'Limpieza Diaria',
+    'cleanType.deep': 'Limpieza Profunda',
+    
+    // Required Actions
+    'actions.required': 'Acciones Requeridas',
+    'actions.dndPhoto': 'Foto DND',
+    'actions.dirtyLinen': 'Ropa Sucia',
+    'actions.minibar': 'Minibar',
+    'actions.lostAndFound': 'Objetos Perdidos',
+    'actions.maintenance': 'Mantenimiento',
+    
     'minibar.items': 'Artículos del Minibar',
     'minibar.tracking': 'Seguimiento del Minibar',
     'minibar.history': 'Historial del Minibar',
@@ -1195,6 +1280,57 @@ const translations = {
     'dashboard.subtitle': 'Quản lý tất cả yêu cầu dịch vụ của RD Hotels',
     'dashboard.myTasks': 'Nhiệm Vụ Của Tôi',
     
+    // Room Details
+    'room.roomName': 'Tên Phòng',
+    'room.estimatedTime': 'Thời Gian Ước Tính',
+    'room.complete': 'Hoàn Thành',
+    'room.addNote': 'Thêm Ghi Chú',
+    'room.roomStatusAlert': 'Cảnh Báo Trạng Thái Phòng',
+    'room.roomStatus': 'Trạng Thái Phòng',
+    'room.hotel': 'Khách Sạn',
+    'room.floor': 'Tầng',
+    'room.start': 'Bắt Đầu',
+    'room.waiting': 'ĐANG CHỜ',
+    'room.dirty': 'Bẩn',
+    
+    // Room Card Details
+    'roomCard.roomName': 'Tên Phòng',
+    'roomCard.estimatedTime': 'Thời Gian Ước Tính',
+    'roomCard.towelChangeRequired': 'CẦN THAY KHĂN TẮM',
+    'roomCard.linenChangeRequired': 'CẦN THAY RA GIƯỜNG',
+    'roomCard.changeLinenMessage': 'Thay ra giường',
+    'roomCard.guestStayed': 'Khách đã ở',
+    'roomCard.nights': 'đêm',
+    'roomCard.roomStatusAlert': 'Cảnh Báo Trạng Thái Phòng',
+    
+    // Task Status
+    'tasks.totalForToday': 'Tổng Nhiệm Vụ Hôm Nay',
+    'tasks.inProgress': 'Đang Thực Hiện',
+    'tasks.waiting': 'Đang Chờ',
+    'tasks.completed': 'Hoàn Thành',
+    'tasks.todaysTasks': 'Nhiệm Vụ Hôm Nay',
+    'tasks.hotelAssignment': 'Phân Công Khách Sạn',
+    'tasks.tasks': 'nhiệm vụ',
+    
+    // Priority
+    'priority.low': 'Ưu Tiên Thấp',
+    'priority.medium': 'Ưu Tiên Trung Bình',
+    'priority.high': 'Ưu Tiên Cao',
+    'priority.urgent': 'Khẩn Cấp',
+    
+    // Clean Types
+    'cleanType.checkout': 'Dọn Phòng Trả',
+    'cleanType.daily': 'Dọn Hàng Ngày',
+    'cleanType.deep': 'Dọn Sâu',
+    
+    // Required Actions
+    'actions.required': 'Hành Động Yêu Cầu',
+    'actions.dndPhoto': 'Ảnh DND',
+    'actions.dirtyLinen': 'Đồ Giặt Bẩn',
+    'actions.minibar': 'Minibar',
+    'actions.lostAndFound': 'Đồ Thất Lạc',
+    'actions.maintenance': 'Bảo Trì',
+    
     // Minibar Tracking
     'minibar.usage': 'Sử Dụng Minibar',
     'minibar.items': 'Mặt Hàng Minibar',
@@ -1286,6 +1422,57 @@ const translations = {
     'dashboard.title': 'Зочид Буудлын Удирдлагын Самбар',
     'dashboard.subtitle': 'RD Hotels-ийн бүх үйлчилгээний хүсэлтийг удирдах',
     'dashboard.myTasks': 'Миний Даалгаврууд',
+    
+    // Room Details
+    'room.roomName': 'Өрөөний Нэр',
+    'room.estimatedTime': 'Тооцоолсон Хугацаа',
+    'room.complete': 'Дуусгах',
+    'room.addNote': 'Тэмдэглэл Нэмэх',
+    'room.roomStatusAlert': 'Өрөөний Төлөвийн Анхааруулга',
+    'room.roomStatus': 'Өрөөний Төлөв',
+    'room.hotel': 'Зочид Буудал',
+    'room.floor': 'Давхар',
+    'room.start': 'Эхлэх',
+    'room.waiting': 'ХҮЛЭЭЖ БАЙНА',
+    'room.dirty': 'Бохир',
+    
+    // Room Card Details
+    'roomCard.roomName': 'Өрөөний Нэр',
+    'roomCard.estimatedTime': 'Тооцоолсон Хугацаа',
+    'roomCard.towelChangeRequired': 'АЛЧУУР СОЛИХ ШААРДЛАГАТАЙ',
+    'roomCard.linenChangeRequired': 'ОР ДЭРНИЙ СОЛИХ ШААРДЛАГАТАЙ',
+    'roomCard.changeLinenMessage': 'Ор дэр солих',
+    'roomCard.guestStayed': 'Зочин',
+    'roomCard.nights': 'шөнө байсан',
+    'roomCard.roomStatusAlert': 'Өрөөний Төлөвийн Анхааруулга',
+    
+    // Task Status
+    'tasks.totalForToday': 'Өнөөдрийн Нийт Даалгаврууд',
+    'tasks.inProgress': 'Явагдаж Байна',
+    'tasks.waiting': 'Хүлээж Байна',
+    'tasks.completed': 'Дууссан',
+    'tasks.todaysTasks': 'Өнөөдрийн Даалгаврууд',
+    'tasks.hotelAssignment': 'Зочид Буудлын Хуваарилалт',
+    'tasks.tasks': 'даалгавар',
+    
+    // Priority
+    'priority.low': 'Бага Ач Холбогдол',
+    'priority.medium': 'Дунд Ач Холбогдол',
+    'priority.high': 'Өндөр Ач Холбогдол',
+    'priority.urgent': 'Яаралтай',
+    
+    // Clean Types
+    'cleanType.checkout': 'Гарах Цэвэрлэгээ',
+    'cleanType.daily': 'Өдөр тутмын Цэвэрлэгээ',
+    'cleanType.deep': 'Гүнзгий Цэвэрлэгээ',
+    
+    // Required Actions
+    'actions.required': 'Шаардлагатай Үйлдлүүд',
+    'actions.dndPhoto': 'DND Зураг',
+    'actions.dirtyLinen': 'Бохир Ор Дэр',
+    'actions.minibar': 'Мини Бар',
+    'actions.lostAndFound': 'Алдагдсан Эд Зүйл',
+    'actions.maintenance': 'Засвар Үйлчилгээ',
     
     // Minibar Tracking
     'minibar.usage': 'Мини Барын Хэрэглээ',

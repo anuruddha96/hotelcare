@@ -123,10 +123,10 @@ export function MobileHousekeepingCard({
               <div className="p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg">
                 <div className="flex items-center gap-2 mb-1">
                   <div className="text-xl">🏺</div>
-                  <div className="font-bold text-lg">{t('roomCard.towelChangeRequired') || 'TOWEL CHANGE REQUIRED'}</div>
+                  <div className="font-bold text-lg">{t('roomCard.towelChangeRequired')}</div>
                 </div>
                 <p className="text-sm opacity-90">
-                  {t('roomCard.guestStayed') || 'Guest stayed'} {guestNights} {t('roomCard.nights') || 'nights'}
+                  {t('roomCard.guestStayed')} {guestNights} {t('roomCard.nights')}
                 </p>
               </div>
             )}
@@ -135,10 +135,10 @@ export function MobileHousekeepingCard({
               <div className="p-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg">
                 <div className="flex items-center gap-2 mb-1">
                   <div className="text-xl">🛏️</div>
-                  <div className="font-bold text-lg">BED LINEN CHANGE REQUIRED</div>
+                  <div className="font-bold text-lg">{t('roomCard.linenChangeRequired')}</div>
                 </div>
                 <p className="text-sm opacity-90">
-                  Guest stayed {guestNights} nights - Change bed linen
+                  {t('roomCard.guestStayed')} {guestNights} {t('roomCard.nights')} - {t('roomCard.changeLinenMessage')}
                 </p>
               </div>
             )}
