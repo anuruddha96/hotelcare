@@ -283,89 +283,103 @@ export function CompletionPhotosManagement() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {photos.map((photo) => (
                 <div key={photo.id}>
-                  {photo.completion_photos.map((photoUrl, index) => (
+                   {photo.completion_photos.map((photoUrl, index) => {
+                    // Extract category from filename
+                    const filename = photoUrl.split('/').pop() || '';
+                    const category = filename.split('_')[0];
+                    const categoryMap: { [key: string]: string } = {
+                      'trash_bin': 'Trash Bin',
+                      'bathroom': 'Bathroom',
+                      'bed': 'Bed',
+                      'minibar': 'Minibar',
+                      'tea_coffee_table': 'Tea/Coffee Table'
+                    };
+                    const categoryName = categoryMap[category] || 'Room Photo';
+                    
+                    return (
                     <Card key={`${photo.id}-${index}`} className="overflow-hidden hover:shadow-lg transition-shadow border-green-200 mb-4">
                        <div className="aspect-video relative bg-gray-100">
-                         <img
-                           src={getImageUrl(photoUrl)}
-                           alt={`Completion Room ${photo.rooms?.room_number} photo`}
-                           className="w-full h-full object-cover"
-                           onError={(e) => {
-                             console.error('Failed to load image:', photoUrl);
-                             (e.target as HTMLImageElement).src = '/placeholder.svg';
-                           }}
-                         />
-                        <div className="absolute top-2 left-2">
-                          <Badge className="bg-green-100 text-green-800 flex items-center gap-1">
-                            <CheckCircle className="h-3 w-3" />
-                            Completed
-                          </Badge>
-                        </div>
-                         <div className="absolute top-2 right-2 flex gap-1">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => viewPhoto(photo, photoUrl)}
-                            className="h-8 w-8 p-0"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => downloadPhoto(photo, photoUrl)}
-                            className="h-8 w-8 p-0"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          {canDelete && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleDeletePhoto(photo.id, photoUrl)}
-                              className="h-8 w-8 p-0"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      <CardContent className="p-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Badge variant="outline" className="flex items-center gap-1">
-                              <Hotel className="h-3 w-3" />
-                              Room {photo.rooms?.room_number}
-                            </Badge>
-                            <Badge variant="secondary" className="text-xs">
-                              {format(new Date(photo.completed_at || ''), 'MMM dd, HH:mm')}
-                            </Badge>
-                          </div>
-                          
-                          <div className="text-sm text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <Hotel className="h-3 w-3" />
-                              {photo.rooms?.hotel}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              {photo.assigned_to_name}
-                            </div>
-                            <div className="text-xs">
-                              {photo.assignment_type.replace('_', ' ').toUpperCase()}
-                            </div>
-                            {photo.rooms?.room_name && (
-                              <div className="text-xs">
-                                {photo.rooms.room_name}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ))}
+                          <img
+                            src={getImageUrl(photoUrl)}
+                            alt={`${categoryName} - Room ${photo.rooms?.room_number}`}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              console.error('Failed to load image:', photoUrl);
+                              (e.target as HTMLImageElement).src = '/placeholder.svg';
+                            }}
+                          />
+                         <div className="absolute top-2 left-2">
+                           <Badge className="bg-green-100 text-green-800 flex items-center gap-1">
+                             <CheckCircle className="h-3 w-3" />
+                             Completed
+                           </Badge>
+                         </div>
+                          <div className="absolute top-2 right-2 flex gap-1">
+                           <Button
+                             size="sm"
+                             variant="secondary"
+                             onClick={() => viewPhoto(photo, photoUrl)}
+                             className="h-8 w-8 p-0"
+                           >
+                             <Eye className="h-4 w-4" />
+                           </Button>
+                           <Button
+                             size="sm"
+                             variant="secondary"
+                             onClick={() => downloadPhoto(photo, photoUrl)}
+                             className="h-8 w-8 p-0"
+                           >
+                             <Download className="h-4 w-4" />
+                           </Button>
+                           {canDelete && (
+                             <Button
+                               size="sm"
+                               variant="destructive"
+                               onClick={() => handleDeletePhoto(photo.id, photoUrl)}
+                               className="h-8 w-8 p-0"
+                             >
+                               <Trash2 className="h-4 w-4" />
+                             </Button>
+                           )}
+                         </div>
+                       </div>
+                       <CardContent className="p-4">
+                         <div className="space-y-2">
+                           <div className="flex items-center justify-between">
+                             <Badge variant="outline" className="flex items-center gap-1">
+                               <Hotel className="h-3 w-3" />
+                               Room {photo.rooms?.room_number}
+                             </Badge>
+                             <Badge variant="secondary" className="text-xs">
+                               {format(new Date(photo.completed_at || ''), 'MMM dd, HH:mm')}
+                             </Badge>
+                           </div>
+                           
+                           <div className="text-sm text-muted-foreground">
+                             <div className="flex items-center gap-1">
+                               <Hotel className="h-3 w-3" />
+                               {photo.rooms?.hotel}
+                             </div>
+                             <div className="flex items-center gap-1">
+                               <User className="h-3 w-3" />
+                               {photo.assigned_to_name}
+                             </div>
+                             <div className="text-xs font-semibold text-blue-600">
+                               {categoryName}
+                             </div>
+                             {photo.rooms?.room_name && (
+                               <div className="text-xs">
+                                 {photo.rooms.room_name}
+                               </div>
+                             )}
+                           </div>
+                         </div>
+                       </CardContent>
+                     </Card>
+                   )})}
+                 </div>
+               ))}
+
 
               {photos.length === 0 && !loading && (
                 <div className="col-span-full text-center py-8 text-muted-foreground">

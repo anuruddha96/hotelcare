@@ -104,10 +104,25 @@ export function RoomPhotosViewer({ open, onOpenChange, roomId, roomNumber }: Roo
               .eq('id', assignment.assigned_to)
               .single();
 
-            for (const photoUrl of assignment.completion_photos) {
+              for (const photoUrl of assignment.completion_photos) {
               const filename = photoUrl.includes('/') ? photoUrl.split('/').pop() : photoUrl;
+              
+              // Extract category from filename (format: category_timestamp_random.jpg)
+              let categoryName = 'Room Photo';
+              if (filename) {
+                const category = filename.split('_')[0];
+                const categoryMap: { [key: string]: string } = {
+                  'trash_bin': 'Trash Bin',
+                  'bathroom': 'Bathroom',
+                  'bed': 'Bed',
+                  'minibar': 'Minibar',
+                  'tea_coffee_table': 'Tea/Coffee Table'
+                };
+                categoryName = categoryMap[category] || 'Room Photo';
+              }
+              
               const { data: urlData } = await supabase.storage
-                .from('dnd-photos')
+                .from('room-photos')
                 .createSignedUrl(filename || photoUrl, 3600);
 
               allPhotos.push({
@@ -115,7 +130,7 @@ export function RoomPhotosViewer({ open, onOpenChange, roomId, roomNumber }: Roo
                 photo_url: urlData?.signedUrl || photoUrl,
                 marked_at: assignment.completed_at || assignment.updated_at,
                 assignment_date: assignment.assignment_date,
-                notes: assignment.notes,
+                notes: categoryName, // Use category name as notes
                 marked_by: assignment.assigned_to,
                 staff_name: staffData?.full_name || 'Unknown',
                 photo_type: 'completion'
@@ -239,11 +254,11 @@ export function RoomPhotosViewer({ open, onOpenChange, roomId, roomNumber }: Roo
                                 {format(new Date(photo.marked_at), 'HH:mm')}
                               </span>
                             </div>
-                            {photo.notes && (
-                              <p className="text-xs text-muted-foreground line-clamp-2">
-                                {photo.notes}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="text-xs">
+                                {photo.notes || 'Room Photo'}
+                              </Badge>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>

@@ -48,6 +48,7 @@ interface AssignedRoomCardProps {
     notes: string;
     started_at?: string | null;
     completed_at?: string | null;
+    completion_photos?: string[] | null;
     rooms: {
       room_number: string;
       hotel: string;
@@ -203,6 +204,42 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           description: `Please complete ${activeRoomNumber} before starting work on this room. You can only work on one room at a time.`,
           variant: "destructive"
         });
+        return;
+      }
+    }
+
+    // For daily cleaning rooms, check if ALL required photos are captured before completion
+    if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
+      const photos = assignment.completion_photos || [];
+      
+      // Check if all 5 required categories are present
+      const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
+      const capturedCategories = new Set(
+        photos.map(url => {
+          // Extract category from filename
+          const filename = url.split('/').pop() || '';
+          const category = filename.split('_')[0];
+          return category;
+        })
+      );
+      
+      const missingCategories = requiredCategories.filter(cat => !capturedCategories.has(cat));
+      
+      if (missingCategories.length > 0) {
+        const categoryNames = {
+          'trash_bin': 'Trash Bin',
+          'bathroom': 'Bathroom',
+          'bed': 'Bed',
+          'minibar': 'Minibar',
+          'tea_coffee_table': 'Tea/Coffee Table'
+        };
+        
+        const missingNames = missingCategories.map(cat => categoryNames[cat as keyof typeof categoryNames]).join(', ');
+        
+        toast.error('Missing Required Photos', {
+          description: `You must capture photos of: ${missingNames}. Please complete all photo types.`
+        });
+        setDailyPhotoDialogOpen(true);
         return;
       }
     }
