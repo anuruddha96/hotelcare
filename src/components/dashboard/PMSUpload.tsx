@@ -206,6 +206,29 @@ export function PMSUpload() {
       } else {
         console.log('Reset all room assignments for today');
       }
+
+      // Clear minibar records for the current hotel to avoid confusion from previous day data
+      if (selectedHotel) {
+        const { data: hotelRooms } = await supabase
+          .from('rooms')
+          .select('id')
+          .or(`hotel.eq.${selectedHotel}`);
+        
+        if (hotelRooms && hotelRooms.length > 0) {
+          const roomIds = hotelRooms.map(r => r.id);
+          const { error: minibarClearError } = await supabase
+            .from('room_minibar_usage')
+            .update({ is_cleared: true })
+            .in('room_id', roomIds)
+            .eq('is_cleared', false);
+          
+          if (minibarClearError) {
+            console.warn('Error clearing minibar records:', minibarClearError);
+          } else {
+            console.log('Cleared previous minibar records for hotel');
+          }
+        }
+      }
       
       // Process the data
       const processed = { processed: 0, updated: 0, assigned: 0, errors: [] as string[] };

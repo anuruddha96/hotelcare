@@ -5,10 +5,20 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Table,
   TableBody,
@@ -39,7 +49,7 @@ interface MinibarSummary {
 
 export function MinibarTrackingView() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [usageRecords, setUsageRecords] = useState<MinibarUsageRecord[]>([]);
   const [summary, setSummary] = useState<MinibarSummary>({
@@ -49,6 +59,7 @@ export function MinibarTrackingView() {
   });
   const [loading, setLoading] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
+  const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchUserRole();
@@ -97,6 +108,52 @@ export function MinibarTrackingView() {
   };
 
   const canDelete = ['admin', 'manager', 'housekeeping_manager'].includes(userRole);
+  const isSuperAdmin = profile?.is_super_admin || false;
+  const canClearAll = ['admin'].includes(userRole) || isSuperAdmin;
+
+  const handleClearAllRecords = async () => {
+    setLoading(true);
+    try {
+      // Get all rooms for this hotel
+      const { data: hotelRooms } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('hotel', profile?.assigned_hotel || '');
+      
+      if (hotelRooms && hotelRooms.length > 0) {
+        const roomIds = hotelRooms.map(r => r.id);
+        const { error } = await supabase
+          .from('room_minibar_usage')
+          .update({ is_cleared: true })
+          .in('room_id', roomIds)
+          .eq('is_cleared', false);
+
+        if (error) throw error;
+
+        toast({
+          title: 'Success',
+          description: 'All minibar records cleared successfully',
+        });
+
+        fetchMinibarData();
+      } else {
+        toast({
+          title: 'Info',
+          description: 'No records found to clear',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error clearing all records:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to clear minibar records',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      setClearAllDialogOpen(false);
+    }
+  };
 
   const fetchMinibarData = async () => {
     setLoading(true);
@@ -167,27 +224,39 @@ export function MinibarTrackingView() {
   return (
     <div className="space-y-6">
       {/* Header with Date Picker */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">{t('minibar.tracking')}</h2>
           <p className="text-muted-foreground">{t('minibar.history')}</p>
         </div>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {format(selectedDate, 'PPP')}
+        <div className="flex items-center gap-2">
+          {canClearAll && (
+            <Button 
+              variant="destructive" 
+              onClick={() => setClearAllDialogOpen(true)}
+              className="gap-2"
+            >
+              <AlertTriangle className="h-4 w-4" />
+              Clear All Records
             </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="end">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={(date) => date && setSelectedDate(date)}
-              initialFocus
-            />
-          </PopoverContent>
-        </Popover>
+          )}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {format(selectedDate, 'PPP')}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={(date) => date && setSelectedDate(date)}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -295,6 +364,25 @@ export function MinibarTrackingView() {
           )}
         </CardContent>
       </Card>
+
+      {/* Clear All Confirmation Dialog */}
+      <AlertDialog open={clearAllDialogOpen} onOpenChange={setClearAllDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear All Minibar Records?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark all minibar records for your hotel as cleared. This action cannot be undone.
+              This should only be used in emergency situations or when resetting data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleClearAllRecords} className="bg-destructive hover:bg-destructive/90">
+              Clear All Records
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

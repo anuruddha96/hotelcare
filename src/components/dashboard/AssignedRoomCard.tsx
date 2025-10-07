@@ -540,16 +540,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
               
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {/* Room Photos Button */}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setDailyPhotoDialogOpen(true)}
-                  className="flex flex-col items-center gap-1 h-16 border-blue-300 text-blue-700 hover:bg-blue-100"
-                >
-                  <Camera className="h-4 w-4" />
-                  <span className="text-xs">Room Photos</span>
-                </Button>
+                {/* Room Photos Button - Only show for daily cleaning rooms, not checkout rooms */}
+                {assignment.assignment_type !== 'checkout_cleaning' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setDailyPhotoDialogOpen(true)}
+                    className="flex flex-col items-center gap-1 h-16 border-blue-300 text-blue-700 hover:bg-blue-100"
+                  >
+                    <Camera className="h-4 w-4" />
+                    <span className="text-xs">Room Photos</span>
+                  </Button>
+                )}
 
                 {/* DND Photo Button */}
                 <Button
