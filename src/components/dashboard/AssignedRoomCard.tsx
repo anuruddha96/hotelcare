@@ -261,6 +261,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
 
     const photos = currentPhotos;
+    console.log('🔍 Validating photos:', photos);
+    console.log('🔍 Photos count:', photos.length);
     
     // Check if all 5 required categories are present
     const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
@@ -268,12 +270,16 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       photos.map(url => {
         // Extract category from filename
         const filename = url.split('/').pop() || '';
+        console.log('📸 Filename:', filename);
         const category = filename.split('_')[0];
+        console.log('📸 Extracted category:', category);
         return category;
       })
     );
     
+    console.log('✅ Captured categories:', Array.from(capturedCategories));
     const missingCategories = requiredCategories.filter(cat => !capturedCategories.has(cat));
+    console.log('❌ Missing categories:', missingCategories);
     
     if (missingCategories.length > 0) {
       const categoryNames = {
