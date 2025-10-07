@@ -174,23 +174,22 @@ export function EnhancedImageCaptureDialog({
   const uploadPhotos = async () => {
     if (!user || categorizedPhotos.length === 0) return;
 
-    // Check if all 5 categories are present
-    const requiredCategories: PhotoCategory[] = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
-    const capturedCategories = new Set(categorizedPhotos.map(p => p.category));
-    const missingCategories = requiredCategories.filter(cat => !capturedCategories.has(cat));
-
-    if (missingCategories.length > 0) {
-      const missingNames = missingCategories.map(cat => 
-        PHOTO_CATEGORIES.find(c => c.key === cat)?.label
-      ).join(', ');
-      toast.error(`Missing required photos: ${missingNames}. Please capture all 5 photo types.`);
-      return;
-    }
-
     setIsUploading(true);
     const uploadedUrls: string[] = [];
 
     try {
+      // First, get existing photos from the assignment
+      let existingPhotos: string[] = [];
+      if (assignmentId) {
+        const { data: assignmentData } = await supabase
+          .from('room_assignments')
+          .select('completion_photos')
+          .eq('id', assignmentId)
+          .single();
+        
+        existingPhotos = assignmentData?.completion_photos || [];
+      }
+
       for (const photo of categorizedPhotos) {
         // Include category name in filename for easy identification
         const fileName = `${user.id}/${roomNumber}/${photo.category}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
@@ -212,12 +211,15 @@ export function EnhancedImageCaptureDialog({
         uploadedUrls.push(publicUrl);
       }
 
-      // Update room assignment with photos
+      // Merge existing photos with new uploads (append new photos)
+      const allPhotos = [...existingPhotos, ...uploadedUrls];
+
+      // Update room assignment with all photos (existing + new)
       if (assignmentId) {
         const { error: updateError } = await supabase
           .from('room_assignments')
           .update({
-            completion_photos: uploadedUrls
+            completion_photos: allPhotos
           })
           .eq('id', assignmentId);
 
