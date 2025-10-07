@@ -7,8 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
-import { AlertTriangle, Calendar, Hotel, User, Eye, Download } from 'lucide-react';
+import { AlertTriangle, Calendar, Hotel, User, Eye, Download, Trash2 } from 'lucide-react';
 import { format, subDays } from 'date-fns';
+import { toast } from '@/hooks/use-toast';
 
 interface DNDPhoto {
   id: string;
@@ -39,6 +40,8 @@ export function DNDPhotosManagement() {
   const [dateFilter, setDateFilter] = useState('today');
   const [hotelFilter, setHotelFilter] = useState('all');
   const [hotels, setHotels] = useState<any[]>([]);
+
+  const canDelete = profile?.role && ['admin'].includes(profile.role);
 
   useEffect(() => {
     fetchHotels();
@@ -180,6 +183,33 @@ export function DNDPhotosManagement() {
     }
   };
 
+  const deletePhoto = async (photoId: string) => {
+    if (!confirm('Are you sure you want to delete this DND photo?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('dnd_photos')
+        .delete()
+        .eq('id', photoId);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'DND photo deleted successfully',
+      });
+
+      fetchDNDPhotos();
+    } catch (error: any) {
+      console.error('Error deleting photo:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete photo',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -259,6 +289,16 @@ export function DNDPhotosManagement() {
                       >
                         <Download className="h-4 w-4" />
                       </Button>
+                      {canDelete && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => deletePhoto(photo.id)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                   <CardContent className="p-4">

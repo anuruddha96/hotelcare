@@ -280,20 +280,31 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
 
   const deleteRecord = async (recordId: string) => {
     try {
-      const { error } = await supabase
+      console.log('Attempting to delete record:', recordId);
+      
+      const { data, error } = await supabase
         .from('dirty_linen_counts')
         .delete()
         .eq('id', recordId)
-        .eq('housekeeper_id', user?.id); // Security check
+        .eq('housekeeper_id', user?.id) // Security check
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Delete error:', error);
+        throw error;
+      }
       
+      console.log('Delete successful, removed:', data);
       toast.success('Record deleted successfully');
-      fetchMyRecords(); // Refresh the list
-      fetchExistingCounts(); // Refresh current room counts
-    } catch (error) {
+      
+      // Force refresh both lists
+      await Promise.all([
+        fetchMyRecords(),
+        fetchExistingCounts()
+      ]);
+    } catch (error: any) {
       console.error('Error deleting record:', error);
-      toast.error('Failed to delete record');
+      toast.error(error.message || 'Failed to delete record');
     }
   };
 

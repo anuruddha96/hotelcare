@@ -50,6 +50,15 @@ interface MaintenanceIssue {
   created_at: string;
 }
 
+interface LostAndFoundItem {
+  id: string;
+  item_description: string;
+  photo_urls: string[];
+  notes: string | null;
+  status: string;
+  found_date: string;
+}
+
 export function CompletionDataView({ 
   assignmentId, 
   roomId, 
@@ -57,11 +66,12 @@ export function CompletionDataView({
   housekeeperId
 }: CompletionDataViewProps) {
   const { t } = useTranslation();
-  const [completionPhotos, setCompletionPhotos] = useState<string[]>([]);
+  const [completionPhotos, setCompletionPhotos] = useState<any[]>([]);
   const [dndPhotos, setDndPhotos] = useState<DNDPhoto[]>([]);
   const [dirtyLinen, setDirtyLinen] = useState<DirtyLinenItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
   const [maintenanceIssues, setMaintenanceIssues] = useState<MaintenanceIssue[]>([]);
+  const [lostAndFoundItems, setLostAndFoundItems] = useState<LostAndFoundItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -85,7 +95,18 @@ export function CompletionDataView({
       if (assignmentData) {
         const photos = assignmentData.completion_photos || [];
         console.log('Completion photos found:', photos.length);
-        setCompletionPhotos(photos);
+        
+        // Parse photos - they might be JSON strings with category info
+        const parsedPhotos = photos.map((photo: any) => {
+          try {
+            const parsed = JSON.parse(photo);
+            return parsed; // {url, category, categoryName}
+          } catch {
+            return { url: photo, categoryName: 'Room Photo' }; // Legacy format
+          }
+        });
+        
+        setCompletionPhotos(parsedPhotos);
       }
 
       // Fetch ONLY DND photos attached to this specific assignment
@@ -169,6 +190,22 @@ export function CompletionDataView({
         console.log('Maintenance issues found:', maintenanceData.length);
         setMaintenanceIssues(maintenanceData);
       }
+
+      // Fetch lost and found items for this assignment
+      const { data: lostFoundData, error: lostFoundError } = await supabase
+        .from('lost_and_found')
+        .select('*')
+        .eq('assignment_id', assignmentId)
+        .order('found_date', { ascending: false });
+
+      if (lostFoundError) {
+        console.error('Error fetching lost and found:', lostFoundError);
+      }
+      
+      if (lostFoundData) {
+        console.log('Lost and found items found:', lostFoundData.length);
+        setLostAndFoundItems(lostFoundData);
+      }
     } catch (error) {
       console.error('Error fetching completion data:', error);
     } finally {
@@ -184,7 +221,7 @@ export function CompletionDataView({
     );
   }
 
-  const hasData = completionPhotos.length > 0 || dndPhotos.length > 0 || dirtyLinen.length > 0 || minibarUsage.length > 0 || maintenanceIssues.length > 0;
+  const hasData = completionPhotos.length > 0 || dndPhotos.length > 0 || dirtyLinen.length > 0 || minibarUsage.length > 0 || maintenanceIssues.length > 0 || lostAndFoundItems.length > 0;
 
   return (
     <div className="space-y-3">
@@ -227,20 +264,26 @@ export function CompletionDataView({
                 <DialogTitle>Daily Completion Photos</DialogTitle>
               </DialogHeader>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {completionPhotos.map((photoUrl, index) => (
-                  <a 
-                    key={index} 
-                    href={photoUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="block"
-                  >
-                    <img
-                      src={photoUrl}
-                      alt={`Completion ${index + 1}`}
-                      className="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition-opacity"
-                    />
-                  </a>
+                {completionPhotos.map((photo, index) => (
+                  <div key={index} className="space-y-1">
+                    <a 
+                      href={photo.url || photo} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      <img
+                        src={photo.url || photo}
+                        alt={photo.categoryName || `Completion ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition-opacity"
+                      />
+                    </a>
+                    {photo.categoryName && (
+                      <p className="text-xs text-center font-medium text-muted-foreground">
+                        {photo.categoryName}
+                      </p>
+                    )}
+                  </div>
                 ))}
               </div>
             </DialogContent>
@@ -391,6 +434,78 @@ export function CompletionDataView({
                     </span>
                   </div>
                 </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Lost and Found Items */}
+        {lostAndFoundItems.length > 0 && (
+          <Dialog>
+            <DialogTrigger asChild>
+              <Card className="p-3 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-300 border-2">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📦</span>
+                    <span className="text-sm font-medium text-yellow-900">Lost & Found</span>
+                  </div>
+                  <Badge variant="secondary" className="bg-yellow-200 text-yellow-800">
+                    {lostAndFoundItems.length}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-yellow-700">
+                  <span>Review items</span>
+                  <ChevronRight className="h-3 w-3" />
+                </div>
+              </Card>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Lost & Found Items</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {lostAndFoundItems.map((item) => (
+                  <Card key={item.id} className="p-4 border-yellow-200">
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-lg">{item.item_description}</h4>
+                          <Badge variant="outline" className="mt-1">
+                            {item.status}
+                          </Badge>
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {new Date(item.found_date).toLocaleDateString()}
+                        </span>
+                      </div>
+                      
+                      {item.photo_urls && item.photo_urls.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {item.photo_urls.map((photoUrl, idx) => (
+                            <a 
+                              key={idx} 
+                              href={photoUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                            >
+                              <img
+                                src={photoUrl}
+                                alt={`Lost item ${idx + 1}`}
+                                className="w-full h-24 object-cover rounded border hover:opacity-80"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {item.notes && (
+                        <div className="text-sm bg-muted p-2 rounded">
+                          <strong>Notes:</strong> {item.notes}
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                ))}
               </div>
             </DialogContent>
           </Dialog>

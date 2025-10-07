@@ -153,8 +153,8 @@ export function HousekeepingTab() {
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Room Completion Photos</span>
-                <span className="sm:hidden">Room Photos</span>
+                <span className="hidden sm:inline">Room Photos</span>
+                <span className="sm:hidden">Room</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="dnd-photos" 
@@ -165,28 +165,12 @@ export function HousekeepingTab() {
                 <span className="sm:hidden">DND</span>
               </TabsTrigger>
               <TabsTrigger 
-                value="dirty-linen" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Dirty Linen</span>
-                <span className="sm:hidden">Linen</span>
-              </TabsTrigger>
-              <TabsTrigger 
                 value="maintenance-photos" 
                 className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
               >
                 <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-destructive" />
-                <span className="hidden sm:inline">Maintenance Issues</span>
-                <span className="sm:hidden">Maintenance</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="general-tasks" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">General Tasks</span>
-                <span className="sm:hidden">Tasks</span>
+                <span className="hidden sm:inline">Maintenance</span>
+                <span className="sm:hidden">Maint</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="lost-and-found" 
@@ -195,6 +179,22 @@ export function HousekeepingTab() {
                 <Package className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden sm:inline">Lost & Found</span>
                 <span className="sm:hidden">L&F</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="dirty-linen" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Dirty Linen</span>
+                <span className="sm:hidden">Linen</span>
+              </TabsTrigger>
+              <TabsTrigger 
+                value="general-tasks" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+              >
+                <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">General Tasks</span>
+                <span className="sm:hidden">Tasks</span>
               </TabsTrigger>
               <TabsTrigger 
                 value="attendance" 

@@ -22,16 +22,17 @@ type PhotoCategory = 'trash_bin' | 'bathroom' | 'bed' | 'minibar' | 'tea_coffee_
 
 interface CategorizedPhoto {
   category: PhotoCategory;
+  categoryName: string;
   dataUrl: string;
   blob: Blob;
 }
 
 const PHOTO_CATEGORIES = [
-  { key: 'trash_bin' as PhotoCategory, label: 'Trash Bin', icon: DoorOpen },
-  { key: 'bathroom' as PhotoCategory, label: 'Bathroom', icon: Bath },
-  { key: 'bed' as PhotoCategory, label: 'Bed', icon: Bed },
-  { key: 'minibar' as PhotoCategory, label: 'Minibar', icon: Coffee },
-  { key: 'tea_coffee_table' as PhotoCategory, label: 'Tea/Coffee Table', icon: Coffee },
+  { key: 'trash_bin' as PhotoCategory, label: 'Trash Bin', displayName: 'Trash Bin', icon: DoorOpen },
+  { key: 'bathroom' as PhotoCategory, label: 'Bathroom', displayName: 'Bathroom', icon: Bath },
+  { key: 'bed' as PhotoCategory, label: 'Bed', displayName: 'Bed', icon: Bed },
+  { key: 'minibar' as PhotoCategory, label: 'Minibar', displayName: 'Minibar', icon: Coffee },
+  { key: 'tea_coffee_table' as PhotoCategory, label: 'Tea/Coffee Table', displayName: 'Tea/Coffee Table', icon: Coffee },
 ];
 
 export function EnhancedImageCaptureDialog({
@@ -134,12 +135,14 @@ export function EnhancedImageCaptureDialog({
     canvas.toBlob((blob) => {
       if (blob) {
         const photoUrl = URL.createObjectURL(blob);
+        const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === selectedCategory);
         setCategorizedPhotos(prev => [...prev, {
           category: selectedCategory,
+          categoryName: categoryInfo?.displayName || selectedCategory,
           dataUrl: photoUrl,
           blob
         }]);
-        toast.success(`${PHOTO_CATEGORIES.find(c => c.key === selectedCategory)?.label} photo captured`);
+        toast.success(`${categoryInfo?.label} photo captured`);
         stopCamera();
       }
     }, 'image/jpeg', 0.95);
@@ -149,11 +152,14 @@ export function EnhancedImageCaptureDialog({
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === selectedCategory);
+    
     Array.from(files).forEach(file => {
       if (file.type.startsWith('image/')) {
         const photoUrl = URL.createObjectURL(file);
         setCategorizedPhotos(prev => [...prev, {
           category: selectedCategory,
+          categoryName: categoryInfo?.displayName || selectedCategory,
           dataUrl: photoUrl,
           blob: file
         }]);
