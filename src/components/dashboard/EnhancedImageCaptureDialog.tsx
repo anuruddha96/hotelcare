@@ -228,8 +228,9 @@ export function EnhancedImageCaptureDialog({
 
       toast.success(`Successfully uploaded ${uploadedUrls.length} photo(s)`);
       
+      // Wait for the callback to complete before closing
       if (onPhotoCaptured) {
-        onPhotoCaptured();
+        await onPhotoCaptured();
       }
       
       handleClose();
