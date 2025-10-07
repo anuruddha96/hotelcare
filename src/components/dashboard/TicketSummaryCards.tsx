@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { hotels } from './HotelFilter';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface Ticket {
   id: string;
@@ -19,6 +20,7 @@ export const TicketSummaryCards: React.FC<TicketSummaryCardsProps> = ({
   tickets,
   selectedHotel,
 }) => {
+  const { t } = useTranslation();
   const filteredTickets = selectedHotel === 'all' 
     ? tickets 
     : tickets.filter(ticket => ticket.hotel === selectedHotel);
@@ -51,7 +53,7 @@ export const TicketSummaryCards: React.FC<TicketSummaryCardsProps> = ({
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6 mb-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Total Tickets</CardTitle>
+          <CardTitle className="text-sm font-medium">{t('tickets.total')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{counts.total}</div>
@@ -60,7 +62,7 @@ export const TicketSummaryCards: React.FC<TicketSummaryCardsProps> = ({
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Open</CardTitle>
+          <CardTitle className="text-sm font-medium">{t('tickets.open')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-destructive">{counts.open}</div>
@@ -69,7 +71,7 @@ export const TicketSummaryCards: React.FC<TicketSummaryCardsProps> = ({
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">In Progress</CardTitle>
+          <CardTitle className="text-sm font-medium">{t('tickets.inProgress')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-yellow-600">{counts.in_progress}</div>
@@ -78,7 +80,7 @@ export const TicketSummaryCards: React.FC<TicketSummaryCardsProps> = ({
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Completed</CardTitle>
+          <CardTitle className="text-sm font-medium">{t('tickets.completed')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-green-600">{counts.completed}</div>
@@ -87,7 +89,7 @@ export const TicketSummaryCards: React.FC<TicketSummaryCardsProps> = ({
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Urgent</CardTitle>
+          <CardTitle className="text-sm font-medium">{t('priority.urgent')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-red-600">{counts.urgent}</div>

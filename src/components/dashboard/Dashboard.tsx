@@ -384,7 +384,7 @@ export function Dashboard() {
             <div className="flex flex-col gap-3 sm:gap-4 justify-between items-start">
               <div>
                 <h2 className="text-xl sm:text-2xl font-bold text-foreground">
-                  {profile?.role === 'maintenance' ? 'My Tickets' : 'All Tickets'}
+                  {profile?.role === 'maintenance' ? t('tickets.myTickets') : t('tasks.allTickets')}
                   {profile?.assigned_hotel && (
                     <span className="block sm:inline text-base sm:text-lg font-normal text-muted-foreground sm:ml-2">
                       {profile.assigned_hotel}
@@ -393,10 +393,10 @@ export function Dashboard() {
                 </h2>
                 <p className="text-sm sm:text-base text-muted-foreground">
                   {profile?.role === 'maintenance' 
-                    ? 'Tickets assigned to you' 
+                    ? t('tickets.assignedToYou') 
                     : profile?.assigned_hotel && profile?.role !== 'admin' && profile?.role !== 'top_management'
-                      ? `Manage tickets for ${profile.assigned_hotel}`
-                      : 'Manage maintenance requests across all hotels'
+                      ? `${t('tasks.manageTickets')} ${profile.assigned_hotel}`
+                      : t('tickets.manageAllHotels')
                   }
                 </p>
               </div>
@@ -465,7 +465,7 @@ export function Dashboard() {
             <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs sm:text-sm font-medium">Total</CardTitle>
+                  <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.total')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-xl sm:text-2xl font-bold">{counts.total}</div>
@@ -473,7 +473,7 @@ export function Dashboard() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs sm:text-sm font-medium">Open</CardTitle>
+                  <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.open')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-xl sm:text-2xl font-bold text-yellow-500">{counts.open}</div>
@@ -481,7 +481,7 @@ export function Dashboard() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs sm:text-sm font-medium">In Progress</CardTitle>
+                  <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.inProgress')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-xl sm:text-2xl font-bold text-blue-500">{counts.inProgress}</div>
@@ -489,7 +489,7 @@ export function Dashboard() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs sm:text-sm font-medium">Completed</CardTitle>
+                  <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.completed')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-xl sm:text-2xl font-bold text-green-500">{counts.completed}</div>
@@ -502,7 +502,7 @@ export function Dashboard() {
                 <div className="relative flex-1">
                   <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search tickets by number, title, or room..."
+                    placeholder={t('tickets.searchPlaceholder')}
                     className="pl-8"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}

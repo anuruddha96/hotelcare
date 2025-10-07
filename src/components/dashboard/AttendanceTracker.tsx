@@ -169,8 +169,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         });
       } else {
         toast({
-          title: "Welcome to Your Shift!", 
-          description: "You're all set! Time to shine ✨",
+          title: t('workStatus.checkInSuccess'),
+          description: t('workStatus.checkInDescription'),
         });
         await fetchTodaysAttendance();
       }
@@ -215,8 +215,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       });
     } else {
       toast({
-        title: "Shift Complete",
-        description: "Thank you for your hard work today! Have a great rest of your day.",
+        title: t('workStatus.checkOutSuccess'),
+        description: t('workStatus.checkOutDescription'),
       });
       fetchTodaysAttendance();
     }

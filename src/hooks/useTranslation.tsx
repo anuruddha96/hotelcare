@@ -140,6 +140,9 @@ const translations = {
     'tasks.completed': 'Completed',
     'tasks.todaysTasks': "Today's Tasks",
     'tasks.hotelAssignment': 'Hotel Assignment',
+    'tasks.tasks': 'tasks',
+    'tasks.allTickets': 'All Tickets',
+    'tasks.manageTickets': 'Manage tickets for',
     
     // Room Details
     'room.roomName': 'Room Name',
@@ -148,11 +151,22 @@ const translations = {
     'room.addNote': 'Add Note',
     'room.roomStatusAlert': 'Room Status Alert',
     'room.roomStatus': 'Room Status',
+    'room.hotel': 'Hotel',
+    'room.floor': 'Floor',
+    'room.start': 'Start',
+    'room.waiting': 'WAITING',
+    'room.dirty': 'Dirty',
     
     // Clean Types
     'cleanType.checkout': 'Checkout Clean',
     'cleanType.daily': 'Daily Clean',
     'cleanType.deep': 'Deep Clean',
+    
+    // Priority
+    'priority.low': 'Low Priority',
+    'priority.medium': 'Medium Priority',
+    'priority.high': 'High Priority',
+    'priority.urgent': 'Urgent',
     
     // Required Actions
     'actions.required': 'Required Actions',
@@ -165,6 +179,7 @@ const translations = {
     // Minibar
     'minibar.title': 'Minibar Tracking',
     'minibar.total': 'Total',
+    'minibar.usage': 'Minibar Usage',
     
     // Language
     'language.changed': 'Language Changed',
@@ -403,11 +418,6 @@ const translations = {
     'manager.atRisk': 'At Risk',
     'manager.onTrack': 'On Track',
 
-    // Priority
-    'priority.high': 'High Priority',
-    'priority.medium': 'Medium Priority',
-    'priority.low': 'Low Priority',
-
     // Assignment
     'assignment.dailyCleaningRoom': 'Daily Cleaning Room',
     
@@ -568,7 +578,6 @@ const translations = {
     'staff.accessRestricted': 'Access restricted to managers and administrators',
     
     // Minibar Tracking
-    'minibar.usage': 'Minibar Usage',
     'minibar.items': 'Minibar Items',
     'minibar.tracking': 'Minibar Tracking',
     'minibar.history': 'Minibar History',
