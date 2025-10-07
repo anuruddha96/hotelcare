@@ -132,6 +132,12 @@ const translations = {
     'common.details': 'Details',
     'common.floor': 'Floor',
     'common.takePhoto': 'Take Photo',
+    'common.capturePhoto': 'Capture Photo',
+    'common.uploadPhoto': 'Upload Photo',
+    'common.uploading': 'Uploading...',
+    'common.updating': 'Updating...',
+    'common.photos': 'Photos',
+    'common.capture': 'Capture',
     
     // Task Status
     'tasks.totalForToday': 'Total Tasks for Today',
@@ -166,6 +172,24 @@ const translations = {
     'roomCard.guestStayed': 'Guest stayed',
     'roomCard.nights': 'nights',
     'roomCard.roomStatusAlert': 'Room Status Alert',
+    'roomCard.details': 'Details',
+    'roomCard.towelChange': 'Towel Change',
+    'roomCard.linenChange': 'Linen Change',
+    'roomCard.night': 'Night',
+    'roomCard.floorUnavailable': 'Floor info unavailable',
+    'roomCard.changeToCheckout': 'Change to Checkout',
+    'roomCard.changeAssignmentType': 'Change Room Assignment',
+    'roomCard.changeWillNotify': 'This will change the room assignment and notify the housekeeper about the change.',
+    'roomCard.current': 'Current',
+    'roomCard.new': 'New',
+    'roomCard.whatHappensNext': 'What happens next',
+    'roomCard.changeInfo1': 'Assignment type changes to checkout cleaning',
+    'roomCard.changeInfo2': 'Housekeeper gets notified about the change',
+    'roomCard.changeInfo3': 'Room is marked as checkout room',
+    'roomCard.changeInfo4': 'Change is logged with your name and timestamp',
+    'roomCard.changeAssignment': 'Change Assignment',
+    'roomCard.assignmentChanged': 'assignment changed to checkout cleaning',
+    'roomCard.assignmentChangeError': 'Failed to change room assignment',
     
     // Clean Types
     'cleanType.checkout': 'Checkout Clean',
@@ -344,6 +368,7 @@ const translations = {
     'housekeeping.enterNote': 'Enter your note here...',
     'housekeeping.tasks': 'tasks',
     'housekeeping.assignmentNotes': 'Assignment Notes',
+    'housekeeping.markComplete': 'Mark Complete',
     
     // Assignment
     'assignment.details': 'Assignment Details',
@@ -606,6 +631,27 @@ const translations = {
     'lostFound.searchRoom': 'Search by room number',
     'lostFound.noItems': 'No lost and found items',
     'lostFound.itemDetails': 'Item Details',
+    'lostFound.itemDescription': 'Item Description',
+    'lostFound.descriptionPlaceholder': 'Describe the item found...',
+    'lostFound.additionalNotes': 'Additional Notes',
+    'lostFound.notesPlaceholder': 'Any additional details...',
+    'lostFound.reportItem': 'Report Item',
+    
+    // DND Photo
+    'dndPhoto.title': 'DND Photo Required',
+    'dndPhoto.instruction': 'Take a photo of the DND sign on the door',
+    'dndPhoto.notesPlaceholder': 'Optional notes about DND status...',
+    'dndPhoto.uploadPhotos': 'Upload DND Photos',
+    
+    // Maintenance
+    'maintenance.title': 'Report Maintenance Issue',
+    'maintenance.reportIssue': 'Report Issue',
+    'maintenance.issueDescription': 'Issue Description',
+    'maintenance.issuePlaceholder': 'Describe the maintenance issue...',
+    'maintenance.priority': 'Priority',
+    'maintenance.reporting': 'Reporting...',
+    'maintenance.selectRoom': 'Select Room',
+    'maintenance.selectRoomPlaceholder': 'Choose a room...',
     
     // General Tasks
     'generalTasks.title': 'General Tasks',

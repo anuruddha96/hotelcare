@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, ArrowRight, CheckCircle } from 'lucide-react';
+import { AlertTriangle, ArrowRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface RoomAssignmentChangeDialogProps {
   open: boolean;
@@ -24,6 +25,7 @@ export function RoomAssignmentChangeDialog({
   currentAssignmentType,
   onAssignmentChanged
 }: RoomAssignmentChangeDialogProps) {
+  const { t } = useTranslation();
   const { user, profile } = useAuth();
   const [isChanging, setIsChanging] = useState(false);
 
@@ -61,13 +63,13 @@ export function RoomAssignmentChangeDialog({
 
       if (roomError) throw roomError;
 
-      toast.success(`Room ${roomNumber} assignment changed from daily cleaning to checkout cleaning`);
+      toast.success(`${t('common.room')} ${roomNumber} ${t('roomCard.assignmentChanged')}`);
       onAssignmentChanged?.();
       onOpenChange(false);
       
     } catch (error) {
       console.error('Error changing assignment:', error);
-      toast.error('Failed to change room assignment');
+      toast.error(t('roomCard.assignmentChangeError'));
     } finally {
       setIsChanging(false);
     }
@@ -83,44 +85,41 @@ export function RoomAssignmentChangeDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-orange-500" />
-            Change Room Assignment
+            {t('roomCard.changeAssignmentType')}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-            <h3 className="font-medium text-orange-800 mb-2">Room {roomNumber}</h3>
+            <h3 className="font-medium text-orange-800 mb-2">{t('common.room')} {roomNumber}</h3>
             <p className="text-sm text-orange-700">
-              This will change the room assignment and notify the housekeeper about the change.
+              {t('roomCard.changeWillNotify')}
             </p>
           </div>
 
           <div className="flex items-center justify-center gap-4 py-4">
             <div className="text-center">
-              <Badge variant="outline" className="mb-2">Current</Badge>
-              <p className="text-sm font-medium">Daily Cleaning</p>
+              <Badge variant="outline" className="mb-2">{t('roomCard.current')}</Badge>
+              <p className="text-sm font-medium">{t('housekeeping.assignmentType.dailyClean')}</p>
             </div>
             
             <ArrowRight className="h-5 w-5 text-gray-400" />
             
             <div className="text-center">
-              <Badge className="mb-2 bg-blue-600">New</Badge>
-              <p className="text-sm font-medium">Checkout Cleaning</p>
+              <Badge className="mb-2 bg-blue-600">{t('roomCard.new')}</Badge>
+              <p className="text-sm font-medium">{t('housekeeping.assignmentType.checkoutClean')}</p>
             </div>
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5" />
-              <div className="text-sm text-blue-800">
-                <p className="font-medium mb-1">What happens next:</p>
-                <ul className="list-disc list-inside space-y-1 text-xs">
-                  <li>Assignment type changes to checkout cleaning</li>
-                  <li>Housekeeper gets notified about the change</li>
-                  <li>Room is marked as checkout room</li>
-                  <li>Change is logged with your name and timestamp</li>
-                </ul>
-              </div>
+            <div className="text-sm text-blue-800">
+              <p className="font-medium mb-1">{t('roomCard.whatHappensNext')}:</p>
+              <ul className="list-disc list-inside space-y-1 text-xs">
+                <li>{t('roomCard.changeInfo1')}</li>
+                <li>{t('roomCard.changeInfo2')}</li>
+                <li>{t('roomCard.changeInfo3')}</li>
+                <li>{t('roomCard.changeInfo4')}</li>
+              </ul>
             </div>
           </div>
 
@@ -131,7 +130,7 @@ export function RoomAssignmentChangeDialog({
               className="flex-1"
               disabled={isChanging}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             
             <Button
@@ -139,14 +138,7 @@ export function RoomAssignmentChangeDialog({
               className="flex-1"
               disabled={isChanging}
             >
-              {isChanging ? (
-                <div className="flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Changing...
-                </div>
-              ) : (
-                'Change Assignment'
-              )}
+              {isChanging ? t('common.updating') : t('roomCard.changeAssignment')}
             </Button>
           </div>
         </div>
