@@ -540,6 +540,25 @@ const translations = {
     'minibar.totalRevenue': 'Total Revenue',
     'minibar.roomsWithUsage': 'Rooms with Usage',
     'minibar.noData': 'No minibar usage data',
+    'minibar.clearAll': 'Clear All Records',
+    
+    // Lost & Found
+    'lostFound.title': 'Lost & Found Management',
+    'lostFound.addItem': 'Add Item',
+    'lostFound.searchRoom': 'Search by room number',
+    'lostFound.noItems': 'No lost and found items',
+    'lostFound.itemDetails': 'Item Details',
+    
+    // General Tasks
+    'generalTasks.title': 'General Tasks',
+    'generalTasks.description': 'Manage non-room cleaning tasks for housekeeping staff',
+    'generalTasks.createTask': 'Create Task',
+    'generalTasks.noTasks': 'No tasks created',
+    'generalTasks.taskName': 'Task Name',
+    
+    // Performance/Team
+    'performance.teamOverview': 'Team Performance Overview',
+    'performance.teamDesc': 'Housekeeper productivity and workload distribution',
     
     // All Tickets
     'tickets.allTickets': 'All Tickets',
@@ -1022,6 +1041,44 @@ const translations = {
     'dashboard.workStatus': 'Estado de Trabajo',
     'dashboard.housekeeping': 'Limpieza',
     
+    // Minibar Tracking
+    'minibar.usage': 'Uso del Minibar',
+    'minibar.items': 'Artículos del Minibar',
+    'minibar.tracking': 'Seguimiento del Minibar',
+    'minibar.history': 'Historial del Minibar',
+    'minibar.summary': 'Resumen del Minibar',
+    'minibar.totalRevenue': 'Ingresos Totales',
+    'minibar.roomsWithUsage': 'Habitaciones con Uso',
+    'minibar.noData': 'No hay datos de uso del minibar',
+    'minibar.clearAll': 'Borrar Todos los Registros',
+    
+    // Lost & Found
+    'lostFound.title': 'Gestión de Objetos Perdidos',
+    'lostFound.addItem': 'Agregar Artículo',
+    'lostFound.searchRoom': 'Buscar por número de habitación',
+    'lostFound.noItems': 'No hay objetos perdidos',
+    'lostFound.itemDetails': 'Detalles del Artículo',
+    
+    // General Tasks
+    'generalTasks.title': 'Tareas Generales',
+    'generalTasks.description': 'Gestionar tareas de limpieza no relacionadas con habitaciones',
+    'generalTasks.createTask': 'Crear Tarea',
+    'generalTasks.noTasks': 'No hay tareas creadas',
+    'generalTasks.taskName': 'Nombre de la Tarea',
+    
+    // Performance/Team
+    'performance.teamOverview': 'Vista General del Rendimiento del Equipo',
+    'performance.teamDesc': 'Productividad y distribución de carga de trabajo del personal de limpieza',
+    
+    // Reports
+    'reports.attendance': 'Informes de Asistencia',
+    'reports.export': 'Exportar a CSV',
+    'reports.totalDays': 'Días Totales',
+    'reports.totalHours': 'Horas Totales',
+    'reports.avgHours': 'Horas Promedio/Día',
+    'reports.punctualDays': 'Días Puntuales',
+    'reports.lateArrivals': 'Llegadas Tarde',
+    
     // Add all other Spanish translations...
     'common.loading': 'Cargando...',
     'common.save': 'Guardar',
@@ -1081,9 +1138,56 @@ const translations = {
     'supervisor.roomMarkedClean': 'La habitación ha sido marcada como limpia y lista!',
     'housekeeping.myTasks': 'Mis Tareas',
     'housekeeping.roomDetails': 'Detalles de la Habitación',
+    'linen.management': 'Gestión de Ropa Sucia',
+    'linen.items': 'Artículos de Ropa',
+    'linen.count': 'Cantidad',
+    'linen.total': 'Total',
   },
   
   vi: {
+    // Dashboard
+    'dashboard.title': 'Bảng Điều Khiển Quản Lý Khách Sạn',
+    'dashboard.subtitle': 'Quản lý tất cả yêu cầu dịch vụ của RD Hotels',
+    'dashboard.myTasks': 'Nhiệm Vụ Của Tôi',
+    
+    // Minibar Tracking
+    'minibar.usage': 'Sử Dụng Minibar',
+    'minibar.items': 'Mặt Hàng Minibar',
+    'minibar.tracking': 'Theo Dõi Minibar',
+    'minibar.history': 'Lịch Sử Minibar',
+    'minibar.summary': 'Tóm Tắt Minibar',
+    'minibar.totalRevenue': 'Tổng Doanh Thu',
+    'minibar.roomsWithUsage': 'Phòng Có Sử Dụng',
+    'minibar.noData': 'Không có dữ liệu sử dụng minibar',
+    'minibar.clearAll': 'Xóa Tất Cả Bản Ghi',
+    
+    // Lost & Found
+    'lostFound.title': 'Quản Lý Đồ Thất Lạc',
+    'lostFound.addItem': 'Thêm Mặt Hàng',
+    'lostFound.searchRoom': 'Tìm kiếm theo số phòng',
+    'lostFound.noItems': 'Không có đồ thất lạc',
+    'lostFound.itemDetails': 'Chi Tiết Mặt Hàng',
+    
+    // General Tasks
+    'generalTasks.title': 'Nhiệm Vụ Chung',
+    'generalTasks.description': 'Quản lý các nhiệm vụ dọn dẹp không liên quan đến phòng',
+    'generalTasks.createTask': 'Tạo Nhiệm Vụ',
+    'generalTasks.noTasks': 'Không có nhiệm vụ được tạo',
+    'generalTasks.taskName': 'Tên Nhiệm Vụ',
+    
+    // Performance/Team
+    'performance.teamOverview': 'Tổng Quan Hiệu Suất Nhóm',
+    'performance.teamDesc': 'Năng suất và phân bổ khối lượng công việc của nhân viên dọn phòng',
+    
+    // Reports
+    'reports.attendance': 'Báo Cáo Chấm Công',
+    'reports.export': 'Xuất ra CSV',
+    'reports.totalDays': 'Tổng Số Ngày',
+    'reports.totalHours': 'Tổng Số Giờ',
+    'reports.avgHours': 'Giờ Trung Bình/Ngày',
+    'reports.punctualDays': 'Ngày Đúng Giờ',
+    'reports.lateArrivals': 'Đến Muộn',
+    
     // Add Vietnamese translations
     'common.loading': 'Đang tải...',
     'common.save': 'Lưu',
@@ -1126,9 +1230,56 @@ const translations = {
     'supervisor.roomMarkedClean': 'Phòng đã được đánh dấu là sạch sẽ và sẵn sàng!',
     'housekeeping.myTasks': 'Nhiệm Vụ Của Tôi',
     'housekeeping.roomDetails': 'Chi Tiết Phòng',
+    'linen.management': 'Quản Lý Đồ Giặt Bẩn',
+    'linen.items': 'Mặt Hàng Đồ Giặt',
+    'linen.count': 'Số Lượng',
+    'linen.total': 'Tổng Cộng',
   },
   
   mn: {
+    // Dashboard
+    'dashboard.title': 'Зочид Буудлын Удирдлагын Самбар',
+    'dashboard.subtitle': 'RD Hotels-ийн бүх үйлчилгээний хүсэлтийг удирдах',
+    'dashboard.myTasks': 'Миний Даалгаврууд',
+    
+    // Minibar Tracking
+    'minibar.usage': 'Мини Барын Хэрэглээ',
+    'minibar.items': 'Мини Барын Зүйлс',
+    'minibar.tracking': 'Мини Барын Хянах',
+    'minibar.history': 'Мини Барын Түүх',
+    'minibar.summary': 'Мини Барын Хураангуй',
+    'minibar.totalRevenue': 'Нийт Орлого',
+    'minibar.roomsWithUsage': 'Хэрэглээтэй Өрөө',
+    'minibar.noData': 'Мини барын хэрэглээний өгөгдөл байхгүй',
+    'minibar.clearAll': 'Бүх Бүртгэлийг Арилгах',
+    
+    // Lost & Found
+    'lostFound.title': 'Алдагдсан Эд Зүйлийн Удирдлага',
+    'lostFound.addItem': 'Зүйл Нэмэх',
+    'lostFound.searchRoom': 'Өрөөний дугаараар хайх',
+    'lostFound.noItems': 'Алдагдсан эд зүйл байхгүй',
+    'lostFound.itemDetails': 'Зүйлийн Дэлгэрэнгүй',
+    
+    // General Tasks
+    'generalTasks.title': 'Ерөнхий Даалгаврууд',
+    'generalTasks.description': 'Өрөө цэвэрлэхтэй холбоогүй даалгаврыг удирдах',
+    'generalTasks.createTask': 'Даалгавар Үүсгэх',
+    'generalTasks.noTasks': 'Үүсгэсэн даалгавар байхгүй',
+    'generalTasks.taskName': 'Даалгаврын Нэр',
+    
+    // Performance/Team
+    'performance.teamOverview': 'Багийн Ажиллагааны Тойм',
+    'performance.teamDesc': 'Цэвэрлэгчдийн бүтээмж ба ажлын ачааллын хуваарилалт',
+    
+    // Reports
+    'reports.attendance': 'Ирцийн Тайлан',
+    'reports.export': 'CSV руу экспортлох',
+    'reports.totalDays': 'Нийт Өдөр',
+    'reports.totalHours': 'Нийт Цаг',
+    'reports.avgHours': 'Дундаж Цаг/Өдөр',
+    'reports.punctualDays': 'Цаг баримталсан Өдрүүд',
+    'reports.lateArrivals': 'Хоцорсон',
+    
     // Add Mongolian translations
     'common.loading': 'Ачааллаж байна...',
     'common.save': 'Хадгалах',

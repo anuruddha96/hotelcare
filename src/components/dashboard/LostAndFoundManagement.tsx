@@ -13,6 +13,7 @@ import { format, startOfDay, endOfDay } from 'date-fns';
 import { Calendar as CalendarIcon, Package, Search, Eye, CheckCircle, Trash2, Plus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { LostAndFoundDialog } from './LostAndFoundDialog';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface LostAndFoundItem {
   id: string;
@@ -36,6 +37,7 @@ interface LostAndFoundItem {
 
 export function LostAndFoundManagement() {
   const { user, profile } = useAuth();
+  const { t } = useTranslation();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [items, setItems] = useState<LostAndFoundItem[]>([]);
   const [loading, setLoading] = useState(false);

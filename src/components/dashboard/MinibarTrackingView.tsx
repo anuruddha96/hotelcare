@@ -48,7 +48,7 @@ interface MinibarSummary {
 }
 
 export function MinibarTrackingView() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { user, profile } = useAuth();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [usageRecords, setUsageRecords] = useState<MinibarUsageRecord[]>([]);

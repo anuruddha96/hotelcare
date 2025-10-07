@@ -60,7 +60,7 @@ export function MaintenanceIssueDialog({
 
       // Filter by hotel if user has assigned hotel
       if (profile?.assigned_hotel) {
-        query = query.eq('hotel', profile.assigned_hotel);
+        query = query.or(`hotel.eq.${profile.assigned_hotel},hotel.ilike.%${profile.assigned_hotel}%`);
       }
 
       const { data, error } = await query.order('room_number');
@@ -70,6 +70,7 @@ export function MaintenanceIssueDialog({
       setRooms(data || []);
       
       if (!data || data.length === 0) {
+        console.warn('No rooms found - this might be a hotel mismatch issue');
         toast.error('No rooms found for this hotel');
       }
     } catch (error) {

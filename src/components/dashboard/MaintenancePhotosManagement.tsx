@@ -62,10 +62,6 @@ export function MaintenancePhotosManagement() {
           rooms (
             room_number,
             hotel
-          ),
-          profiles!maintenance_issues_reported_by_fkey (
-            full_name,
-            nickname
           )
         `)
         .lte('created_at', `${dateStr}T23:59:59`)
@@ -76,9 +72,25 @@ export function MaintenancePhotosManagement() {
         throw error;
       }
       
-      console.log('Fetched maintenance issues:', data?.length || 0, 'records');
-      console.log('Sample data:', data?.[0]);
-      setIssues((data as any) || []);
+      // Fetch reporter profiles separately to avoid FK issues
+      if (data && data.length > 0) {
+        const reporterIds = [...new Set(data.map((item: any) => item.reported_by))];
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name, nickname')
+          .in('id', reporterIds);
+        
+        // Map profiles to issues
+        const issuesWithProfiles = data.map((issue: any) => ({
+          ...issue,
+          profiles: profiles?.find((p: any) => p.id === issue.reported_by) || { full_name: 'Unknown', nickname: '' }
+        }));
+        
+        console.log('Fetched maintenance issues:', issuesWithProfiles.length, 'records');
+        setIssues(issuesWithProfiles as any);
+      } else {
+        setIssues([]);
+      }
     } catch (error) {
       console.error('Error fetching maintenance issues:', error);
       toast.error('Failed to fetch maintenance issues');

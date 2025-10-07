@@ -8,6 +8,7 @@ import { PerformanceDetailDialog } from './PerformanceDetailDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface LeaderboardEntry {
   housekeeper_id: string;
@@ -36,6 +37,7 @@ interface OverviewStats {
 
 export function PerformanceLeaderboard() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [overviewStats, setOverviewStats] = useState<OverviewStats>({
     avgMinutes: 0,
