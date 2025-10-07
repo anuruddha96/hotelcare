@@ -252,22 +252,35 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  // Validate photos before showing completion checklist
-  const validatePhotosBeforeCompletion = () => {
+  // Validate photos before showing completion checklist - fetch fresh data from DB
+  const validatePhotosBeforeCompletion = async () => {
     if (assignment.assignment_type !== 'daily_cleaning') {
       // Non-daily cleaning rooms don't require photo validation
       setChecklistDialogOpen(true);
       return true;
     }
 
-    const photos = currentPhotos;
-    console.log('🔍 Validating photos:', photos);
+    // Fetch the LATEST photos directly from the database to avoid stale state
+    const { data: freshData, error } = await supabase
+      .from('room_assignments')
+      .select('completion_photos')
+      .eq('id', assignment.id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching photos:', error);
+      toast.error('Failed to verify photos');
+      return false;
+    }
+
+    const photos = freshData?.completion_photos || [];
+    console.log('🔍 Validating photos (fresh from DB):', photos);
     console.log('🔍 Photos count:', photos.length);
     
     // Check if all 5 required categories are present
     const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
     const capturedCategories = new Set(
-      photos.map(url => {
+      photos.map((url: string) => {
         // Extract category from filename - get the last part of the path
         const parts = url.split('/');
         const filename = parts[parts.length - 1] || '';
