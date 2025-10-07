@@ -567,7 +567,7 @@ export type Database = {
           organization_slug: string | null
           photo_urls: string[] | null
           reported_by: string
-          room_id: string
+          room_id: string | null
           status: string
           updated_at: string
         }
@@ -583,7 +583,7 @@ export type Database = {
           organization_slug?: string | null
           photo_urls?: string[] | null
           reported_by: string
-          room_id: string
+          room_id?: string | null
           status?: string
           updated_at?: string
         }
@@ -599,7 +599,7 @@ export type Database = {
           organization_slug?: string | null
           photo_urls?: string[] | null
           reported_by?: string
-          room_id?: string
+          room_id?: string | null
           status?: string
           updated_at?: string
         }

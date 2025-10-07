@@ -6,10 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { AlertTriangle, Calendar as CalendarIcon, Clock, MapPin, Wrench } from 'lucide-react';
+import { AlertTriangle, Calendar as CalendarIcon, Clock, MapPin, Wrench, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAuth } from '@/hooks/useAuth';
 
 interface MaintenanceIssue {
   id: string;
@@ -34,10 +35,13 @@ interface MaintenanceIssue {
 
 export function MaintenancePhotosManagement() {
   const { t } = useTranslation();
+  const { profile } = useAuth();
   const [issues, setIssues] = useState<MaintenanceIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
 
   useEffect(() => {
     fetchMaintenanceIssues();
@@ -56,7 +60,7 @@ export function MaintenancePhotosManagement() {
             room_number,
             hotel
           ),
-          profiles!reported_by (
+          profiles!maintenance_issues_reported_by_fkey (
             full_name,
             nickname
           )
@@ -102,6 +106,25 @@ export function MaintenancePhotosManagement() {
         return 'bg-green-100 text-green-800 border-green-300';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-300';
+    }
+  };
+
+  const handleDeleteIssue = async (issueId: string) => {
+    if (!confirm('Are you sure you want to delete this maintenance issue?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('maintenance_issues')
+        .delete()
+        .eq('id', issueId);
+
+      if (error) throw error;
+
+      toast.success('Maintenance issue deleted successfully');
+      fetchMaintenanceIssues();
+    } catch (error: any) {
+      console.error('Error deleting issue:', error);
+      toast.error('Failed to delete maintenance issue');
     }
   };
 
@@ -180,6 +203,16 @@ export function MaintenancePhotosManagement() {
                       {issue.status.replace('_', ' ').toUpperCase()}
                     </Badge>
                   </div>
+                  {canDelete && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleDeleteIssue(issue.id)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
 

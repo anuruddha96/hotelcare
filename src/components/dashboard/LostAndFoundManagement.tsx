@@ -67,13 +67,27 @@ export function LostAndFoundManagement() {
           rooms (
             room_number,
             hotel
-          ),
-          profiles!lost_and_found_reported_by_fkey (
-            full_name
           )
         `)
         .lte('found_date', format(endDate, 'yyyy-MM-dd'))
         .order('found_date', { ascending: false });
+      
+      // Fetch reporter profiles separately
+      if (data && data.length > 0) {
+        const reporterIds = [...new Set(data.map((item: any) => item.reported_by))];
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', reporterIds);
+        
+        // Map profiles to items
+        if (profiles) {
+          const profileMap = new Map(profiles.map(p => [p.id, p]));
+          data.forEach((item: any) => {
+            item.profiles = profileMap.get(item.reported_by);
+          });
+        }
+      }
 
       if (error) {
         console.error('Query error:', error);
@@ -424,9 +438,9 @@ export function LostAndFoundManagement() {
         <LostAndFoundDialog
           open={showAddDialog}
           onOpenChange={setShowAddDialog}
-          roomNumber="N/A"
-          roomId=""
-          assignmentId=""
+          roomNumber="General"
+          roomId={null}
+          assignmentId={null}
           onItemReported={() => {
             fetchLostAndFound();
             setShowAddDialog(false);

@@ -14,8 +14,8 @@ interface LostAndFoundDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roomNumber: string;
-  roomId: string;
-  assignmentId?: string;
+  roomId: string | null;
+  assignmentId?: string | null;
   onItemReported?: () => void;
 }
 
@@ -149,7 +149,7 @@ export function LostAndFoundDialog({
     try {
       // Upload photos if any
       for (const photo of photos) {
-        const fileName = `${user.id}/${roomNumber}/lost_found_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        const fileName = `${user.id}/${roomId || 'general'}/lost_found_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         
         const { data, error } = await supabase.storage
           .from('room-photos')
@@ -172,8 +172,8 @@ export function LostAndFoundDialog({
       const { error: insertError } = await supabase
         .from('lost_and_found')
         .insert({
-          room_id: roomId,
-          assignment_id: assignmentId,
+          room_id: roomId || null,
+          assignment_id: assignmentId || null,
           reported_by: user.id,
           item_description: description,
           photo_urls: uploadedUrls,
