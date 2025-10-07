@@ -79,10 +79,16 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
   const [lostFoundDialogOpen, setLostFoundDialogOpen] = useState(false);
+  const [currentPhotos, setCurrentPhotos] = useState<string[]>(assignment.completion_photos || []);
 
   useEffect(() => {
     checkAttendanceStatus();
   }, [user]);
+
+  // Update current photos when assignment changes
+  useEffect(() => {
+    setCurrentPhotos(assignment.completion_photos || []);
+  }, [assignment.completion_photos]);
 
   const checkAttendanceStatus = async () => {
     if (!user?.id) return;
@@ -208,41 +214,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       }
     }
 
-    // For daily cleaning rooms, check if ALL required photos are captured before completion
-    if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
-      const photos = assignment.completion_photos || [];
-      
-      // Check if all 5 required categories are present
-      const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
-      const capturedCategories = new Set(
-        photos.map(url => {
-          // Extract category from filename
-          const filename = url.split('/').pop() || '';
-          const category = filename.split('_')[0];
-          return category;
-        })
-      );
-      
-      const missingCategories = requiredCategories.filter(cat => !capturedCategories.has(cat));
-      
-      if (missingCategories.length > 0) {
-        const categoryNames = {
-          'trash_bin': 'Trash Bin',
-          'bathroom': 'Bathroom',
-          'bed': 'Bed',
-          'minibar': 'Minibar',
-          'tea_coffee_table': 'Tea/Coffee Table'
-        };
-        
-        const missingNames = missingCategories.map(cat => categoryNames[cat as keyof typeof categoryNames]).join(', ');
-        
-        toast.error('Missing Required Photos', {
-          description: `You must capture photos of: ${missingNames}. Please complete all photo types.`
-        });
-        setDailyPhotoDialogOpen(true);
-        return;
-      }
-    }
+    // Photo validation is now done in handleCompleteClick, so this is redundant here
+    // but kept as a safety check in case updateAssignmentStatus is called directly
 
     setLoading(true);
     try {
@@ -276,6 +249,73 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       toast.error('Failed to update status');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Validate photos before showing completion checklist
+  const validatePhotosBeforeCompletion = () => {
+    if (assignment.assignment_type !== 'daily_cleaning') {
+      // Non-daily cleaning rooms don't require photo validation
+      setChecklistDialogOpen(true);
+      return true;
+    }
+
+    const photos = currentPhotos;
+    
+    // Check if all 5 required categories are present
+    const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
+    const capturedCategories = new Set(
+      photos.map(url => {
+        // Extract category from filename
+        const filename = url.split('/').pop() || '';
+        const category = filename.split('_')[0];
+        return category;
+      })
+    );
+    
+    const missingCategories = requiredCategories.filter(cat => !capturedCategories.has(cat));
+    
+    if (missingCategories.length > 0) {
+      const categoryNames = {
+        'trash_bin': 'Trash Bin',
+        'bathroom': 'Bathroom',
+        'bed': 'Bed',
+        'minibar': 'Minibar',
+        'tea_coffee_table': 'Tea/Coffee Table'
+      };
+      
+      const missingNames = missingCategories.map(cat => categoryNames[cat as keyof typeof categoryNames]).join(', ');
+      
+      toast.error('Photos Required', {
+        description: `Before completing, you must capture photos of: ${missingNames}`,
+        duration: 5000,
+      });
+      
+      // Open the photo dialog to let them capture missing photos
+      setDailyPhotoDialogOpen(true);
+      return false;
+    }
+
+    // All photos present, show the checklist
+    setChecklistDialogOpen(true);
+    return true;
+  };
+
+  // Refresh assignment photos after capture
+  const handlePhotoCaptured = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('room_assignments')
+        .select('completion_photos')
+        .eq('id', assignment.id)
+        .single();
+
+      if (!error && data) {
+        setCurrentPhotos(data.completion_photos || []);
+        toast.success('Photos saved successfully! You can now complete the room.');
+      }
+    } catch (error) {
+      console.error('Error refreshing photos:', error);
     }
   };
 
@@ -498,7 +538,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {assignment.status === 'in_progress' && (
               <Button
                 size="lg"
-                onClick={() => setChecklistDialogOpen(true)}
+                onClick={validatePhotosBeforeCompletion}
                 disabled={loading}
                 className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
               >
@@ -726,9 +766,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         onOpenChange={setDailyPhotoDialogOpen}
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         assignmentId={assignment.id}
-        onPhotoCaptured={() => {
-          toast.success('Room photos saved for supervisor approval');
-        }}
+        onPhotoCaptured={handlePhotoCaptured}
       />
 
       {/* DND Photo Dialog */}
