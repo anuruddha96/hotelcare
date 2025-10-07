@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -14,7 +14,7 @@ interface MaintenanceIssueDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roomNumber: string;
-  roomId: string;
+  roomId: string | null;
   assignmentId?: string;
   onIssueReported?: () => void;
 }
@@ -23,21 +23,45 @@ export function MaintenanceIssueDialog({
   open,
   onOpenChange,
   roomNumber,
-  roomId,
+  roomId: initialRoomId,
   assignmentId,
   onIssueReported
 }: MaintenanceIssueDialogProps) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [photos, setPhotos] = useState<{ dataUrl: string; blob: Blob }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [rooms, setRooms] = useState<Array<{ id: string; room_number: string; hotel: string }>>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(initialRoomId);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch rooms for general maintenance issues
+  useEffect(() => {
+    if (open && !initialRoomId) {
+      fetchRooms();
+    }
+  }, [open, initialRoomId]);
+
+  const fetchRooms = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('rooms')
+        .select('id, room_number, hotel')
+        .eq('hotel', profile?.assigned_hotel || '')
+        .order('room_number');
+
+      if (error) throw error;
+      setRooms(data || []);
+    } catch (error) {
+      console.error('Error fetching rooms:', error);
+    }
+  };
 
   const startCamera = useCallback(async () => {
     try {
@@ -143,13 +167,23 @@ export function MaintenanceIssueDialog({
       return;
     }
 
+    // For general maintenance, require room selection
+    if (!initialRoomId && !selectedRoomId) {
+      toast.error('Please select a room');
+      return;
+    }
+
     setIsUploading(true);
     const uploadedUrls: string[] = [];
 
     try {
+      const roomToUse = initialRoomId || selectedRoomId;
+      const selectedRoom = rooms.find(r => r.id === roomToUse);
+      const roomNum = initialRoomId ? roomNumber : selectedRoom?.room_number || 'unknown';
+
       // Upload photos if any
       for (const photo of photos) {
-        const fileName = `${user.id}/${roomNumber}/maintenance_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        const fileName = `${user.id}/${roomNum}/maintenance_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         
         const { data, error } = await supabase.storage
           .from('room-photos')
@@ -172,18 +206,18 @@ export function MaintenanceIssueDialog({
       const { error: insertError } = await supabase
         .from('maintenance_issues')
         .insert({
-          room_id: roomId,
-          assignment_id: assignmentId,
+          room_id: roomToUse,
+          assignment_id: assignmentId || null,
           reported_by: user.id,
           issue_description: description,
           photo_urls: uploadedUrls,
-          status: 'pending', // This will go to supervisor for approval first
+          status: 'pending',
           priority: priority
         });
 
       if (insertError) throw insertError;
 
-      toast.success('Maintenance issue reported and sent for supervisor approval');
+      toast.success('Maintenance issue reported successfully');
       
       if (onIssueReported) {
         onIssueReported();
@@ -203,6 +237,7 @@ export function MaintenanceIssueDialog({
     setDescription('');
     setPriority('medium');
     setPhotos([]);
+    setSelectedRoomId(initialRoomId);
     onOpenChange(false);
   };
 
@@ -212,11 +247,29 @@ export function MaintenanceIssueDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />
-            Report Maintenance Issue - Room {roomNumber}
+            Report Maintenance Issue {initialRoomId ? `- Room ${roomNumber}` : ''}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
+          {!initialRoomId && (
+            <div className="space-y-2">
+              <Label htmlFor="room">Select Room *</Label>
+              <Select value={selectedRoomId || ''} onValueChange={setSelectedRoomId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a room" />
+                </SelectTrigger>
+                <SelectContent>
+                  {rooms.map((room) => (
+                    <SelectItem key={room.id} value={room.id}>
+                      Room {room.room_number} - {room.hotel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="description">Issue Description *</Label>
             <Textarea

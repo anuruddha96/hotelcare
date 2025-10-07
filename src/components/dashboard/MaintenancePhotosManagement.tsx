@@ -6,11 +6,12 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { AlertTriangle, Calendar as CalendarIcon, Clock, MapPin, Wrench, Trash2 } from 'lucide-react';
+import { AlertTriangle, Calendar as CalendarIcon, Clock, MapPin, Wrench, Trash2, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
 
 interface MaintenanceIssue {
   id: string;
@@ -40,8 +41,10 @@ export function MaintenancePhotosManagement() {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 
   const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
+  const canCreate = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
 
   useEffect(() => {
     fetchMaintenanceIssues();
@@ -56,7 +59,7 @@ export function MaintenancePhotosManagement() {
         .from('maintenance_issues')
         .select(`
           *,
-          rooms!inner (
+          rooms (
             room_number,
             hotel
           ),
@@ -65,8 +68,7 @@ export function MaintenancePhotosManagement() {
             nickname
           )
         `)
-        .gte('created_at', `${dateStr}T00:00:00`)
-        .lt('created_at', `${dateStr}T23:59:59`)
+        .lte('created_at', `${dateStr}T23:59:59`)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -149,22 +151,30 @@ export function MaintenancePhotosManagement() {
           </p>
         </div>
         
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="w-full sm:w-auto">
-              <CalendarIcon className="h-4 w-4 mr-2" />
-              {format(selectedDate, 'PPP')}
+        <div className="flex gap-2">
+          {canCreate && (
+            <Button onClick={() => setIsAddDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Report Issue
             </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="end">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={(date) => date && setSelectedDate(date)}
-              initialFocus
-            />
-          </PopoverContent>
-        </Popover>
+          )}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-full sm:w-auto">
+                <CalendarIcon className="h-4 w-4 mr-2" />
+                {format(selectedDate, 'PPP')}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={(date) => date && setSelectedDate(date)}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {issues.length === 0 ? (
@@ -304,6 +314,17 @@ export function MaintenancePhotosManagement() {
           ))}
         </div>
       )}
+
+      <MaintenanceIssueDialog
+        open={isAddDialogOpen}
+        onOpenChange={setIsAddDialogOpen}
+        roomId={null}
+        roomNumber="General"
+        onIssueReported={() => {
+          fetchMaintenanceIssues();
+          setIsAddDialogOpen(false);
+        }}
+      />
     </div>
   );
 }
