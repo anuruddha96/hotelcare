@@ -50,6 +50,21 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
         .order('hotel')
         .order('room_number');
 
+      if (roomsError) throw roomsError;
+
+      // Fetch active (non-completed) assignments for today to exclude already assigned rooms
+      const { data: activeAssignments, error: assignmentError } = await supabase
+        .from('room_assignments')
+        .select('room_id')
+        .eq('assignment_date', selectedDate)
+        .in('status', ['assigned', 'in_progress']);
+
+      if (assignmentError) throw assignmentError;
+
+      // Filter out rooms that have active assignments (but allow rooms with completed assignments)
+      const activeAssignedRoomIds = new Set(activeAssignments?.map(a => a.room_id) || []);
+      const availableRooms = (roomsData || []).filter(room => !activeAssignedRoomIds.has(room.id));
+
       // Fetch housekeeping staff
       const { data: staffData, error: staffError } = await supabase
         .from('profiles')
@@ -57,11 +72,9 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
         .eq('role', 'housekeeping')
         .order('full_name');
 
-      if (roomsError || staffError) {
-        throw roomsError || staffError;
-      }
+      if (staffError) throw staffError;
 
-      setRooms(roomsData || []);
+      setRooms(availableRooms);
       setStaff(staffData || []);
     } catch (error) {
       console.error('Error fetching data:', error);

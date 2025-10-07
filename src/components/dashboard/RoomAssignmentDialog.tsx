@@ -66,7 +66,8 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
       if (error) throw error;
 
-      // Fetch existing assignments for the selected date
+      // Fetch ONLY active (non-completed) assignments for the selected date
+      // This allows rooms with completed assignments to be reassigned if marked dirty again
       const { data: assignments, error: assignmentError } = await supabase
         .from('room_assignments')
         .select(`
@@ -77,7 +78,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           assigned_to
         `)
         .eq('assignment_date', selectedDate)
-        .in('status', ['assigned', 'in_progress']);
+        .in('status', ['assigned', 'in_progress']); // Excludes 'completed' status
 
       if (assignmentError) throw assignmentError;
 
