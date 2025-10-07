@@ -286,11 +286,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         const filename = parts[parts.length - 1] || '';
         console.log('📸 Full filename:', filename);
         
-        // The format is: category_timestamp_random.jpg
-        // Split by underscore and get the first part
-        const categoryPart = filename.split('_')[0];
-        console.log('📸 Extracted category:', categoryPart);
-        return categoryPart;
+        // Match against known categories (some have underscores like trash_bin, tea_coffee_table)
+        // Check which required category this filename starts with
+        for (const category of requiredCategories) {
+          if (filename.startsWith(category + '_')) {
+            console.log('📸 Matched category:', category);
+            return category;
+          }
+        }
+        
+        // Fallback: shouldn't happen if filenames are correct
+        console.log('📸 No category match found for:', filename);
+        return '';
       })
     );
     
