@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card } from '@/components/ui/card';
 import { Camera, Upload, X, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -28,6 +29,7 @@ export function MaintenanceIssueDialog({
   onIssueReported
 }: MaintenanceIssueDialogProps) {
   const { user, profile } = useAuth();
+  const { t } = useTranslation();
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [photos, setPhotos] = useState<{ dataUrl: string; blob: Blob }[]>([]);
@@ -263,22 +265,22 @@ export function MaintenanceIssueDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-destructive" />
-            Report Maintenance Issue {initialRoomId ? `- Room ${roomNumber}` : ''}
+            {t('maintenance.reportIssue')} {initialRoomId ? `- ${t('common.room')} ${roomNumber}` : ''}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {!initialRoomId && (
             <div className="space-y-2">
-              <Label htmlFor="room">Select Room *</Label>
+              <Label htmlFor="room">{t('maintenance.selectRoom')} *</Label>
               <Select value={selectedRoomId || ''} onValueChange={setSelectedRoomId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a room" />
+                  <SelectValue placeholder={t('maintenance.selectRoomPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {rooms.map((room) => (
                     <SelectItem key={room.id} value={room.id}>
-                      Room {room.room_number} - {room.hotel}
+                      {t('common.room')} {room.room_number} - {room.hotel}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -287,10 +289,10 @@ export function MaintenanceIssueDialog({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="description">Issue Description *</Label>
+            <Label htmlFor="description">{t('maintenance.issueDescription')} *</Label>
             <Textarea
               id="description"
-              placeholder="Describe the maintenance issue..."
+              placeholder={t('maintenance.issuePlaceholder')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
@@ -298,16 +300,16 @@ export function MaintenanceIssueDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="priority">Priority</Label>
+            <Label htmlFor="priority">{t('maintenance.priority')}</Label>
             <Select value={priority} onValueChange={(value: any) => setPriority(value)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="urgent">Urgent</SelectItem>
+                <SelectItem value="low">{t('priority.low')}</SelectItem>
+                <SelectItem value="medium">{t('priority.medium')}</SelectItem>
+                <SelectItem value="high">{t('priority.high')}</SelectItem>
+                <SelectItem value="urgent">{t('priority.urgent')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -321,7 +323,7 @@ export function MaintenanceIssueDialog({
                 className="flex-1"
               >
                 <Camera className="h-4 w-4 mr-2" />
-                Take Photo
+                {t('common.takePhoto')}
               </Button>
               <Button
                 type="button"
@@ -368,14 +370,14 @@ export function MaintenanceIssueDialog({
                   disabled={isCameraLoading}
                 >
                   <Camera className="h-4 w-4 mr-2" />
-                  Capture
+                  {t('common.capture')}
                 </Button>
                 <Button
                   type="button"
                   onClick={stopCamera}
                   variant="outline"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
               </div>
             </div>
@@ -385,7 +387,7 @@ export function MaintenanceIssueDialog({
 
           {photos.length > 0 && (
             <div className="space-y-2">
-              <Label>Photos ({photos.length})</Label>
+              <Label>{t('common.photos')} ({photos.length})</Label>
               <div className="grid grid-cols-2 gap-3">
                 {photos.map((photo, index) => (
                   <Card key={index} className="relative overflow-hidden">
@@ -417,7 +419,7 @@ export function MaintenanceIssueDialog({
               className="flex-1"
               disabled={isUploading}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               type="button"
@@ -426,11 +428,11 @@ export function MaintenanceIssueDialog({
               className="flex-1"
             >
               {isUploading ? (
-                <>Reporting...</>
+                <>{t('maintenance.reporting')}</>
               ) : (
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Report Issue
+                  {t('maintenance.reportIssue')}
                 </>
               )}
             </Button>

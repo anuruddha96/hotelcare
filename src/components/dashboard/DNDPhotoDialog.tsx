@@ -35,7 +35,6 @@ export function DNDPhotoDialog({
 }: DNDPhotoDialogProps) {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const { t } = useTranslation();
   const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
   const [notes, setNotes] = useState('');
   const [isUploading, setIsUploading] = useState(false);
