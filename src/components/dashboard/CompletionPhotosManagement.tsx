@@ -7,7 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
-import { CheckCircle, Calendar, Hotel, User, Eye, Download } from 'lucide-react';
+import { CheckCircle, Calendar, Hotel, User, Eye, Download, Trash2 } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 import { format, subDays } from 'date-fns';
 
 interface CompletionPhoto {
@@ -37,6 +38,8 @@ export function CompletionPhotosManagement() {
   const [hotelFilter, setHotelFilter] = useState('all');
   const [hotels, setHotels] = useState<any[]>([]);
   const [userHotelName, setUserHotelName] = useState<string>('');
+
+  const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
 
   useEffect(() => {
     fetchHotels();
@@ -194,6 +197,46 @@ export function CompletionPhotosManagement() {
     }
   };
 
+  const handleDeletePhoto = async (assignmentId: string, photoUrl: string) => {
+    if (!confirm('Are you sure you want to delete this photo?')) return;
+    
+    try {
+      // Get the current assignment
+      const { data: assignment, error: fetchError } = await supabase
+        .from('room_assignments')
+        .select('completion_photos')
+        .eq('id', assignmentId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Remove the photo from the array
+      const updatedPhotos = (assignment.completion_photos || []).filter((p: string) => p !== photoUrl);
+
+      // Update the assignment with the new photos array
+      const { error: updateError } = await supabase
+        .from('room_assignments')
+        .update({ completion_photos: updatedPhotos })
+        .eq('id', assignmentId);
+
+      if (updateError) throw updateError;
+
+      toast({
+        title: 'Success',
+        description: 'Photo deleted successfully',
+      });
+
+      fetchCompletionPhotos();
+    } catch (error: any) {
+      console.error('Error deleting photo:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete photo',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -258,7 +301,7 @@ export function CompletionPhotosManagement() {
                             Completed
                           </Badge>
                         </div>
-                        <div className="absolute top-2 right-2 flex gap-1">
+                         <div className="absolute top-2 right-2 flex gap-1">
                           <Button
                             size="sm"
                             variant="secondary"
@@ -275,6 +318,16 @@ export function CompletionPhotosManagement() {
                           >
                             <Download className="h-4 w-4" />
                           </Button>
+                          {canDelete && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDeletePhoto(photo.id, photoUrl)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                       <CardContent className="p-4">

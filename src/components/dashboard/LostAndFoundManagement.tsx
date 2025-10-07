@@ -56,10 +56,9 @@ export function LostAndFoundManagement() {
   const fetchLostAndFound = async () => {
     setLoading(true);
     try {
-      const startDate = startOfDay(selectedDate);
       const endDate = endOfDay(selectedDate);
 
-      console.log('Fetching lost and found for date:', format(selectedDate, 'yyyy-MM-dd'));
+      console.log('Fetching lost and found up to date:', format(selectedDate, 'yyyy-MM-dd'));
 
       const { data, error } = await supabase
         .from('lost_and_found')
@@ -73,7 +72,6 @@ export function LostAndFoundManagement() {
             full_name
           )
         `)
-        .gte('found_date', format(startDate, 'yyyy-MM-dd'))
         .lte('found_date', format(endDate, 'yyyy-MM-dd'))
         .order('found_date', { ascending: false });
 
