@@ -268,18 +268,24 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
     const capturedCategories = new Set(
       photos.map(url => {
-        // Extract category from filename
-        const filename = url.split('/').pop() || '';
-        console.log('📸 Filename:', filename);
-        const category = filename.split('_')[0];
-        console.log('📸 Extracted category:', category);
-        return category;
+        // Extract category from filename - get the last part of the path
+        const parts = url.split('/');
+        const filename = parts[parts.length - 1] || '';
+        console.log('📸 Full filename:', filename);
+        
+        // The format is: category_timestamp_random.jpg
+        // Split by underscore and get the first part
+        const categoryPart = filename.split('_')[0];
+        console.log('📸 Extracted category:', categoryPart);
+        return categoryPart;
       })
     );
     
-    console.log('✅ Captured categories:', Array.from(capturedCategories));
+    console.log('✅ Captured categories SET:', Array.from(capturedCategories));
+    console.log('✅ Required categories:', requiredCategories);
     const missingCategories = requiredCategories.filter(cat => !capturedCategories.has(cat));
     console.log('❌ Missing categories:', missingCategories);
+    console.log('❌ Missing count:', missingCategories.length);
     
     if (missingCategories.length > 0) {
       const categoryNames = {
@@ -302,6 +308,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       return false;
     }
 
+    console.log('✅✅ All photos validated successfully! Opening checklist...');
     // All photos present, show the checklist
     setChecklistDialogOpen(true);
     return true;
