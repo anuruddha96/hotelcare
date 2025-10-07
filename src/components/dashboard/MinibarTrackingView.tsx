@@ -122,17 +122,26 @@ export function MinibarTrackingView() {
       
       if (hotelRooms && hotelRooms.length > 0) {
         const roomIds = hotelRooms.map(r => r.id);
+        
+        // Calculate previous day's date range
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const startOfYesterday = startOfDay(yesterday);
+        const endOfYesterday = endOfDay(yesterday);
+        
         const { error } = await supabase
           .from('room_minibar_usage')
           .update({ is_cleared: true })
           .in('room_id', roomIds)
-          .eq('is_cleared', false);
+          .eq('is_cleared', false)
+          .gte('usage_date', startOfYesterday.toISOString())
+          .lte('usage_date', endOfYesterday.toISOString());
 
         if (error) throw error;
 
         toast({
           title: 'Success',
-          description: 'All minibar records cleared successfully',
+          description: 'Previous day minibar records cleared successfully',
         });
 
         fetchMinibarData();
@@ -369,9 +378,9 @@ export function MinibarTrackingView() {
       <AlertDialog open={clearAllDialogOpen} onOpenChange={setClearAllDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Clear All Minibar Records?</AlertDialogTitle>
+            <AlertDialogTitle>Clear Previous Day's Minibar Records?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will mark all minibar records for your hotel as cleared. This action cannot be undone.
+              This will mark all minibar records from yesterday for your hotel as cleared. This action cannot be undone.
               This should only be used in emergency situations or when resetting data.
             </AlertDialogDescription>
           </AlertDialogHeader>

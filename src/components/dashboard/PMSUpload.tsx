@@ -207,7 +207,7 @@ export function PMSUpload() {
         console.log('Reset all room assignments for today');
       }
 
-      // Clear minibar records for the current hotel to avoid confusion from previous day data
+      // Clear minibar records from previous day for the current hotel to avoid confusion
       if (selectedHotel) {
         const { data: hotelRooms } = await supabase
           .from('rooms')
@@ -216,16 +216,29 @@ export function PMSUpload() {
         
         if (hotelRooms && hotelRooms.length > 0) {
           const roomIds = hotelRooms.map(r => r.id);
+          
+          // Calculate previous day's date range
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          yesterday.setHours(0, 0, 0, 0);
+          const startOfYesterday = yesterday.toISOString();
+          
+          const endOfYesterday = new Date(yesterday);
+          endOfYesterday.setHours(23, 59, 59, 999);
+          const endOfYesterdayISO = endOfYesterday.toISOString();
+          
           const { error: minibarClearError } = await supabase
             .from('room_minibar_usage')
             .update({ is_cleared: true })
             .in('room_id', roomIds)
-            .eq('is_cleared', false);
+            .eq('is_cleared', false)
+            .gte('usage_date', startOfYesterday)
+            .lte('usage_date', endOfYesterdayISO);
           
           if (minibarClearError) {
             console.warn('Error clearing minibar records:', minibarClearError);
           } else {
-            console.log('Cleared previous minibar records for hotel');
+            console.log('Cleared previous day minibar records for hotel');
           }
         }
       }
