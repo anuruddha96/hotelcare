@@ -46,7 +46,7 @@ export function LostAndFoundManagement() {
   const [claimedBy, setClaimedBy] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);
 
-  const canDelete = profile?.role && ['admin'].includes(profile.role);
+  const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
   const canAddItems = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
 
   useEffect(() => {
@@ -58,6 +58,8 @@ export function LostAndFoundManagement() {
     try {
       const startDate = startOfDay(selectedDate);
       const endDate = endOfDay(selectedDate);
+
+      console.log('Fetching lost and found for date:', format(selectedDate, 'yyyy-MM-dd'));
 
       const { data, error } = await supabase
         .from('lost_and_found')
@@ -75,7 +77,12 @@ export function LostAndFoundManagement() {
         .lte('found_date', format(endDate, 'yyyy-MM-dd'))
         .order('found_date', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Query error:', error);
+        throw error;
+      }
+      
+      console.log('Found items:', data?.length || 0, data);
       setItems(data as any || []);
     } catch (error: any) {
       console.error('Error fetching lost and found:', error);
