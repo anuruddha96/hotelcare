@@ -71,7 +71,13 @@ export function MaintenancePhotosManagement() {
         .lte('created_at', `${dateStr}T23:59:59`)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+      
+      console.log('Fetched maintenance issues:', data?.length || 0, 'records');
+      console.log('Sample data:', data?.[0]);
       setIssues((data as any) || []);
     } catch (error) {
       console.error('Error fetching maintenance issues:', error);

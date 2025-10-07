@@ -43,23 +43,38 @@ export function MaintenanceIssueDialog({
 
   // Fetch rooms for general maintenance issues
   useEffect(() => {
-    if (open && !initialRoomId) {
-      fetchRooms();
+    if (open) {
+      if (!initialRoomId) {
+        fetchRooms();
+      } else {
+        setSelectedRoomId(initialRoomId);
+      }
     }
   }, [open, initialRoomId]);
 
   const fetchRooms = async () => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('rooms')
-        .select('id, room_number, hotel')
-        .eq('hotel', profile?.assigned_hotel || '')
-        .order('room_number');
+        .select('id, room_number, hotel');
+
+      // Filter by hotel if user has assigned hotel
+      if (profile?.assigned_hotel) {
+        query = query.eq('hotel', profile.assigned_hotel);
+      }
+
+      const { data, error } = await query.order('room_number');
 
       if (error) throw error;
+      console.log('Fetched rooms for hotel:', profile?.assigned_hotel, '- Count:', data?.length || 0);
       setRooms(data || []);
+      
+      if (!data || data.length === 0) {
+        toast.error('No rooms found for this hotel');
+      }
     } catch (error) {
       console.error('Error fetching rooms:', error);
+      toast.error('Failed to load rooms');
     }
   };
 
