@@ -25,15 +25,16 @@ interface CapturedPhoto {
   blob: Blob;
 }
 
-export function DNDPhotoDialog({
-  open,
-  onOpenChange,
+export function DNDPhotoDialog({ 
+  open, 
+  onOpenChange, 
   roomNumber,
   roomId,
   assignmentId,
-  onPhotoUploaded
+  onPhotoUploaded 
 }: DNDPhotoDialogProps) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const { t } = useTranslation();
   const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
   const [notes, setNotes] = useState('');

@@ -174,7 +174,7 @@ export function MobileHousekeepingCard({
           {assignment.status === 'in_progress' && (
             <Button onClick={onComplete} className="w-full h-12 text-lg bg-green-600 hover:bg-green-700">
               <Camera className="h-5 w-5 mr-2" />
-              {t('housekeeping.complete')}
+              {t('housekeeping.markComplete')}
             </Button>
           )}
 
@@ -182,7 +182,7 @@ export function MobileHousekeepingCard({
           <div className="grid grid-cols-2 gap-2">
             <Button variant="outline" onClick={onTakePhoto} className="h-10">
               <Camera className="h-4 w-4 mr-1" />
-              {t('common.details')}
+              {t('roomCard.details')}
             </Button>
             <Button variant="outline" onClick={onOpenLinen} className="h-10 flex items-center justify-center">
               <Shirt className="h-4 w-4 mr-1" />
