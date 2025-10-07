@@ -170,6 +170,24 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   };
 
   const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
+    // Check for room photos on daily cleaning completion
+    if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
+      const { data: assignmentData } = await supabase
+        .from('room_assignments')
+        .select('completion_photos')
+        .eq('id', assignment.id)
+        .single();
+      
+      if (!assignmentData?.completion_photos || assignmentData.completion_photos.length === 0) {
+        toast.error(t('actions.photosRequired'), {
+          description: t('actions.photosRequiredMessage'),
+          duration: 6000
+        });
+        setDailyPhotoDialogOpen(true);
+        return;
+      }
+    }
+
     // Check if user is on break before starting work
     if (newStatus === 'in_progress' && attendanceStatus === 'on_break') {
       showToast({
@@ -536,7 +554,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border-2 border-dashed border-amber-200">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className="h-5 w-5 text-amber-600" />
-                <span className="font-semibold text-amber-800">Required Actions</span>
+                <span className="font-semibold text-amber-800">{t('actions.required')}</span>
               </div>
               
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -549,7 +567,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     className="flex flex-col items-center gap-1 h-16 border-blue-300 text-blue-700 hover:bg-blue-100"
                   >
                     <Camera className="h-4 w-4" />
-                    <span className="text-xs">Room Photos</span>
+                    <span className="text-xs">{t('actions.roomPhotos')}</span>
                   </Button>
                 )}
 
@@ -561,7 +579,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   className="flex flex-col items-center gap-1 h-16 border-orange-300 text-orange-700 hover:bg-orange-100"
                 >
                   <AlertTriangle className="h-4 w-4" />
-                  <span className="text-xs">DND Photo</span>
+                  <span className="text-xs">{t('actions.dndPhoto')}</span>
                 </Button>
 
                 {/* Dirty Linen Button */}
@@ -572,7 +590,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   className="flex flex-col items-center gap-1 h-16 border-amber-300 text-amber-700 hover:bg-amber-100"
                 >
                   <Shirt className="h-4 w-4" />
-                  <span className="text-xs">Dirty Linen</span>
+                  <span className="text-xs">{t('actions.dirtyLinen')}</span>
                 </Button>
 
                 {/* Minibar Consumption Button */}
@@ -583,7 +601,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   className="flex flex-col items-center gap-1 h-16 border-purple-300 text-purple-700 hover:bg-purple-100"
                 >
                   <BedDouble className="h-4 w-4" />
-                  <span className="text-xs">Minibar</span>
+                  <span className="text-xs">{t('actions.minibar')}</span>
                 </Button>
 
                 {/* Lost & Found Button */}
@@ -594,7 +612,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   className="flex flex-col items-center gap-1 h-16 border-green-300 text-green-700 hover:bg-green-100"
                 >
                   <Package className="h-4 w-4" />
-                  <span className="text-xs">Lost & Found</span>
+                  <span className="text-xs">{t('actions.lostAndFound')}</span>
                 </Button>
 
                 {/* Maintenance Issue Button */}
@@ -605,7 +623,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   className="flex flex-col items-center gap-1 h-16 border-red-300 text-red-700 hover:bg-red-100"
                 >
                   <AlertTriangle className="h-4 w-4" />
-                  <span className="text-xs">Maintenance</span>
+                  <span className="text-xs">{t('actions.maintenance')}</span>
                 </Button>
               </div>
             </div>
