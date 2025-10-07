@@ -9,6 +9,7 @@ import { Camera, Upload, X, Package, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface LostAndFoundDialogProps {
   open: boolean;
@@ -28,6 +29,7 @@ export function LostAndFoundDialog({
   onItemReported
 }: LostAndFoundDialogProps) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState<{ dataUrl: string; blob: Blob }[]>([]);
@@ -212,26 +214,26 @@ export function LostAndFoundDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5 text-primary" />
-            Lost & Found - Room {roomNumber}
+            {t('lostFound.title')} - {t('common.room')} {roomNumber}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="description">Item Description *</Label>
+            <Label htmlFor="description">{t('lostFound.itemDescription')} *</Label>
             <Input
               id="description"
-              placeholder="e.g., Blue umbrella, Black wallet, etc."
+              placeholder={t('lostFound.itemDescriptionPlaceholder')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="notes">Additional Notes (Optional)</Label>
+            <Label htmlFor="notes">{t('lostFound.additionalNotes')}</Label>
             <Textarea
               id="notes"
-              placeholder="Any additional details about the item..."
+              placeholder={t('lostFound.additionalNotesPlaceholder')}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
@@ -247,7 +249,7 @@ export function LostAndFoundDialog({
                 className="flex-1"
               >
                 <Camera className="h-4 w-4 mr-2" />
-                Take Photo
+                {t('common.takePhoto')}
               </Button>
               <Button
                 type="button"
@@ -256,7 +258,7 @@ export function LostAndFoundDialog({
                 className="flex-1"
               >
                 <Upload className="h-4 w-4 mr-2" />
-                Upload Photo
+                {t('common.uploadPhoto')}
               </Button>
               <input
                 ref={fileInputRef}
@@ -294,14 +296,14 @@ export function LostAndFoundDialog({
                   disabled={isCameraLoading}
                 >
                   <Camera className="h-4 w-4 mr-2" />
-                  Capture
+                  {t('common.capture')}
                 </Button>
                 <Button
                   type="button"
                   onClick={stopCamera}
                   variant="outline"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
               </div>
             </div>
@@ -311,7 +313,7 @@ export function LostAndFoundDialog({
 
           {photos.length > 0 && (
             <div className="space-y-2">
-              <Label>Photos ({photos.length})</Label>
+              <Label>{t('common.photos')} ({photos.length})</Label>
               <div className="grid grid-cols-2 gap-3">
                 {photos.map((photo, index) => (
                   <Card key={index} className="relative overflow-hidden">
@@ -343,7 +345,7 @@ export function LostAndFoundDialog({
               className="flex-1"
               disabled={isUploading}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               type="button"
@@ -352,11 +354,11 @@ export function LostAndFoundDialog({
               className="flex-1"
             >
               {isUploading ? (
-                <>Reporting...</>
+                <>{t('lostFound.reporting')}</>
               ) : (
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Report Item
+                  {t('lostFound.reportItem')}
                 </>
               )}
             </Button>

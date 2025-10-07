@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { expandedTranslations } from '@/lib/expanded-translations';
 
 const translations = {
   en: {
@@ -1332,7 +1333,7 @@ type TranslationKey = keyof typeof translations.en;
 interface TranslationContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
-  t: (key: TranslationKey) => string;
+  t: (key: TranslationKey | string) => string;
 }
 
 const TranslationContext = createContext<TranslationContextType | null>(null);
@@ -1342,8 +1343,16 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     return (localStorage.getItem('preferred-language') as Language) || 'en';
   });
 
-  const t = (key: TranslationKey): string => {
-    return translations[language]?.[key] || translations.en[key] || key;
+  const t = (key: TranslationKey | string): string => {
+    // First check main translations
+    const mainTranslation = translations[language]?.[key] || translations.en[key];
+    if (mainTranslation) return mainTranslation;
+    
+    // Then check expanded translations
+    const expandedTranslation = expandedTranslations[language]?.[key] || expandedTranslations.en[key];
+    if (expandedTranslation) return expandedTranslation;
+    
+    return key;
   };
 
   const changeLanguage = (lang: Language) => {

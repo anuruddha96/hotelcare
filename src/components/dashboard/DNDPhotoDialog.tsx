@@ -239,14 +239,14 @@ export function DNDPhotoDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-orange-600" />
-            DND Photo - Room {roomNumber}
+            {t('dnd.title')} - {t('common.room')} {roomNumber}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg">
             <p className="text-sm text-orange-800 dark:text-orange-200">
-              Capture photos showing the DND notice on the door as evidence. You can capture multiple photos.
+              {t('dnd.notice')}
             </p>
           </div>
 
@@ -259,7 +259,7 @@ export function DNDPhotoDialog({
                 className="flex-1"
               >
                 <Camera className="h-4 w-4 mr-2" />
-                Take Photo
+                {t('common.takePhoto')}
               </Button>
               <Button
                 type="button"
@@ -268,7 +268,7 @@ export function DNDPhotoDialog({
                 className="flex-1"
               >
                 <Upload className="h-4 w-4 mr-2" />
-                Upload Photos
+                {t('dnd.uploadPhotos')}
               </Button>
               <input
                 ref={fileInputRef}
@@ -306,14 +306,14 @@ export function DNDPhotoDialog({
                   disabled={isCameraLoading}
                 >
                   <Camera className="h-4 w-4 mr-2" />
-                  Capture
+                  {t('common.capture')}
                 </Button>
                 <Button
                   type="button"
                   onClick={stopCamera}
                   variant="outline"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
               </div>
             </div>
@@ -325,8 +325,8 @@ export function DNDPhotoDialog({
           {capturedPhotos.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Captured Photos ({capturedPhotos.length})</Label>
-                {isUploading && <Badge variant="secondary">Uploading...</Badge>}
+                <Label>{t('dnd.capturedPhotos')} ({capturedPhotos.length})</Label>
+                {isUploading && <Badge variant="secondary">{t('dnd.uploading')}</Badge>}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {capturedPhotos.map((photo, index) => (
@@ -356,12 +356,12 @@ export function DNDPhotoDialog({
               </div>
               
               <div className="space-y-2 mt-4">
-                <Label htmlFor="notes">Notes (Optional)</Label>
+                <Label htmlFor="notes">{t('dnd.notes')}</Label>
                 <Textarea
                   id="notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Add any additional notes about the DND status..."
+                  placeholder={t('dnd.notesPlaceholder')}
                   rows={3}
                 />
               </div>
@@ -377,7 +377,7 @@ export function DNDPhotoDialog({
               className="flex-1"
               disabled={isUploading}
             >
-              Close
+              {t('common.close')}
             </Button>
             {capturedPhotos.length > 0 && (
               <Button
@@ -387,11 +387,11 @@ export function DNDPhotoDialog({
                 className="flex-1 bg-orange-600 hover:bg-orange-700"
               >
                 {isUploading ? (
-                  <>Uploading...</>
+                  <>{t('dnd.uploading')}</>
                 ) : (
                   <>
                     <CheckCircle className="h-4 w-4 mr-2" />
-                    Upload {capturedPhotos.length} Photo(s)
+                    {t('dnd.upload')} {capturedPhotos.length} {t('common.photos')}
                   </>
                 )}
               </Button>

@@ -89,9 +89,9 @@ export function MobileHousekeepingCard({
               🏠
             </div>
             <div className="text-sm">
-              <p className="font-medium">Floor</p>
+              <p className="font-medium">{t('common.floor')}</p>
               <p className="text-muted-foreground">
-                Floor {assignment.rooms?.floor_number || 'N/A'}
+                {t('common.floor')} {assignment.rooms?.floor_number || 'N/A'}
               </p>
             </div>
           </div>
@@ -100,7 +100,7 @@ export function MobileHousekeepingCard({
         {/* Room Name */}
         {assignment.rooms?.room_name && (
           <div className="p-2 bg-muted/30 rounded">
-            <p className="text-sm font-medium">Room Name</p>
+            <p className="text-sm font-medium">{t('roomCard.roomName')}</p>
             <p className="text-lg font-semibold">{assignment.rooms.room_name}</p>
           </div>
         )}
@@ -109,7 +109,7 @@ export function MobileHousekeepingCard({
         <div className="flex items-center gap-2 p-2 bg-blue-50 rounded">
           <Clock className="h-4 w-4 text-blue-600" />
           <div className="text-sm">
-            <p className="font-medium text-blue-800">Estimated Time</p>
+            <p className="font-medium text-blue-800">{t('roomCard.estimatedTime')}</p>
             <p className="text-lg font-bold text-blue-900">
               {assignment.estimated_duration} {t('common.minutes')}
             </p>
@@ -152,10 +152,10 @@ export function MobileHousekeepingCard({
               <AlertTriangle className="h-4 w-4 text-amber-600" />
               <div>
                 <p className="text-sm font-medium text-amber-800">
-                  Room Status Alert
+                  {t('roomCard.roomStatusAlert')}
                 </p>
                 <p className="text-sm text-amber-700">
-                  Status: {assignment.rooms.status}
+                  {t('common.status')}: {assignment.rooms.status}
                 </p>
               </div>
             </div>
