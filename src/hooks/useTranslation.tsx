@@ -130,6 +130,41 @@ const translations = {
     'common.minutes': 'minutes',
     'common.dismiss': 'Dismiss',
     'common.details': 'Details',
+    'common.floor': 'Floor',
+    'common.takePhoto': 'Take Photo',
+    
+    // Task Status
+    'tasks.totalForToday': 'Total Tasks for Today',
+    'tasks.inProgress': 'In Progress',
+    'tasks.waiting': 'Waiting',
+    'tasks.completed': 'Completed',
+    'tasks.todaysTasks': "Today's Tasks",
+    'tasks.hotelAssignment': 'Hotel Assignment',
+    
+    // Room Details
+    'room.roomName': 'Room Name',
+    'room.estimatedTime': 'Estimated Time',
+    'room.complete': 'Complete',
+    'room.addNote': 'Add Note',
+    'room.roomStatusAlert': 'Room Status Alert',
+    'room.roomStatus': 'Room Status',
+    
+    // Clean Types
+    'cleanType.checkout': 'Checkout Clean',
+    'cleanType.daily': 'Daily Clean',
+    'cleanType.deep': 'Deep Clean',
+    
+    // Required Actions
+    'actions.required': 'Required Actions',
+    'actions.dndPhoto': 'DND Photo',
+    'actions.dirtyLinen': 'Dirty Linen',
+    'actions.minibar': 'Minibar',
+    'actions.lostAndFound': 'Lost & Found',
+    'actions.maintenance': 'Maintenance',
+    
+    // Minibar
+    'minibar.title': 'Minibar Tracking',
+    'minibar.total': 'Total',
     
     // Language
     'language.changed': 'Language Changed',

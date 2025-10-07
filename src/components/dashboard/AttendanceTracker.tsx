@@ -402,7 +402,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                       disabled={isLoading}
                     >
                       <Coffee className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-                      {t('attendance.startBreak')}
+                      {t('attendance.startBreak')} 😌
                     </Button>
                   </div>
                   

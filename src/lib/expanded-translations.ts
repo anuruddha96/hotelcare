@@ -88,6 +88,18 @@ export const expandedTranslations = {
     'linen.bathMat': 'Bath Mat',
     'linen.pillowCase': 'Pillow Case',
     'linen.duvetCover': 'Duvet Cover',
+    
+    // Task Status Cards
+    'tasks.totalForToday': 'Total Tasks for Today',
+    'tasks.inProgress': 'In Progress',
+    'tasks.waiting': 'Waiting',
+    'tasks.completed': 'Completed',
+    
+    // Actions Required
+    'actions.required': 'Required Actions',
+    
+    // Work Status
+    'workStatus.title': 'Work Status & Attendance',
   },
   es: {
     // Lost & Found

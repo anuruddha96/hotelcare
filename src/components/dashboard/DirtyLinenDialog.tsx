@@ -339,7 +339,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                 onClick={() => setShowMyRecords(!showMyRecords)}
                 className={showMyRecords ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "border-primary text-primary hover:bg-primary/10"}
               >
-                🛒 My Dirty Linen Cart ({myRecords.length})
+                🛒 {t('dirtyLinen.myCart')} ({myRecords.length})
               </Button>
             </div>
           </DialogTitle>

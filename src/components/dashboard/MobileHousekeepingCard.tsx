@@ -77,7 +77,7 @@ export function MobileHousekeepingCard({
           <div className="flex items-center gap-2 p-2 bg-muted/50 rounded">
             <MapPin className="h-4 w-4 text-muted-foreground" />
             <div className="text-sm">
-              <p className="font-medium">{t('common.hotel')}</p>
+              <p className="font-medium">{t('room.hotel')}</p>
               <p className="text-muted-foreground truncate">
                 {assignment.rooms?.hotel || 'N/A'}
               </p>
@@ -123,10 +123,10 @@ export function MobileHousekeepingCard({
               <div className="p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg">
                 <div className="flex items-center gap-2 mb-1">
                   <div className="text-xl">🏺</div>
-                  <div className="font-bold text-lg">TOWEL CHANGE REQUIRED</div>
+                  <div className="font-bold text-lg">{t('roomCard.towelChangeRequired') || 'TOWEL CHANGE REQUIRED'}</div>
                 </div>
                 <p className="text-sm opacity-90">
-                  Guest stayed {guestNights} nights - Change towels
+                  {t('roomCard.guestStayed') || 'Guest stayed'} {guestNights} {t('roomCard.nights') || 'nights'}
                 </p>
               </div>
             )}
