@@ -96,13 +96,35 @@ export function CompletionDataView({
         const photos = assignmentData.completion_photos || [];
         console.log('Completion photos found:', photos.length);
         
-        // Parse photos - they might be JSON strings with category info
+        // Category mapping for display names
+        const categoryMap: Record<string, string> = {
+          trash_bin: 'Trash Bin',
+          bathroom: 'Bathroom',
+          bed: 'Bed',
+          minibar: 'Minibar',
+          tea_coffee_table: 'Tea/Coffee Table'
+        };
+        
+        // Parse photos - extract category from filename or try JSON parsing
         const parsedPhotos = photos.map((photo: any) => {
           try {
             const parsed = JSON.parse(photo);
             return parsed; // {url, category, categoryName}
           } catch {
-            return { url: photo, categoryName: 'Room Photo' }; // Legacy format
+            // Extract category from filename (format: category_timestamp_random.jpg)
+            let categoryName = 'Room Photo';
+            const url = typeof photo === 'string' ? photo : photo.url || photo;
+            const filename = url.split('/').pop() || '';
+            
+            // Try to match category from filename
+            for (const [category, displayName] of Object.entries(categoryMap)) {
+              if (filename.startsWith(category + '_')) {
+                categoryName = displayName;
+                break;
+              }
+            }
+            
+            return { url, categoryName };
           }
         });
         
