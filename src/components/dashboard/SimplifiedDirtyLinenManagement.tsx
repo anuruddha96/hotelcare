@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Shirt, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DateRangeFilter } from './DateRangeFilter';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { DateRange } from 'react-day-picker';
 
@@ -40,28 +39,65 @@ export function SimplifiedDirtyLinenManagement() {
     const endDate = dateRange.to.toISOString().split('T')[0];
     
     try {
-      const { data, error } = await supabase
+      // Step 1: Fetch dirty linen counts without joins
+      const { data: countsData, error: countsError } = await supabase
         .from('dirty_linen_counts')
-        .select(`
-          count,
-          work_date,
-          housekeeper:housekeeper_id (full_name, nickname),
-          linen_item:linen_item_id (display_name)
-        `)
+        .select('id, housekeeper_id, linen_item_id, count, work_date')
         .gte('work_date', startDate)
         .lte('work_date', endDate)
         .gt('count', 0);
 
-      if (error) throw error;
+      if (countsError) {
+        console.error('Error fetching counts:', countsError);
+        toast.error(t('common.error'));
+        return;
+      }
 
-      // Calculate totals by item type
+      if (!countsData || countsData.length === 0) {
+        setItemTotals([]);
+        setHousekeeperData([]);
+        setGrandTotal(0);
+        return;
+      }
+
+      // Step 2: Fetch housekeeper profiles separately
+      const housekeeperIds = Array.from(new Set(countsData.map(c => c.housekeeper_id)));
+      const { data: housekeepersData, error: housekeepersError } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname')
+        .in('id', housekeeperIds);
+
+      if (housekeepersError) {
+        console.error('Error fetching housekeepers:', housekeepersError);
+      }
+
+      // Step 3: Fetch linen items separately
+      const linenItemIds = Array.from(new Set(countsData.map(c => c.linen_item_id)));
+      const { data: linenItemsData, error: linenItemsError } = await supabase
+        .from('dirty_linen_items')
+        .select('id, display_name')
+        .in('id', linenItemIds);
+
+      if (linenItemsError) {
+        console.error('Error fetching linen items:', linenItemsError);
+      }
+
+      // Step 4: Create lookup maps
+      const housekeepersMap = new Map(
+        housekeepersData?.map(h => [h.id, h.nickname || h.full_name]) || []
+      );
+      const linenItemsMap = new Map(
+        linenItemsData?.map(l => [l.id, l.display_name]) || []
+      );
+
+      // Step 5: Calculate totals by item type and housekeeper
       const itemMap = new Map<string, number>();
       const housekeeperMap = new Map<string, { items: Map<string, number>, total: number }>();
       let total = 0;
 
-      data.forEach((record: any) => {
-        const itemName = record.linen_item?.display_name || 'Unknown';
-        const housekeeperName = record.housekeeper?.nickname || record.housekeeper?.full_name || 'Unknown';
+      countsData.forEach((record) => {
+        const itemName = linenItemsMap.get(record.linen_item_id) || 'Unknown';
+        const housekeeperName = housekeepersMap.get(record.housekeeper_id) || 'Unknown';
         const count = record.count;
 
         // Item totals
@@ -79,16 +115,20 @@ export function SimplifiedDirtyLinenManagement() {
       });
 
       // Convert to arrays
-      const itemsArray = Array.from(itemMap.entries()).map(([item_name, total_count]) => ({
-        item_name,
-        total_count
-      }));
+      const itemsArray = Array.from(itemMap.entries())
+        .map(([item_name, total_count]) => ({
+          item_name,
+          total_count
+        }))
+        .sort((a, b) => a.item_name.localeCompare(b.item_name));
 
-      const housekeepersArray = Array.from(housekeeperMap.entries()).map(([housekeeper_name, data]) => ({
-        housekeeper_name,
-        items: Object.fromEntries(data.items),
-        total: data.total
-      }));
+      const housekeepersArray = Array.from(housekeeperMap.entries())
+        .map(([housekeeper_name, data]) => ({
+          housekeeper_name,
+          items: Object.fromEntries(data.items),
+          total: data.total
+        }))
+        .sort((a, b) => a.housekeeper_name.localeCompare(b.housekeeper_name));
 
       setItemTotals(itemsArray);
       setHousekeeperData(housekeepersArray);
@@ -132,15 +172,15 @@ export function SimplifiedDirtyLinenManagement() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold">{t('linen.management')}</h2>
           <p className="text-muted-foreground">{t('linen.collectionSummary')}</p>
         </div>
-        <Button onClick={exportToCSV} variant="outline">
+        <Button onClick={exportToCSV} variant="outline" disabled={housekeeperData.length === 0}>
           <Download className="h-4 w-4 mr-2" />
-          {t('reports.export')}
+          Export to CSV
         </Button>
       </div>
 
@@ -149,94 +189,76 @@ export function SimplifiedDirtyLinenManagement() {
         onDateRangeChange={setDateRange}
       />
 
-      <Tabs defaultValue="summary" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="summary">{t('linen.collectionSummary')}</TabsTrigger>
-          <TabsTrigger value="details">{t('linen.byHousekeeper')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="summary" className="space-y-4">
-          {/* Grand Total */}
-          <Card className="p-6 bg-primary/5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-primary/10 rounded-lg">
-                  <Shirt className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">{t('linen.totalCollected')}</p>
-                  <p className="text-3xl font-bold">{grandTotal}</p>
-                </div>
-              </div>
-              <Badge variant="secondary" className="text-lg px-4 py-2">
-                {housekeeperData.length} {t('linen.housekeepers')}
-              </Badge>
+      <Card className="p-6">
+        {/* Summary Stats */}
+        <div className="mb-6 grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-3 p-4 bg-primary/5 rounded-lg">
+            <Shirt className="h-8 w-8 text-primary" />
+            <div>
+              <p className="text-sm text-muted-foreground">Total Collected</p>
+              <p className="text-2xl font-bold">{grandTotal}</p>
             </div>
-          </Card>
+          </div>
+          <div className="flex items-center gap-3 p-4 bg-secondary/50 rounded-lg">
+            <Badge variant="secondary" className="text-lg px-4 py-2">
+              {housekeeperData.length} Housekeepers
+            </Badge>
+          </div>
+        </div>
 
-          {/* Item Breakdown */}
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">{t('linen.byItemType')}</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {itemTotals.map((item) => (
-                <div key={item.item_name} className="flex flex-col items-center p-4 bg-accent/50 rounded-lg">
-                  <Shirt className="h-6 w-6 text-muted-foreground mb-2" />
-                  <span className="text-sm text-center font-medium mb-1">{item.item_name}</span>
-                  <Badge variant="outline" className="text-lg">
-                    {item.total_count}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="details" className="space-y-4">
-          <Card className="p-6">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b-2">
-                    <th className="text-left p-3 font-semibold">{t('linen.housekeepers')}</th>
-                    {itemTotals.map((item) => (
-                      <th key={item.item_name} className="text-center p-3 font-semibold min-w-[100px]">
-                        {item.item_name}
-                      </th>
-                    ))}
-                    <th className="text-center p-3 font-semibold bg-primary/5">{t('linen.total')}</th>
-                  </tr>
-                </thead>
-                <tbody>
+        {/* Main Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse border">
+            <thead>
+              <tr className="bg-muted">
+                <th className="border p-3 text-left font-bold min-w-[150px]">Housekeepers</th>
+                {itemTotals.map((item) => (
+                  <th key={item.item_name} className="border p-3 text-center font-bold min-w-[120px] whitespace-nowrap">
+                    {item.item_name}
+                  </th>
+                ))}
+                <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">TOTAL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {housekeeperData.length === 0 ? (
+                <tr>
+                  <td colSpan={itemTotals.length + 2} className="border p-8 text-center text-muted-foreground">
+                    No data available for the selected date range
+                  </td>
+                </tr>
+              ) : (
+                <>
                   {housekeeperData.map((hk, index) => (
-                    <tr key={index} className="border-b hover:bg-accent/30 transition">
-                      <td className="p-3 font-medium">{hk.housekeeper_name}</td>
+                    <tr key={index} className="hover:bg-accent/30 transition">
+                      <td className="border p-3 font-medium">{hk.housekeeper_name}</td>
                       {itemTotals.map((item) => (
-                        <td key={item.item_name} className="text-center p-3">
+                        <td key={item.item_name} className="border p-3 text-center">
                           {hk.items[item.item_name] || '-'}
                         </td>
                       ))}
-                      <td className="text-center p-3 font-bold bg-primary/5">
+                      <td className="border p-3 text-center font-bold bg-primary/5">
                         {hk.total}
                       </td>
                     </tr>
                   ))}
-                  <tr className="border-t-2 font-bold bg-accent">
-                    <td className="p-3">{t('linen.total').toUpperCase()}</td>
+                  <tr className="bg-accent font-bold">
+                    <td className="border p-3">TOTAL</td>
                     {itemTotals.map((item) => (
-                      <td key={item.item_name} className="text-center p-3">
+                      <td key={item.item_name} className="border p-3 text-center">
                         {item.total_count}
                       </td>
                     ))}
-                    <td className="text-center p-3 bg-primary/10">
+                    <td className="border p-3 text-center bg-primary/10 text-lg">
                       {grandTotal}
                     </td>
                   </tr>
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }
