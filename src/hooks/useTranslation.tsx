@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { expandedTranslations } from '@/lib/expanded-translations';
+import { additionalTranslations } from '@/lib/comprehensive-translations';
 
 const translations = {
   en: {
@@ -1636,6 +1637,10 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     // First check main translations
     const mainTranslation = translations[language]?.[key] || translations.en[key];
     if (mainTranslation) return mainTranslation;
+    
+    // Then check additional translations
+    const additionalTranslation = additionalTranslations[language]?.[key] || additionalTranslations.en[key];
+    if (additionalTranslation) return additionalTranslation;
     
     // Then check expanded translations
     const expandedTranslation = expandedTranslations[language]?.[key] || expandedTranslations.en[key];

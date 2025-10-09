@@ -81,6 +81,9 @@ export const additionalTranslations = {
     'linen.byHousekeeper': 'By Housekeeper',
     'linen.byItemType': 'By Item Type',
     
+    // Room
+    'room.label': 'Room',
+    
     // Reports - complete
     'reports.attendance': 'Attendance Reports',
     'reports.export': 'Export to CSV',
@@ -180,6 +183,9 @@ export const additionalTranslations = {
     'linen.totalCollected': 'Total Recolectado',
     'linen.byHousekeeper': 'Por Camarera',
     'linen.byItemType': 'Por Tipo de Artículo',
+    
+    // Room
+    'room.label': 'Habitación',
     
     // Reports
     'reports.attendance': 'Informes de Asistencia',
@@ -281,6 +287,9 @@ export const additionalTranslations = {
     'linen.byHousekeeper': 'Theo Nhân Viên',
     'linen.byItemType': 'Theo Loại Mặt Hàng',
     
+    // Room
+    'room.label': 'Phòng',
+    
     // Reports
     'reports.attendance': 'Báo Cáo Chấm Công',
     'reports.export': 'Xuất ra CSV',
@@ -381,6 +390,9 @@ export const additionalTranslations = {
     'linen.byHousekeeper': 'Цэвэрлэгчээр',
     'linen.byItemType': 'Зүйлийн Төрлөөр',
     
+    // Room
+    'room.label': 'Өрөө',
+    
     // Reports
     'reports.attendance': 'Ирцийн Тайлан',
     'reports.export': 'CSV руу экспортлох',
@@ -480,6 +492,9 @@ export const additionalTranslations = {
     'linen.totalCollected': 'Összes Begyűjtött',
     'linen.byHousekeeper': 'Takarító Szerint',
     'linen.byItemType': 'Cikk Típus Szerint',
+    
+    // Room
+    'room.label': 'Szoba',
     
     // Reports
     'reports.attendance': 'Jelenlét Jelentések',

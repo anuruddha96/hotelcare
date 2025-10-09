@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -23,20 +22,39 @@ interface LinenSummary {
 }
 
 export function DirtyLinenCartBadge() {
-  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [totalItems, setTotalItems] = useState(0);
   const [records, setRecords] = useState<LinenRecord[]>([]);
   const [summary, setSummary] = useState<LinenSummary[]>([]);
   const [open, setOpen] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  // Get current user
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setUserId(user.id);
+        // Get user profile to check role
+        supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+          .then(({ data }) => {
+            setUserRole(data?.role || null);
+          });
+      }
+    });
+  }, []);
 
   // Only show for housekeeping staff
-  if (profile?.role !== 'housekeeping') {
+  if (userRole !== 'housekeeping') {
     return null;
   }
 
   const fetchCartData = async () => {
-    if (!user?.id) return;
+    if (!userId) return;
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -49,7 +67,7 @@ export function DirtyLinenCartBadge() {
         rooms:room_id (room_number),
         dirty_linen_items:linen_item_id (display_name)
       `)
-      .eq('housekeeper_id', user.id)
+      .eq('housekeeper_id', userId)
       .eq('work_date', today)
       .gt('count', 0);
 
@@ -99,7 +117,7 @@ export function DirtyLinenCartBadge() {
           event: '*',
           schema: 'public',
           table: 'dirty_linen_counts',
-          filter: `housekeeper_id=eq.${user?.id}`
+          filter: `housekeeper_id=eq.${userId}`
         },
         () => {
           fetchCartData();
@@ -110,7 +128,7 @@ export function DirtyLinenCartBadge() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id]);
+  }, [userId]);
 
   const handleDeleteRecord = async (recordId: string) => {
     const { error } = await supabase

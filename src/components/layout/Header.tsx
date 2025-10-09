@@ -82,9 +82,11 @@ export function Header() {
         </div>
         
         {/* Right Section with Horizontal Scroll */}
-        <div className="flex items-center gap-1 sm:gap-3 overflow-x-auto scrollbar-hide max-w-[60%] sm:max-w-none">
-          <div className="flex items-center gap-1 sm:gap-3 shrink-0">
-            <DirtyLinenCartBadge />
+        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-hide max-w-[60%] sm:max-w-none">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <div className="shrink-0">
+              <DirtyLinenCartBadge />
+            </div>
             <HotelSwitcher />
             <LanguageSwitcher />
             
