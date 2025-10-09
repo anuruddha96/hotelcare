@@ -48,11 +48,6 @@ export function DirtyLinenCartBadge() {
     });
   }, []);
 
-  // Only show for housekeeping staff
-  if (userRole !== 'housekeeping') {
-    return null;
-  }
-
   const fetchCartData = async () => {
     if (!userId) return;
 
@@ -149,6 +144,11 @@ export function DirtyLinenCartBadge() {
 
     fetchCartData();
   };
+
+  // Only show for housekeeping staff
+  if (userRole !== 'housekeeping') {
+    return null;
+  }
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
