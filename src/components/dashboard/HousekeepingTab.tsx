@@ -17,7 +17,7 @@ import { AttendanceManagement } from './AttendanceManagement';
 import { DailyPhotosManagement } from './DailyPhotosManagement';
 import { DNDPhotosManagement } from './DNDPhotosManagement';
 import { CompletionPhotosManagement } from './CompletionPhotosManagement';
-import { DirtyLinenManagement } from './DirtyLinenManagement';
+import { SimplifiedDirtyLinenManagement } from './SimplifiedDirtyLinenManagement';
 import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
 import { MaintenancePhotosManagement } from './MaintenancePhotosManagement';
 import { GeneralTasksManagement } from './GeneralTasksManagement';
@@ -263,7 +263,7 @@ export function HousekeepingTab() {
 
             <TabsContent value="dirty-linen" className="space-y-6">
               <div className="space-y-6">
-                <DirtyLinenManagement />
+                <SimplifiedDirtyLinenManagement />
                 {userRole === 'admin' && <DirtyLinenItemsManagement />}
               </div>
             </TabsContent>
