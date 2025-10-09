@@ -87,7 +87,6 @@ export const additionalTranslations = {
     'linen.bigTowel': 'Big Towel',
     'linen.duvetCovers': 'Duvet Covers',
     'linen.smallTowel': 'Small Towel',
-    'linen.total': 'TOTAL',
     
     // Housekeeping tab names
     'housekeeping.tabs.roomPhotos': 'Room Photos',
