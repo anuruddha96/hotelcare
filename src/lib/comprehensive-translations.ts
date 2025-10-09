@@ -87,6 +87,35 @@ export const additionalTranslations = {
     'linen.bigTowel': 'Big Towel',
     'linen.duvetCovers': 'Duvet Covers',
     'linen.smallTowel': 'Small Towel',
+    'linen.total': 'TOTAL',
+    
+    // Housekeeping tab names
+    'housekeeping.tabs.roomPhotos': 'Room Photos',
+    'housekeeping.tabs.dndPhotos': 'DND Photos',
+    'housekeeping.tabs.maintenance': 'Maintenance',
+    'housekeeping.tabs.lostFound': 'Lost & Found',
+    'housekeeping.tabs.dirtyLinen': 'Dirty Linen',
+    'housekeeping.tabs.generalTasks': 'General Tasks',
+
+    // PMS Upload
+    'pms.title': 'PMS File Upload',
+    'pms.description': 'Upload an Excel file from the PMS system for automatic room status updates and cleaning task creation',
+    'pms.hotelFilter': 'Hotel Filter Active',
+    'pms.currentlyOperating': 'Currently operating on:',
+    'pms.onlyRoomsAffected': 'Only rooms in this hotel will be affected by the PMS upload.',
+    'pms.dataResetWarning': 'Data Reset Warning',
+    'pms.uploadWillReset': 'Uploading a PMS file will reset all room assignments and data for',
+    'pms.forCurrentDay': 'for the current day',
+    'pms.dragDropFile': 'Drag & drop PMS export file, or click to browse',
+    'pms.viewHistory': 'View History',
+
+    // Supervisor
+    'supervisor.pendingApprovals': 'Pending Approvals',
+    'supervisor.reviewCompletedTasks': 'Review completed cleaning tasks',
+    'supervisor.noTasksPending': 'No tasks pending approval',
+    'supervisor.allTasksReviewed': 'All completed tasks have been reviewed',
+    'supervisor.cleanedBy': 'Cleaned By',
+    'supervisor.roomMarkedClean': 'Room marked as clean',
     
     // Room
     'room.label': 'Room',
@@ -551,5 +580,12 @@ export const additionalTranslations = {
     'minibar.selectDateRange': 'Dátumtartomány Kiválasztása',
     'minibar.viewDetails': 'Részletek Megtekintése',
     'minibar.noData': 'Nincs minibar használati adat a kiválasztott időszakra',
+
+    // Housekeeping tab names
+    // Housekeeping tab names - added to en section
+    // PMS Upload - added to en section
+    // Supervisor/Pending approvals - added to en section
+    // Attendance - already exists in previous section
+
   },
 };

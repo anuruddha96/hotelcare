@@ -40,12 +40,12 @@ const TAB_CONFIGS: { [key: string]: TabConfig } = {
   'manage': { id: 'manage', label: 'Team View', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
   'performance': { id: 'performance', label: 'Performance', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
   'pms-upload': { id: 'pms-upload', label: 'PMS Upload', icon: <Upload className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'completion-photos': { id: 'completion-photos', label: 'Room Photos', icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-500" />, colorClass: 'text-green-500' },
-  'dnd-photos': { id: 'dnd-photos', label: 'DND Photos', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />, colorClass: 'text-yellow-500' },
-  'maintenance-photos': { id: 'maintenance-photos', label: 'Maintenance', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-red-500" />, colorClass: 'text-red-500' },
-  'lost-and-found': { id: 'lost-and-found', label: 'Lost & Found', icon: <Package className="h-3 w-3 sm:h-4 sm:w-4 text-blue-500" />, colorClass: 'text-blue-500' },
-  'dirty-linen': { id: 'dirty-linen', label: 'Dirty Linen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4 text-purple-500" />, colorClass: 'text-purple-500' },
-  'general-tasks': { id: 'general-tasks', label: 'General Tasks', icon: <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4 text-teal-500" />, colorClass: 'text-teal-500' },
+  'completion-photos': { id: 'completion-photos', label: 'housekeeping.tabs.roomPhotos', icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-500" />, colorClass: 'text-green-500' },
+  'dnd-photos': { id: 'dnd-photos', label: 'housekeeping.tabs.dndPhotos', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />, colorClass: 'text-yellow-500' },
+  'maintenance-photos': { id: 'maintenance-photos', label: 'housekeeping.tabs.maintenance', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-red-500" />, colorClass: 'text-red-500' },
+  'lost-and-found': { id: 'lost-and-found', label: 'housekeeping.tabs.lostFound', icon: <Package className="h-3 w-3 sm:h-4 sm:w-4 text-blue-500" />, colorClass: 'text-blue-500' },
+  'dirty-linen': { id: 'dirty-linen', label: 'housekeeping.tabs.dirtyLinen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4 text-purple-500" />, colorClass: 'text-purple-500' },
+  'general-tasks': { id: 'general-tasks', label: 'housekeeping.tabs.generalTasks', icon: <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4 text-teal-500" />, colorClass: 'text-teal-500' },
   'attendance': { id: 'attendance', label: 'HR Management', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
   'minibar': { id: 'minibar', label: 'Minibar Tracking', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
   'tab-order': { id: 'tab-order', label: 'Tab Settings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500' },
@@ -168,8 +168,8 @@ export function HousekeepingTab() {
         className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
       >
         {config.icon}
-        <span className="hidden sm:inline">{config.label}</span>
-        <span className="sm:hidden">{config.label.split(' ')[0]}</span>
+        <span className={`hidden sm:inline ${config.colorClass || ''}`}>{t(config.label)}</span>
+        <span className={`sm:hidden ${config.colorClass || ''}`}>{t(config.label).split(' ')[0]}</span>
       </TabsTrigger>
     );
   };

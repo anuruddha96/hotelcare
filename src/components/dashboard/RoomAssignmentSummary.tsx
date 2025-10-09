@@ -41,6 +41,18 @@ export function RoomAssignmentSummary() {
     try {
       const targetDate = format(date, 'yyyy-MM-dd');
 
+      // Get current user's hotel
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', user.id)
+        .single();
+
+      const userHotelId = profile?.assigned_hotel;
+      
       // Fetch all room assignments for the selected date
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
@@ -61,33 +73,40 @@ export function RoomAssignmentSummary() {
             nickname
           )
         `)
-        .eq('assignment_date', targetDate)
-        .order('rooms(room_number)', { ascending: true });
+        .eq('assignment_date', targetDate);
 
       if (assignmentsError) throw assignmentsError;
 
-      // Fetch all rooms (including unassigned ones)
-      const { data: roomsData, error: roomsError } = await supabase
+      // Fetch all rooms for the user's hotel
+      let roomsQuery = supabase
         .from('rooms')
         .select('id, room_number, hotel')
         .order('room_number', { ascending: true });
+
+      if (userHotelId) {
+        roomsQuery = roomsQuery.eq('hotel', userHotelId);
+      }
+
+      const { data: roomsData, error: roomsError } = await roomsQuery;
 
       if (roomsError) throw roomsError;
 
       // Create a map of room_id to assignment
       const assignmentMap = new Map();
       assignmentsData?.forEach((assignment: any) => {
-        assignmentMap.set(assignment.room_id, {
-          room_number: assignment.rooms.room_number,
-          room_id: assignment.room_id,
-          hotel: assignment.rooms.hotel,
-          assignment_type: assignment.assignment_type,
-          status: assignment.status,
-          housekeeper_name: assignment.profiles?.nickname || assignment.profiles?.full_name,
-          housekeeper_id: assignment.assigned_to,
-          priority: assignment.priority,
-          estimated_duration: assignment.estimated_duration,
-        });
+        if (assignment.rooms) {
+          assignmentMap.set(assignment.room_id, {
+            room_number: assignment.rooms.room_number,
+            room_id: assignment.room_id,
+            hotel: assignment.rooms.hotel,
+            assignment_type: assignment.assignment_type,
+            status: assignment.status,
+            housekeeper_name: assignment.profiles?.nickname || assignment.profiles?.full_name,
+            housekeeper_id: assignment.assigned_to,
+            priority: assignment.priority,
+            estimated_duration: assignment.estimated_duration,
+          });
+        }
       });
 
       // Merge rooms with assignments
