@@ -21,6 +21,17 @@ interface HousekeeperData {
   total: number;
 }
 
+// Mapping of linen item names to translation keys
+const linenItemTranslations: { [key: string]: string } = {
+  'Bath Mat': 'linen.bathMat',
+  'Bed Sheets Queen Size': 'linen.bedSheetsQueenSize',
+  'Bed Sheets Twin Size': 'linen.bedSheetsTwinSize',
+  'Big Pillow': 'linen.bigPillow',
+  'Big Towel': 'linen.bigTowel',
+  'Duvet Covers': 'linen.duvetCovers',
+  'Small Towel': 'linen.smallTowel',
+};
+
 export function SimplifiedDirtyLinenManagement() {
   const { profile } = useAuth();
   const { t } = useTranslation();
@@ -31,6 +42,12 @@ export function SimplifiedDirtyLinenManagement() {
   const [itemTotals, setItemTotals] = useState<LinenItemTotal[]>([]);
   const [housekeeperData, setHousekeeperData] = useState<HousekeeperData[]>([]);
   const [grandTotal, setGrandTotal] = useState(0);
+
+  // Get translated linen item name
+  const getTranslatedLinenName = (itemName: string): string => {
+    const translationKey = linenItemTranslations[itemName];
+    return translationKey ? t(translationKey) : itemName;
+  };
 
   const fetchData = async () => {
     if (!dateRange?.from || !dateRange?.to) return;
@@ -149,7 +166,8 @@ export function SimplifiedDirtyLinenManagement() {
     const startDate = dateRange.from.toISOString().split('T')[0];
     const endDate = dateRange.to.toISOString().split('T')[0];
     
-    let csv = 'Housekeepers,' + itemTotals.map(i => i.item_name).join(',') + ',Total\n';
+    // Header row with translated names
+    let csv = t('linen.housekeepers') + ',' + itemTotals.map(i => getTranslatedLinenName(i.item_name)).join(',') + ',' + t('linen.total') + '\n';
     
     housekeeperData.forEach(hk => {
       const row = [
@@ -160,7 +178,7 @@ export function SimplifiedDirtyLinenManagement() {
       csv += row.join(',') + '\n';
     });
     
-    csv += '\nTOTAL,' + itemTotals.map(i => i.total_count).join(',') + ',' + grandTotal + '\n';
+    csv += '\n' + t('linen.total').toUpperCase() + ',' + itemTotals.map(i => i.total_count).join(',') + ',' + grandTotal + '\n';
 
 
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -211,13 +229,13 @@ export function SimplifiedDirtyLinenManagement() {
           <table className="w-full border-collapse border">
             <thead>
               <tr className="bg-muted">
-                <th className="border p-3 text-left font-bold min-w-[150px]">Housekeepers</th>
+                <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
                 {itemTotals.map((item) => (
                   <th key={item.item_name} className="border p-3 text-center font-bold min-w-[120px] whitespace-nowrap">
-                    {item.item_name}
+                    {getTranslatedLinenName(item.item_name)}
                   </th>
                 ))}
-                <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">TOTAL</th>
+                <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">{t('linen.total').toUpperCase()}</th>
               </tr>
             </thead>
             <tbody>
@@ -243,7 +261,7 @@ export function SimplifiedDirtyLinenManagement() {
                     </tr>
                   ))}
                   <tr className="bg-accent font-bold">
-                    <td className="border p-3">TOTAL</td>
+                    <td className="border p-3">{t('linen.total').toUpperCase()}</td>
                     {itemTotals.map((item) => (
                       <td key={item.item_name} className="border p-3 text-center">
                         {item.total_count}

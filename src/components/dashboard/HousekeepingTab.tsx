@@ -22,15 +22,41 @@ import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
 import { MaintenancePhotosManagement } from './MaintenancePhotosManagement';
 import { GeneralTasksManagement } from './GeneralTasksManagement';
 import { LostAndFoundManagement } from './LostAndFoundManagement';
+import { TabOrderManagement } from './TabOrderManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
-import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle, Package } from 'lucide-react';
+import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle, Package, Settings } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+
+interface TabConfig {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  colorClass?: string;
+}
+
+const TAB_CONFIGS: { [key: string]: TabConfig } = {
+  'staff-management': { id: 'staff-management', label: 'Staff Management', icon: <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" /> },
+  'supervisor': { id: 'supervisor', label: 'Pending Approvals', icon: <Shield className="h-3 w-3 sm:h-4 sm:w-4" /> },
+  'manage': { id: 'manage', label: 'Team View', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
+  'performance': { id: 'performance', label: 'Performance', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
+  'pms-upload': { id: 'pms-upload', label: 'PMS Upload', icon: <Upload className="h-3 w-3 sm:h-4 sm:w-4" /> },
+  'completion-photos': { id: 'completion-photos', label: 'Room Photos', icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-green-500" />, colorClass: 'text-green-500' },
+  'dnd-photos': { id: 'dnd-photos', label: 'DND Photos', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />, colorClass: 'text-yellow-500' },
+  'maintenance-photos': { id: 'maintenance-photos', label: 'Maintenance', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-red-500" />, colorClass: 'text-red-500' },
+  'lost-and-found': { id: 'lost-and-found', label: 'Lost & Found', icon: <Package className="h-3 w-3 sm:h-4 sm:w-4 text-blue-500" />, colorClass: 'text-blue-500' },
+  'dirty-linen': { id: 'dirty-linen', label: 'Dirty Linen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4 text-purple-500" />, colorClass: 'text-purple-500' },
+  'general-tasks': { id: 'general-tasks', label: 'General Tasks', icon: <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4 text-teal-500" />, colorClass: 'text-teal-500' },
+  'attendance': { id: 'attendance', label: 'HR Management', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
+  'minibar': { id: 'minibar', label: 'Minibar Tracking', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
+  'tab-order': { id: 'tab-order', label: 'Tab Settings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500' },
+};
 
 export function HousekeepingTab() {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [userRole, setUserRole] = useState<string>('');
   const [activeTab, setActiveTab] = useState('assignments');
+  const [orderedTabs, setOrderedTabs] = useState<string[]>([]);
   const pendingCount = usePendingApprovals();
 
   useEffect(() => {
@@ -47,8 +73,22 @@ export function HousekeepingTab() {
     fetchUserRole();
   }, [user?.id]);
 
+  // Load tab order from localStorage
+  useEffect(() => {
+    const savedOrder = localStorage.getItem('housekeepingTabOrder');
+    if (savedOrder) {
+      try {
+        const parsed = JSON.parse(savedOrder);
+        setOrderedTabs(parsed.map((t: any) => t.id));
+      } catch {
+        setOrderedTabs([]);
+      }
+    }
+  }, []);
+
   // Full management access: admin, top_management, manager, housekeeping_manager, marketing, control_finance, hr, front_office
   const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
+  const isAdmin = userRole === 'admin';
   
   // Set the default active tab based on manager access and PMS upload status
   useEffect(() => {
@@ -84,6 +124,56 @@ export function HousekeepingTab() {
   // Read-only access for housekeeping staff only
   const isReadOnlyAccess = ['housekeeping'].includes(userRole) && !hasManagerAccess;
 
+  // Get ordered tabs or use default order
+  const getTabOrder = () => {
+    const defaultOrder = [
+      'staff-management', 'supervisor', 'manage', 'performance', 'pms-upload',
+      'completion-photos', 'dnd-photos', 'maintenance-photos', 'lost-and-found',
+      'dirty-linen', 'general-tasks', 'attendance', 'minibar'
+    ];
+    
+    if (orderedTabs.length > 0) {
+      return orderedTabs;
+    }
+    return defaultOrder;
+  };
+
+  const renderTabTrigger = (tabId: string) => {
+    const config = TAB_CONFIGS[tabId];
+    if (!config) return null;
+
+    if (tabId === 'supervisor') {
+      return (
+        <TabsTrigger 
+          key={tabId}
+          value={tabId} 
+          className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
+        >
+          {config.icon}
+          <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
+          <span className="xs:hidden">Approval</span>
+          {pendingCount > 0 && (
+            <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
+              {pendingCount}
+            </Badge>
+          )}
+        </TabsTrigger>
+      );
+    }
+
+    return (
+      <TabsTrigger 
+        key={tabId}
+        value={tabId} 
+        className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+      >
+        {config.icon}
+        <span className="hidden sm:inline">{config.label}</span>
+        <span className="sm:hidden">{config.label.split(' ')[0]}</span>
+      </TabsTrigger>
+    );
+  };
+
   if (!canAccessHousekeeping) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
@@ -103,115 +193,17 @@ export function HousekeepingTab() {
         `}>
           {hasManagerAccess && (
             <>
-              <TabsTrigger 
-                value="staff-management" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.staff')}</span>
-                <span className="xs:hidden">{t('housekeeping.staff')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="supervisor" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
-              >
-                <Shield className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
-                <span className="xs:hidden">Approval</span>
-                {pendingCount > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
-                    {pendingCount}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger 
-                value="manage" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.teamView')}</span>
-                <span className="xs:hidden">{t('housekeeping.teamView')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="performance" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.performance')}</span>
-                <span className="xs:hidden">{t('housekeeping.performance')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="pms-upload" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Upload className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.pmsUpload')}</span>
-                <span className="xs:hidden">{t('housekeeping.pmsUpload')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="completion-photos" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Room Photos</span>
-                <span className="sm:hidden">Room</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="dnd-photos" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">DND Photos</span>
-                <span className="sm:hidden">DND</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="maintenance-photos" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-destructive" />
-                <span className="hidden sm:inline">Maintenance</span>
-                <span className="sm:hidden">Maint</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="lost-and-found" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Package className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Lost & Found</span>
-                <span className="sm:hidden">L&F</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="dirty-linen" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Dirty Linen</span>
-                <span className="sm:hidden">Linen</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="general-tasks" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">General Tasks</span>
-                <span className="sm:hidden">Tasks</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="attendance" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">{t('hr.management')}</span>
-                <span className="sm:hidden">{t('hr.management')}</span>
-              </TabsTrigger>
-              <TabsTrigger 
-                value="minibar" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-              >
-                <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">{t('minibar.tracking')}</span>
-                <span className="sm:hidden">Minibar</span>
-              </TabsTrigger>
+              {getTabOrder().map(tabId => renderTabTrigger(tabId))}
+              {isAdmin && (
+                <TabsTrigger 
+                  value="tab-order" 
+                  className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+                >
+                  <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />
+                  <span className="hidden sm:inline">Tab Settings</span>
+                  <span className="sm:hidden">Settings</span>
+                </TabsTrigger>
+              )}
             </>
           )}
           <TabsTrigger
@@ -279,6 +271,12 @@ export function HousekeepingTab() {
             <TabsContent value="lost-and-found" className="space-y-6">
               <LostAndFoundManagement />
             </TabsContent>
+            
+            {isAdmin && (
+              <TabsContent value="tab-order" className="space-y-6">
+                <TabOrderManagement />
+              </TabsContent>
+            )}
           </>
         )}
 
