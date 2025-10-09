@@ -1633,8 +1633,23 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     return (localStorage.getItem('preferred-language') as Language) || 'en';
   });
 
+  // Load custom translations from localStorage
+  const [customTranslations, setCustomTranslations] = useState<any>(() => {
+    try {
+      const stored = localStorage.getItem('custom_translations');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
   const t = (key: TranslationKey | string): string => {
-    // First check main translations
+    // First check custom translations
+    if (customTranslations[key]?.[language]) {
+      return customTranslations[key][language];
+    }
+    
+    // Then check main translations
     const mainTranslation = translations[language]?.[key] || translations.en[key];
     if (mainTranslation) return mainTranslation;
     

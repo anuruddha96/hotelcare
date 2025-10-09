@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { OrganizationManagement } from './OrganizationManagement';
 import { HotelManagementView } from './HotelManagementView';
-import { Building2, Hotel } from 'lucide-react';
+import { TranslationManagement } from './TranslationManagement';
+import { Building2, Hotel, Languages } from 'lucide-react';
 
 export const AdminTabs = () => {
   return (
@@ -17,6 +18,10 @@ export const AdminTabs = () => {
             <Hotel className="w-4 h-4" />
             Hotels
           </TabsTrigger>
+          <TabsTrigger value="translations" className="gap-2">
+            <Languages className="w-4 h-4" />
+            Translations
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="organizations">
@@ -25,6 +30,10 @@ export const AdminTabs = () => {
 
         <TabsContent value="hotels">
           <HotelManagementView />
+        </TabsContent>
+
+        <TabsContent value="translations">
+          <TranslationManagement />
         </TabsContent>
       </Tabs>
     </div>
