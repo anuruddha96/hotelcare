@@ -53,51 +53,87 @@ export function DirtyLinenCartBadge() {
 
     const today = new Date().toISOString().split('T')[0];
 
-    const { data, error } = await supabase
-      .from('dirty_linen_counts')
-      .select(`
-        id,
-        count,
-        work_date,
-        rooms:room_id (room_number),
-        dirty_linen_items:linen_item_id (display_name)
-      `)
-      .eq('housekeeper_id', userId)
-      .eq('work_date', today)
-      .gt('count', 0);
+    try {
+      // Step 1: Fetch dirty linen counts
+      const { data: countsData, error: countsError } = await supabase
+        .from('dirty_linen_counts')
+        .select('id, linen_item_id, count, work_date, room_id, created_at')
+        .eq('housekeeper_id', userId)
+        .eq('work_date', today)
+        .gt('count', 0)
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching cart data:', error);
-      return;
+      if (countsError) {
+        console.error('Error fetching cart counts:', countsError);
+        return;
+      }
+
+      if (!countsData || countsData.length === 0) {
+        setRecords([]);
+        setTotalItems(0);
+        setSummary([]);
+        return;
+      }
+
+      // Step 2: Fetch room details separately
+      const roomIds = Array.from(new Set(countsData.map(c => c.room_id)));
+      const { data: roomsData, error: roomsError } = await supabase
+        .from('rooms')
+        .select('id, room_number')
+        .in('id', roomIds);
+
+      if (roomsError) {
+        console.error('Error fetching rooms:', roomsError);
+        return;
+      }
+
+      // Step 3: Fetch linen item details separately
+      const linenItemIds = Array.from(new Set(countsData.map(c => c.linen_item_id)));
+      const { data: linenItemsData, error: linenItemsError } = await supabase
+        .from('dirty_linen_items')
+        .select('id, display_name')
+        .in('id', linenItemIds);
+
+      if (linenItemsError) {
+        console.error('Error fetching linen items:', linenItemsError);
+        return;
+      }
+
+      // Step 4: Create lookup maps
+      const roomsMap = new Map(roomsData?.map(r => [r.id, r.room_number]) || []);
+      const linenItemsMap = new Map(linenItemsData?.map(l => [l.id, l.display_name]) || []);
+
+      // Step 5: Combine the data
+      const formattedRecords = countsData.map(item => ({
+        id: item.id,
+        room_number: roomsMap.get(item.room_id) || 'Unknown',
+        linen_item_name: linenItemsMap.get(item.linen_item_id) || 'Unknown',
+        count: item.count,
+        work_date: item.work_date
+      }));
+
+      setRecords(formattedRecords);
+
+      // Calculate total items
+      const total = formattedRecords.reduce((sum, record) => sum + record.count, 0);
+      setTotalItems(total);
+
+      // Calculate summary by item type
+      const summaryMap = new Map<string, number>();
+      formattedRecords.forEach(record => {
+        const current = summaryMap.get(record.linen_item_name) || 0;
+        summaryMap.set(record.linen_item_name, current + record.count);
+      });
+
+      const summaryArray = Array.from(summaryMap.entries()).map(([item_name, total_count]) => ({
+        item_name,
+        total_count
+      }));
+
+      setSummary(summaryArray);
+    } catch (error) {
+      console.error('Unexpected error in fetchCartData:', error);
     }
-
-    const formattedRecords = data.map((item: any) => ({
-      id: item.id,
-      room_number: item.rooms?.room_number || 'Unknown',
-      linen_item_name: item.dirty_linen_items?.display_name || 'Unknown',
-      count: item.count,
-      work_date: item.work_date
-    }));
-
-    setRecords(formattedRecords);
-
-    // Calculate total items
-    const total = formattedRecords.reduce((sum, record) => sum + record.count, 0);
-    setTotalItems(total);
-
-    // Calculate summary by item type
-    const summaryMap = new Map<string, number>();
-    formattedRecords.forEach(record => {
-      const current = summaryMap.get(record.linen_item_name) || 0;
-      summaryMap.set(record.linen_item_name, current + record.count);
-    });
-
-    const summaryArray = Array.from(summaryMap.entries()).map(([item_name, total_count]) => ({
-      item_name,
-      total_count
-    }));
-
-    setSummary(summaryArray);
   };
 
   useEffect(() => {
