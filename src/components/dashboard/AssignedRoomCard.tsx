@@ -190,27 +190,32 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       return;
     }
 
-    // Check if user already has a room in progress
+    // Check if user already has a room in progress (only for housekeepers)
+    // Managers, admins, and super admins can start multiple rooms
     if (newStatus === 'in_progress') {
-      const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
-      const { data: activeAssignments, error: checkError } = await supabase
-        .from('room_assignments')
-        .select('id, rooms(room_number)')
-        .eq('assigned_to', user?.id)
-        .eq('status', 'in_progress')
-        .eq('assignment_date', today)
-        .neq('id', assignment.id);
+      const isHousekeeper = profile?.role === 'housekeeping';
+      
+      if (isHousekeeper) {
+        const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
+        const { data: activeAssignments, error: checkError } = await supabase
+          .from('room_assignments')
+          .select('id, rooms(room_number)')
+          .eq('assigned_to', user?.id)
+          .eq('status', 'in_progress')
+          .eq('assignment_date', today)
+          .neq('id', assignment.id);
 
-      if (checkError) {
-        console.error('Error checking active assignments:', checkError);
-      } else if (activeAssignments && activeAssignments.length > 0) {
-        const activeRoomNumber = (activeAssignments[0] as any).rooms?.room_number || 'another room';
-        showToast({
-          title: "Already Working on a Room",
-          description: `Please complete ${activeRoomNumber} before starting work on this room. You can only work on one room at a time.`,
-          variant: "destructive"
-        });
-        return;
+        if (checkError) {
+          console.error('Error checking active assignments:', checkError);
+        } else if (activeAssignments && activeAssignments.length > 0) {
+          const activeRoomNumber = (activeAssignments[0] as any).rooms?.room_number || 'another room';
+          showToast({
+            title: "Already Working on a Room",
+            description: `Please complete ${activeRoomNumber} before starting work on this room. You can only work on one room at a time.`,
+            variant: "destructive"
+          });
+          return;
+        }
       }
     }
 
