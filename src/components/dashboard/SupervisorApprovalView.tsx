@@ -408,7 +408,7 @@ export function SupervisorApprovalView() {
                   <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                     <MapPin className="h-5 w-5 text-muted-foreground" />
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">Hotel</p>
+                      <p className="text-sm font-medium text-muted-foreground">{t('supervisor.hotel')}</p>
                       <p className="text-lg font-semibold text-foreground">
                         {assignment.rooms?.hotel || 'Unknown'}
                       </p>
@@ -418,7 +418,7 @@ export function SupervisorApprovalView() {
                   <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
                     <Clock className="h-5 w-5 text-blue-600" />
                     <div>
-                      <p className="text-sm font-medium text-blue-700">Started At</p>
+                      <p className="text-sm font-medium text-blue-700">{t('supervisor.startedAt')}</p>
                       <p className="text-lg font-semibold text-blue-800">
                         {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString() : 'N/A'}
                       </p>
@@ -428,7 +428,7 @@ export function SupervisorApprovalView() {
                   <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
                     <Clock className="h-5 w-5 text-green-600" />
                     <div>
-                      <p className="text-sm font-medium text-green-700">Completed At</p>
+                      <p className="text-sm font-medium text-green-700">{t('supervisor.completedAt')}</p>
                       <p className="text-lg font-semibold text-green-800">
                         {new Date(assignment.completed_at).toLocaleTimeString()}
                       </p>
@@ -440,13 +440,13 @@ export function SupervisorApprovalView() {
                   <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
                     <div className="flex items-center gap-2 mb-2">
                       <Clock className="h-5 w-5 text-amber-600" />
-                      <h4 className="font-semibold text-amber-800">Duration</h4>
+                      <h4 className="font-semibold text-amber-800">{t('supervisor.duration')}</h4>
                     </div>
                     <p className="text-2xl font-bold text-amber-900">
                       {calculateDuration(assignment.started_at, assignment.completed_at)}
                     </p>
                     <p className="text-sm text-amber-700 mt-1">
-                      Total time taken to clean the room
+                      {t('supervisor.totalTimeTaken')}
                     </p>
                   </div>
                 )}

@@ -4,6 +4,29 @@
 
 export const additionalTranslations = {
   en: {
+    // Housekeeping Tabs
+    'housekeeping.tabs.staffManagement': 'Staff Management',
+    'housekeeping.tabs.pendingApprovals': 'Pending Approvals',
+    'housekeeping.tabs.teamView': 'Team View',
+    'housekeeping.tabs.performance': 'Performance',
+    'housekeeping.tabs.pmsUpload': 'PMS Upload',
+    'housekeeping.tabs.roomPhotos': 'Room Photos',
+    'housekeeping.tabs.dndPhotos': 'DND Photos',
+    'housekeeping.tabs.maintenance': 'Maintenance',
+    'housekeeping.tabs.lostFound': 'Lost & Found',
+    'housekeeping.tabs.dirtyLinen': 'Dirty Linen',
+    'housekeeping.tabs.generalTasks': 'General Tasks',
+    'housekeeping.tabs.hrManagement': 'HR Management',
+    'housekeeping.tabs.minibarTracking': 'Minibar Tracking',
+    'housekeeping.tabs.tabSettings': 'Tab Settings',
+
+    // Supervisor section
+    'supervisor.hotel': 'Hotel',
+    'supervisor.startedAt': 'Started At',
+    'supervisor.completedAt': 'Completed At',
+    'supervisor.duration': 'Duration',
+    'supervisor.totalTimeTaken': 'Total time taken to clean the room',
+
     // Attendance - complete
     'attendance.title': 'Attendance Management',
     'attendance.checkIn': 'Check In',
@@ -88,13 +111,6 @@ export const additionalTranslations = {
     'linen.duvetCovers': 'Duvet Covers',
     'linen.smallTowel': 'Small Towel',
     
-    // Housekeeping tab names
-    'housekeeping.tabs.roomPhotos': 'Room Photos',
-    'housekeeping.tabs.dndPhotos': 'DND Photos',
-    'housekeeping.tabs.maintenance': 'Maintenance',
-    'housekeeping.tabs.lostFound': 'Lost & Found',
-    'housekeeping.tabs.dirtyLinen': 'Dirty Linen',
-    'housekeeping.tabs.generalTasks': 'General Tasks',
 
     // PMS Upload
     'pms.title': 'PMS File Upload',
@@ -142,6 +158,29 @@ export const additionalTranslations = {
   },
   
   es: {
+    // Housekeeping Tabs
+    'housekeeping.tabs.staffManagement': 'Gestión de Personal',
+    'housekeeping.tabs.pendingApprovals': 'Aprobaciones Pendientes',
+    'housekeeping.tabs.teamView': 'Vista de Equipo',
+    'housekeeping.tabs.performance': 'Rendimiento',
+    'housekeeping.tabs.pmsUpload': 'Cargar PMS',
+    'housekeeping.tabs.roomPhotos': 'Fotos de Habitaciones',
+    'housekeeping.tabs.dndPhotos': 'Fotos DND',
+    'housekeeping.tabs.maintenance': 'Mantenimiento',
+    'housekeeping.tabs.lostFound': 'Objetos Perdidos',
+    'housekeeping.tabs.dirtyLinen': 'Ropa Sucia',
+    'housekeeping.tabs.generalTasks': 'Tareas Generales',
+    'housekeeping.tabs.hrManagement': 'Gestión de RRHH',
+    'housekeeping.tabs.minibarTracking': 'Seguimiento de Minibar',
+    'housekeeping.tabs.tabSettings': 'Configuración de Pestañas',
+
+    // Supervisor section
+    'supervisor.hotel': 'Hotel',
+    'supervisor.startedAt': 'Hora de Inicio',
+    'supervisor.completedAt': 'Hora de Finalización',
+    'supervisor.duration': 'Duración',
+    'supervisor.totalTimeTaken': 'Tiempo total para limpiar la habitación',
+
     // Attendance
     'attendance.title': 'Gestión de Asistencia',
     'attendance.checkIn': 'Registrar Entrada',
@@ -252,6 +291,29 @@ export const additionalTranslations = {
   },
   
   vi: {
+    // Housekeeping Tabs
+    'housekeeping.tabs.staffManagement': 'Quản lý Nhân viên',
+    'housekeeping.tabs.pendingApprovals': 'Chờ Phê duyệt',
+    'housekeeping.tabs.teamView': 'Xem Nhóm',
+    'housekeeping.tabs.performance': 'Hiệu suất',
+    'housekeeping.tabs.pmsUpload': 'Tải lên PMS',
+    'housekeeping.tabs.roomPhotos': 'Hình Phòng',
+    'housekeeping.tabs.dndPhotos': 'Hình DND',
+    'housekeeping.tabs.maintenance': 'Bảo trì',
+    'housekeeping.tabs.lostFound': 'Đồ Thất lạc',
+    'housekeeping.tabs.dirtyLinen': 'Vải Bẩn',
+    'housekeeping.tabs.generalTasks': 'Nhiệm vụ Chung',
+    'housekeeping.tabs.hrManagement': 'Quản lý Nhân sự',
+    'housekeeping.tabs.minibarTracking': 'Theo dõi Minibar',
+    'housekeeping.tabs.tabSettings': 'Cài đặt Tab',
+
+    // Supervisor section
+    'supervisor.hotel': 'Khách sạn',
+    'supervisor.startedAt': 'Bắt đầu lúc',
+    'supervisor.completedAt': 'Hoàn thành lúc',
+    'supervisor.duration': 'Thời gian',
+    'supervisor.totalTimeTaken': 'Tổng thời gian dọn phòng',
+
     // Attendance
     'attendance.title': 'Quản Lý Chấm Công',
     'attendance.checkIn': 'Điểm Danh Vào',
@@ -362,6 +424,29 @@ export const additionalTranslations = {
   },
   
   mn: {
+    // Housekeeping Tabs
+    'housekeeping.tabs.staffManagement': 'Ажилчдын удирдлага',
+    'housekeeping.tabs.pendingApprovals': 'Хүлээгдэж буй зөвшөөрөл',
+    'housekeeping.tabs.teamView': 'Багийн харагдац',
+    'housekeeping.tabs.performance': 'Гүйцэтгэл',
+    'housekeeping.tabs.pmsUpload': 'PMS ачаалах',
+    'housekeeping.tabs.roomPhotos': 'Өрөөний зураг',
+    'housekeeping.tabs.dndPhotos': 'DND зураг',
+    'housekeeping.tabs.maintenance': 'Засвар',
+    'housekeeping.tabs.lostFound': 'Алдагдсан эд зүйл',
+    'housekeeping.tabs.dirtyLinen': 'Бохир даавуу',
+    'housekeeping.tabs.generalTasks': 'Ерөнхий ажлууд',
+    'housekeeping.tabs.hrManagement': 'Хүний нөөцийн удирдлага',
+    'housekeeping.tabs.minibarTracking': 'Минибарын хяналт',
+    'housekeeping.tabs.tabSettings': 'Табын тохиргоо',
+
+    // Supervisor section
+    'supervisor.hotel': 'Зочид буудал',
+    'supervisor.startedAt': 'Эхэлсэн цаг',
+    'supervisor.completedAt': 'Дууссан цаг',
+    'supervisor.duration': 'Үргэлжлэх хугацаа',
+    'supervisor.totalTimeTaken': 'Өрөө цэвэрлэхэд зарцуулсан нийт хугацаа',
+
     // Attendance
     'attendance.title': 'Ирцийн Удирдлага',
     'attendance.checkIn': 'Ирсэн',
@@ -472,6 +557,29 @@ export const additionalTranslations = {
   },
   
   hu: {
+    // Housekeeping Tabs
+    'housekeeping.tabs.staffManagement': 'Személyzet kezelés',
+    'housekeeping.tabs.pendingApprovals': 'Függőben lévő jóváhagyások',
+    'housekeeping.tabs.teamView': 'Csapat nézet',
+    'housekeeping.tabs.performance': 'Teljesítmény',
+    'housekeeping.tabs.pmsUpload': 'PMS feltöltés',
+    'housekeeping.tabs.roomPhotos': 'Szoba fotók',
+    'housekeeping.tabs.dndPhotos': 'DND fotók',
+    'housekeeping.tabs.maintenance': 'Karbantartás',
+    'housekeeping.tabs.lostFound': 'Talált tárgyak',
+    'housekeeping.tabs.dirtyLinen': 'Piszkos ágynemű',
+    'housekeeping.tabs.generalTasks': 'Általános feladatok',
+    'housekeeping.tabs.hrManagement': 'HR kezelés',
+    'housekeeping.tabs.minibarTracking': 'Minibar követés',
+    'housekeeping.tabs.tabSettings': 'Fül beállítások',
+
+    // Supervisor section
+    'supervisor.hotel': 'Hotel',
+    'supervisor.startedAt': 'Kezdés időpontja',
+    'supervisor.completedAt': 'Befejezés időpontja',
+    'supervisor.duration': 'Időtartam',
+    'supervisor.totalTimeTaken': 'A szoba takarításához szükséges teljes idő',
+
     // Attendance
     'attendance.title': 'Jelenlét Kezelés',
     'attendance.checkIn': 'Bejelentkezés',
