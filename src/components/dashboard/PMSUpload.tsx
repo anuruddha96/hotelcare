@@ -194,17 +194,34 @@ export function PMSUpload() {
 
       setProgress(10);
       
-      // Reset all current day room assignments since PMS upload will reset room data
+      // Reset ONLY the selected hotel's current day room assignments since PMS upload will reset room data
       const today = new Date().toISOString().split('T')[0];
-      const { error: resetError } = await supabase
-        .from('room_assignments')
-        .delete()
-        .eq('assignment_date', today);
       
-      if (resetError) {
-        console.warn('Error resetting room assignments:', resetError);
+      if (selectedHotel) {
+        // First, get all room IDs for the selected hotel
+        const { data: selectedHotelRooms } = await supabase
+          .from('rooms')
+          .select('id')
+          .eq('hotel', selectedHotel);
+        
+        if (selectedHotelRooms && selectedHotelRooms.length > 0) {
+          const roomIds = selectedHotelRooms.map(r => r.id);
+          
+          // Delete only assignments for THIS hotel's rooms
+          const { error: resetError } = await supabase
+            .from('room_assignments')
+            .delete()
+            .eq('assignment_date', today)
+            .in('room_id', roomIds);
+          
+          if (resetError) {
+            console.warn(`Error resetting room assignments for ${selectedHotel}:`, resetError);
+          } else {
+            console.log(`Reset room assignments for ${selectedHotel} today (${roomIds.length} rooms)`);
+          }
+        }
       } else {
-        console.log('Reset all room assignments for today');
+        console.warn('No hotel selected - skipping assignment reset');
       }
 
       // Clear minibar records from previous day for the current hotel to avoid confusion
@@ -476,9 +493,19 @@ export function PMSUpload() {
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      await processFile(acceptedFiles[0]);
+      // Show confirmation dialog before processing
+      const confirmed = window.confirm(
+        `⚠️ IMPORTANT: This will reset all room assignments for ${selectedHotel || 'the selected hotel'} for today.\n\n` +
+        `Are you sure you want to proceed with the PMS upload for ${selectedHotel || 'the selected hotel'}?`
+      );
+      
+      if (confirmed) {
+        await processFile(acceptedFiles[0]);
+      } else {
+        toast.info('PMS upload cancelled');
+      }
     }
-  }, []);
+  }, [selectedHotel]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -493,7 +520,18 @@ export function PMSUpload() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    await processFile(file);
+    // Show confirmation dialog before processing
+    const confirmed = window.confirm(
+      `⚠️ IMPORTANT: This will reset all room assignments for ${selectedHotel || 'the selected hotel'} for today.\n\n` +
+      `Are you sure you want to proceed with the PMS upload for ${selectedHotel || 'the selected hotel'}?`
+    );
+    
+    if (confirmed) {
+      await processFile(file);
+    } else {
+      toast.info('PMS upload cancelled');
+    }
+    
     // Reset file input
     event.target.value = '';
   };
