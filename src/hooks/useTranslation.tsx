@@ -639,16 +639,6 @@ const translations = {
     'dndPhoto.notesPlaceholder': 'Optional notes about DND status...',
     'dndPhoto.uploadPhotos': 'Upload DND Photos',
     
-    // Maintenance
-    'maintenance.title': 'Report Maintenance Issue',
-    'maintenance.reportIssue': 'Report Issue',
-    'maintenance.issueDescription': 'Issue Description',
-    'maintenance.issuePlaceholder': 'Describe the maintenance issue...',
-    'maintenance.priority': 'Priority',
-    'maintenance.reporting': 'Reporting...',
-    'maintenance.selectRoom': 'Select Room',
-    'maintenance.selectRoomPlaceholder': 'Choose a room...',
-    
     // General Tasks
     'generalTasks.title': 'General Tasks',
     'generalTasks.description': 'Manage non-room cleaning tasks for housekeeping staff',
@@ -825,6 +815,14 @@ const translations = {
     'common.minutes': 'perc',
     'common.dismiss': 'Elutasítás',
     'common.details': 'Részletek',
+    'common.floor': 'Emelet',
+    'common.capture': 'Rögzítés',
+    'common.photos': 'Fotók',
+    'common.takePhoto': 'Fotó készítése',
+    'common.capturePhoto': 'Fotó rögzítése',
+    'common.uploadPhoto': 'Fotó feltöltése',
+    'common.uploading': 'Feltöltés...',
+    'common.updating': 'Frissítés...',
     
     // Language
     'language.changed': 'Nyelv megváltoztatva',
