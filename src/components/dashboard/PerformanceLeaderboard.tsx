@@ -265,11 +265,11 @@ export function PerformanceLeaderboard() {
   };
 
   const getPerformanceBadge = (score: number) => {
-    if (score >= 85) return <Badge className="bg-green-100 text-green-800">Excellent</Badge>;
-    if (score >= 70) return <Badge className="bg-blue-100 text-blue-800">Great</Badge>;
-    if (score >= 55) return <Badge className="bg-yellow-100 text-yellow-800">Good</Badge>;
-    if (score >= 40) return <Badge variant="secondary">Average</Badge>;
-    return <Badge variant="destructive">Needs Focus</Badge>;
+    if (score >= 85) return <Badge className="bg-green-100 text-green-800">{t('performance.excellent')}</Badge>;
+    if (score >= 70) return <Badge className="bg-blue-100 text-blue-800">{t('performance.great')}</Badge>;
+    if (score >= 55) return <Badge className="bg-yellow-100 text-yellow-800">{t('performance.good')}</Badge>;
+    if (score >= 40) return <Badge variant="secondary">{t('performance.average')}</Badge>;
+    return <Badge variant="destructive">{t('performance.needsFocus')}</Badge>;
   };
 
   const openDetailDialog = (housekeeperId: string, fullName: string, metric: 'score' | 'checkout' | 'daily' | 'punctual' | 'breaks') => {
@@ -285,7 +285,7 @@ export function PerformanceLeaderboard() {
     return (
       <div className="flex flex-col items-center justify-center p-12 space-y-4">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary"></div>
-        <p className="text-muted-foreground">Loading performance data...</p>
+        <p className="text-muted-foreground">{t('performance.loadingData')}</p>
       </div>
     );
   }
@@ -295,13 +295,13 @@ export function PerformanceLeaderboard() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 sm:h-6 sm:w-6 text-yellow-500" />
-          <h2 className="text-lg sm:text-2xl font-bold">Performance Analytics</h2>
+          <h2 className="text-lg sm:text-2xl font-bold">{t('performance.analytics')}</h2>
         </div>
         <Tabs value={timeframe} onValueChange={setTimeframe}>
           <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="7" className="flex-1 sm:flex-none">7 Days</TabsTrigger>
-            <TabsTrigger value="30" className="flex-1 sm:flex-none">30 Days</TabsTrigger>
-            <TabsTrigger value="90" className="flex-1 sm:flex-none">90 Days</TabsTrigger>
+            <TabsTrigger value="7" className="flex-1 sm:flex-none">{t('performance.days7')}</TabsTrigger>
+            <TabsTrigger value="30" className="flex-1 sm:flex-none">{t('performance.days30')}</TabsTrigger>
+            <TabsTrigger value="90" className="flex-1 sm:flex-none">{t('performance.days90')}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -312,34 +312,32 @@ export function PerformanceLeaderboard() {
           <Info className="h-5 w-5 text-blue-600 mt-1 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <AlertDescription className="text-blue-900">
-              <div className="font-bold text-base sm:text-lg mb-3 text-blue-800">📊 Performance Score Breakdown</div>
+              <div className="font-bold text-base sm:text-lg mb-3 text-blue-800">📊 {t('performance.scoreBreakdown')}</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
                 <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
-                  <div className="font-bold text-blue-800 mb-1">⚡ Speed (35pts)</div>
-                  <div className="text-blue-700">Daily: 20pts • Checkout: 15pts</div>
-                  <div className="text-blue-600 text-xs mt-1">Faster completion = Higher score</div>
+                  <div className="font-bold text-blue-800 mb-1">⚡ {t('performance.speed')} (35pts)</div>
+                  <div className="text-blue-700">{t('performance.speedPoints')}</div>
+                  <div className="text-blue-600 text-xs mt-1">{t('performance.speedNote')}</div>
                 </div>
                 <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
-                  <div className="font-bold text-blue-800 mb-1">⏰ Punctuality (30pts)</div>
-                  <div className="text-blue-700">Check-in before 8:05 AM</div>
-                  <div className="text-blue-600 text-xs mt-1">Early arrivals earn more points • 2-day grace for late arrivals</div>
+                  <div className="font-bold text-blue-800 mb-1">⏰ {t('performance.punctuality')} (30pts)</div>
+                  <div className="text-blue-700">{t('performance.punctualityTime')}</div>
+                  <div className="text-blue-600 text-xs mt-1">{t('performance.punctualityNote')}</div>
                 </div>
                 <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
-                  <div className="font-bold text-blue-800 mb-1">🎯 Productivity (25pts)</div>
-                  <div className="text-blue-700">0.5pt per room (max 25pts)</div>
-                  <div className="text-blue-600 text-xs mt-1">More rooms = Higher score</div>
+                  <div className="font-bold text-blue-800 mb-1">🎯 {t('performance.productivity')} (25pts)</div>
+                  <div className="text-blue-700">{t('performance.productivityPoints')}</div>
+                  <div className="text-blue-600 text-xs mt-1">{t('performance.productivityNote')}</div>
                 </div>
                 <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
-                  <div className="font-bold text-blue-800 mb-1">✨ Efficiency (20pts)</div>
-                  <div className="text-blue-700">Task completion quality</div>
-                  <div className="text-blue-600 text-xs mt-1">Based on estimated vs actual time</div>
+                  <div className="font-bold text-blue-800 mb-1">✨ {t('performance.efficiency')} (20pts)</div>
+                  <div className="text-blue-700">{t('performance.efficiencyQuality')}</div>
+                  <div className="text-blue-600 text-xs mt-1">{t('performance.efficiencyNote')}</div>
                 </div>
               </div>
               <div className="mt-3 p-2 bg-blue-100 rounded-lg">
                 <p className="text-xs text-blue-800">
-                  <strong>🏆 Selection Criteria:</strong> Top performers are ranked by total score (max 110pts). 
-                  Ties are broken by: 1) Speed, 2) Punctuality, 3) Total rooms completed. 
-                  Scores update automatically based on performance data.
+                  <strong>🏆 {t('performance.selectionCriteria')}</strong> {t('performance.criteriaDescription')}
                 </p>
               </div>
             </AlertDescription>
@@ -353,9 +351,9 @@ export function PerformanceLeaderboard() {
           <CardContent className="p-6 text-center">
             <Clock className="h-8 w-8 mx-auto mb-2 text-blue-500" />
             <div className="text-3xl font-bold">{overviewStats.avgMinutes}</div>
-            <div className="text-sm text-muted-foreground">Avg Minutes</div>
+            <div className="text-sm text-muted-foreground">{t('performance.avgMinutes')}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              Average time across all completed rooms
+              {t('performance.avgMinutesDesc')}
             </div>
           </CardContent>
         </Card>
@@ -364,9 +362,9 @@ export function PerformanceLeaderboard() {
           <CardContent className="p-6 text-center">
             <TrendingUp className="h-8 w-8 mx-auto mb-2 text-green-500" />
             <div className="text-3xl font-bold">{overviewStats.efficiency}%</div>
-            <div className="text-sm text-muted-foreground">Efficiency</div>
+            <div className="text-sm text-muted-foreground">{t('performance.efficiency')}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              Average efficiency across all housekeepers
+              {t('performance.efficiencyAvg')}
             </div>
           </CardContent>
         </Card>
@@ -375,9 +373,9 @@ export function PerformanceLeaderboard() {
           <CardContent className="p-6 text-center">
             <Target className="h-8 w-8 mx-auto mb-2 text-purple-500" />
             <div className="text-3xl font-bold">{overviewStats.completed}</div>
-            <div className="text-sm text-muted-foreground">Completed</div>
+            <div className="text-sm text-muted-foreground">{t('performance.completed')}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              Total rooms cleaned in this period
+              {t('performance.completedDesc')}
             </div>
           </CardContent>
         </Card>
@@ -386,9 +384,9 @@ export function PerformanceLeaderboard() {
           <CardContent className="p-6 text-center">
             <Star className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
             <div className="text-3xl font-bold">{overviewStats.bestTime}</div>
-            <div className="text-sm text-muted-foreground">Best Time</div>
+            <div className="text-sm text-muted-foreground">{t('performance.bestTime')}</div>
             <div className="text-xs text-muted-foreground mt-1">
-              Fastest realistic completion (5-180 min)
+              {t('performance.bestTimeDesc')}
             </div>
           </CardContent>
         </Card>
@@ -400,18 +398,18 @@ export function PerformanceLeaderboard() {
           <CardTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               <Trophy className="h-5 w-5" />
-              Ranking - {timeframe}d
+              {t('performance.ranking')} - {timeframe}d
             </span>
-            <Badge variant="outline">{overviewStats.totalHousekeepers} Active</Badge>
+            <Badge variant="outline">{overviewStats.totalHousekeepers} {t('performance.active')}</Badge>
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-2">
-            Ranked by comprehensive score: Speed (35pts) + Punctuality (30pts) + Productivity (25pts) + Efficiency (20pts)
+            {t('performance.rankedBy')}
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
           {leaderboard.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No performance data available for this period
+              {t('performance.noData')}
             </div>
           ) : (
             leaderboard.map((entry) => (
@@ -423,7 +421,7 @@ export function PerformanceLeaderboard() {
                       <div>
                         <div className="font-bold text-lg">{entry.full_name}</div>
                         <div className="text-sm text-muted-foreground">
-                          Daily: {entry.daily_completed} • Checkout: {entry.checkout_completed} rooms
+                          {t('performance.daily')}: {entry.daily_completed} • {t('performance.checkout')}: {entry.checkout_completed} {t('performance.rooms')}
                         </div>
                       </div>
                     </div>
@@ -439,10 +437,10 @@ export function PerformanceLeaderboard() {
                             onClick={() => openDetailDialog(entry.housekeeper_id, entry.full_name, 'score')}
                           >
                             <div className="text-2xl font-bold text-yellow-700">{entry.performance_score}</div>
-                            <div className="text-xs text-yellow-600">Score</div>
+                            <div className="text-xs text-yellow-600">{t('performance.score')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Click to see score breakdown</TooltipContent>
+                        <TooltipContent>{t('performance.clickScore')}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -454,10 +452,10 @@ export function PerformanceLeaderboard() {
                             onClick={() => openDetailDialog(entry.housekeeper_id, entry.full_name, 'daily')}
                           >
                             <div className="text-2xl font-bold text-blue-700">{entry.daily_avg_time}m</div>
-                            <div className="text-xs text-blue-600">Daily</div>
+                            <div className="text-xs text-blue-600">{t('performance.daily')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Click to see daily cleaning details</TooltipContent>
+                        <TooltipContent>{t('performance.clickDaily')}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -469,10 +467,10 @@ export function PerformanceLeaderboard() {
                             onClick={() => openDetailDialog(entry.housekeeper_id, entry.full_name, 'checkout')}
                           >
                             <div className="text-2xl font-bold text-green-700">{entry.checkout_avg_time}m</div>
-                            <div className="text-xs text-green-600">Checkout</div>
+                            <div className="text-xs text-green-600">{t('performance.checkout')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Click to see checkout cleaning details</TooltipContent>
+                        <TooltipContent>{t('performance.clickCheckout')}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -484,10 +482,10 @@ export function PerformanceLeaderboard() {
                             onClick={() => openDetailDialog(entry.housekeeper_id, entry.full_name, 'punctual')}
                           >
                             <div className="text-2xl font-bold text-purple-700">{Math.round(entry.punctuality_rate)}%</div>
-                            <div className="text-xs text-purple-600">Punctual</div>
+                            <div className="text-xs text-purple-600">{t('performance.punctual')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Click to see attendance details</TooltipContent>
+                        <TooltipContent>{t('performance.clickAttendance')}</TooltipContent>
                       </Tooltip>
                      </TooltipProvider>
                   </div>
@@ -497,7 +495,7 @@ export function PerformanceLeaderboard() {
                     <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                       <div className="flex items-start gap-2">
                         <div className="text-orange-600 font-semibold text-sm flex items-center gap-1">
-                          ⚠️ Late Arrivals ({entry.late_check_ins.length})
+                          ⚠️ {t('performance.lateArrivals')} ({entry.late_check_ins.length})
                         </div>
                       </div>
                       <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
@@ -514,12 +512,12 @@ export function PerformanceLeaderboard() {
                         ))}
                         {entry.late_check_ins.length > 5 && (
                           <div className="text-xs text-orange-600 italic">
-                            +{entry.late_check_ins.length - 5} more late arrivals
+                            +{entry.late_check_ins.length - 5} {t('performance.moreLate')}
                           </div>
                         )}
                       </div>
                       <div className="mt-2 text-xs text-orange-600">
-                        Staff should arrive by 8:00 AM (grace period until 8:05 AM)
+                        {t('performance.arrivalNote')}
                       </div>
                     </div>
                   )}
