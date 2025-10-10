@@ -25,6 +25,7 @@ interface LeaderboardEntry {
   punctuality_rate: number;
   performance_score: number;
   on_time_rate: number;
+  late_check_ins?: any[]; // Track late arrivals after 2-day grace period
 }
 
 interface OverviewStats {
@@ -174,11 +175,17 @@ export function PerformanceLeaderboard() {
         const avgDuration = performanceData?.length ?
           Math.round(performanceData.reduce((sum, p) => sum + p.actual_duration_minutes, 0) / performanceData.length) : 0;
 
-        // Calculate punctuality
+        // Calculate punctuality (8:05 AM is the cutoff - 5 minute grace period from 8:00 AM start)
         const punctualDays = attendanceData?.filter(a => 
           new Date(`1970-01-01T${new Date(a.check_in_time).toTimeString()}`).getTime() <= 
-          new Date('1970-01-01T09:00:00').getTime()
+          new Date('1970-01-01T08:05:00').getTime()
         ).length || 0;
+        
+        // Track late check-ins (after 8:05 AM)
+        const lateCheckIns = attendanceData?.filter(a => 
+          new Date(`1970-01-01T${new Date(a.check_in_time).toTimeString()}`).getTime() > 
+          new Date('1970-01-01T08:05:00').getTime()
+        ) || [];
         
         const totalAttendanceDays = attendanceData?.length || 1;
         const punctualityRate = totalAttendanceDays > 0 ? punctualDays / totalAttendanceDays : 0;
@@ -205,7 +212,8 @@ export function PerformanceLeaderboard() {
             punctuality_rate: punctualityRate * 100,
             on_time_rate: onTimeRate * 100,
             performance_score: 0, // Will be calculated next
-            rank_position: 0 // Will be set after sorting
+            rank_position: 0, // Will be set after sorting
+            late_check_ins: lateCheckIns.length > 2 ? lateCheckIns : [] // Only show if more than 2 (after grace period)
           };
 
           housekeeperEntry.performance_score = calculatePerformanceScore(housekeeperEntry);
@@ -313,8 +321,8 @@ export function PerformanceLeaderboard() {
                 </div>
                 <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
                   <div className="font-bold text-blue-800 mb-1">⏰ Punctuality (30pts)</div>
-                  <div className="text-blue-700">Check-in before 9:00 AM</div>
-                  <div className="text-blue-600 text-xs mt-1">Early arrivals earn more points</div>
+                  <div className="text-blue-700">Check-in before 8:05 AM</div>
+                  <div className="text-blue-600 text-xs mt-1">Early arrivals earn more points • 2-day grace for late arrivals</div>
                 </div>
                 <div className="bg-white/60 p-3 rounded-lg border border-blue-200">
                   <div className="font-bold text-blue-800 mb-1">🎯 Productivity (25pts)</div>
@@ -481,8 +489,40 @@ export function PerformanceLeaderboard() {
                         </TooltipTrigger>
                         <TooltipContent>Click to see attendance details</TooltipContent>
                       </Tooltip>
-                    </TooltipProvider>
+                     </TooltipProvider>
                   </div>
+
+                  {/* Show late check-in warning if more than 2 late arrivals */}
+                  {entry.late_check_ins && entry.late_check_ins.length > 0 && (
+                    <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <div className="text-orange-600 font-semibold text-sm flex items-center gap-1">
+                          ⚠️ Late Arrivals ({entry.late_check_ins.length})
+                        </div>
+                      </div>
+                      <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                        {entry.late_check_ins.slice(0, 5).map((attendance: any, idx: number) => (
+                          <div key={idx} className="text-xs text-orange-700 flex justify-between">
+                            <span>{new Date(attendance.work_date).toLocaleDateString()}</span>
+                            <span className="font-medium">
+                              {new Date(attendance.check_in_time).toLocaleTimeString('en-US', { 
+                                hour: '2-digit', 
+                                minute: '2-digit' 
+                              })}
+                            </span>
+                          </div>
+                        ))}
+                        {entry.late_check_ins.length > 5 && (
+                          <div className="text-xs text-orange-600 italic">
+                            +{entry.late_check_ins.length - 5} more late arrivals
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2 text-xs text-orange-600">
+                        Staff should arrive by 8:00 AM (grace period until 8:05 AM)
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))

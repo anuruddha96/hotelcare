@@ -441,7 +441,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                     disabled={isLoading}
                   >
                     <LogOut className="h-4 w-4 mr-2" />
-                    End Shift
+                    {t('attendance.endShift')}
                   </Button>
                 </>
               )}
@@ -450,13 +450,13 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                 <div className="text-center p-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200 animate-fade-in">
                   <div className="text-4xl mb-3">🎉</div>
                   <div className="text-xl font-bold text-green-700 mb-3">
-                    Amazing Work Today!
+                    {t('attendance.amazingWork')}
                   </div>
                   <div className="text-sm text-green-600 mb-2 font-medium">
-                    You've completed your shift successfully
+                    {t('attendance.shiftCompleted')}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    Rest well and see you on your next working day! ✨
+                    {t('attendance.restWell')}
                   </div>
                 </div>
               )}
