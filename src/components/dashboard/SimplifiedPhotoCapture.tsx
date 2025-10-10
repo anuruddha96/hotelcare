@@ -287,7 +287,7 @@ export function SimplifiedPhotoCapture({
           const fileName = `${user.id}/${roomNumber}/${currentCategory.key}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
           
           const { data, error } = await supabase.storage
-            .from('completion-photos')
+            .from('room-photos')
             .upload(fileName, blob, {
               contentType: 'image/jpeg',
               cacheControl: '3600',
@@ -297,7 +297,7 @@ export function SimplifiedPhotoCapture({
           if (error) throw error;
 
           const { data: { publicUrl } } = supabase.storage
-            .from('completion-photos')
+            .from('room-photos')
             .getPublicUrl(data.path);
 
           // Update the assignment with the new photo URL

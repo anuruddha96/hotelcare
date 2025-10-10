@@ -624,7 +624,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         {/* Action Buttons */}
         <div className="space-y-4">
-          {/* Primary Action Buttons */}
+          {/* Primary Action Buttons - Only Start button before Required Actions */}
           <div className="flex flex-col sm:flex-row gap-3">
             {assignment.status === 'assigned' && (
               <Button
@@ -637,72 +637,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 {t('housekeeping.start')}
               </Button>
             )}
-            
-            {assignment.status === 'in_progress' && (
-              <Button
-                size="lg"
-                onClick={validatePhotosBeforeCompletion}
-                disabled={loading}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-              >
-                <CheckCircle className="h-5 w-5" />
-                {t('housekeeping.complete')}
-              </Button>
-            )}
-
-            <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
-              <DialogTrigger asChild>
-                <Button 
-                  size="lg" 
-                  variant="outline" 
-                  className="w-full sm:w-auto"
-                >
-                  <MessageSquare className="h-5 w-5" />
-                  {t('housekeeping.addNote')}
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle className="text-xl font-bold text-slate-800">
-                    {t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number || 'N/A'}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <Textarea
-                    placeholder={t('housekeeping.enterNote')}
-                    value={newNote}
-                    onChange={(e) => setNewNote(e.target.value)}
-                    className="min-h-[80px] border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-                  />
-                  <div className="flex gap-2">
-                    <Button 
-                      onClick={addNote} 
-                      disabled={!newNote.trim()} 
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                    >
-                      {t('housekeeping.addNote')}
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      onClick={() => setNoteDialogOpen(false)}
-                      className="border-slate-300 text-slate-600 hover:bg-slate-50"
-                    >
-                      {t('common.cancel')}
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-
-            <Button 
-              size="lg"
-              variant="outline" 
-              onClick={() => setRoomDetailOpen(true)} 
-              className="w-full sm:w-auto"
-            >
-              <Eye className="h-5 w-5" />
-              {t('common.details')}
-            </Button>
 
             {/* Change to Checkout Button - Only for managers/admins with daily cleaning */}
             {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') && 
@@ -799,6 +733,75 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </div>
           )}
 
+          {/* Complete, Add Note, Details Buttons - After Required Actions */}
+          {assignment.status === 'in_progress' && (
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                size="lg"
+                onClick={validatePhotosBeforeCompletion}
+                disabled={loading}
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+              >
+                <CheckCircle className="h-5 w-5" />
+                {t('housekeeping.complete')}
+              </Button>
+
+              <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button 
+                    size="lg" 
+                    variant="outline" 
+                    className="w-full sm:w-auto"
+                  >
+                    <MessageSquare className="h-5 w-5" />
+                    {t('housekeeping.addNote')}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="text-xl font-bold text-slate-800">
+                      {t('housekeeping.addNoteTitle')} {assignment.rooms?.room_number || 'N/A'}
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <Textarea
+                      placeholder={t('housekeeping.enterNote')}
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                      className="min-h-[80px] border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    />
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={addNote} 
+                        disabled={!newNote.trim()} 
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+                      >
+                        {t('housekeeping.addNote')}
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setNoteDialogOpen(false)}
+                        className="border-slate-300 text-slate-600 hover:bg-slate-50"
+                      >
+                        {t('common.cancel')}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              <Button 
+                size="lg"
+                variant="outline" 
+                onClick={() => setRoomDetailOpen(true)} 
+                className="w-full sm:w-auto"
+              >
+                <Eye className="h-5 w-5" />
+                {t('common.details')}
+              </Button>
+            </div>
+          )}
+
           {/* Management Action Buttons */}
           {assignment.rooms && (user?.role === 'manager' || user?.role === 'admin' || user?.role === 'housekeeping_manager') && (
             <div className="flex gap-2">
@@ -841,10 +844,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <AlertTriangle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-orange-800 mb-1">
-                  DND Room Retrieved?
+                  Guest Removed DND Sign?
                 </p>
                 <p className="text-xs text-orange-700 mb-3">
-                  If the guest has removed the DND sign, you can retrieve this room and move it back to your pending queue for cleaning.
+                  If the guest no longer has the Do Not Disturb sign, you can clean this room now.
                 </p>
                 <Button
                   size="sm"
@@ -856,12 +859,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   {isRetrievingDND ? (
                     <>
                       <Clock className="h-4 w-4 mr-2 animate-spin" />
-                      Retrieving...
+                      Starting...
                     </>
                   ) : (
                     <>
                       <CheckCircle className="h-4 w-4 mr-2" />
-                      Retrieve Room & Start Cleaning
+                      Start Cleaning This Room
                     </>
                   )}
                 </Button>
