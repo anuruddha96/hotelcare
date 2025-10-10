@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Camera, Upload, X, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, DoorOpen, Bath, Bed, Coffee } from 'lucide-react';
+import { Camera, X, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Trash2, Bath, Bed, Wine, Coffee, Plus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
@@ -38,10 +38,10 @@ interface CategorizedPhoto {
 }
 
 const PHOTO_CATEGORIES = [
-  { key: 'trash_bin' as PhotoCategory, label: 'Trash Bin', icon: DoorOpen, color: 'bg-blue-500' },
+  { key: 'trash_bin' as PhotoCategory, label: 'Trash Bin', icon: Trash2, color: 'bg-blue-500' },
   { key: 'bathroom' as PhotoCategory, label: 'Bathroom', icon: Bath, color: 'bg-cyan-500' },
   { key: 'bed' as PhotoCategory, label: 'Bed', icon: Bed, color: 'bg-purple-500' },
-  { key: 'minibar' as PhotoCategory, label: 'Minibar', icon: Coffee, color: 'bg-orange-500' },
+  { key: 'minibar' as PhotoCategory, label: 'Minibar', icon: Wine, color: 'bg-orange-500' },
   { key: 'tea_coffee_table' as PhotoCategory, label: 'Tea/Coffee Table', icon: Coffee, color: 'bg-green-500' },
 ];
 
@@ -62,26 +62,44 @@ export function SimplifiedPhotoCapture({
   const [showExitWarning, setShowExitWarning] = useState(false);
   const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
   const [selectedPhotoPreview, setSelectedPhotoPreview] = useState<CategorizedPhoto | null>(null);
+  const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
+  const [cameraPermissionGranted, setCameraPermissionGranted] = useState<boolean | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentCategory = PHOTO_CATEGORIES[currentCategoryIndex];
-  const hasPhotoForCurrentCategory = categorizedPhotos.some(p => p.category === currentCategory.key);
+  const photosForCurrentCategory = categorizedPhotos.filter(p => p.category === currentCategory.key);
+  const hasPhotoForCurrentCategory = photosForCurrentCategory.length > 0;
   const allPhotosComplete = PHOTO_CATEGORIES.every(cat => 
     categorizedPhotos.some(p => p.category === cat.key)
   );
-  const progress = (categorizedPhotos.filter((photo, index, self) => 
-    index === self.findIndex(p => p.category === photo.category)
-  ).length / PHOTO_CATEGORIES.length) * 100;
+  const categoriesWithPhotos = PHOTO_CATEGORIES.filter(cat => 
+    categorizedPhotos.some(p => p.category === cat.key)
+  ).length;
+  const progress = (categoriesWithPhotos / PHOTO_CATEGORIES.length) * 100;
 
-  // Load existing photos when dialog opens
+  // Load existing photos and check camera permission when dialog opens
   useEffect(() => {
     if (open && assignmentId) {
       loadExistingPhotos();
+      checkCameraPermission();
     }
   }, [open, assignmentId]);
+
+  const checkCameraPermission = async () => {
+    try {
+      const permissionStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
+      setCameraPermissionGranted(permissionStatus.state === 'granted');
+      
+      permissionStatus.addEventListener('change', () => {
+        setCameraPermissionGranted(permissionStatus.state === 'granted');
+      });
+    } catch (error) {
+      console.log('Permission API not supported');
+      setCameraPermissionGranted(null);
+    }
+  };
 
   const loadExistingPhotos = async () => {
     if (!assignmentId) return;
@@ -121,6 +139,8 @@ export function SimplifiedPhotoCapture({
         } 
       });
       
+      setCameraPermissionGranted(true);
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
@@ -141,12 +161,23 @@ export function SimplifiedPhotoCapture({
       let errorMessage = t('photoCapture.cameraAccessError');
       
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        setCameraPermissionGranted(false);
         errorMessage = t('photoCapture.cameraPermissionError');
+        toast.error(errorMessage, {
+          action: {
+            label: 'Settings',
+            onClick: () => {
+              toast.info('Please enable camera permission in your browser settings');
+            }
+          }
+        });
       } else if (error.name === 'NotFoundError') {
         errorMessage = t('photoCapture.cameraNotFound');
+        toast.error(errorMessage);
+      } else {
+        toast.error(errorMessage);
       }
       
-      toast.error(errorMessage);
       setShowCamera(false);
       setIsCameraLoading(false);
     }
@@ -181,10 +212,7 @@ export function SimplifiedPhotoCapture({
       if (blob) {
         const photoUrl = URL.createObjectURL(blob);
         
-        // Remove existing photo for this category if any
-        setCategorizedPhotos(prev => prev.filter(p => p.category !== currentCategory.key));
-        
-        // Add new photo
+        // Add new photo (allow multiple per category)
         setCategorizedPhotos(prev => [...prev, {
           category: currentCategory.key,
           categoryName: currentCategory.label,
@@ -195,45 +223,33 @@ export function SimplifiedPhotoCapture({
         toast.success(`${currentCategory.label} ${t('photoCapture.photoCaptured')}`);
         stopCamera();
         
-        // Auto-advance to next category if not the last one
-        if (currentCategoryIndex < PHOTO_CATEGORIES.length - 1) {
+        // Check if this is the last category and all have at least one photo
+        const updatedPhotos = [...categorizedPhotos, {
+          category: currentCategory.key,
+          categoryName: currentCategory.label,
+          dataUrl: photoUrl,
+          blob
+        }];
+        
+        const allCategoriesHavePhotos = PHOTO_CATEGORIES.every(cat => 
+          updatedPhotos.some(p => p.category === cat.key)
+        );
+        
+        if (allCategoriesHavePhotos && currentCategoryIndex === PHOTO_CATEGORIES.length - 1) {
+          // Show save confirmation after a brief delay
+          setTimeout(() => {
+            setShowSaveConfirmation(true);
+          }, 800);
+        } else if (currentCategoryIndex < PHOTO_CATEGORIES.length - 1) {
+          // Auto-advance to next category if not the last one
           setTimeout(() => {
             setCurrentCategoryIndex(prev => prev + 1);
           }, 500);
         }
       }
     }, 'image/jpeg', 0.95);
-  }, [currentCategory, currentCategoryIndex, stopCamera, t]);
+  }, [currentCategory, currentCategoryIndex, categorizedPhotos, stopCamera, t]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const file = files[0]; // Take only the first file
-    if (file.type.startsWith('image/')) {
-      const photoUrl = URL.createObjectURL(file);
-      
-      // Remove existing photo for this category if any
-      setCategorizedPhotos(prev => prev.filter(p => p.category !== currentCategory.key));
-      
-      // Add new photo
-      setCategorizedPhotos(prev => [...prev, {
-        category: currentCategory.key,
-        categoryName: currentCategory.label,
-        dataUrl: photoUrl,
-        blob: file
-      }]);
-      
-      toast.success(`${currentCategory.label} ${t('photoCapture.photoAdded')}`);
-      
-      // Auto-advance to next category if not the last one
-      if (currentCategoryIndex < PHOTO_CATEGORIES.length - 1) {
-        setTimeout(() => {
-          setCurrentCategoryIndex(prev => prev + 1);
-        }, 500);
-      }
-    }
-  };
 
   const uploadPhotos = async () => {
     if (!user || categorizedPhotos.length === 0) return;
@@ -290,8 +306,8 @@ export function SimplifiedPhotoCapture({
     }
   };
 
-  const removePhoto = (category: PhotoCategory) => {
-    setCategorizedPhotos(prev => prev.filter(p => p.category !== category));
+  const removePhoto = (photoIndex: number) => {
+    setCategorizedPhotos(prev => prev.filter((_, index) => index !== photoIndex));
   };
 
   const handleClose = (force: boolean = false) => {
@@ -322,8 +338,8 @@ export function SimplifiedPhotoCapture({
   return (
     <>
       <Dialog open={open} onOpenChange={() => handleClose(false)}>
-        <DialogContent className="w-[100vw] h-[100dvh] max-w-full sm:max-w-2xl sm:h-auto sm:max-h-[95vh] p-0 gap-0 overflow-hidden">
-          <div className="flex flex-col h-full">
+        <DialogContent className="w-[100vw] h-[100dvh] max-w-full sm:max-w-2xl sm:h-auto sm:max-h-[95vh] p-0 gap-0">
+          <div className="flex flex-col h-full max-h-[100dvh]">
             <DialogHeader className="px-4 py-3 sm:p-6 border-b flex-shrink-0">
               <DialogTitle className="flex items-center gap-2 text-base sm:text-lg pr-8">
                 <Camera className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
@@ -331,15 +347,13 @@ export function SimplifiedPhotoCapture({
               </DialogTitle>
             </DialogHeader>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
+            <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-6" style={{ WebkitOverflowScrolling: 'touch' }}>
               <div className="space-y-4 sm:space-y-6 max-w-2xl mx-auto">
                 {/* Progress Bar */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs sm:text-sm gap-2">
                     <span className="font-medium flex-shrink-0">
-                      {t('photoCapture.progress')}: {categorizedPhotos.filter((photo, index, self) => 
-                        index === self.findIndex(p => p.category === photo.category)
-                      ).length} / {PHOTO_CATEGORIES.length}
+                      {t('photoCapture.progress')}: {categoriesWithPhotos} / {PHOTO_CATEGORIES.length}
                     </span>
                     {allPhotosComplete && (
                       <Badge variant="default" className="bg-green-600 text-xs flex-shrink-0">
@@ -398,7 +412,7 @@ export function SimplifiedPhotoCapture({
               "bg-gradient-to-br from-background to-muted/20"
             )}>
               <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className={cn(
                     "w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0",
                     currentCategory.color,
@@ -409,7 +423,7 @@ export function SimplifiedPhotoCapture({
                   <div className="min-w-0 flex-1">
                     <h3 className="text-base sm:text-lg font-semibold truncate">{currentCategory.label}</h3>
                     <p className="text-xs sm:text-sm text-muted-foreground">
-                      {hasPhotoForCurrentCategory ? t('photoCapture.photoTaken') : t('photoCapture.takePhotoFor')}
+                      {hasPhotoForCurrentCategory ? `${photosForCurrentCategory.length} photo${photosForCurrentCategory.length > 1 ? 's' : ''} taken` : t('photoCapture.takePhotoFor')}
                     </p>
                   </div>
                 </div>
@@ -417,30 +431,40 @@ export function SimplifiedPhotoCapture({
                 {hasPhotoForCurrentCategory && (
                   <Badge variant="default" className="bg-green-600 flex-shrink-0 ml-2">
                     <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                    <span className="hidden sm:inline">{t('common.done')}</span>
-                    <span className="sm:hidden">✓</span>
+                    <span>{photosForCurrentCategory.length}</span>
                   </Badge>
                 )}
               </div>
 
-              {/* Current Photo Preview */}
+              {/* Current Category Photos Preview */}
               {hasPhotoForCurrentCategory && (
-                <div className="relative mb-4 rounded-lg overflow-hidden">
-                  <img
-                    src={categorizedPhotos.find(p => p.category === currentCategory.key)?.dataUrl}
-                    alt={currentCategory.label}
-                    className="w-full h-40 sm:h-48 object-cover"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    className="absolute top-2 right-2 h-8 sm:h-9"
-                    onClick={() => removePhoto(currentCategory.key)}
-                  >
-                    <X className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                    <span className="text-xs sm:text-sm">{t('common.remove')}</span>
-                  </Button>
+                <div className="mb-4 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    {photosForCurrentCategory.map((photo, index) => {
+                      const photoGlobalIndex = categorizedPhotos.findIndex(p => p === photo);
+                      return (
+                        <div key={photoGlobalIndex} className="relative rounded-lg overflow-hidden group">
+                          <img
+                            src={photo.dataUrl}
+                            alt={`${currentCategory.label} ${index + 1}`}
+                            className="w-full h-32 sm:h-40 object-cover"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            className="absolute top-2 right-2 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removePhoto(photoGlobalIndex)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                          <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">
+                            {index + 1}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -450,30 +474,33 @@ export function SimplifiedPhotoCapture({
                   <Button
                     type="button"
                     onClick={startCamera}
-                    className="w-full h-14 sm:h-16 text-base sm:text-lg touch-manipulation"
+                    className="w-full h-14 sm:h-16 text-base sm:text-lg touch-manipulation relative"
                     variant={hasPhotoForCurrentCategory ? "outline" : "default"}
                   >
                     <Camera className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
-                    {hasPhotoForCurrentCategory ? t('photoCapture.retakePhoto') : t('common.takePhoto')}
+                    {hasPhotoForCurrentCategory ? (
+                      <>
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add Another Photo
+                      </>
+                    ) : (
+                      t('common.takePhoto')
+                    )}
                   </Button>
                   
-                  <Button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    variant="outline"
-                    className="w-full h-14 sm:h-16 text-base sm:text-lg touch-manipulation"
-                  >
-                    <Upload className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
-                    {t('common.uploadPhoto')}
-                  </Button>
-                  
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
+                  {cameraPermissionGranted === false && (
+                    <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                      <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                      <div className="text-xs">
+                        <p className="font-medium text-amber-900 dark:text-amber-100">
+                          Camera permission required
+                        </p>
+                        <p className="text-amber-700 dark:text-amber-200 mt-1">
+                          Please enable camera access in your browser settings
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -573,7 +600,7 @@ export function SimplifiedPhotoCapture({
                   </Button>
                 </div>
 
-                {/* Captured Photos Gallery */}
+                {/* Captured Photos Gallery - with count per category */}
                 {categorizedPhotos.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -582,14 +609,16 @@ export function SimplifiedPhotoCapture({
                         {categorizedPhotos.length} {t('common.photos')}
                       </Badge>
                     </div>
-                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                      {categorizedPhotos.map((photo, index) => {
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {categorizedPhotos.map((photo, photoIndex) => {
                         const Icon = PHOTO_CATEGORIES.find(c => c.key === photo.category)?.icon || Camera;
                         const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === photo.category);
+                        const categoryPhotos = categorizedPhotos.filter(p => p.category === photo.category);
+                        const photoIndexInCategory = categoryPhotos.findIndex(p => p === photo) + 1;
                         
                         return (
                           <button
-                            key={`${photo.category}-${index}`}
+                            key={photoIndex}
                             onClick={() => setSelectedPhotoPreview(photo)}
                             className="relative aspect-square rounded-lg overflow-hidden bg-muted hover:ring-2 hover:ring-primary transition-all active:scale-95 touch-manipulation"
                           >
@@ -606,6 +635,9 @@ export function SimplifiedPhotoCapture({
                               )}>
                                 <Icon className="h-3 w-3 flex-shrink-0" />
                                 <span className="truncate">{photo.categoryName}</span>
+                                {categoryPhotos.length > 1 && (
+                                  <span className="ml-auto">#{photoIndexInCategory}</span>
+                                )}
                               </div>
                             </div>
                           </button>
@@ -716,7 +748,10 @@ export function SimplifiedPhotoCapture({
                 <div className="flex gap-2">
                   <Button
                     onClick={() => {
-                      removePhoto(selectedPhotoPreview.category);
+                      const photoIndex = categorizedPhotos.findIndex(p => p === selectedPhotoPreview);
+                      if (photoIndex !== -1) {
+                        removePhoto(photoIndex);
+                      }
                       setSelectedPhotoPreview(null);
                     }}
                     variant="destructive"
@@ -738,6 +773,31 @@ export function SimplifiedPhotoCapture({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Save Confirmation Dialog */}
+      <AlertDialog open={showSaveConfirmation} onOpenChange={setShowSaveConfirmation}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              All Photos Captured!
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              You've taken photos for all categories ({categorizedPhotos.length} total photos). Would you like to save them now?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Add More Photos</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              setShowSaveConfirmation(false);
+              uploadPhotos();
+            }}>
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Save & Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
