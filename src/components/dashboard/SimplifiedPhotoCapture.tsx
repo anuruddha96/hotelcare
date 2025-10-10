@@ -111,8 +111,52 @@ export function SimplifiedPhotoCapture({
         .eq('id', assignmentId)
         .single();
       
-      if (assignmentData?.completion_photos) {
+      if (assignmentData?.completion_photos && assignmentData.completion_photos.length > 0) {
         setExistingPhotos(assignmentData.completion_photos);
+        
+        // Parse existing photos and reconstruct categorizedPhotos
+        const reconstructedPhotos: CategorizedPhoto[] = [];
+        
+        for (const photoUrl of assignmentData.completion_photos) {
+          // Extract category from filename (format: userId/roomNumber/category_timestamp_random.jpg)
+          const urlParts = photoUrl.split('/');
+          const filename = urlParts[urlParts.length - 1];
+          const categoryMatch = filename.match(/^([^_]+)_/);
+          
+          if (categoryMatch) {
+            const categoryKey = categoryMatch[1] as PhotoCategory;
+            const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === categoryKey);
+            
+            if (categoryInfo) {
+              // Fetch the image to create a blob
+              try {
+                const response = await fetch(photoUrl);
+                const blob = await response.blob();
+                
+                reconstructedPhotos.push({
+                  category: categoryKey,
+                  categoryName: categoryInfo.label,
+                  dataUrl: photoUrl, // Use the URL directly for display
+                  blob: blob
+                });
+              } catch (fetchError) {
+                console.error('Error fetching photo:', fetchError);
+                // If fetch fails, still add it with URL only
+                reconstructedPhotos.push({
+                  category: categoryKey,
+                  categoryName: categoryInfo.label,
+                  dataUrl: photoUrl,
+                  blob: new Blob() // Empty blob as fallback
+                });
+              }
+            }
+          }
+        }
+        
+        if (reconstructedPhotos.length > 0) {
+          setCategorizedPhotos(reconstructedPhotos);
+          toast.success(`Loaded ${reconstructedPhotos.length} existing photos`);
+        }
       }
     } catch (error) {
       console.error('Error loading existing photos:', error);
@@ -256,9 +300,11 @@ export function SimplifiedPhotoCapture({
 
     setIsUploading(true);
     const uploadedUrls: string[] = [];
+    const newPhotosOnly = categorizedPhotos.filter(photo => !photo.dataUrl.startsWith('http'));
 
     try {
-      for (const photo of categorizedPhotos) {
+      // Only upload photos that haven't been uploaded yet (new captures)
+      for (const photo of newPhotosOnly) {
         const fileName = `${user.id}/${roomNumber}/${photo.category}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         
         const { data, error } = await supabase.storage
@@ -278,7 +324,13 @@ export function SimplifiedPhotoCapture({
         uploadedUrls.push(publicUrl);
       }
 
-      const allPhotos = [...existingPhotos, ...uploadedUrls];
+      // Get URLs of already uploaded photos (those that start with http)
+      const existingUploadedUrls = categorizedPhotos
+        .filter(photo => photo.dataUrl.startsWith('http'))
+        .map(photo => photo.dataUrl);
+
+      // Combine all photos: existing uploaded + newly uploaded
+      const allPhotos = [...existingUploadedUrls, ...uploadedUrls];
 
       if (assignmentId) {
         const { error: updateError } = await supabase
@@ -291,7 +343,11 @@ export function SimplifiedPhotoCapture({
         if (updateError) throw updateError;
       }
 
-      toast.success(`${t('photoCapture.uploadSuccess')}: ${uploadedUrls.length}`);
+      if (uploadedUrls.length > 0) {
+        toast.success(`${t('photoCapture.uploadSuccess')}: ${uploadedUrls.length} new photos`);
+      } else {
+        toast.success('Photos updated successfully');
+      }
       
       if (onPhotoCaptured) {
         await onPhotoCaptured();
@@ -311,7 +367,10 @@ export function SimplifiedPhotoCapture({
   };
 
   const handleClose = (force: boolean = false) => {
-    if (!force && categorizedPhotos.length > 0 && !allPhotosComplete) {
+    // Check if there are unsaved new photos (those without http URLs)
+    const hasUnsavedPhotos = categorizedPhotos.some(photo => !photo.dataUrl.startsWith('http'));
+    
+    if (!force && hasUnsavedPhotos && !allPhotosComplete) {
       setShowExitWarning(true);
       return;
     }
@@ -320,6 +379,7 @@ export function SimplifiedPhotoCapture({
     setCategorizedPhotos([]);
     setCurrentCategoryIndex(0);
     setExistingPhotos([]);
+    setShowSaveConfirmation(false);
     onOpenChange(false);
   };
 
