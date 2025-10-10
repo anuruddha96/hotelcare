@@ -243,7 +243,7 @@ export function CompletionPhotosManagement() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CheckCircle className="h-5 w-5 text-green-500" />
-            Room Completion Photos Management
+            {t('completionPhotos.title')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -253,19 +253,19 @@ export function CompletionPhotosManagement() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="yesterday">Yesterday</SelectItem>
-                <SelectItem value="week">Last 7 Days</SelectItem>
-                <SelectItem value="month">Last 30 Days</SelectItem>
+                <SelectItem value="today">{t('completionPhotos.today')}</SelectItem>
+                <SelectItem value="yesterday">{t('completionPhotos.yesterday')}</SelectItem>
+                <SelectItem value="week">{t('completionPhotos.lastWeek')}</SelectItem>
+                <SelectItem value="month">{t('completionPhotos.lastMonth')}</SelectItem>
               </SelectContent>
             </Select>
 
             <Select value={hotelFilter} onValueChange={setHotelFilter}>
               <SelectTrigger className="w-48">
-                <SelectValue placeholder="Select Hotel" />
+                <SelectValue placeholder={t('completionPhotos.selectHotel')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Hotels</SelectItem>
+                <SelectItem value="all">{t('completionPhotos.allHotels')}</SelectItem>
                 {hotels.map(hotel => (
                   <SelectItem key={hotel.id} value={hotel.name}>
                     {hotel.name}
@@ -384,7 +384,7 @@ export function CompletionPhotosManagement() {
               {photos.length === 0 && !loading && (
                 <div className="col-span-full text-center py-8 text-muted-foreground">
                   <CheckCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No completion photos found for the selected period</p>
+                  <p>{t('completionPhotos.noPhotos')}</p>
                 </div>
               )}
             </div>
@@ -398,34 +398,34 @@ export function CompletionPhotosManagement() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-500" />
-              Completion Photo - Room {selectedPhoto?.photo.rooms?.room_number} - {selectedPhoto?.photo.rooms?.hotel}
+              {t('completionPhotos.dialogTitle')} {selectedPhoto?.photo.rooms?.room_number} - {selectedPhoto?.photo.rooms?.hotel}
             </DialogTitle>
           </DialogHeader>
           {selectedPhoto && (
             <div className="space-y-4">
                <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
-                 <img
-                   src={getImageUrl(selectedPhoto.photoUrl)}
-                   alt={`Completion Room ${selectedPhoto.photo.rooms?.room_number} photo`}
-                   className="w-full h-full object-contain"
-                 />
-               </div>
+                  <img
+                    src={getImageUrl(selectedPhoto.photoUrl)}
+                    alt={`${t('completionPhotos.completionRoom')} ${selectedPhoto.photo.rooms?.room_number} ${t('completionPhotos.photo')}`}
+                    className="w-full h-full object-contain"
+                  />
+                </div>
               
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <strong>Room:</strong> {selectedPhoto.photo.rooms?.room_number}
+                  <strong>{t('completionPhotos.room')}:</strong> {selectedPhoto.photo.rooms?.room_number}
                 </div>
                 <div>
-                  <strong>Hotel:</strong> {selectedPhoto.photo.rooms?.hotel}
+                  <strong>{t('completionPhotos.hotel')}:</strong> {selectedPhoto.photo.rooms?.hotel}
                 </div>
                 <div>
-                  <strong>Completed by:</strong> {selectedPhoto.photo.assigned_to_name}
+                  <strong>{t('completionPhotos.completedBy')}:</strong> {selectedPhoto.photo.assigned_to_name}
                 </div>
                 <div>
-                  <strong>Date:</strong> {format(new Date(selectedPhoto.photo.completed_at || ''), 'MMM dd, yyyy HH:mm')}
+                  <strong>{t('completionPhotos.date')}:</strong> {format(new Date(selectedPhoto.photo.completed_at || ''), 'MMM dd, yyyy HH:mm')}
                 </div>
                 <div>
-                  <strong>Type:</strong> {selectedPhoto.photo.assignment_type.replace('_', ' ').toUpperCase()}
+                  <strong>{t('completionPhotos.type')}:</strong> {selectedPhoto.photo.assignment_type.replace('_', ' ').toUpperCase()}
                 </div>
               </div>
 

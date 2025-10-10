@@ -12,6 +12,16 @@ import { useAuth } from '@/hooks/useAuth';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
 import { PMSUploadHistoryDialog } from './PMSUploadHistoryDialog';
 import * as XLSX from 'xlsx';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface PMSData {
   Room: string;
@@ -43,6 +53,8 @@ export function PMSUpload() {
     errors: string[];
   } | null>(null);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [showWarningDialog, setShowWarningDialog] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   // Handle background processing notifications
   useEffect(() => {
@@ -56,6 +68,19 @@ export function PMSUpload() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [backgroundUpload]);
+
+  // Check if this is the first upload of the day
+  const checkFirstUploadToday = (): boolean => {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const lastUploadDate = localStorage.getItem('pms_last_upload_date');
+    return lastUploadDate !== today;
+  };
+
+  // Mark today as having an upload
+  const markUploadToday = () => {
+    const today = new Date().toISOString().split('T')[0];
+    localStorage.setItem('pms_last_upload_date', today);
+  };
 
   // Enhanced room number extraction based on provided mappings
   const extractRoomNumber = (roomName: string): string => {
@@ -493,16 +518,17 @@ export function PMSUpload() {
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      // Show confirmation dialog before processing
-      const confirmed = window.confirm(
-        `⚠️ IMPORTANT: This will reset all room assignments for ${selectedHotel || 'the selected hotel'} for today.\n\n` +
-        `Are you sure you want to proceed with the PMS upload for ${selectedHotel || 'the selected hotel'}?`
-      );
+      const file = acceptedFiles[0];
       
-      if (confirmed) {
-        await processFile(acceptedFiles[0]);
+      // Check if this is the first upload today
+      if (checkFirstUploadToday()) {
+        // First upload - proceed directly
+        markUploadToday();
+        await processFile(file);
       } else {
-        toast.info('PMS upload cancelled');
+        // Second or later upload - show warning dialog
+        setPendingFile(file);
+        setShowWarningDialog(true);
       }
     }
   }, [selectedHotel]);
@@ -520,20 +546,35 @@ export function PMSUpload() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Show confirmation dialog before processing
-    const confirmed = window.confirm(
-      `⚠️ IMPORTANT: This will reset all room assignments for ${selectedHotel || 'the selected hotel'} for today.\n\n` +
-      `Are you sure you want to proceed with the PMS upload for ${selectedHotel || 'the selected hotel'}?`
-    );
-    
-    if (confirmed) {
+    // Check if this is the first upload today
+    if (checkFirstUploadToday()) {
+      // First upload - proceed directly
+      markUploadToday();
       await processFile(file);
     } else {
-      toast.info('PMS upload cancelled');
+      // Second or later upload - show warning dialog
+      setPendingFile(file);
+      setShowWarningDialog(true);
     }
     
     // Reset file input
     event.target.value = '';
+  };
+
+  // Handle confirmation from warning dialog
+  const handleWarningConfirm = async () => {
+    if (pendingFile) {
+      setShowWarningDialog(false);
+      await processFile(pendingFile);
+      setPendingFile(null);
+    }
+  };
+
+  // Handle cancellation from warning dialog
+  const handleWarningCancel = () => {
+    setShowWarningDialog(false);
+    setPendingFile(null);
+    toast.info(t('pms.uploadCancelled'));
   };
 
   // Request notification permission on component mount
@@ -741,6 +782,39 @@ export function PMSUpload() {
           open={historyDialogOpen}
           onOpenChange={setHistoryDialogOpen}
         />
+
+        {/* Warning Dialog for Second Upload */}
+        <AlertDialog open={showWarningDialog} onOpenChange={setShowWarningDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                {t('pms.warning.title')}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <p className="font-semibold text-amber-600">
+                  {t('pms.warning.secondUpload')}
+                </p>
+                <p>
+                  {t('pms.warning.description')} <strong>{selectedHotel || 'selected hotel'}</strong>
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                  <li>{t('pms.warning.clearAssignments')}</li>
+                  <li>{t('pms.warning.clearMinibar')}</li>
+                  <li>{t('pms.warning.resetStatuses')}</li>
+                </ul>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={handleWarningCancel}>
+                {t('pms.warning.cancel')}
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={handleWarningConfirm} className="bg-amber-500 hover:bg-amber-600">
+                {t('pms.warning.confirm')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </Card>
     );
   }
