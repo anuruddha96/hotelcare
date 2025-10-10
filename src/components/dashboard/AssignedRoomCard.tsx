@@ -54,6 +54,9 @@ interface AssignedRoomCardProps {
     is_dnd?: boolean;
     dnd_marked_at?: string | null;
     dnd_marked_by?: string | null;
+    supervisor_approved?: boolean;
+    supervisor_approved_by?: string | null;
+    supervisor_approved_at?: string | null;
     rooms: {
       room_number: string;
       hotel: string;
@@ -268,6 +271,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     
     setIsRetrievingDND(true);
     try {
+      const roomNum = assignment.rooms?.room_number || 'N/A';
+      const wasApproved = assignment.supervisor_approved;
+      
       // Check if room is actually DND
       const { data: roomData } = await supabase
         .from('rooms')
@@ -280,36 +286,52 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         return;
       }
 
-      // Unmark room as DND
+      // Clear DND status from room and set to dirty
       const { error: roomError } = await supabase
         .from('rooms')
         .update({
           is_dnd: false,
           dnd_marked_at: null,
-          dnd_marked_by: null
+          dnd_marked_by: null,
+          status: 'dirty'
         })
         .eq('id', assignment.room_id);
 
       if (roomError) throw roomError;
 
-      // Update the assignment status back to assigned
+      // Update assignment status back to 'assigned' and clear DND flags + supervisor approval
+      const updateData: any = {
+        status: 'assigned',
+        is_dnd: false,
+        dnd_marked_at: null,
+        dnd_marked_by: null,
+        completed_at: null,
+        supervisor_approved: false,
+        supervisor_approved_by: null,
+        supervisor_approved_at: null,
+        notes: wasApproved 
+          ? `${assignment.notes || ''}\n\n[${new Date().toLocaleString()}] ${t('dnd.previouslyApprovedDesc')}`
+          : assignment.notes
+      };
+
       const { error: assignmentError } = await supabase
         .from('room_assignments')
-        .update({
-          status: 'assigned',
-          is_dnd: false,
-          dnd_marked_at: null,
-          dnd_marked_by: null,
-          completed_at: null
-        })
+        .update(updateData)
         .eq('id', assignment.id);
 
       if (assignmentError) throw assignmentError;
 
+      // If it was previously approved, send notification to managers
+      if (wasApproved) {
+        toast.info(t('dnd.retrievedNotifyManager'), {
+          description: `${t('common.room')} ${roomNum}`,
+          duration: 5000
+        });
+      }
+
       // Notify success
-      const roomNum = assignment.rooms?.room_number || 'N/A';
-      toast.success(`Room ${roomNum} retrieved from DND and moved back to pending tasks`, {
-        description: 'The room is now available for cleaning and visible to managers/admins'
+      toast.success(t('dnd.retrievedSuccess'), {
+        description: `${t('common.room')} ${roomNum}`
       });
 
       // Update local state
@@ -762,7 +784,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <div className="flex gap-2">
                 <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
                 <p className="text-xs text-blue-800">
-                  💡 Tip: Check completed tasks if DND sign is removed later
+                  {t('dnd.tipCheckCompleted')}
                 </p>
               </div>
             </div>
@@ -772,10 +794,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <AlertTriangle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-orange-800 mb-1">
-                    DND Sign Removed?
+                    {t('dnd.signRemoved')}
                   </p>
                   <p className="text-xs text-orange-700 mb-3">
-                    If guest removed the sign, clean now
+                    {t('dnd.signRemovedDesc')}
                   </p>
                   <Button
                     size="sm"
@@ -787,12 +809,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     {isRetrievingDND ? (
                       <>
                         <Clock className="h-4 w-4 mr-2 animate-spin" />
-                        Starting...
+                        {t('dnd.starting')}
                       </>
                     ) : (
                       <>
                         <CheckCircle className="h-4 w-4 mr-2" />
-                        Start Cleaning
+                        {t('dnd.startCleaning')}
                       </>
                     )}
                   </Button>

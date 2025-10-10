@@ -7,6 +7,18 @@ export const additionalTranslations = {
     // Housekeeping Tabs
     'housekeeping.tabs.staffManagement': 'Staff Management',
     'housekeeping.tabs.pendingApprovals': 'Pending Approvals',
+    
+    // DND Room
+    'dnd.markRoomDND': 'Mark Room as DND',
+    'dnd.tipCheckCompleted': '💡 Tip: Check completed tasks if DND sign is removed later',
+    'dnd.signRemoved': 'DND Sign Removed?',
+    'dnd.signRemovedDesc': 'If guest removed the sign, clean now',
+    'dnd.startCleaning': 'Start Cleaning',
+    'dnd.starting': 'Starting...',
+    'dnd.retrievedSuccess': 'DND room retrieved and ready for cleaning',
+    'dnd.retrievedNotifyManager': 'Manager notified about previously approved DND room being cleaned',
+    'dnd.previouslyApprovedCleaned': 'Previously approved DND room was cleaned',
+    'dnd.previouslyApprovedDesc': 'This room was marked as DND and approved by supervisor, but housekeeper cleaned it after DND sign was removed',
     'housekeeping.tabs.teamView': 'Team View',
     'housekeeping.tabs.performance': 'Performance',
     'housekeeping.tabs.pmsUpload': 'PMS Upload',
@@ -293,6 +305,18 @@ export const additionalTranslations = {
     // Housekeeping Tabs
     'housekeeping.tabs.staffManagement': 'Gestión de Personal',
     'housekeeping.tabs.pendingApprovals': 'Aprobaciones Pendientes',
+    
+    // DND Room
+    'dnd.markRoomDND': 'Marcar Habitación como DND',
+    'dnd.tipCheckCompleted': '💡 Consejo: Revise tareas completadas si se retira el cartel DND',
+    'dnd.signRemoved': '¿Se quitó el cartel DND?',
+    'dnd.signRemovedDesc': 'Si el huésped quitó el cartel, limpie ahora',
+    'dnd.startCleaning': 'Comenzar Limpieza',
+    'dnd.starting': 'Iniciando...',
+    'dnd.retrievedSuccess': 'Habitación DND recuperada y lista para limpieza',
+    'dnd.retrievedNotifyManager': 'Gerente notificado sobre habitación DND previamente aprobada siendo limpiada',
+    'dnd.previouslyApprovedCleaned': 'Habitación DND previamente aprobada fue limpiada',
+    'dnd.previouslyApprovedDesc': 'Esta habitación fue marcada como DND y aprobada por supervisor, pero el personal de limpieza la limpió después de que se retiró el cartel',
     'housekeeping.tabs.teamView': 'Vista de Equipo',
     'housekeeping.tabs.performance': 'Rendimiento',
     'housekeeping.tabs.pmsUpload': 'Cargar PMS',
@@ -510,6 +534,18 @@ export const additionalTranslations = {
     // Housekeeping Tabs
     'housekeeping.tabs.staffManagement': 'Quản lý Nhân viên',
     'housekeeping.tabs.pendingApprovals': 'Chờ Phê duyệt',
+    
+    // DND Room
+    'dnd.markRoomDND': 'Đánh dấu Phòng DND',
+    'dnd.tipCheckCompleted': '💡 Mẹo: Kiểm tra nhiệm vụ đã hoàn thành nếu biển DND được gỡ sau',
+    'dnd.signRemoved': 'Đã gỡ biển DND?',
+    'dnd.signRemovedDesc': 'Nếu khách gỡ biển, dọn ngay',
+    'dnd.startCleaning': 'Bắt đầu Dọn',
+    'dnd.starting': 'Đang bắt đầu...',
+    'dnd.retrievedSuccess': 'Phòng DND đã lấy lại và sẵn sàng dọn dẹp',
+    'dnd.retrievedNotifyManager': 'Đã thông báo quản lý về phòng DND đã được phê duyệt trước đó đang được dọn dẹp',
+    'dnd.previouslyApprovedCleaned': 'Phòng DND đã được phê duyệt trước đó đã được dọn',
+    'dnd.previouslyApprovedDesc': 'Phòng này đã được đánh dấu DND và được giám sát viên phê duyệt, nhưng nhân viên đã dọn sau khi biển DND được gỡ',
     'housekeeping.tabs.teamView': 'Xem Nhóm',
     'housekeeping.tabs.performance': 'Hiệu suất',
     'housekeeping.tabs.pmsUpload': 'Tải lên PMS',
@@ -685,6 +721,18 @@ export const additionalTranslations = {
     // Housekeeping Tabs
     'housekeeping.tabs.staffManagement': 'Ажилчдын удирдлага',
     'housekeeping.tabs.pendingApprovals': 'Хүлээгдэж буй зөвшөөрөл',
+    
+    // DND Room
+    'dnd.markRoomDND': 'Өрөөг DND гэж тэмдэглэх',
+    'dnd.tipCheckCompleted': '💡 Зөвлөгөө: DND тэмдэг арилсан бол дууссан даалгаврыг шалгана уу',
+    'dnd.signRemoved': 'DND тэмдэг арилсан уу?',
+    'dnd.signRemovedDesc': 'Зочин тэмдэг авсан бол одоо цэвэрлэнэ үү',
+    'dnd.startCleaning': 'Цэвэрлэж эхлэх',
+    'dnd.starting': 'Эхэлж байна...',
+    'dnd.retrievedSuccess': 'DND өрөө сэргээгдэж, цэвэрлэхэд бэлэн боллоо',
+    'dnd.retrievedNotifyManager': 'Өмнө нь батлагдсан DND өрөө цэвэрлэгдэж байгааг менежерт мэдэгдсэн',
+    'dnd.previouslyApprovedCleaned': 'Өмнө нь батлагдсан DND өрөө цэвэрлэгдсэн',
+    'dnd.previouslyApprovedDesc': 'Энэ өрөө DND гэж тэмдэглэгдэж, хянагчаар батлагдсан боловч DND тэмдэг арилсны дараа ажилтан цэвэрлэсэн',
     'housekeeping.tabs.teamView': 'Багийн харагдац',
     'housekeeping.tabs.performance': 'Гүйцэтгэл',
     'housekeeping.tabs.pmsUpload': 'PMS ачаалах',
@@ -902,6 +950,18 @@ export const additionalTranslations = {
     // Housekeeping Tabs
     'housekeeping.tabs.staffManagement': 'Személyzet kezelés',
     'housekeeping.tabs.pendingApprovals': 'Függőben lévő jóváhagyások',
+    
+    // DND Room
+    'dnd.markRoomDND': 'Szoba megjelölése DND-ként',
+    'dnd.tipCheckCompleted': '💡 Tipp: Ellenőrizze a befejezett feladatokat, ha később eltávolították a DND táblát',
+    'dnd.signRemoved': 'DND tábla eltávolítva?',
+    'dnd.signRemovedDesc': 'Ha a vendég eltávolította a táblát, takarítson most',
+    'dnd.startCleaning': 'Takarítás kezdése',
+    'dnd.starting': 'Indítás...',
+    'dnd.retrievedSuccess': 'DND szoba visszaállítva és takarításra kész',
+    'dnd.retrievedNotifyManager': 'Vezetőt értesítettük a korábban jóváhagyott DND szoba takarításáról',
+    'dnd.previouslyApprovedCleaned': 'Korábban jóváhagyott DND szobát kitakarítottak',
+    'dnd.previouslyApprovedDesc': 'Ezt a szobát DND-ként jelölték meg és a felügyelő jóváhagyta, de a takarító kitisztította, miután a DND táblát eltávolították',
     'housekeeping.tabs.teamView': 'Csapat nézet',
     'housekeeping.tabs.performance': 'Teljesítmény',
     'housekeeping.tabs.pmsUpload': 'PMS feltöltés',

@@ -444,7 +444,7 @@ export function EnhancedDNDPhotoCapture({
             className="w-full"
             disabled={isUploading}
           >
-            Close
+            {t('dnd.markRoomDND')}
           </Button>
         </div>
       </DialogContent>
