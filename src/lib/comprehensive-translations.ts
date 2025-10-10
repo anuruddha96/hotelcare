@@ -53,6 +53,24 @@ export const additionalTranslations = {
     'photoCategory.bed': 'Bed',
     'photoCategory.minibar': 'Minibar',
     'photoCategory.teaCoffeeTable': 'Tea/Coffee Table',
+    
+    // Dashboard
+    'dashboard.tickets': 'Tickets',
+    'dashboard.myTasks': 'My Tasks',
+    'dashboard.workStatus': 'Attendance',
+    
+    // Housekeeping Staff View
+    'housekeeping.workSchedule': 'Work Schedule',
+    'housekeeping.totalTasksForToday': 'Total Tasks for Today',
+    'housekeeping.completed': 'Completed',
+    'housekeeping.inProgress': 'In Progress',
+    'housekeeping.waiting': 'Waiting',
+    'housekeeping.todaysTasks': "Today's Tasks",
+    'housekeeping.allDone': 'All Done! 🎉',
+    'housekeeping.noTasksFor': 'No tasks for',
+    'housekeeping.tasks': 'tasks',
+    'housekeeping.loadingTasks': 'Loading tasks...',
+    
     'housekeeping.tabs.teamView': 'Team View',
     'housekeeping.tabs.performance': 'Performance',
     'housekeeping.tabs.pmsUpload': 'PMS Upload',
@@ -384,6 +402,24 @@ export const additionalTranslations = {
     'photoCategory.bed': 'Cama',
     'photoCategory.minibar': 'Minibar',
     'photoCategory.teaCoffeeTable': 'Mesa de Té/Café',
+    
+    // Dashboard
+    'dashboard.tickets': 'Tickets',
+    'dashboard.myTasks': 'Mis Tareas',
+    'dashboard.workStatus': 'Asistencia',
+    
+    // Housekeeping Staff View
+    'housekeeping.workSchedule': 'Horario de Trabajo',
+    'housekeeping.totalTasksForToday': 'Total de Tareas para Hoy',
+    'housekeeping.completed': 'Completado',
+    'housekeeping.inProgress': 'En Progreso',
+    'housekeeping.waiting': 'Esperando',
+    'housekeeping.todaysTasks': 'Tareas de Hoy',
+    'housekeeping.allDone': '¡Todo Listo! 🎉',
+    'housekeeping.noTasksFor': 'No hay tareas para',
+    'housekeeping.tasks': 'tareas',
+    'housekeeping.loadingTasks': 'Cargando tareas...',
+    
     'housekeeping.tabs.teamView': 'Vista de Equipo',
     'housekeeping.tabs.performance': 'Rendimiento',
     'housekeeping.tabs.pmsUpload': 'Cargar PMS',
@@ -646,6 +682,24 @@ export const additionalTranslations = {
     'photoCategory.bed': 'Giường',
     'photoCategory.minibar': 'Minibar',
     'photoCategory.teaCoffeeTable': 'Bàn Trà/Cà phê',
+    
+    // Dashboard
+    'dashboard.tickets': 'Tickets',
+    'dashboard.myTasks': 'Nhiệm Vụ Của Tôi',
+    'dashboard.workStatus': 'Điểm Danh',
+    
+    // Housekeeping Staff View
+    'housekeeping.workSchedule': 'Lịch Làm Việc',
+    'housekeeping.totalTasksForToday': 'Tổng Nhiệm Vụ Hôm Nay',
+    'housekeeping.completed': 'Đã Hoàn Thành',
+    'housekeeping.inProgress': 'Đang Thực Hiện',
+    'housekeeping.waiting': 'Đang Chờ',
+    'housekeeping.todaysTasks': 'Nhiệm Vụ Hôm Nay',
+    'housekeeping.allDone': 'Hoàn Thành Tất Cả! 🎉',
+    'housekeeping.noTasksFor': 'Không có nhiệm vụ cho',
+    'housekeeping.tasks': 'nhiệm vụ',
+    'housekeeping.loadingTasks': 'Đang tải nhiệm vụ...',
+    
     'housekeeping.tabs.teamView': 'Xem Nhóm',
     'housekeeping.tabs.performance': 'Hiệu suất',
     'housekeeping.tabs.pmsUpload': 'Tải lên PMS',
@@ -866,6 +920,24 @@ export const additionalTranslations = {
     'photoCategory.bed': 'Ор',
     'photoCategory.minibar': 'Минибар',
     'photoCategory.teaCoffeeTable': 'Цай/Кофены Ширээ',
+    
+    // Dashboard
+    'dashboard.tickets': 'Тасалбар',
+    'dashboard.myTasks': 'Миний Ажил',
+    'dashboard.workStatus': 'Ирц',
+    
+    // Housekeeping Staff View
+    'housekeeping.workSchedule': 'Ажлын Хуваарь',
+    'housekeeping.totalTasksForToday': 'Өнөөдрийн Нийт Ажил',
+    'housekeeping.completed': 'Дууссан',
+    'housekeeping.inProgress': 'Хийгдэж Байгаа',
+    'housekeeping.waiting': 'Хүлээж Байгаа',
+    'housekeeping.todaysTasks': 'Өнөөдрийн Ажил',
+    'housekeeping.allDone': 'Бүгд Дууслаа! 🎉',
+    'housekeeping.noTasksFor': 'Ажил байхгүй',
+    'housekeeping.tasks': 'ажил',
+    'housekeeping.loadingTasks': 'Ажлууд ачаалж байна...',
+    
     'housekeeping.tabs.teamView': 'Багийн харагдац',
     'housekeeping.tabs.performance': 'Гүйцэтгэл',
     'housekeeping.tabs.pmsUpload': 'PMS ачаалах',
@@ -1128,6 +1200,24 @@ export const additionalTranslations = {
     'photoCategory.bed': 'Ágy',
     'photoCategory.minibar': 'Minibar',
     'photoCategory.teaCoffeeTable': 'Tea/Kávé Asztal',
+    
+    // Dashboard
+    'dashboard.tickets': 'Jegyek',
+    'dashboard.myTasks': 'Feladataim',
+    'dashboard.workStatus': 'Jelenlét',
+    
+    // Housekeeping Staff View
+    'housekeeping.workSchedule': 'Munkarend',
+    'housekeeping.totalTasksForToday': 'Mai Összes Feladat',
+    'housekeeping.completed': 'Befejezve',
+    'housekeeping.inProgress': 'Folyamatban',
+    'housekeeping.waiting': 'Várakozik',
+    'housekeeping.todaysTasks': 'Mai Feladatok',
+    'housekeeping.allDone': 'Minden Kész! 🎉',
+    'housekeeping.noTasksFor': 'Nincs feladat',
+    'housekeeping.tasks': 'feladat',
+    'housekeeping.loadingTasks': 'Feladatok betöltése...',
+    
     'housekeeping.tabs.teamView': 'Csapat nézet',
     'housekeeping.tabs.performance': 'Teljesítmény',
     'housekeeping.tabs.pmsUpload': 'PMS feltöltés',
