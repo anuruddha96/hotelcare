@@ -121,11 +121,20 @@ export function SimplifiedPhotoCapture({
           // Extract category from filename (format: userId/roomNumber/category_timestamp_random.jpg)
           const urlParts = photoUrl.split('/');
           const filename = urlParts[urlParts.length - 1];
-          const categoryMatch = filename.match(/^([^_]+)_/);
           
-          if (categoryMatch) {
-            const categoryKey = categoryMatch[1] as PhotoCategory;
-            const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === categoryKey);
+          // Try to match against known category keys (some have underscores)
+          let matchedCategory: PhotoCategory | null = null;
+          
+          for (const cat of PHOTO_CATEGORIES) {
+            // Check if filename starts with category key followed by underscore and timestamp
+            if (filename.startsWith(cat.key + '_')) {
+              matchedCategory = cat.key;
+              break;
+            }
+          }
+          
+          if (matchedCategory) {
+            const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === matchedCategory);
             
             if (categoryInfo) {
               // Fetch the image to create a blob
@@ -134,7 +143,7 @@ export function SimplifiedPhotoCapture({
                 const blob = await response.blob();
                 
                 reconstructedPhotos.push({
-                  category: categoryKey,
+                  category: matchedCategory,
                   categoryName: categoryInfo.label,
                   dataUrl: photoUrl, // Use the URL directly for display
                   blob: blob
@@ -143,7 +152,7 @@ export function SimplifiedPhotoCapture({
                 console.error('Error fetching photo:', fetchError);
                 // If fetch fails, still add it with URL only
                 reconstructedPhotos.push({
-                  category: categoryKey,
+                  category: matchedCategory,
                   categoryName: categoryInfo.label,
                   dataUrl: photoUrl,
                   blob: new Blob() // Empty blob as fallback
