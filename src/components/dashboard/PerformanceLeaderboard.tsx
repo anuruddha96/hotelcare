@@ -137,12 +137,12 @@ export function PerformanceLeaderboard() {
       const enhancedLeaderboard: LeaderboardEntry[] = [];
       
       for (const housekeeper of housekeepers) {
-        // Performance data
+        // Performance data - use left join to capture all records
         const { data: performanceData } = await supabase
           .from('housekeeping_performance')
           .select(`
             *,
-            room_assignments!inner(is_dnd)
+            room_assignments(is_dnd)
           `)
           .eq('housekeeper_id', housekeeper.id)
           .gte('assignment_date', dateFrom);
@@ -157,12 +157,12 @@ export function PerformanceLeaderboard() {
             return false;
           }
           
-          // Checkout rooms: minimum 30 minutes
+          // Checkout rooms: minimum 30 minutes to be valid
           if (p.assignment_type === 'checkout_cleaning' && p.actual_duration_minutes < 30) {
             return false;
           }
           
-          // Daily cleaning: minimum 5 minutes
+          // Daily cleaning: minimum 5 minutes to be valid
           if (p.assignment_type === 'daily_cleaning' && p.actual_duration_minutes < 5) {
             return false;
           }
