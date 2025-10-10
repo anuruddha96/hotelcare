@@ -419,7 +419,24 @@ export const additionalTranslations = {
     'status.approved': 'Approved',
     'status.ticket_created': 'Ticket Created',
     'status.resolved': 'Resolved',
-  },
+    },
+    ratings: {
+      rateHousekeeper: "Rate Housekeeper",
+      rating: "Rating",
+      selectRating: "Please select a rating",
+      ratingSubmitted: "Rating submitted successfully",
+      errorSubmitting: "Error submitting rating",
+      notesOptional: "Notes (Optional)",
+      notesPlaceholder: "Add any feedback or comments...",
+      submitting: "Submitting...",
+      submitRating: "Submit Rating",
+      excellent: "Excellent! ⭐⭐⭐⭐⭐",
+      good: "Good! ⭐⭐⭐⭐",
+      average: "Average ⭐⭐⭐",
+      belowAverage: "Below Average ⭐⭐",
+      needsImprovement: "Needs Improvement ⭐",
+      yourRating: "Your Rating",
+    },
   
   es: {
     // Housekeeping Tabs
@@ -786,6 +803,24 @@ export const additionalTranslations = {
     'minibar.selectDateRange': 'Seleccionar Rango de Fechas',
     'minibar.viewDetails': 'Ver Detalles',
     'minibar.noData': 'No hay datos de uso del minibar para el período seleccionado',
+    
+    ratings: {
+      rateHousekeeper: "Calificar Empleado",
+      rating: "Calificación",
+      selectRating: "Por favor seleccione una calificación",
+      ratingSubmitted: "Calificación enviada exitosamente",
+      errorSubmitting: "Error al enviar calificación",
+      notesOptional: "Notas (Opcional)",
+      notesPlaceholder: "Agregar comentarios o feedback...",
+      submitting: "Enviando...",
+      submitRating: "Enviar Calificación",
+      excellent: "¡Excelente! ⭐⭐⭐⭐⭐",
+      good: "¡Bien! ⭐⭐⭐⭐",
+      average: "Promedio ⭐⭐⭐",
+      belowAverage: "Bajo el Promedio ⭐⭐",
+      needsImprovement: "Necesita Mejorar ⭐",
+      yourRating: "Tu Calificación",
+    },
   },
   
   vi: {

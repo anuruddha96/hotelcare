@@ -450,6 +450,67 @@ export type Database = {
         }
         Relationships: []
       }
+      housekeeper_ratings: {
+        Row: {
+          assignment_id: string | null
+          created_at: string
+          housekeeper_id: string
+          id: string
+          notes: string | null
+          organization_slug: string | null
+          rated_by: string
+          rating: number
+          rating_date: string
+          updated_at: string
+        }
+        Insert: {
+          assignment_id?: string | null
+          created_at?: string
+          housekeeper_id: string
+          id?: string
+          notes?: string | null
+          organization_slug?: string | null
+          rated_by: string
+          rating: number
+          rating_date?: string
+          updated_at?: string
+        }
+        Update: {
+          assignment_id?: string | null
+          created_at?: string
+          housekeeper_id?: string
+          id?: string
+          notes?: string | null
+          organization_slug?: string | null
+          rated_by?: string
+          rating?: number
+          rating_date?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeper_ratings_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeper_ratings_housekeeper_id_fkey"
+            columns: ["housekeeper_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeper_ratings_rated_by_fkey"
+            columns: ["rated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       housekeeping_notes: {
         Row: {
           assignment_id: string | null
@@ -1597,6 +1658,10 @@ export type Database = {
       get_hotel_name_from_id: {
         Args: { hotel_id: string }
         Returns: string
+      }
+      get_housekeeper_avg_rating: {
+        Args: { days_back?: number; p_housekeeper_id: string }
+        Returns: number
       }
       get_housekeeper_performance_stats: {
         Args: { days_back?: number; target_housekeeper_id?: string }
