@@ -334,7 +334,19 @@ export const additionalTranslations = {
     'performanceRace.racers': 'racers',
     'performanceRace.everyoneSeesThisRace': '🌟 Everyone sees this race! Complete tasks to move forward! 🌟',
     'performanceRace.topPerformers': 'Today\'s Top Performers',
-    'performanceRace.helpEachOther': 'Finish early? Help your teammates complete their tasks!',
+    'performanceRace.dailyMotivation': '💫 Today\'s Motivation',
+    'performanceRace.motivationalQuotes': [
+      'Every room you clean makes a guest smile!',
+      'Your hard work creates happiness for others.',
+      'Quality work is the best work!',
+      'You are doing an amazing job today!',
+      'Small efforts every day lead to big results.',
+      'Your dedication makes our hotel special.',
+      'Be proud of the work you do!',
+      'Excellence is your habit!',
+      'Today is a new opportunity to shine!',
+      'Your attention to detail matters!'
+    ],
     
     // Room
     'room.label': 'Room',
@@ -587,7 +599,19 @@ export const additionalTranslations = {
     'performanceRace.racers': 'corredores',
     'performanceRace.everyoneSeesThisRace': '🌟 ¡Todos ven esta carrera! ¡Completa tareas para avanzar! 🌟',
     'performanceRace.topPerformers': 'Mejores del Día',
-    'performanceRace.helpEachOther': '¿Terminaste temprano? ¡Ayuda a tus compañeros a completar sus tareas!',
+    'performanceRace.dailyMotivation': '💫 Motivación del Día',
+    'performanceRace.motivationalQuotes': [
+      '¡Cada habitación que limpias hace sonreír a un huésped!',
+      'Tu trabajo duro crea felicidad para otros.',
+      '¡El trabajo de calidad es el mejor trabajo!',
+      '¡Estás haciendo un trabajo increíble hoy!',
+      'Pequeños esfuerzos cada día conducen a grandes resultados.',
+      'Tu dedicación hace especial nuestro hotel.',
+      '¡Siéntete orgulloso del trabajo que haces!',
+      '¡La excelencia es tu hábito!',
+      '¡Hoy es una nueva oportunidad para brillar!',
+      '¡Tu atención al detalle importa!'
+    ],
     
     // Team
     'team.management': 'Gestión de Equipo',
@@ -942,7 +966,19 @@ export const additionalTranslations = {
     'performanceRace.racers': 'người đua',
     'performanceRace.everyoneSeesThisRace': '🌟 Mọi người đều thấy cuộc đua này! Hoàn thành nhiệm vụ để tiến lên! 🌟',
     'performanceRace.topPerformers': 'Người Xuất Sắc Nhất Hôm Nay',
-    'performanceRace.helpEachOther': 'Hoàn thành sớm? Hãy giúp đồng đội hoàn thành nhiệm vụ!',
+    'performanceRace.dailyMotivation': '💫 Động Lực Hôm Nay',
+    'performanceRace.motivationalQuotes': [
+      'Mỗi phòng bạn dọn làm khách hàng mỉm cười!',
+      'Công việc chăm chỉ của bạn tạo ra hạnh phúc cho người khác.',
+      'Công việc chất lượng là công việc tốt nhất!',
+      'Bạn đang làm việc tuyệt vời hôm nay!',
+      'Những nỗ lực nhỏ mỗi ngày dẫn đến kết quả lớn.',
+      'Sự cống hiến của bạn làm cho khách sạn đặc biệt.',
+      'Hãy tự hào về công việc bạn làm!',
+      'Sự xuất sắc là thói quen của bạn!',
+      'Hôm nay là cơ hội mới để tỏa sáng!',
+      'Sự chú ý đến chi tiết của bạn rất quan trọng!'
+    ],
     
     // Team
     'team.management': 'Quản Lý Nhóm',
@@ -1255,7 +1291,19 @@ export const additionalTranslations = {
     'performanceRace.racers': 'уралдагч',
     'performanceRace.everyoneSeesThisRace': '🌟 Бүгд энэ уралдааныг харж байна! Ажил дуусгаад урагшаа! 🌟',
     'performanceRace.topPerformers': 'Өнөөдрийн Шилдгүүд',
-    'performanceRace.helpEachOther': 'Эрт дууслаа уу? Багийнхандаа тусал!',
+    'performanceRace.dailyMotivation': '💫 Өнөөдрийн Урам',
+    'performanceRace.motivationalQuotes': [
+      'Та цэвэрлэсэн өрөө бүр зочдыг инээмсэглүүлнэ!',
+      'Таны хичээл зүтгэл бусдад аз жаргал бүтээнэ.',
+      'Чанартай ажил бол хамгийн сайн ажил!',
+      'Та өнөөдөр гайхалтай ажиллаж байна!',
+      'Өдөр бүр бага хүчин чармайлт том үр дүнд хүргэнэ.',
+      'Таны зориг зүтгэл манай зочид буудлыг онцгой болгоно.',
+      'Хийж буй ажилдаа бахархаарай!',
+      'Сайн чанар бол таны зуршил!',
+      'Өнөөдөр гялалзах шинэ боломж!',
+      'Таны анхаарал чухал!'
+    ],
     
     // Team
     'team.management': 'Багийн Удирдлага',
@@ -1592,7 +1640,19 @@ export const additionalTranslations = {
     'performanceRace.racers': 'versenyző',
     'performanceRace.everyoneSeesThisRace': '🌟 Mindenki látja ezt a versenyt! Teljesítsd a feladatokat előre! 🌟',
     'performanceRace.topPerformers': 'Mai Legjobb Teljesítők',
-    'performanceRace.helpEachOther': 'Korán végeztél? Segíts csapattársaidnak befejezni!',
+    'performanceRace.dailyMotivation': '💫 Mai Motiváció',
+    'performanceRace.motivationalQuotes': [
+      'Minden szoba, amit kitakarítasz, mosolyt csal egy vendég arcára!',
+      'A kemény munkája boldogságot teremt mások számára.',
+      'A minőségi munka a legjobb munka!',
+      'Ma remek munkát végez!',
+      'A kis erőfeszítések minden nap nagy eredményekhez vezetnek.',
+      'Az Ön elkötelezettsége különlegessé teszi a szállodánkat.',
+      'Legyen büszke az általa végzett munkára!',
+      'A kiválóság az Ön szokása!',
+      'Ma egy új lehetőség a ragyogásra!',
+      'Az Ön figyelme a részletekre fontos!'
+    ],
     
     // Team
     'team.management': 'Csapat Kezelés',

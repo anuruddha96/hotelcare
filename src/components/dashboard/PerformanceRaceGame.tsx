@@ -24,6 +24,15 @@ export function PerformanceRaceGame() {
   const [participants, setParticipants] = useState<RaceParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [userHotel, setUserHotel] = useState<string | null>(null);
+  
+  // Get daily motivational quote (changes each day)
+  const getDailyQuote = () => {
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+    const quotesRaw = t('performanceRace.motivationalQuotes');
+    // Handle if translation returns a string instead of array
+    const quotes = Array.isArray(quotesRaw) ? quotesRaw : [quotesRaw];
+    return quotes[dayOfYear % quotes.length];
+  };
 
   useEffect(() => {
     if (user?.id) {
@@ -395,11 +404,21 @@ export function PerformanceRaceGame() {
           </div>
         )}
 
-        {/* Help Message */}
-        <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
-          <p className="text-sm text-center font-medium">
-            💪 {t('performanceRace.helpEachOther')}
-          </p>
+        {/* Daily Motivational Quote */}
+        <div className="bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/20 dark:via-yellow-900/20 dark:to-orange-900/20 rounded-xl p-4 border-2 border-amber-200 dark:border-amber-800 shadow-md">
+          <div className="flex items-start gap-3">
+            <div className="bg-yellow-400 dark:bg-yellow-600 rounded-full p-2 mt-1 animate-pulse">
+              <Star className="h-5 w-5 text-white" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-bold text-amber-800 dark:text-amber-200 uppercase tracking-wide mb-1">
+                {t('performanceRace.dailyMotivation')}
+              </p>
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-200 italic leading-relaxed">
+                "{getDailyQuote()}"
+              </p>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
