@@ -295,12 +295,29 @@ export const additionalTranslations = {
     'completionPhotos.type': 'Type',
 
     // Supervisor
+    'supervisor.approvals': 'Approvals',
+    'supervisor.manageApprovals': 'Manage approvals and review history',
     'supervisor.pendingApprovals': 'Pending Approvals',
+    'supervisor.approvalHistory': 'Approval History',
     'supervisor.reviewCompletedTasks': 'Review completed cleaning tasks',
     'supervisor.noTasksPending': 'No tasks pending approval',
     'supervisor.allTasksReviewed': 'All completed tasks have been reviewed',
     'supervisor.cleanedBy': 'Cleaned By',
     'supervisor.roomMarkedClean': 'Room marked as clean',
+    'supervisor.specialRequirements': 'Special Requirements',
+    'supervisor.towelChangeRequired': 'Towel Change Required',
+    'supervisor.linenChangeRequired': 'Linen Change Required',
+    'supervisor.confirmReassign': 'Confirm Reassignment',
+    
+    // Approval History
+    'approvalHistory.title': 'Approval History',
+    'approvalHistory.description': 'View previously approved cleaning tasks',
+    'approvalHistory.noApprovals': 'No Approved Tasks',
+    'approvalHistory.noApprovalsDescription': 'No approved tasks found for this date',
+    'approvalHistory.approved': 'Approved',
+    'approvalHistory.approvedAt': 'Approved At',
+    'approvalHistory.approvedBy': 'Approved By',
+    'approvalHistory.fetchError': 'Failed to fetch approval history',
     
     // Room
     'room.label': 'Room',
@@ -519,6 +536,24 @@ export const additionalTranslations = {
     'approval.noPendingBreakRequests': 'No hay solicitudes de descanso pendientes',
     'approval.staff': 'Personal',
     'approval.staffManagement': 'Gestión del Personal',
+    
+    // Supervisor
+    'supervisor.approvals': 'Aprobaciones',
+    'supervisor.manageApprovals': 'Gestionar aprobaciones y revisar historial',
+    'supervisor.specialRequirements': 'Requisitos Especiales',
+    'supervisor.towelChangeRequired': 'Cambio de Toallas Requerido',
+    'supervisor.linenChangeRequired': 'Cambio de Sábanas Requerido',
+    'supervisor.confirmReassign': 'Confirmar Reasignación',
+    
+    // Approval History
+    'approvalHistory.title': 'Historial de Aprobaciones',
+    'approvalHistory.description': 'Ver tareas de limpieza previamente aprobadas',
+    'approvalHistory.noApprovals': 'Sin Tareas Aprobadas',
+    'approvalHistory.noApprovalsDescription': 'No se encontraron tareas aprobadas para esta fecha',
+    'approvalHistory.approved': 'Aprobado',
+    'approvalHistory.approvedAt': 'Aprobado el',
+    'approvalHistory.approvedBy': 'Aprobado por',
+    'approvalHistory.fetchError': 'Error al cargar el historial de aprobaciones',
     
     // Team
     'team.management': 'Gestión de Equipo',
@@ -840,6 +875,24 @@ export const additionalTranslations = {
     'approval.staff': 'Nhân Viên',
     'approval.staffManagement': 'Quản Lý Nhân Viên',
     
+    // Supervisor
+    'supervisor.approvals': 'Phê Duyệt',
+    'supervisor.manageApprovals': 'Quản lý phê duyệt và xem lịch sử',
+    'supervisor.specialRequirements': 'Yêu Cầu Đặc Biệt',
+    'supervisor.towelChangeRequired': 'Yêu Cầu Thay Khăn',
+    'supervisor.linenChangeRequired': 'Yêu Cầu Thay Ga',
+    'supervisor.confirmReassign': 'Xác Nhận Phân Công Lại',
+    
+    // Approval History
+    'approvalHistory.title': 'Lịch Sử Phê Duyệt',
+    'approvalHistory.description': 'Xem các nhiệm vụ đã được phê duyệt trước đây',
+    'approvalHistory.noApprovals': 'Không Có Nhiệm Vụ Đã Phê Duyệt',
+    'approvalHistory.noApprovalsDescription': 'Không tìm thấy nhiệm vụ đã phê duyệt cho ngày này',
+    'approvalHistory.approved': 'Đã Phê Duyệt',
+    'approvalHistory.approvedAt': 'Phê Duyệt Lúc',
+    'approvalHistory.approvedBy': 'Phê Duyệt Bởi',
+    'approvalHistory.fetchError': 'Lỗi tải lịch sử phê duyệt',
+    
     // Team
     'team.management': 'Quản Lý Nhóm',
     'team.assignRoom': 'Giao Phòng',
@@ -1117,6 +1170,24 @@ export const additionalTranslations = {
     'approval.noPendingBreakRequests': 'Хүлээгдэж буй амралтын хүсэлт байхгүй',
     'approval.staff': 'Ажилтан',
     'approval.staffManagement': 'Ажилтны Удирдлага',
+    
+    // Supervisor
+    'supervisor.approvals': 'Зөвшөөрөл',
+    'supervisor.manageApprovals': 'Зөвшөөрөл удирдах ба түүхийг харах',
+    'supervisor.specialRequirements': 'Тусгай Шаардлага',
+    'supervisor.towelChangeRequired': 'Алчуур Солих Шаардлагатай',
+    'supervisor.linenChangeRequired': 'Ор Дэрний Хэрэгсэл Солих Шаардлагатай',
+    'supervisor.confirmReassign': 'Дахин Хуваарилахыг Баталгаажуулах',
+    
+    // Approval History
+    'approvalHistory.title': 'Зөвшөөрлийн Түүх',
+    'approvalHistory.description': 'Өмнө зөвшөөрөгдсөн цэвэрлэгээний ажлуудыг харах',
+    'approvalHistory.noApprovals': 'Зөвшөөрөгдсөн Ажил Байхгүй',
+    'approvalHistory.noApprovalsDescription': 'Энэ өдрийн зөвшөөрөгдсөн ажил олдсонгүй',
+    'approvalHistory.approved': 'Зөвшөөрөгдсөн',
+    'approvalHistory.approvedAt': 'Зөвшөөрсөн Цаг',
+    'approvalHistory.approvedBy': 'Зөвшөөрсөн',
+    'approvalHistory.fetchError': 'Зөвшөөрлийн түүх татахад алдаа гарлаа',
     
     // Team
     'team.management': 'Багийн Удирдлага',
@@ -1419,6 +1490,24 @@ export const additionalTranslations = {
     'approval.noPendingBreakRequests': 'Nincsenek függőben lévő szünetkérések',
     'approval.staff': 'Személyzet',
     'approval.staffManagement': 'Személyzet Kezelés',
+    
+    // Supervisor
+    'supervisor.approvals': 'Jóváhagyások',
+    'supervisor.manageApprovals': 'Jóváhagyások kezelése és előzmények megtekintése',
+    'supervisor.specialRequirements': 'Különleges Követelmények',
+    'supervisor.towelChangeRequired': 'Törölközőcsere Szükséges',
+    'supervisor.linenChangeRequired': 'Ágyneműcsere Szükséges',
+    'supervisor.confirmReassign': 'Újbóli Hozzárendelés Megerősítése',
+    
+    // Approval History
+    'approvalHistory.title': 'Jóváhagyási Előzmények',
+    'approvalHistory.description': 'Korábban jóváhagyott takarítási feladatok megtekintése',
+    'approvalHistory.noApprovals': 'Nincs Jóváhagyott Feladat',
+    'approvalHistory.noApprovalsDescription': 'Nem található jóváhagyott feladat erre a dátumra',
+    'approvalHistory.approved': 'Jóváhagyva',
+    'approvalHistory.approvedAt': 'Jóváhagyva ekkor',
+    'approvalHistory.approvedBy': 'Jóváhagyta',
+    'approvalHistory.fetchError': 'Hiba a jóváhagyási előzmények betöltésekor',
     
     // Team
     'team.management': 'Csapat Kezelés',

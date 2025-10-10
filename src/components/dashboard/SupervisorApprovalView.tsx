@@ -6,13 +6,15 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   CheckCircle, 
   RefreshCw, 
   Clock, 
   User,
   MapPin,
-  AlertTriangle
+  AlertTriangle,
+  History
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -21,6 +23,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
 import { CompletionDataView } from './CompletionDataView';
+import { ApprovalHistoryView } from './ApprovalHistoryView';
 
 interface PendingAssignment {
   id: string;
@@ -331,15 +334,34 @@ export function SupervisorApprovalView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground mb-2">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-foreground mb-2">
+          {t('supervisor.approvals')}
+        </h2>
+        <p className="text-muted-foreground">
+          {t('supervisor.manageApprovals')}
+        </p>
+      </div>
+
+      <Tabs defaultValue="pending" className="space-y-6">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="pending" className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
             {t('supervisor.pendingApprovals')}
-          </h2>
-          <p className="text-muted-foreground">
-            {t('supervisor.reviewCompletedTasks')}
-          </p>
-        </div>
+          </TabsTrigger>
+          <TabsTrigger value="history" className="flex items-center gap-2">
+            <History className="h-4 w-4" />
+            {t('supervisor.approvalHistory')}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="pending" className="space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+            <div>
+              <p className="text-muted-foreground">
+                {t('supervisor.reviewCompletedTasks')}
+              </p>
+            </div>
         
         <Popover>
           <PopoverTrigger asChild>
@@ -357,9 +379,9 @@ export function SupervisorApprovalView() {
             />
           </PopoverContent>
         </Popover>
-      </div>
+          </div>
 
-      {pendingAssignments.length === 0 ? (
+          {pendingAssignments.length === 0 ? (
         <Card className="text-center py-12">
           <CardContent>
             <CheckCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -582,12 +604,18 @@ export function SupervisorApprovalView() {
                        </div>
                      </DialogContent>
                    </Dialog>
-                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+                  </div>
+               </CardContent>
+             </Card>
+           ))}
+         </div>
+       )}
+        </TabsContent>
+
+        <TabsContent value="history">
+          <ApprovalHistoryView />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

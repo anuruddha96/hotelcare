@@ -348,23 +348,23 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Shirt className="h-5 w-5" />
+        <DialogHeader className="space-y-3">
+          <div className="flex items-center gap-2 pr-8">
+            <Shirt className="h-5 w-5 flex-shrink-0" />
+            <DialogTitle className="text-base sm:text-lg truncate">
               {t('dirtyLinen.title')} - {t('common.room')} {roomNumber}
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant={showMyRecords ? "default" : "outline"}
-                size="sm"
-                onClick={() => setShowMyRecords(!showMyRecords)}
-                className={showMyRecords ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "border-primary text-primary hover:bg-primary/10"}
-              >
-                🛒 {t('dirtyLinen.myCart')} ({myRecords.length})
-              </Button>
-            </div>
-          </DialogTitle>
+            </DialogTitle>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              variant={showMyRecords ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowMyRecords(!showMyRecords)}
+              className={showMyRecords ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "border-primary text-primary hover:bg-primary/10"}
+            >
+              🛒 {t('dirtyLinen.myCart')} ({myRecords.length})
+            </Button>
+          </div>
         </DialogHeader>
 
         {showMyRecords ? (
