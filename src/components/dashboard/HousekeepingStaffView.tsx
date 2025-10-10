@@ -12,6 +12,7 @@ import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useNotifications } from '@/hooks/useNotifications';
+import { PerformanceRaceGame } from './PerformanceRaceGame';
 
 interface Assignment {
   id: string;
@@ -355,6 +356,9 @@ export function HousekeepingStaffView() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Performance Race Game */}
+      <PerformanceRaceGame />
 
       {/* Today's Tasks */}
       <div className="space-y-3">

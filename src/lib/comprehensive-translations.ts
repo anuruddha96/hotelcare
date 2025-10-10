@@ -318,6 +318,19 @@ export const additionalTranslations = {
     'approvalHistory.approvedAt': 'Approved At',
     'approvalHistory.approvedBy': 'Approved By',
     'approvalHistory.fetchError': 'Failed to fetch approval history',
+
+    // Performance Race Game
+    'performanceRace.title': 'Today\'s Performance Race',
+    'performanceRace.yourPosition': 'Your Position',
+    'performanceRace.completed': 'Completed',
+    'performanceRace.tasks': 'tasks',
+    'performanceRace.efficiency': 'efficiency',
+    'performanceRace.start': 'START',
+    'performanceRace.finish': 'FINISH',
+    'performanceRace.noData': 'No performance data available for today',
+    'performanceRace.legend': 'Race Progress',
+    'performanceRace.you': 'You',
+    'performanceRace.leader': 'Leader',
     
     // Room
     'room.label': 'Room',
@@ -554,6 +567,19 @@ export const additionalTranslations = {
     'approvalHistory.approvedAt': 'Aprobado el',
     'approvalHistory.approvedBy': 'Aprobado por',
     'approvalHistory.fetchError': 'Error al cargar el historial de aprobaciones',
+
+    // Performance Race Game
+    'performanceRace.title': 'Carrera de Rendimiento de Hoy',
+    'performanceRace.yourPosition': 'Tu Posición',
+    'performanceRace.completed': 'Completado',
+    'performanceRace.tasks': 'tareas',
+    'performanceRace.efficiency': 'eficiencia',
+    'performanceRace.start': 'INICIO',
+    'performanceRace.finish': 'META',
+    'performanceRace.noData': 'No hay datos de rendimiento disponibles para hoy',
+    'performanceRace.legend': 'Progreso de la Carrera',
+    'performanceRace.you': 'Tú',
+    'performanceRace.leader': 'Líder',
     
     // Team
     'team.management': 'Gestión de Equipo',
@@ -892,6 +918,19 @@ export const additionalTranslations = {
     'approvalHistory.approvedAt': 'Phê Duyệt Lúc',
     'approvalHistory.approvedBy': 'Phê Duyệt Bởi',
     'approvalHistory.fetchError': 'Lỗi tải lịch sử phê duyệt',
+
+    // Performance Race Game
+    'performanceRace.title': 'Cuộc Đua Hiệu Suất Hôm Nay',
+    'performanceRace.yourPosition': 'Vị Trí Của Bạn',
+    'performanceRace.completed': 'Đã Hoàn Thành',
+    'performanceRace.tasks': 'nhiệm vụ',
+    'performanceRace.efficiency': 'hiệu suất',
+    'performanceRace.start': 'BẮT ĐẦU',
+    'performanceRace.finish': 'ĐÍCH',
+    'performanceRace.noData': 'Không có dữ liệu hiệu suất cho hôm nay',
+    'performanceRace.legend': 'Tiến Độ Cuộc Đua',
+    'performanceRace.you': 'Bạn',
+    'performanceRace.leader': 'Dẫn Đầu',
     
     // Team
     'team.management': 'Quản Lý Nhóm',
@@ -1188,6 +1227,19 @@ export const additionalTranslations = {
     'approvalHistory.approvedAt': 'Зөвшөөрсөн Цаг',
     'approvalHistory.approvedBy': 'Зөвшөөрсөн',
     'approvalHistory.fetchError': 'Зөвшөөрлийн түүх татахад алдаа гарлаа',
+
+    // Performance Race Game
+    'performanceRace.title': 'Өнөөдрийн Гүйцэтгэлийн Уралдаан',
+    'performanceRace.yourPosition': 'Таны Байрлал',
+    'performanceRace.completed': 'Дууссан',
+    'performanceRace.tasks': 'ажил',
+    'performanceRace.efficiency': 'үр ашиг',
+    'performanceRace.start': 'ЭХЛЭЛ',
+    'performanceRace.finish': 'ТӨГСГӨЛ',
+    'performanceRace.noData': 'Өнөөдрийн гүйцэтгэлийн мэдээлэл байхгүй байна',
+    'performanceRace.legend': 'Уралдааны Явц',
+    'performanceRace.you': 'Та',
+    'performanceRace.leader': 'Тэргүүлэгч',
     
     // Team
     'team.management': 'Багийн Удирдлага',
@@ -1508,6 +1560,19 @@ export const additionalTranslations = {
     'approvalHistory.approvedAt': 'Jóváhagyva ekkor',
     'approvalHistory.approvedBy': 'Jóváhagyta',
     'approvalHistory.fetchError': 'Hiba a jóváhagyási előzmények betöltésekor',
+
+    // Performance Race Game
+    'performanceRace.title': 'Mai Teljesítmény Verseny',
+    'performanceRace.yourPosition': 'Az Ön Pozíciója',
+    'performanceRace.completed': 'Befejezett',
+    'performanceRace.tasks': 'feladat',
+    'performanceRace.efficiency': 'hatékonyság',
+    'performanceRace.start': 'RAJT',
+    'performanceRace.finish': 'CÉL',
+    'performanceRace.noData': 'Nincs teljesítményadat a mai napra',
+    'performanceRace.legend': 'Verseny Előrehaladás',
+    'performanceRace.you': 'Ön',
+    'performanceRace.leader': 'Vezető',
     
     // Team
     'team.management': 'Csapat Kezelés',
