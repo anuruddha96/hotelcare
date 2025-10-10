@@ -38,11 +38,11 @@ interface CategorizedPhoto {
 }
 
 const PHOTO_CATEGORIES = [
-  { key: 'trash_bin' as PhotoCategory, label: 'Trash Bin', icon: Trash2, color: 'bg-blue-500' },
-  { key: 'bathroom' as PhotoCategory, label: 'Bathroom', icon: Bath, color: 'bg-cyan-500' },
-  { key: 'bed' as PhotoCategory, label: 'Bed', icon: Bed, color: 'bg-purple-500' },
-  { key: 'minibar' as PhotoCategory, label: 'Minibar', icon: Wine, color: 'bg-orange-500' },
-  { key: 'tea_coffee_table' as PhotoCategory, label: 'Tea/Coffee Table', icon: Coffee, color: 'bg-green-500' },
+  { key: 'trash_bin' as PhotoCategory, translationKey: 'photoCategory.trashBin', icon: Trash2, color: 'bg-blue-500' },
+  { key: 'bathroom' as PhotoCategory, translationKey: 'photoCategory.bathroom', icon: Bath, color: 'bg-cyan-500' },
+  { key: 'bed' as PhotoCategory, translationKey: 'photoCategory.bed', icon: Bed, color: 'bg-purple-500' },
+  { key: 'minibar' as PhotoCategory, translationKey: 'photoCategory.minibar', icon: Wine, color: 'bg-orange-500' },
+  { key: 'tea_coffee_table' as PhotoCategory, translationKey: 'photoCategory.teaCoffeeTable', icon: Coffee, color: 'bg-green-500' },
 ];
 
 export function SimplifiedPhotoCapture({
@@ -146,7 +146,7 @@ export function SimplifiedPhotoCapture({
                 
                 reconstructedPhotos.push({
                   category: matchedCategory,
-                  categoryName: categoryInfo.label,
+                  categoryName: categoryInfo.translationKey,
                   dataUrl: photoUrl, // Use the URL directly for display
                   blob: blob
                 });
@@ -155,7 +155,7 @@ export function SimplifiedPhotoCapture({
                 // If fetch fails, still add it with URL only
                 reconstructedPhotos.push({
                   category: matchedCategory,
-                  categoryName: categoryInfo.label,
+                  categoryName: categoryInfo.translationKey,
                   dataUrl: photoUrl,
                   blob: new Blob() // Empty blob as fallback
                 });
@@ -166,7 +166,7 @@ export function SimplifiedPhotoCapture({
         
         if (reconstructedPhotos.length > 0) {
           setCategorizedPhotos(reconstructedPhotos);
-          toast.success(`Loaded ${reconstructedPhotos.length} existing photos`);
+          toast.success(t('photoCapture.loadedExisting') + `: ${reconstructedPhotos.length}`);
         }
       }
     } catch (error) {
@@ -271,13 +271,13 @@ export function SimplifiedPhotoCapture({
         // Add new photo (allow multiple per category)
         const newPhoto = {
           category: currentCategory.key,
-          categoryName: currentCategory.label,
+          categoryName: currentCategory.translationKey,
           dataUrl: photoUrl,
           blob
         };
         
         setCategorizedPhotos(prev => [...prev, newPhoto]);
-        toast.success(`${currentCategory.label} ${t('photoCapture.photoCaptured')}`);
+        toast.success(`${t(currentCategory.translationKey)} ${t('photoCapture.photoCaptured')}`);
         stopCamera();
 
         // Auto-save the photo immediately
@@ -324,7 +324,7 @@ export function SimplifiedPhotoCapture({
             return next;
           });
           setUploadedPhotos(prev => new Set(prev).add(photoId));
-          toast.success(`${currentCategory.label} photo saved!`, { duration: 2000 });
+          toast.success(`${t(currentCategory.translationKey)} photo saved!`, { duration: 2000 });
         } catch (error: any) {
           console.error('Auto-save error:', error);
           setUploadingPhotos(prev => {
@@ -332,7 +332,7 @@ export function SimplifiedPhotoCapture({
             next.delete(photoId);
             return next;
           });
-          toast.error(`Failed to save ${currentCategory.label} photo`);
+          toast.error(`Failed to save ${t(currentCategory.translationKey)} photo`);
         }
         
         // Check if this is the last category and all have at least one photo
@@ -407,9 +407,9 @@ export function SimplifiedPhotoCapture({
       }
 
       if (uploadedUrls.length > 0) {
-        toast.success(`${t('photoCapture.uploadSuccess')}: ${uploadedUrls.length} new photos`);
+        toast.success(`${t('photoCapture.uploadSuccess')}: ${uploadedUrls.length}`);
       } else {
-        toast.success('Photos updated successfully');
+        toast.success(t('photoCapture.photosUpdated'));
       }
       
       if (onPhotoCaptured) {
@@ -517,7 +517,7 @@ export function SimplifiedPhotoCapture({
                             "text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full",
                             isCurrent && "text-primary font-semibold"
                           )}>
-                            {cat.label}
+                            {t(cat.translationKey)}
                           </span>
                         </button>
                       );
@@ -544,9 +544,11 @@ export function SimplifiedPhotoCapture({
                     <currentCategory.icon className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-base sm:text-lg font-semibold truncate">{currentCategory.label}</h3>
+                    <h3 className="text-base sm:text-lg font-semibold truncate">{t(currentCategory.translationKey)}</h3>
                     <p className="text-xs sm:text-sm text-muted-foreground">
-                      {hasPhotoForCurrentCategory ? `${photosForCurrentCategory.length} photo${photosForCurrentCategory.length > 1 ? 's' : ''} taken` : t('photoCapture.takePhotoFor')}
+                      {hasPhotoForCurrentCategory ? 
+                        `${photosForCurrentCategory.length} ${photosForCurrentCategory.length > 1 ? t('photoCapture.photosTaken') : t('photoCapture.photoTaken')}` 
+                        : t('photoCapture.takePhotoFor')}
                     </p>
                   </div>
                 </div>
@@ -569,7 +571,7 @@ export function SimplifiedPhotoCapture({
                         <div key={photoGlobalIndex} className="relative rounded-lg overflow-hidden group">
                           <img
                             src={photo.dataUrl}
-                            alt={`${currentCategory.label} ${index + 1}`}
+                            alt={`${t(currentCategory.translationKey)} ${index + 1}`}
                             className="w-full h-32 sm:h-40 object-cover"
                           />
                           <Button
@@ -604,7 +606,7 @@ export function SimplifiedPhotoCapture({
                     {hasPhotoForCurrentCategory ? (
                       <>
                         <Plus className="h-4 w-4 mr-1" />
-                        Add Another Photo
+                        {t('photoCapture.addAnother')}
                       </>
                     ) : (
                       t('common.takePhoto')
@@ -616,10 +618,10 @@ export function SimplifiedPhotoCapture({
                       <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
                       <div className="text-xs">
                         <p className="font-medium text-amber-900 dark:text-amber-100">
-                          Camera permission required
+                          {t('photoCapture.cameraPermissionRequired')}
                         </p>
                         <p className="text-amber-700 dark:text-amber-200 mt-1">
-                          Please enable camera access in your browser settings
+                          {t('photoCapture.enableCameraAccess')}
                         </p>
                       </div>
                     </div>
@@ -781,7 +783,7 @@ export function SimplifiedPhotoCapture({
                       <p className="text-amber-700 dark:text-amber-200 mt-1 break-words">
                         {t('photoCapture.missingCategories')}: {PHOTO_CATEGORIES
                           .filter(cat => !categorizedPhotos.some(p => p.category === cat.key))
-                          .map(cat => cat.label)
+                          .map(cat => t(cat.translationKey))
                           .join(', ')}
                       </p>
                     </div>
@@ -811,7 +813,7 @@ export function SimplifiedPhotoCapture({
                     .map(cat => (
                       <li key={cat.key} className="flex items-center gap-2">
                         <cat.icon className="h-4 w-4" />
-                        {cat.label}
+                        {t(cat.translationKey)}
                       </li>
                     ))}
                 </ul>

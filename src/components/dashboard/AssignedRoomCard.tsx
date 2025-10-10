@@ -772,7 +772,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               className="w-full border-purple-300 text-purple-700 hover:bg-purple-100"
             >
               <Shirt className="h-4 w-4 mr-2" />
-              Update Dirty Linen
+              {t('actions.updateDirtyLinen')}
             </Button>
           </div>
         )}
@@ -829,7 +829,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           <div className="flex items-center gap-3 p-4 bg-muted/50 border border-border rounded-lg shadow-sm">
             <AlertTriangle className="h-5 w-5 text-muted-foreground" />
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Room Status Alert</p>
+              <p className="text-sm font-medium text-muted-foreground">{t('actions.roomStatusAlert')}</p>
               <p className="text-lg font-semibold text-foreground capitalize">
                 {t('housekeeping.roomStatus')} {assignment.rooms.status}
               </p>
