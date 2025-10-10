@@ -188,6 +188,13 @@ export function EnhancedDNDPhotoCapture({
         
         setPhotos(prev => [...prev, newPhoto]);
         toast.success('DND door photo captured!');
+        
+        // Show warning about DND marking
+        toast.warning('Room will be marked as DND after saving', {
+          description: 'This room will skip cleaning today',
+          duration: 4000
+        });
+        
         stopCamera();
 
         // Auto-save the photo immediately
@@ -299,12 +306,22 @@ export function EnhancedDNDPhotoCapture({
               <Progress value={completedCount > 0 ? 100 : 0} className="h-2" />
             </div>
 
-            {/* Info Banner */}
-            <div className="p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg">
-              <p className="text-sm text-orange-800 dark:text-orange-200 flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4" />
-                Please take a clear photo of the DND sign on the door
-              </p>
+            {/* Info Banners */}
+            <div className="space-y-2">
+              <div className="p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg">
+                <p className="text-sm text-orange-800 dark:text-orange-200 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  Take a clear photo of the DND sign on the door
+                </p>
+              </div>
+              
+              {photos.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800">
+                    ⚠️ After saving, this room will be marked as DND and skip cleaning today
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Camera View or Photo Display */}

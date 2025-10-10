@@ -21,7 +21,8 @@ import {
   Edit3,
   ArrowUpDown,
   Camera,
-  Package
+  Package,
+  Info
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
@@ -29,7 +30,7 @@ import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
-import { CompletionChecklistDialog } from './CompletionChecklistDialog';
+
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
 import { LostAndFoundDialog } from './LostAndFoundDialog';
@@ -79,7 +80,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [enhancedDndPhotoDialogOpen, setEnhancedDndPhotoDialogOpen] = useState(false);
   const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
-  const [checklistDialogOpen, setChecklistDialogOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
@@ -320,88 +320,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     } finally {
       setIsRetrievingDND(false);
     }
-  };
-
-  // Validate photos before showing completion checklist - fetch fresh data from DB
-  const validatePhotosBeforeCompletion = async () => {
-    if (assignment.assignment_type !== 'daily_cleaning') {
-      // Non-daily cleaning rooms don't require photo validation
-      setChecklistDialogOpen(true);
-      return true;
-    }
-
-    // Fetch the LATEST photos directly from the database to avoid stale state
-    const { data: freshData, error } = await supabase
-      .from('room_assignments')
-      .select('completion_photos')
-      .eq('id', assignment.id)
-      .single();
-
-    if (error) {
-      console.error('Error fetching photos:', error);
-      toast.error('Failed to verify photos');
-      return false;
-    }
-
-    const photos = freshData?.completion_photos || [];
-    console.log('🔍 Validating photos (fresh from DB):', photos);
-    console.log('🔍 Photos count:', photos.length);
-    
-    // Check if all 5 required categories are present
-    const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
-    const capturedCategories = new Set(
-      photos.map((url: string) => {
-        // Extract category from filename - get the last part of the path
-        const parts = url.split('/');
-        const filename = parts[parts.length - 1] || '';
-        console.log('📸 Full filename:', filename);
-        
-        // Match against known categories (some have underscores like trash_bin, tea_coffee_table)
-        // Check which required category this filename starts with
-        for (const category of requiredCategories) {
-          if (filename.startsWith(category + '_')) {
-            console.log('📸 Matched category:', category);
-            return category;
-          }
-        }
-        
-        // Fallback: shouldn't happen if filenames are correct
-        console.log('📸 No category match found for:', filename);
-        return '';
-      })
-    );
-    
-    console.log('✅ Captured categories SET:', Array.from(capturedCategories));
-    console.log('✅ Required categories:', requiredCategories);
-    const missingCategories = requiredCategories.filter(cat => !capturedCategories.has(cat));
-    console.log('❌ Missing categories:', missingCategories);
-    console.log('❌ Missing count:', missingCategories.length);
-    
-    if (missingCategories.length > 0) {
-      const categoryNames = {
-        'trash_bin': 'Trash Bin',
-        'bathroom': 'Bathroom',
-        'bed': 'Bed',
-        'minibar': 'Minibar',
-        'tea_coffee_table': 'Tea/Coffee Table'
-      };
-      
-      const missingNames = missingCategories.map(cat => categoryNames[cat as keyof typeof categoryNames]).join(', ');
-      
-      toast.error('Photos Required', {
-        description: `Before completing, you must capture photos of: ${missingNames}`,
-        duration: 5000,
-      });
-      
-      // Open the photo dialog to let them capture missing photos
-      setDailyPhotoDialogOpen(true);
-      return false;
-    }
-
-    console.log('✅✅ All photos validated successfully! Opening checklist...');
-    // All photos present, show the checklist
-    setChecklistDialogOpen(true);
-    return true;
   };
 
   // Refresh assignment photos after capture
@@ -736,14 +654,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* Complete, Add Note, Details Buttons - After Required Actions */}
           {assignment.status === 'in_progress' && (
             <div className="flex flex-col sm:flex-row gap-3">
-              <Button
-                size="lg"
-                onClick={validatePhotosBeforeCompletion}
-                disabled={loading}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-              >
-                <CheckCircle className="h-5 w-5" />
-                {t('housekeeping.complete')}
+              <Button 
+                size="lg" 
+                onClick={() => updateAssignmentStatus('completed')} 
+                disabled={loading} 
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white" 
+              > 
+                <CheckCircle className="h-5 w-5" /> 
+                {t('housekeeping.complete')} 
               </Button>
 
               <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
@@ -837,37 +755,48 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           </div>
         )}
 
-        {/* Retrieve DND Room for completed DND assignments */}
+        {/* Info: How to clean DND rooms from completed tasks */}
         {assignment.status === 'completed' && assignment.is_dnd && (
-          <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg space-y-2">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-orange-800 mb-1">
-                  Guest Removed DND Sign?
+          <div className="mt-4 space-y-2">
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex gap-2">
+                <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                <p className="text-xs text-blue-800">
+                  💡 Tip: Check completed tasks if DND sign is removed later
                 </p>
-                <p className="text-xs text-orange-700 mb-3">
-                  If the guest no longer has the Do Not Disturb sign, you can clean this room now.
-                </p>
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={handleRetrieveDNDRoom}
-                  disabled={isRetrievingDND || loading}
-                  className="w-full bg-orange-600 hover:bg-orange-700 text-white"
-                >
-                  {isRetrievingDND ? (
-                    <>
-                      <Clock className="h-4 w-4 mr-2 animate-spin" />
-                      Starting...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Start Cleaning This Room
-                    </>
-                  )}
-                </Button>
+              </div>
+            </div>
+
+            <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-orange-800 mb-1">
+                    DND Sign Removed?
+                  </p>
+                  <p className="text-xs text-orange-700 mb-3">
+                    If guest removed the sign, clean now
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={handleRetrieveDNDRoom}
+                    disabled={isRetrievingDND || loading}
+                    className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                  >
+                    {isRetrievingDND ? (
+                      <>
+                        <Clock className="h-4 w-4 mr-2 animate-spin" />
+                        Starting...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Start Cleaning
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -930,13 +859,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         assignmentId={assignment.id}
       />
 
-      {/* Completion Checklist Dialog */}
-      <CompletionChecklistDialog
-        open={checklistDialogOpen}
-        onOpenChange={setChecklistDialogOpen}
-        onConfirm={() => updateAssignmentStatus('completed')}
-        roomNumber={assignment.rooms?.room_number || 'Unknown'}
-      />
 
       {/* Maintenance Issue Dialog */}
       <MaintenanceIssueDialog
