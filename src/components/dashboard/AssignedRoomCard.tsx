@@ -608,10 +608,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     size="sm"
                     variant="outline"
                     onClick={() => setDailyPhotoDialogOpen(true)}
-                    className="flex flex-col items-center gap-1 h-16 border-blue-300 text-blue-700 hover:bg-blue-100"
+                    className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
                   >
-                    <Camera className="h-4 w-4" />
-                    <span className="text-xs">{t('actions.roomPhotos')}</span>
+                    <Camera className="h-4 w-4 flex-shrink-0" />
+                    <span className="text-[10px] leading-tight text-center break-words">{t('actions.roomPhotos')}</span>
                   </Button>
                 )}
 
@@ -620,10 +620,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   size="sm"
                   variant="outline"
                   onClick={() => setEnhancedDndPhotoDialogOpen(true)}
-                  className="flex flex-col items-center gap-1 h-16 border-orange-300 text-orange-700 hover:bg-orange-100"
+                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-orange-300 text-orange-700 hover:bg-orange-100"
                 >
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="text-xs">{t('actions.dndPhoto')}</span>
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.dndPhoto')}</span>
                 </Button>
 
                 {/* Dirty Linen Button */}
@@ -631,10 +631,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   size="sm"
                   variant="outline"
                   onClick={() => setDirtyLinenDialogOpen(true)}
-                  className="flex flex-col items-center gap-1 h-16 border-amber-300 text-amber-700 hover:bg-amber-100"
+                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-amber-300 text-amber-700 hover:bg-amber-100"
                 >
-                  <Shirt className="h-4 w-4" />
-                  <span className="text-xs">{t('actions.dirtyLinen')}</span>
+                  <Shirt className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.dirtyLinen')}</span>
                 </Button>
 
                 {/* Minibar Consumption Button */}
@@ -642,10 +642,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   size="sm"
                   variant="outline"
                   onClick={() => setRoomDetailOpen(true)}
-                  className="flex flex-col items-center gap-1 h-16 border-purple-300 text-purple-700 hover:bg-purple-100"
+                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-purple-300 text-purple-700 hover:bg-purple-100"
                 >
-                  <BedDouble className="h-4 w-4" />
-                  <span className="text-xs">{t('actions.minibar')}</span>
+                  <BedDouble className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.minibar')}</span>
                 </Button>
 
                 {/* Lost & Found Button */}
@@ -653,10 +653,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   size="sm"
                   variant="outline"
                   onClick={() => setLostFoundDialogOpen(true)}
-                  className="flex flex-col items-center gap-1 h-16 border-green-300 text-green-700 hover:bg-green-100"
+                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-green-300 text-green-700 hover:bg-green-100"
                 >
-                  <Package className="h-4 w-4" />
-                  <span className="text-xs">{t('actions.lostAndFound')}</span>
+                  <Package className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.lostAndFound')}</span>
                 </Button>
 
                 {/* Maintenance Issue Button */}
@@ -664,10 +664,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   size="sm"
                   variant="outline"
                   onClick={() => setMaintenanceDialogOpen(true)}
-                  className="flex flex-col items-center gap-1 h-16 border-red-300 text-red-700 hover:bg-red-100"
+                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-red-300 text-red-700 hover:bg-red-100"
                 >
-                  <AlertTriangle className="h-4 w-4" />
-                  <span className="text-xs">{t('actions.maintenance')}</span>
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.maintenance')}</span>
                 </Button>
               </div>
             </div>

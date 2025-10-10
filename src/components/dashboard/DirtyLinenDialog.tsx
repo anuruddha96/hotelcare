@@ -35,11 +35,29 @@ interface LinenCount {
 interface LinenRecord {
   id: string;
   linen_item_id: string;
+  linen_item_name: string;
   count: number;
   room_number: string;
   display_name: string;
   work_date: string;
 }
+
+// Mapping of linen item names to translation keys
+const linenItemTranslations: { [key: string]: string } = {
+  'bath_mat': 'linen.bathMat',
+  'bed_sheets_queen_size': 'linen.bedSheetsQueenSize',
+  'bed_sheets_twin_size': 'linen.bedSheetsTwinSize',
+  'big_pillow': 'linen.bigPillow',
+  'big_towel': 'linen.bigTowel',
+  'duvet_covers': 'linen.duvetCovers',
+  'small_towel': 'linen.smallTowel',
+};
+
+// Helper function to translate linen item names
+const translateLinenItem = (name: string, t: (key: string) => string): string => {
+  const translationKey = linenItemTranslations[name];
+  return translationKey ? t(translationKey) : name;
+};
 
 export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assignmentId }: DirtyLinenDialogProps) {
   const { user } = useAuth();
@@ -123,24 +141,28 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       const linenItemIds = Array.from(new Set(countsData.map(c => c.linen_item_id)));
       const { data: linenItemsData, error: linenItemsError } = await supabase
         .from('dirty_linen_items')
-        .select('id, display_name')
+        .select('id, name, display_name')
         .in('id', linenItemIds);
 
       if (linenItemsError) throw linenItemsError;
 
       // Create lookup maps
       const roomsMap = new Map(roomsData?.map(r => [r.id, r.room_number]) || []);
-      const linenItemsMap = new Map(linenItemsData?.map(l => [l.id, l.display_name]) || []);
+      const linenItemsMap = new Map(linenItemsData?.map(l => [l.id, { name: l.name, display_name: l.display_name }]) || []);
       
       // Combine the data
-      const records = countsData.map(record => ({
-        id: record.id,
-        linen_item_id: record.linen_item_id,
-        count: record.count,
-        work_date: record.work_date,
-        room_number: roomsMap.get(record.room_id) || 'Unknown',
-        display_name: linenItemsMap.get(record.linen_item_id) || 'Unknown Item'
-      }));
+      const records = countsData.map(record => {
+        const linenItem = linenItemsMap.get(record.linen_item_id);
+        return {
+          id: record.id,
+          linen_item_id: record.linen_item_id,
+          linen_item_name: linenItem?.name || '',
+          count: record.count,
+          work_date: record.work_date,
+          room_number: roomsMap.get(record.room_id) || 'Unknown',
+          display_name: linenItem?.display_name || 'Unknown Item'
+        };
+      });
       
       setMyRecords(records);
     } catch (error) {
@@ -394,7 +416,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                           <div className="flex items-center gap-3">
                             <div className="flex items-center gap-2">
                               <Shirt className="h-5 w-5 text-primary" />
-                              <span className="font-semibold text-base">{record.display_name}</span>
+                              <span className="font-semibold text-base">{translateLinenItem(record.linen_item_name, t)}</span>
                             </div>
                             <Badge variant="outline" className="text-base font-bold px-3 py-1 bg-blue-50">
                               × {record.count}
@@ -416,7 +438,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                             <AlertDialogHeader>
                               <AlertDialogTitle>Remove from Cart?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to remove <strong>{record.display_name}</strong> ({record.count} items) from Room {record.room_number}? 
+                                Are you sure you want to remove <strong>{translateLinenItem(record.linen_item_name, t)}</strong> ({record.count} items) from Room {record.room_number}? 
                                 This will permanently delete this record.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
@@ -467,11 +489,14 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
 
             <div className="space-y-3">
               {linenItems.map((item) => (
-                <Card key={item.id} className="p-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm font-medium">
-                      {item.display_name}
-                    </Label>
+                <Card key={item.id} className="p-3 hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <Shirt className="h-4 w-4 text-primary flex-shrink-0" />
+                      <Label className="text-sm font-medium truncate">
+                        {translateLinenItem(item.name, t)}
+                      </Label>
+                    </div>
                     
                     <div className="flex items-center gap-2">
                       <Input

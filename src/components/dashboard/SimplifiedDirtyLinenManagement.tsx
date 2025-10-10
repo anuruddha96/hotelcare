@@ -92,7 +92,7 @@ export function SimplifiedDirtyLinenManagement() {
       const linenItemIds = Array.from(new Set(countsData.map(c => c.linen_item_id)));
       const { data: linenItemsData, error: linenItemsError } = await supabase
         .from('dirty_linen_items')
-        .select('id, display_name')
+        .select('id, name, display_name')
         .in('id', linenItemIds);
 
       if (linenItemsError) {
@@ -104,7 +104,7 @@ export function SimplifiedDirtyLinenManagement() {
         housekeepersData?.map(h => [h.id, h.nickname || h.full_name]) || []
       );
       const linenItemsMap = new Map(
-        linenItemsData?.map(l => [l.id, l.display_name]) || []
+        linenItemsData?.map(l => [l.id, l.name]) || []
       );
 
       // Step 5: Calculate totals by item type and housekeeper
