@@ -46,6 +46,28 @@ export const additionalTranslations = {
     'photoCapture.uploadSuccess': 'Photos uploaded successfully',
     'photoCapture.uploadError': 'Failed to upload photos',
     'photoCapture.photosUpdated': 'Photos updated successfully',
+    'photoCapture.saved': 'Saved',
+    'photoCapture.noPhotos': 'No Photos',
+    'photoCapture.photoCaptured': 'photo(s) captured',
+    'photoCapture.takeClearPhoto': 'Take a clear photo of the DND sign on the door',
+    'photoCapture.afterSavingWarning': 'After saving, this room will be marked as DND and skip cleaning today',
+    'photoCapture.dndDoorPhoto': 'DND Door Photo',
+    'photoCapture.photo': 'Photo',
+    
+    // Room card
+    'roomCard.needUpdateAfterCompletion': 'Need to update data after completion?',
+    'roomCard.roomStatus': 'Room Status',
+    'roomCard.currentStatus': 'Current Status',
+    'roomCard.estimatedTime': 'Estimated Time',
+    'roomCard.minutes': 'minutes',
+    'roomCard.mediumPriority': 'Medium Priority',
+    'roomCard.highPriority': 'High Priority',
+    'roomCard.lowPriority': 'Low Priority',
+    'roomCard.urgentPriority': 'Urgent Priority',
+    'roomCard.dailyClean': 'Daily Clean',
+    'roomCard.checkoutClean': 'Checkout Clean',
+    'roomCard.deepClean': 'Deep Clean',
+    'roomCard.maintenance': 'Maintenance',
     
     // Photo Categories
     'photoCategory.trashBin': 'Trash Bin',
@@ -395,6 +417,28 @@ export const additionalTranslations = {
     'photoCapture.uploadSuccess': 'Fotos subidas exitosamente',
     'photoCapture.uploadError': 'Error al subir fotos',
     'photoCapture.photosUpdated': 'Fotos actualizadas exitosamente',
+    'photoCapture.saved': 'Guardado',
+    'photoCapture.noPhotos': 'Sin Fotos',
+    'photoCapture.photoCaptured': 'foto(s) capturada(s)',
+    'photoCapture.takeClearPhoto': 'Tome una foto clara del cartel DND en la puerta',
+    'photoCapture.afterSavingWarning': 'Después de guardar, esta habitación se marcará como DND y se omitirá la limpieza hoy',
+    'photoCapture.dndDoorPhoto': 'Foto de Puerta DND',
+    'photoCapture.photo': 'Foto',
+    
+    // Room card
+    'roomCard.needUpdateAfterCompletion': '¿Necesita actualizar datos después de completar?',
+    'roomCard.roomStatus': 'Estado de Habitación',
+    'roomCard.currentStatus': 'Estado Actual',
+    'roomCard.estimatedTime': 'Tiempo Estimado',
+    'roomCard.minutes': 'minutos',
+    'roomCard.mediumPriority': 'Prioridad Media',
+    'roomCard.highPriority': 'Prioridad Alta',
+    'roomCard.lowPriority': 'Prioridad Baja',
+    'roomCard.urgentPriority': 'Prioridad Urgente',
+    'roomCard.dailyClean': 'Limpieza Diaria',
+    'roomCard.checkoutClean': 'Limpieza de Salida',
+    'roomCard.deepClean': 'Limpieza Profunda',
+    'roomCard.maintenance': 'Mantenimiento',
     
     // Photo Categories
     'photoCategory.trashBin': 'Papelera',
@@ -620,6 +664,24 @@ export const additionalTranslations = {
     'reports.punctualDays': 'Días Puntuales',
     'reports.lateArrivals': 'Llegadas Tarde',
     
+    // HR/Attendance
+    'hr.attendanceRecords': 'Registros de Asistencia',
+    'hr.date': 'Fecha',
+    'hr.checkIn': 'Entrada',
+    'hr.checkOut': 'Salida',
+    'hr.hours': 'Horas',
+    'hr.status': 'Estado',
+    'hr.location': 'Ubicación',
+    'hr.notes': 'Notas',
+    'hr.totalDays': 'Días Totales',
+    'hr.totalHours': 'Horas Totales',
+    'hr.avgHoursPerDay': 'Horas Promedio/Día',
+    'hr.punctualDays': 'Días Puntuales',
+    'hr.late': 'Tarde',
+    'hr.punctualityRate': 'Tasa de Puntualidad',
+    'hr.employee': 'Empleado',
+    'hr.exportCsv': 'Exportar CSV',
+    
     // Minibar
     'minibar.usage': 'Uso del Minibar',
     'minibar.items': 'Artículos del Minibar',
@@ -675,6 +737,13 @@ export const additionalTranslations = {
     'photoCapture.uploadSuccess': 'Tải ảnh lên thành công',
     'photoCapture.uploadError': 'Không thể tải ảnh lên',
     'photoCapture.photosUpdated': 'Đã cập nhật ảnh thành công',
+    'photoCapture.saved': 'Đã Lưu',
+    'photoCapture.noPhotos': 'Không Có Ảnh',
+    'photoCapture.photoCaptured': 'ảnh đã chụp',
+    'photoCapture.takeClearPhoto': 'Chụp ảnh rõ ràng biển báo DND trên cửa',
+    'photoCapture.afterSavingWarning': 'Sau khi lưu, phòng này sẽ được đánh dấu là DND và bỏ qua dọn dẹp hôm nay',
+    'photoCapture.dndDoorPhoto': 'Ảnh Cửa DND',
+    'photoCapture.photo': 'Ảnh',
     
     // Photo Categories
     'photoCategory.trashBin': 'Thùng Rác',
@@ -682,6 +751,21 @@ export const additionalTranslations = {
     'photoCategory.bed': 'Giường',
     'photoCategory.minibar': 'Minibar',
     'photoCategory.teaCoffeeTable': 'Bàn Trà/Cà phê',
+    
+    // Room card
+    'roomCard.needUpdateAfterCompletion': 'Cần cập nhật dữ liệu sau khi hoàn thành?',
+    'roomCard.roomStatus': 'Trạng Thái Phòng',
+    'roomCard.currentStatus': 'Trạng Thái Hiện Tại',
+    'roomCard.estimatedTime': 'Thời Gian Ước Tính',
+    'roomCard.minutes': 'phút',
+    'roomCard.mediumPriority': 'Ưu Tiên Trung Bình',
+    'roomCard.highPriority': 'Ưu Tiên Cao',
+    'roomCard.lowPriority': 'Ưu Tiên Thấp',
+    'roomCard.urgentPriority': 'Ưu Tiên Khẩn Cấp',
+    'roomCard.dailyClean': 'Dọn Dẹp Hàng Ngày',
+    'roomCard.checkoutClean': 'Dọn Dẹp Trả Phòng',
+    'roomCard.deepClean': 'Dọn Dẹp Sâu',
+    'roomCard.maintenance': 'Bảo Trì',
     
     // Dashboard
     'dashboard.tickets': 'Tickets',
@@ -858,6 +942,24 @@ export const additionalTranslations = {
     'reports.punctualDays': 'Ngày Đúng Giờ',
     'reports.lateArrivals': 'Đến Muộn',
     
+    // HR/Attendance
+    'hr.attendanceRecords': 'Hồ Sơ Chấm Công',
+    'hr.date': 'Ngày',
+    'hr.checkIn': 'Giờ Vào',
+    'hr.checkOut': 'Giờ Ra',
+    'hr.hours': 'Giờ',
+    'hr.status': 'Trạng Thái',
+    'hr.location': 'Vị Trí',
+    'hr.notes': 'Ghi Chú',
+    'hr.totalDays': 'Tổng Số Ngày',
+    'hr.totalHours': 'Tổng Số Giờ',
+    'hr.avgHoursPerDay': 'Giờ TB/Ngày',
+    'hr.punctualDays': 'Ngày Đúng Giờ',
+    'hr.late': 'Muộn',
+    'hr.punctualityRate': 'Tỷ Lệ Đúng Giờ',
+    'hr.employee': 'Nhân Viên',
+    'hr.exportCsv': 'Xuất CSV',
+    
     // Minibar
     'minibar.usage': 'Sử Dụng Minibar',
     'minibar.items': 'Mặt Hàng Minibar',
@@ -913,6 +1015,13 @@ export const additionalTranslations = {
     'photoCapture.uploadSuccess': 'Зургууд амжилттай байршуулагдлаа',
     'photoCapture.uploadError': 'Зураг байршуулахад алдаа гарлаа',
     'photoCapture.photosUpdated': 'Зургууд амжилттай шинэчлэгдсэн',
+    'photoCapture.saved': 'Хадгалсан',
+    'photoCapture.noPhotos': 'Зураг Байхгүй',
+    'photoCapture.photoCaptured': 'зураг авсан',
+    'photoCapture.takeClearPhoto': 'Хаалган дээрх DND тэмдгийн тодорхой зураг авна уу',
+    'photoCapture.afterSavingWarning': 'Хадгалсны дараа энэ өрөө DND гэж тэмдэглэгдэж өнөөдөр цэвэрлэхгүй',
+    'photoCapture.dndDoorPhoto': 'DND Хаалганы Зураг',
+    'photoCapture.photo': 'Зураг',
     
     // Photo Categories
     'photoCategory.trashBin': 'Хогийн Сав',
@@ -920,6 +1029,21 @@ export const additionalTranslations = {
     'photoCategory.bed': 'Ор',
     'photoCategory.minibar': 'Минибар',
     'photoCategory.teaCoffeeTable': 'Цай/Кофены Ширээ',
+    
+    // Room card
+    'roomCard.needUpdateAfterCompletion': 'Дууссаны дараа өгөгдөл шинэчлэх хэрэгтэй юу?',
+    'roomCard.roomStatus': 'Өрөөний Төлөв',
+    'roomCard.currentStatus': 'Одоогийн Төлөв',
+    'roomCard.estimatedTime': 'Тооцоолсон Хугацаа',
+    'roomCard.minutes': 'минут',
+    'roomCard.mediumPriority': 'Дунд Ач Холбогдол',
+    'roomCard.highPriority': 'Өндөр Ач Холбогдол',
+    'roomCard.lowPriority': 'Бага Ач Холбогдол',
+    'roomCard.urgentPriority': 'Яаралтай Ач Холбогдол',
+    'roomCard.dailyClean': 'Өдөр Тутмын Цэвэрлэгээ',
+    'roomCard.checkoutClean': 'Гарах Цэвэрлэгээ',
+    'roomCard.deepClean': 'Гүнзгий Цэвэрлэгээ',
+    'roomCard.maintenance': 'Засвар Үйлчилгээ',
     
     // Dashboard
     'dashboard.tickets': 'Тасалбар',
@@ -1193,6 +1317,28 @@ export const additionalTranslations = {
     'photoCapture.uploadSuccess': 'Fotók sikeresen feltöltve',
     'photoCapture.uploadError': 'Fotók feltöltése sikertelen',
     'photoCapture.photosUpdated': 'Fotók sikeresen frissítve',
+    'photoCapture.saved': 'Mentve',
+    'photoCapture.noPhotos': 'Nincs Fotó',
+    'photoCapture.photoCaptured': 'fotó készült',
+    'photoCapture.takeClearPhoto': 'Készítsen egy tiszta fotót a DND táblá ajtón',
+    'photoCapture.afterSavingWarning': 'Mentés után ez a szoba DND-ként lesz megjelölve és a mai takarítás kihagyásra kerül',
+    'photoCapture.dndDoorPhoto': 'DND Ajtó Fotó',
+    'photoCapture.photo': 'Fotó',
+    
+    // Room card
+    'roomCard.needUpdateAfterCompletion': 'Frissíteni kell az adatokat befejezés után?',
+    'roomCard.roomStatus': 'Szoba Állapot',
+    'roomCard.currentStatus': 'Jelenlegi Állapot',
+    'roomCard.estimatedTime': 'Becsült Idő',
+    'roomCard.minutes': 'perc',
+    'roomCard.mediumPriority': 'Közepes Prioritás',
+    'roomCard.highPriority': 'Magas Prioritás',
+    'roomCard.lowPriority': 'Alacsony Prioritás',
+    'roomCard.urgentPriority': 'Sürgős Prioritás',
+    'roomCard.dailyClean': 'Napi Takarítás',
+    'roomCard.checkoutClean': 'Távozó Takarítás',
+    'roomCard.deepClean': 'Mély Takarítás',
+    'roomCard.maintenance': 'Karbantartás',
     
     // Photo Categories
     'photoCategory.trashBin': 'Szemétkosár',
@@ -1417,6 +1563,24 @@ export const additionalTranslations = {
     'reports.avgHours': 'Átlag Óra/Nap',
     'reports.punctualDays': 'Pontos Napok',
     'reports.lateArrivals': 'Késések',
+    
+    // HR/Attendance
+    'hr.attendanceRecords': 'Jelenlét Nyilvántartás',
+    'hr.date': 'Dátum',
+    'hr.checkIn': 'Érkezés',
+    'hr.checkOut': 'Távozás',
+    'hr.hours': 'Órák',
+    'hr.status': 'Állapot',
+    'hr.location': 'Helyszín',
+    'hr.notes': 'Jegyzetek',
+    'hr.totalDays': 'Összes Nap',
+    'hr.totalHours': 'Összes Óra',
+    'hr.avgHoursPerDay': 'Átlag Óra/Nap',
+    'hr.punctualDays': 'Pontos Napok',
+    'hr.late': 'Késő',
+    'hr.punctualityRate': 'Pontossági Arány',
+    'hr.employee': 'Alkalmazott',
+    'hr.exportCsv': 'CSV Exportálás',
     
     // Minibar
     'minibar.usage': 'Minibar Használat',

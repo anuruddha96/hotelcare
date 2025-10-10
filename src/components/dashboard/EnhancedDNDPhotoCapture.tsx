@@ -297,10 +297,10 @@ export function EnhancedDNDPhotoCapture({
             {/* Progress Section */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Progress: {completedCount} photo(s)</span>
+                <span className="text-sm font-medium">{t('photoCapture.progress')}: {completedCount} {t('photoCapture.photoCaptured')}</span>
                 <Badge className="bg-green-500">
                   <CheckCircle className="h-3 w-3 mr-1" />
-                  {completedCount > 0 ? 'Saved' : 'No Photos'}
+                  {completedCount > 0 ? t('photoCapture.saved') : t('photoCapture.noPhotos')}
                 </Badge>
               </div>
               <Progress value={completedCount > 0 ? 100 : 0} className="h-2" />
@@ -311,14 +311,14 @@ export function EnhancedDNDPhotoCapture({
               <div className="p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg">
                 <p className="text-sm text-orange-800 dark:text-orange-200 flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4" />
-                  Take a clear photo of the DND sign on the door
+                  {t('photoCapture.takeClearPhoto')}
                 </p>
               </div>
               
               {photos.length > 0 && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-xs text-amber-800">
-                    ⚠️ After saving, this room will be marked as DND and skip cleaning today
+                    ⚠️ {t('photoCapture.afterSavingWarning')}
                   </p>
                 </div>
               )}
@@ -327,19 +327,19 @@ export function EnhancedDNDPhotoCapture({
             {/* Camera View or Photo Display */}
             {!showCamera ? (
               <div className="space-y-4">
-                <div className={`p-6 rounded-xl border-2 bg-gradient-to-br ${DND_PHOTO_CATEGORY.color} text-white shadow-lg`}>
+                  <div className={`p-6 rounded-xl border-2 bg-gradient-to-br ${DND_PHOTO_CATEGORY.color} text-white shadow-lg`}>
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
                       <DoorOpen className="h-8 w-8" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-xl font-bold">{DND_PHOTO_CATEGORY.label}</h3>
-                      <p className="text-sm opacity-90">{completedCount} photo(s) captured</p>
+                      <h3 className="text-xl font-bold">{t('photoCapture.dndDoorPhoto')}</h3>
+                      <p className="text-sm opacity-90">{completedCount} {t('photoCapture.photoCaptured')}</p>
                     </div>
                     {completedCount > 0 && (
                       <Badge className="bg-white/20 text-white border-white/30">
                         <CheckCircle className="h-3 w-3 mr-1" />
-                        Saved
+                        {t('photoCapture.saved')}
                       </Badge>
                     )}
                   </div>

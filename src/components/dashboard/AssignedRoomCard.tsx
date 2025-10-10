@@ -763,7 +763,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         {assignment.status === 'completed' && (
           <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2">
             <p className="text-sm text-purple-800 mb-2">
-              Need to update data after completion?
+              {t('roomCard.needUpdateAfterCompletion')}
             </p>
             <Button
               size="sm"
@@ -831,7 +831,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <div>
               <p className="text-sm font-medium text-muted-foreground">{t('actions.roomStatusAlert')}</p>
               <p className="text-lg font-semibold text-foreground capitalize">
-                {t('housekeeping.roomStatus')} {assignment.rooms.status}
+                {t('roomCard.roomStatus')}: {assignment.rooms.status}
               </p>
             </div>
           </div>

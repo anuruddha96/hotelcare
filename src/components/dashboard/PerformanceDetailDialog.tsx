@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { Clock, Target, Star, TrendingUp, Calendar, User, CheckCircle, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface PerformanceDetailDialogProps {
   open: boolean;
@@ -23,6 +24,7 @@ export function PerformanceDetailDialog({
   metric,
   timeframe
 }: PerformanceDetailDialogProps) {
+  const { t } = useTranslation();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<any>(null);
@@ -141,18 +143,18 @@ export function PerformanceDetailDialog({
                 <div className="text-2xl font-bold text-green-800">{summary.punctual}</div>
                 <div className="text-sm text-green-600">On Time</div>
               </div>
-              <div className="text-center p-3 bg-red-50 rounded-lg">
-                <div className="text-2xl font-bold text-red-800">{summary.late}</div>
-                <div className="text-sm text-red-600">Late</div>
-              </div>
-              <div className="text-center p-3 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-800">{summary.total}</div>
-                <div className="text-sm text-blue-600">Total Days</div>
-              </div>
-              <div className="text-center p-3 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-800">{Math.round(summary.punctualityRate)}%</div>
-                <div className="text-sm text-purple-600">Punctuality Rate</div>
-              </div>
+                <div className="text-center p-3 bg-red-50 rounded-lg">
+                  <div className="text-2xl font-bold text-red-800">{summary.late}</div>
+                  <div className="text-sm text-red-600">{t('hr.late')}</div>
+                </div>
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-800">{summary.total}</div>
+                  <div className="text-sm text-blue-600">{t('hr.totalDays')}</div>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                  <div className="text-2xl font-bold text-purple-800">{Math.round(summary.punctualityRate)}%</div>
+                  <div className="text-sm text-purple-600">{t('hr.punctualityRate')}</div>
+                </div>
             </div>
           )}
           
