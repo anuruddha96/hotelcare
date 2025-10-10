@@ -59,6 +59,8 @@ export function SimplifiedPhotoCapture({
   const [isUploading, setIsUploading] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [uploadingPhotos, setUploadingPhotos] = useState<Set<string>>(new Set());
+  const [uploadedPhotos, setUploadedPhotos] = useState<Set<string>>(new Set());
   const [showExitWarning, setShowExitWarning] = useState(false);
   const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
   const [selectedPhotoPreview, setSelectedPhotoPreview] = useState<CategorizedPhoto | null>(null);
@@ -248,8 +250,8 @@ export function SimplifiedPhotoCapture({
     setIsCameraLoading(false);
   }, []);
 
-  const capturePhoto = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const capturePhoto = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current || !user) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -261,28 +263,80 @@ export function SimplifiedPhotoCapture({
     canvas.height = video.videoHeight;
     context.drawImage(video, 0, 0);
 
-    canvas.toBlob((blob) => {
+    canvas.toBlob(async (blob) => {
       if (blob) {
         const photoUrl = URL.createObjectURL(blob);
+        const photoId = `${currentCategory.key}_${Date.now()}_${Math.random()}`;
         
         // Add new photo (allow multiple per category)
-        setCategorizedPhotos(prev => [...prev, {
+        const newPhoto = {
           category: currentCategory.key,
           categoryName: currentCategory.label,
           dataUrl: photoUrl,
           blob
-        }]);
+        };
         
+        setCategorizedPhotos(prev => [...prev, newPhoto]);
         toast.success(`${currentCategory.label} ${t('photoCapture.photoCaptured')}`);
         stopCamera();
+
+        // Auto-save the photo immediately
+        setUploadingPhotos(prev => new Set(prev).add(photoId));
+        
+        try {
+          const fileName = `${user.id}/${roomNumber}/${currentCategory.key}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+          
+          const { data, error } = await supabase.storage
+            .from('completion-photos')
+            .upload(fileName, blob, {
+              contentType: 'image/jpeg',
+              cacheControl: '3600',
+              upsert: false
+            });
+
+          if (error) throw error;
+
+          const { data: { publicUrl } } = supabase.storage
+            .from('completion-photos')
+            .getPublicUrl(data.path);
+
+          // Update the assignment with the new photo URL
+          if (assignmentId) {
+            const { data: existingAssignment } = await supabase
+              .from('room_assignments')
+              .select('completion_photos')
+              .eq('id', assignmentId)
+              .single();
+
+            const currentPhotos = existingAssignment?.completion_photos || [];
+            
+            await supabase
+              .from('room_assignments')
+              .update({
+                completion_photos: [...currentPhotos, publicUrl]
+              })
+              .eq('id', assignmentId);
+          }
+
+          setUploadingPhotos(prev => {
+            const next = new Set(prev);
+            next.delete(photoId);
+            return next;
+          });
+          setUploadedPhotos(prev => new Set(prev).add(photoId));
+          toast.success(`${currentCategory.label} photo saved!`, { duration: 2000 });
+        } catch (error: any) {
+          console.error('Auto-save error:', error);
+          setUploadingPhotos(prev => {
+            const next = new Set(prev);
+            next.delete(photoId);
+            return next;
+          });
+          toast.error(`Failed to save ${currentCategory.label} photo`);
+        }
         
         // Check if this is the last category and all have at least one photo
-        const updatedPhotos = [...categorizedPhotos, {
-          category: currentCategory.key,
-          categoryName: currentCategory.label,
-          dataUrl: photoUrl,
-          blob
-        }];
+        const updatedPhotos = [...categorizedPhotos, newPhoto];
         
         const allCategoriesHavePhotos = PHOTO_CATEGORIES.every(cat => 
           updatedPhotos.some(p => p.category === cat.key)
@@ -301,7 +355,7 @@ export function SimplifiedPhotoCapture({
         }
       }
     }, 'image/jpeg', 0.95);
-  }, [currentCategory, currentCategoryIndex, categorizedPhotos, stopCamera, t]);
+  }, [currentCategory, currentCategoryIndex, categorizedPhotos, stopCamera, t, user, roomNumber, assignmentId]);
 
 
   const uploadPhotos = async () => {

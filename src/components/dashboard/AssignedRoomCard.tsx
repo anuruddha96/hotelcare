@@ -28,6 +28,7 @@ import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
+import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
 import { CompletionChecklistDialog } from './CompletionChecklistDialog';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
@@ -49,6 +50,9 @@ interface AssignedRoomCardProps {
     started_at?: string | null;
     completed_at?: string | null;
     completion_photos?: string[] | null;
+    is_dnd?: boolean;
+    dnd_marked_at?: string | null;
+    dnd_marked_by?: string | null;
     rooms: {
       room_number: string;
       hotel: string;
@@ -72,6 +76,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
   const [dndPhotoDialogOpen, setDndPhotoDialogOpen] = useState(false);
+  const [enhancedDndPhotoDialogOpen, setEnhancedDndPhotoDialogOpen] = useState(false);
   const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
   const [checklistDialogOpen, setChecklistDialogOpen] = useState(false);
@@ -80,6 +85,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
   const [lostFoundDialogOpen, setLostFoundDialogOpen] = useState(false);
   const [currentPhotos, setCurrentPhotos] = useState<string[]>(assignment.completion_photos || []);
+  const [isRetrievingDND, setIsRetrievingDND] = useState(false);
 
   useEffect(() => {
     checkAttendanceStatus();
@@ -254,6 +260,65 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       toast.error('Failed to update status');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRetrieveDNDRoom = async () => {
+    if (!user) return;
+    
+    setIsRetrievingDND(true);
+    try {
+      // Check if room is actually DND
+      const { data: roomData } = await supabase
+        .from('rooms')
+        .select('is_dnd')
+        .eq('id', assignment.room_id)
+        .single();
+        
+      if (!roomData?.is_dnd) {
+        toast.error('This room is not marked as DND');
+        return;
+      }
+
+      // Unmark room as DND
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({
+          is_dnd: false,
+          dnd_marked_at: null,
+          dnd_marked_by: null
+        })
+        .eq('id', assignment.room_id);
+
+      if (roomError) throw roomError;
+
+      // Update the assignment status back to assigned
+      const { error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({
+          status: 'assigned',
+          is_dnd: false,
+          dnd_marked_at: null,
+          dnd_marked_by: null,
+          completed_at: null
+        })
+        .eq('id', assignment.id);
+
+      if (assignmentError) throw assignmentError;
+
+      // Notify success
+      const roomNum = assignment.rooms?.room_number || 'N/A';
+      toast.success(`Room ${roomNum} retrieved from DND and moved back to pending tasks`, {
+        description: 'The room is now available for cleaning and visible to managers/admins'
+      });
+
+      // Update local state
+      onStatusUpdate(assignment.id, 'assigned');
+    } catch (error: any) {
+      console.error('Error retrieving DND room:', error);
+      toast.error('Failed to retrieve DND room: ' + error.message);
+    } finally {
+      setIsRetrievingDND(false);
     }
   };
 
@@ -680,7 +745,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setDndPhotoDialogOpen(true)}
+                  onClick={() => setEnhancedDndPhotoDialogOpen(true)}
                   className="flex flex-col items-center gap-1 h-16 border-orange-300 text-orange-700 hover:bg-orange-100"
                 >
                   <AlertTriangle className="h-4 w-4" />
@@ -753,7 +818,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         {/* Allow Dirty Linen access for completed rooms */}
         {assignment.status === 'completed' && (
-          <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+          <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2">
             <p className="text-sm text-purple-800 mb-2">
               Need to update data after completion?
             </p>
@@ -766,6 +831,42 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <Shirt className="h-4 w-4 mr-2" />
               Update Dirty Linen
             </Button>
+          </div>
+        )}
+
+        {/* Retrieve DND Room for completed DND assignments */}
+        {assignment.status === 'completed' && assignment.is_dnd && (
+          <div className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-orange-800 mb-1">
+                  DND Room Retrieved?
+                </p>
+                <p className="text-xs text-orange-700 mb-3">
+                  If the guest has removed the DND sign, you can retrieve this room and move it back to your pending queue for cleaning.
+                </p>
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={handleRetrieveDNDRoom}
+                  disabled={isRetrievingDND || loading}
+                  className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  {isRetrievingDND ? (
+                    <>
+                      <Clock className="h-4 w-4 mr-2 animate-spin" />
+                      Retrieving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Retrieve Room & Start Cleaning
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -807,10 +908,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         onPhotoCaptured={handlePhotoCaptured}
       />
 
-      {/* DND Photo Dialog */}
-      <DNDPhotoDialog
-        open={dndPhotoDialogOpen}
-        onOpenChange={setDndPhotoDialogOpen}
+      {/* Enhanced DND Photo Dialog */}
+      <EnhancedDNDPhotoCapture
+        open={enhancedDndPhotoDialogOpen}
+        onOpenChange={setEnhancedDndPhotoDialogOpen}
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         roomId={assignment.room_id}
         assignmentId={assignment.id}
