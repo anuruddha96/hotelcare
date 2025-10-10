@@ -239,6 +239,37 @@ export const additionalTranslations = {
     'minibar.selectDateRange': 'Select Date Range',
     'minibar.viewDetails': 'View Details',
     'minibar.noData': 'No minibar usage data for selected period',
+
+    // Maintenance
+    'maintenance.reportIssue': 'Report Issue',
+    'maintenance.title': 'Maintenance Issues',
+    'maintenance.subtitle': 'View all reported maintenance issues and photos',
+    'maintenance.selectRoom': 'Select Room',
+    'maintenance.selectRoomPlaceholder': 'Choose a room...',
+    'maintenance.issueDescription': 'Issue Description',
+    'maintenance.issuePlaceholder': 'Describe the maintenance issue...',
+    'maintenance.priority': 'Priority',
+    'maintenance.reporting': 'Reporting...',
+    'maintenance.noIssues': 'No Maintenance Issues',
+    'maintenance.noIssuesDate': 'No maintenance issues reported for this date',
+    'maintenance.reportedBy': 'Reported By',
+    'maintenance.hotel': 'Hotel',
+    'maintenance.reportedAt': 'Reported At',
+    'maintenance.photos': 'Maintenance Photos',
+    'maintenance.notes': 'Notes',
+    'maintenance.delete': 'Delete',
+
+    // Priority
+    'priority.low': 'Low',
+    'priority.medium': 'Medium',
+    'priority.high': 'High',
+    'priority.urgent': 'Urgent',
+
+    // Status
+    'status.pending': 'Pending',
+    'status.approved': 'Approved',
+    'status.ticket_created': 'Ticket Created',
+    'status.resolved': 'Resolved',
   },
   
   es: {
@@ -1065,6 +1096,37 @@ export const additionalTranslations = {
     'minibar.selectDateRange': 'Dátumtartomány Kiválasztása',
     'minibar.viewDetails': 'Részletek Megtekintése',
     'minibar.noData': 'Nincs minibar használati adat a kiválasztott időszakra',
+
+    // Maintenance
+    'maintenance.reportIssue': 'Karbantartási probléma bejelentése',
+    'maintenance.title': 'Karbantartási problémák',
+    'maintenance.subtitle': 'Az összes bejelentett karbantartási probléma és fotók megtekintése',
+    'maintenance.selectRoom': 'Szoba kiválasztása',
+    'maintenance.selectRoomPlaceholder': 'Válassz szobát...',
+    'maintenance.issueDescription': 'Probléma leírása',
+    'maintenance.issuePlaceholder': 'Írd le a karbantartási problémát...',
+    'maintenance.priority': 'Prioritás',
+    'maintenance.reporting': 'Bejelentés...',
+    'maintenance.noIssues': 'Nincsenek karbantartási problémák',
+    'maintenance.noIssuesDate': 'Nincs bejelentett karbantartási probléma ezen a napon',
+    'maintenance.reportedBy': 'Bejelentő',
+    'maintenance.hotel': 'Szálloda',
+    'maintenance.reportedAt': 'Bejelentés ideje',
+    'maintenance.photos': 'Karbantartási fotók',
+    'maintenance.notes': 'Megjegyzések',
+    'maintenance.delete': 'Törlés',
+
+    // Priority
+    'priority.low': 'Alacsony',
+    'priority.medium': 'Közepes',
+    'priority.high': 'Magas',
+    'priority.urgent': 'Sürgős',
+
+    // Status
+    'status.pending': 'Folyamatban',
+    'status.approved': 'Jóváhagyva',
+    'status.ticket_created': 'Jegy létrehozva',
+    'status.resolved': 'Megoldva',
 
     // Housekeeping tab names
     // Housekeeping tab names - added to en section

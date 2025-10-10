@@ -162,10 +162,10 @@ export function MaintenancePhotosManagement() {
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <Wrench className="h-6 w-6 text-destructive" />
-            Maintenance Issues
+            {t('maintenance.title')}
           </h2>
           <p className="text-muted-foreground mt-1">
-            View all reported maintenance issues and photos
+            {t('maintenance.subtitle')}
           </p>
         </div>
         
@@ -173,7 +173,7 @@ export function MaintenancePhotosManagement() {
           {canCreate && (
             <Button onClick={() => setIsAddDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              Report Issue
+              {t('maintenance.reportIssue')}
             </Button>
           )}
           <Popover>
@@ -200,10 +200,10 @@ export function MaintenancePhotosManagement() {
           <CardContent>
             <Wrench className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">
-              No Maintenance Issues
+              {t('maintenance.noIssues')}
             </h3>
             <p className="text-muted-foreground">
-              No maintenance issues reported for this date
+              {t('maintenance.noIssuesDate')}
             </p>
           </CardContent>
         </Card>
@@ -225,10 +225,10 @@ export function MaintenancePhotosManagement() {
                       Room {issue.rooms?.room_number || 'N/A'}
                     </CardTitle>
                     <Badge className={getPriorityColor(issue.priority)}>
-                      {issue.priority.toUpperCase()}
+                      {t(`priority.${issue.priority}`).toUpperCase()}
                     </Badge>
                     <Badge className={getStatusColor(issue.status)}>
-                      {issue.status.replace('_', ' ').toUpperCase()}
+                      {t(`status.${issue.status}`).toUpperCase()}
                     </Badge>
                   </div>
                   {canDelete && (
@@ -238,7 +238,7 @@ export function MaintenancePhotosManagement() {
                       onClick={() => handleDeleteIssue(issue.id)}
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
+                      {t('maintenance.delete')}
                     </Button>
                   )}
                 </div>
@@ -250,7 +250,7 @@ export function MaintenancePhotosManagement() {
                     <AlertTriangle className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">
-                        Reported By
+                        {t('maintenance.reportedBy')}
                       </p>
                       <p className="text-lg font-semibold">
                         {issue.profiles?.full_name || 'Unknown'}
@@ -262,7 +262,7 @@ export function MaintenancePhotosManagement() {
                     <MapPin className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">
-                        Hotel
+                        {t('maintenance.hotel')}
                       </p>
                       <p className="text-lg font-semibold">
                         {issue.rooms?.hotel || 'Unknown'}
@@ -274,7 +274,7 @@ export function MaintenancePhotosManagement() {
                     <Clock className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">
-                        Reported At
+                        {t('maintenance.reportedAt')}
                       </p>
                       <p className="text-lg font-semibold">
                         {new Date(issue.created_at).toLocaleTimeString()}
@@ -286,12 +286,12 @@ export function MaintenancePhotosManagement() {
                 <div className="p-4 bg-destructive/10 rounded-lg border-2 border-destructive/30">
                   <h4 className="font-semibold text-destructive mb-2 flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4" />
-                    Issue Description
+                    {t('maintenance.issueDescription')}
                   </h4>
                   <p className="text-foreground">{issue.issue_description}</p>
                   {issue.notes && (
                     <p className="text-muted-foreground mt-2 text-sm">
-                      Notes: {issue.notes}
+                      {t('maintenance.notes')}: {issue.notes}
                     </p>
                   )}
                 </div>
@@ -299,7 +299,7 @@ export function MaintenancePhotosManagement() {
                 {issue.photo_urls && issue.photo_urls.length > 0 && (
                   <div className="space-y-2">
                     <h4 className="font-semibold flex items-center gap-2">
-                      📷 Maintenance Photos ({issue.photo_urls.length})
+                      📷 {t('maintenance.photos')} ({issue.photo_urls.length})
                     </h4>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                       {issue.photo_urls.map((url, index) => (
