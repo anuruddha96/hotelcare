@@ -1816,17 +1816,25 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
       return customTranslations[key][language];
     }
     
-    // Then check main translations
-    const mainTranslation = translations[language]?.[key] || translations.en[key];
+    // Check all translation sources in current language FIRST
+    const mainTranslation = translations[language]?.[key];
     if (mainTranslation) return mainTranslation;
     
-    // Then check additional translations
-    const additionalTranslation = additionalTranslations[language]?.[key] || additionalTranslations.en[key];
+    const additionalTranslation = additionalTranslations[language]?.[key];
     if (additionalTranslation) return additionalTranslation;
     
-    // Then check expanded translations
-    const expandedTranslation = expandedTranslations[language]?.[key] || expandedTranslations.en[key];
+    const expandedTranslation = expandedTranslations[language]?.[key];
     if (expandedTranslation) return expandedTranslation;
+    
+    // Only fall back to English if not found in current language
+    const enMain = translations.en[key];
+    if (enMain) return enMain;
+    
+    const enAdditional = additionalTranslations.en[key];
+    if (enAdditional) return enAdditional;
+    
+    const enExpanded = expandedTranslations.en[key];
+    if (enExpanded) return enExpanded;
     
     return key;
   };
