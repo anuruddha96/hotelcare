@@ -321,15 +321,15 @@ export function SimplifiedPhotoCapture({
   return (
     <>
       <Dialog open={open} onOpenChange={() => handleClose(false)}>
-        <DialogContent className="max-w-2xl max-h-[95vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[95vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-lg">
-              <Camera className="h-5 w-5" />
-              {t('photoCapture.title')} - {t('common.room')} {roomNumber}
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg pr-8">
+              <Camera className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
+              <span className="truncate">{t('photoCapture.title')} - {t('common.room')} {roomNumber}</span>
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {/* Progress Bar */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
@@ -348,67 +348,73 @@ export function SimplifiedPhotoCapture({
               <Progress value={progress} className="h-2" />
             </div>
 
-            {/* Category Stepper */}
-            <div className="flex items-center justify-between gap-2 overflow-x-auto pb-2">
-              {PHOTO_CATEGORIES.map((cat, index) => {
-                const hasPhoto = categorizedPhotos.some(p => p.category === cat.key);
-                const isCurrent = index === currentCategoryIndex;
-                const Icon = cat.icon;
-                
-                return (
-                  <button
-                    key={cat.key}
-                    onClick={() => setCurrentCategoryIndex(index)}
-                    className={cn(
-                      "flex flex-col items-center gap-1 p-2 rounded-lg transition-all min-w-[70px]",
-                      isCurrent && "bg-primary/10 ring-2 ring-primary",
-                      !isCurrent && "hover:bg-muted"
-                    )}
-                  >
-                    <div className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center transition-all",
-                      hasPhoto ? "bg-green-600 text-white" : isCurrent ? cat.color + " text-white" : "bg-muted"
-                    )}>
-                      {hasPhoto ? <CheckCircle className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
-                    </div>
-                    <span className={cn(
-                      "text-xs font-medium text-center",
-                      isCurrent && "text-primary"
-                    )}>
-                      {cat.label}
-                    </span>
-                  </button>
-                );
-              })}
+            {/* Category Stepper - Mobile Optimized */}
+            <div className="relative -mx-4 sm:mx-0">
+              <div className="flex gap-2 overflow-x-auto px-4 py-2 snap-x snap-mandatory scrollbar-hide">
+                {PHOTO_CATEGORIES.map((cat, index) => {
+                  const hasPhoto = categorizedPhotos.some(p => p.category === cat.key);
+                  const isCurrent = index === currentCategoryIndex;
+                  const Icon = cat.icon;
+                  
+                  return (
+                    <button
+                      key={cat.key}
+                      onClick={() => setCurrentCategoryIndex(index)}
+                      className={cn(
+                        "flex-shrink-0 flex flex-col items-center gap-2 p-3 rounded-xl transition-all w-20 snap-center",
+                        isCurrent && "bg-primary/10 ring-2 ring-primary scale-105",
+                        !isCurrent && "hover:bg-muted active:scale-95"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-sm",
+                        hasPhoto ? "bg-green-600 text-white" : isCurrent ? cat.color + " text-white" : "bg-muted"
+                      )}>
+                        {hasPhoto ? <CheckCircle className="h-6 w-6" /> : <Icon className="h-6 w-6" />}
+                      </div>
+                      <span className={cn(
+                        "text-[10px] font-medium text-center leading-tight line-clamp-2",
+                        isCurrent && "text-primary font-semibold"
+                      )}>
+                        {cat.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Scroll indicators */}
+              <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent pointer-events-none sm:hidden" />
+              <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent pointer-events-none sm:hidden" />
             </div>
 
-            {/* Current Category Card */}
+            {/* Current Category Card - Mobile Optimized */}
             <div className={cn(
-              "p-6 rounded-lg border-2 transition-all",
+              "p-4 sm:p-6 rounded-lg border-2 transition-all",
               currentCategory.color.replace('bg-', 'border-'),
               "bg-gradient-to-br from-background to-muted/20"
             )}>
               <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className={cn(
-                    "w-12 h-12 rounded-full flex items-center justify-center",
+                    "w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0",
                     currentCategory.color,
-                    "text-white"
+                    "text-white shadow-lg"
                   )}>
-                    <currentCategory.icon className="h-6 w-6" />
+                    <currentCategory.icon className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
-                  <div>
-                    <h3 className="text-lg font-semibold">{currentCategory.label}</h3>
-                    <p className="text-sm text-muted-foreground">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-base sm:text-lg font-semibold truncate">{currentCategory.label}</h3>
+                    <p className="text-xs sm:text-sm text-muted-foreground">
                       {hasPhotoForCurrentCategory ? t('photoCapture.photoTaken') : t('photoCapture.takePhotoFor')}
                     </p>
                   </div>
                 </div>
                 
                 {hasPhotoForCurrentCategory && (
-                  <Badge variant="default" className="bg-green-600">
-                    <CheckCircle className="h-4 w-4 mr-1" />
-                    {t('common.done')}
+                  <Badge variant="default" className="bg-green-600 flex-shrink-0 ml-2">
+                    <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                    <span className="hidden sm:inline">{t('common.done')}</span>
+                    <span className="sm:hidden">✓</span>
                   </Badge>
                 )}
               </div>
@@ -419,31 +425,31 @@ export function SimplifiedPhotoCapture({
                   <img
                     src={categorizedPhotos.find(p => p.category === currentCategory.key)?.dataUrl}
                     alt={currentCategory.label}
-                    className="w-full h-48 object-cover"
+                    className="w-full h-40 sm:h-48 object-cover"
                   />
                   <Button
                     type="button"
                     size="sm"
                     variant="destructive"
-                    className="absolute top-2 right-2"
+                    className="absolute top-2 right-2 h-8 sm:h-9"
                     onClick={() => removePhoto(currentCategory.key)}
                   >
-                    <X className="h-4 w-4 mr-1" />
-                    {t('common.remove')}
+                    <X className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                    <span className="text-xs sm:text-sm">{t('common.remove')}</span>
                   </Button>
                 </div>
               )}
 
-              {/* Camera View or Action Buttons */}
+              {/* Camera View or Action Buttons - Mobile Optimized */}
               {!showCamera ? (
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3">
                   <Button
                     type="button"
                     onClick={startCamera}
-                    className="w-full h-16 text-lg"
+                    className="w-full h-14 sm:h-16 text-base sm:text-lg touch-manipulation"
                     variant={hasPhotoForCurrentCategory ? "outline" : "default"}
                   >
-                    <Camera className="h-6 w-6 mr-2" />
+                    <Camera className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
                     {hasPhotoForCurrentCategory ? t('photoCapture.retakePhoto') : t('common.takePhoto')}
                   </Button>
                   
@@ -451,9 +457,9 @@ export function SimplifiedPhotoCapture({
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     variant="outline"
-                    className="w-full h-16 text-lg"
+                    className="w-full h-14 sm:h-16 text-base sm:text-lg touch-manipulation"
                   >
-                    <Upload className="h-6 w-6 mr-2" />
+                    <Upload className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
                     {t('common.uploadPhoto')}
                   </Button>
                   
@@ -472,7 +478,7 @@ export function SimplifiedPhotoCapture({
                       <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
                         <div className="text-white text-center">
                           <Camera className="h-8 w-8 mx-auto mb-2 animate-pulse" />
-                          <p>{t('photoCapture.startingCamera')}</p>
+                          <p className="text-sm sm:text-base">{t('photoCapture.startingCamera')}</p>
                         </div>
                       </div>
                     )}
@@ -488,7 +494,7 @@ export function SimplifiedPhotoCapture({
                     <Button
                       type="button"
                       onClick={capturePhoto}
-                      className="flex-1 h-14 text-lg"
+                      className="flex-1 h-12 sm:h-14 text-base sm:text-lg touch-manipulation"
                       disabled={isCameraLoading}
                     >
                       <Camera className="h-5 w-5 mr-2" />
@@ -498,9 +504,9 @@ export function SimplifiedPhotoCapture({
                       type="button"
                       onClick={stopCamera}
                       variant="outline"
-                      className="h-14"
+                      className="h-12 sm:h-14 px-4 touch-manipulation"
                     >
-                      {t('common.cancel')}
+                      <X className="h-5 w-5" />
                     </Button>
                   </div>
                 </div>
@@ -509,22 +515,23 @@ export function SimplifiedPhotoCapture({
 
             <canvas ref={canvasRef} className="hidden" />
 
-            {/* Navigation and Action Buttons */}
+            {/* Navigation and Action Buttons - Mobile Optimized */}
             <div className="flex gap-2">
               <Button
                 type="button"
                 onClick={goToPreviousCategory}
                 variant="outline"
                 disabled={currentCategoryIndex === 0}
+                className="h-12 w-12 p-0 flex-shrink-0 touch-manipulation"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-5 w-5" />
               </Button>
               
               <Button
                 type="button"
                 onClick={() => handleClose(false)}
                 variant="outline"
-                className="flex-1"
+                className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
                 disabled={isUploading}
               >
                 {t('common.close')}
@@ -535,15 +542,17 @@ export function SimplifiedPhotoCapture({
                   type="button"
                   onClick={uploadPhotos}
                   disabled={isUploading}
-                  className="flex-1"
+                  className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
                   variant={allPhotosComplete ? "default" : "secondary"}
                 >
                   {isUploading ? (
                     <>{t('common.uploading')}</>
                   ) : (
                     <>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      {t('photoCapture.savePhotos')} ({categorizedPhotos.length})
+                      <CheckCircle className="h-4 w-4 mr-1 sm:mr-2 flex-shrink-0" />
+                      <span className="hidden sm:inline">{t('photoCapture.savePhotos')}</span>
+                      <span className="sm:hidden">Save</span>
+                      <span className="ml-1">({categorizedPhotos.length})</span>
                     </>
                   )}
                 </Button>
@@ -554,20 +563,21 @@ export function SimplifiedPhotoCapture({
                 onClick={goToNextCategory}
                 variant="outline"
                 disabled={currentCategoryIndex === PHOTO_CATEGORIES.length - 1}
+                className="h-12 w-12 p-0 flex-shrink-0 touch-manipulation"
               >
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-5 w-5" />
               </Button>
             </div>
 
-            {/* Warning for incomplete photos */}
+            {/* Warning for incomplete photos - Mobile Optimized */}
             {categorizedPhotos.length > 0 && !allPhotosComplete && (
               <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm">
+                <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="text-xs sm:text-sm min-w-0">
                   <p className="font-medium text-amber-900 dark:text-amber-100">
                     {t('photoCapture.incompleteWarning')}
                   </p>
-                  <p className="text-amber-700 dark:text-amber-200 mt-1">
+                  <p className="text-amber-700 dark:text-amber-200 mt-1 break-words">
                     {t('photoCapture.missingCategories')}: {PHOTO_CATEGORIES
                       .filter(cat => !categorizedPhotos.some(p => p.category === cat.key))
                       .map(cat => cat.label)

@@ -10,7 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
-import { EnhancedImageCaptureDialog } from './EnhancedImageCaptureDialog';
+import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
 
@@ -276,7 +276,7 @@ export function CompletionDialog({
         </DialogContent>
       </Dialog>
 
-      <EnhancedImageCaptureDialog
+      <SimplifiedPhotoCapture
         open={showImageCapture}
         onOpenChange={setShowImageCapture}
         roomNumber={roomNumber}

@@ -128,6 +128,14 @@ All colors MUST be HSL.
   display: none;  /* Chrome, Safari, and Opera */
 }
 
+/* Touch-friendly interactions */
+@layer utilities {
+  .touch-manipulation {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
 /* Mobile Touch Targets and Optimizations */
 @media (max-width: 768px) {
   .touch-target {
