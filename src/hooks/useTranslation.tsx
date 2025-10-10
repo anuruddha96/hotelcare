@@ -166,6 +166,9 @@ const translations = {
     'photoCapture.cameraPermissionError': 'Please allow camera permissions in your browser settings',
     'photoCapture.cameraNotFound': 'No camera found on this device',
     'photoCapture.startingCamera': 'Starting camera...',
+    'photoCapture.capturedPhotos': 'Captured Photos',
+    'photoCapture.photoPreview': 'Photo Preview',
+    'photoCapture.deletePhoto': 'Delete Photo',
     
     // Task Status
     'tasks.totalForToday': 'Total Tasks for Today',
@@ -877,6 +880,9 @@ const translations = {
     'photoCapture.cameraPermissionError': 'Kérjük, engedélyezze a kamera engedélyeket a böngésző beállításaiban',
     'photoCapture.cameraNotFound': 'Nem található kamera ezen az eszközön',
     'photoCapture.startingCamera': 'Kamera indítása...',
+    'photoCapture.capturedPhotos': 'Rögzített Fotók',
+    'photoCapture.photoPreview': 'Fotó Előnézet',
+    'photoCapture.deletePhoto': 'Fotó Törlése',
     
     // Language
     'language.changed': 'Nyelv megváltoztatva',
@@ -1365,6 +1371,9 @@ const translations = {
     'photoCapture.cameraPermissionError': 'Por favor permita los permisos de la cámara en la configuración de su navegador',
     'photoCapture.cameraNotFound': 'No se encontró cámara en este dispositivo',
     'photoCapture.startingCamera': 'Iniciando cámara...',
+    'photoCapture.capturedPhotos': 'Fotos Capturadas',
+    'photoCapture.photoPreview': 'Vista Previa de Foto',
+    'photoCapture.deletePhoto': 'Eliminar Foto',
     
     // Dirty Linen Spanish
     'dirtyLinen.dirtyLinen': 'Ropa Sucia',
@@ -1548,6 +1557,9 @@ const translations = {
     'photoCapture.cameraPermissionError': 'Vui lòng cho phép quyền camera trong cài đặt trình duyệt của bạn',
     'photoCapture.cameraNotFound': 'Không tìm thấy camera trên thiết bị này',
     'photoCapture.startingCamera': 'Đang khởi động camera...',
+    'photoCapture.capturedPhotos': 'Ảnh Đã Chụp',
+    'photoCapture.photoPreview': 'Xem Trước Ảnh',
+    'photoCapture.deletePhoto': 'Xóa Ảnh',
     
     'dirtyLinen.dirtyLinen': 'Đồ Giặt Bẩn',
     'dirtyLinen.linen': 'Đồ Giặt',
@@ -1729,6 +1741,9 @@ const translations = {
     'photoCapture.cameraPermissionError': 'Хөтчийн тохиргооноос камерын зөвшөөрлийг идэвхжүүлнэ үү',
     'photoCapture.cameraNotFound': 'Энэ төхөөрөмж дээр камер олдсонгүй',
     'photoCapture.startingCamera': 'Камер эхэлж байна...',
+    'photoCapture.capturedPhotos': 'Авсан Зургууд',
+    'photoCapture.photoPreview': 'Зургийн Урьдчилан Үзэлт',
+    'photoCapture.deletePhoto': 'Зураг Устгах',
     
     'dirtyLinen.dirtyLinen': 'Бохир Ор Дэр',
     'dirtyLinen.linen': 'Ор Дэр',

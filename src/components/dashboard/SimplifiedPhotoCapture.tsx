@@ -61,6 +61,7 @@ export function SimplifiedPhotoCapture({
   const [isCameraLoading, setIsCameraLoading] = useState(false);
   const [showExitWarning, setShowExitWarning] = useState(false);
   const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
+  const [selectedPhotoPreview, setSelectedPhotoPreview] = useState<CategorizedPhoto | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -518,59 +519,101 @@ export function SimplifiedPhotoCapture({
 
             <canvas ref={canvasRef} className="hidden" />
 
-            {/* Navigation and Action Buttons - Mobile Optimized */}
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                onClick={goToPreviousCategory}
-                variant="outline"
-                disabled={currentCategoryIndex === 0}
-                className="h-12 w-12 p-0 flex-shrink-0 touch-manipulation"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </Button>
-              
-              <Button
-                type="button"
-                onClick={() => handleClose(false)}
-                variant="outline"
-                className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
-                disabled={isUploading}
-              >
-                {t('common.close')}
-              </Button>
-              
-              {categorizedPhotos.length > 0 && (
-                <Button
-                  type="button"
-                  onClick={uploadPhotos}
-                  disabled={isUploading}
-                  className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
-                  variant={allPhotosComplete ? "default" : "secondary"}
-                >
-                  {isUploading ? (
-                    <>{t('common.uploading')}</>
-                  ) : (
-                    <>
-                      <CheckCircle className="h-4 w-4 mr-1 sm:mr-2 flex-shrink-0" />
-                      <span className="hidden sm:inline">{t('photoCapture.savePhotos')}</span>
-                      <span className="sm:hidden">Save</span>
-                      <span className="ml-1">({categorizedPhotos.length})</span>
-                    </>
+                {/* Navigation and Action Buttons - Mobile Optimized */}
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    onClick={goToPreviousCategory}
+                    variant="outline"
+                    disabled={currentCategoryIndex === 0}
+                    className="h-12 w-12 p-0 flex-shrink-0 touch-manipulation"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </Button>
+                  
+                  <Button
+                    type="button"
+                    onClick={() => handleClose(false)}
+                    variant="outline"
+                    className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
+                    disabled={isUploading}
+                  >
+                    {t('common.close')}
+                  </Button>
+                  
+                  {categorizedPhotos.length > 0 && (
+                    <Button
+                      type="button"
+                      onClick={uploadPhotos}
+                      disabled={isUploading}
+                      className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
+                      variant={allPhotosComplete ? "default" : "secondary"}
+                    >
+                      {isUploading ? (
+                        <>{t('common.uploading')}</>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-4 w-4 mr-1 sm:mr-2 flex-shrink-0" />
+                          <span className="hidden sm:inline">{t('photoCapture.savePhotos')}</span>
+                          <span className="sm:hidden">Save</span>
+                          <span className="ml-1">({categorizedPhotos.length})</span>
+                        </>
+                      )}
+                    </Button>
                   )}
-                </Button>
-              )}
-              
-              <Button
-                type="button"
-                onClick={goToNextCategory}
-                variant="outline"
-                disabled={currentCategoryIndex === PHOTO_CATEGORIES.length - 1}
-                className="h-12 w-12 p-0 flex-shrink-0 touch-manipulation"
-              >
-                <ChevronRight className="h-5 w-5" />
-              </Button>
-            </div>
+                  
+                  <Button
+                    type="button"
+                    onClick={goToNextCategory}
+                    variant="outline"
+                    disabled={currentCategoryIndex === PHOTO_CATEGORIES.length - 1}
+                    className="h-12 w-12 p-0 flex-shrink-0 touch-manipulation"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </Button>
+                </div>
+
+                {/* Captured Photos Gallery */}
+                {categorizedPhotos.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold">{t('photoCapture.capturedPhotos')}</h3>
+                      <Badge variant="secondary" className="text-xs">
+                        {categorizedPhotos.length} {t('common.photos')}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                      {categorizedPhotos.map((photo, index) => {
+                        const Icon = PHOTO_CATEGORIES.find(c => c.key === photo.category)?.icon || Camera;
+                        const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === photo.category);
+                        
+                        return (
+                          <button
+                            key={`${photo.category}-${index}`}
+                            onClick={() => setSelectedPhotoPreview(photo)}
+                            className="relative aspect-square rounded-lg overflow-hidden bg-muted hover:ring-2 hover:ring-primary transition-all active:scale-95 touch-manipulation"
+                          >
+                            <img
+                              src={photo.dataUrl}
+                              alt={photo.categoryName}
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                            <div className="absolute bottom-0 left-0 right-0 p-1.5">
+                              <div className={cn(
+                                "flex items-center gap-1 px-1.5 py-0.5 rounded text-white text-[9px] font-medium w-full",
+                                categoryInfo?.color || "bg-primary"
+                              )}>
+                                <Icon className="h-3 w-3 flex-shrink-0" />
+                                <span className="truncate">{photo.categoryName}</span>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Warning for incomplete photos - Mobile Optimized */}
                 {categorizedPhotos.length > 0 && !allPhotosComplete && (
@@ -631,6 +674,70 @@ export function SimplifiedPhotoCapture({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Photo Preview Dialog */}
+      <Dialog open={!!selectedPhotoPreview} onOpenChange={(open) => !open && setSelectedPhotoPreview(null)}>
+        <DialogContent className="max-w-4xl w-full p-0">
+          <div className="relative">
+            <button
+              onClick={() => setSelectedPhotoPreview(null)}
+              className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-all touch-manipulation"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            {selectedPhotoPreview && (
+              <div className="space-y-4 p-4 sm:p-6">
+                <div className="flex items-center gap-3">
+                  {(() => {
+                    const Icon = PHOTO_CATEGORIES.find(c => c.key === selectedPhotoPreview.category)?.icon || Camera;
+                    const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === selectedPhotoPreview.category);
+                    return (
+                      <>
+                        <div className={cn(
+                          "w-12 h-12 rounded-full flex items-center justify-center",
+                          categoryInfo?.color || "bg-primary",
+                          "text-white"
+                        )}>
+                          <Icon className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold">{selectedPhotoPreview.categoryName}</h3>
+                          <p className="text-sm text-muted-foreground">{t('photoCapture.photoPreview')}</p>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+                <img
+                  src={selectedPhotoPreview.dataUrl}
+                  alt={selectedPhotoPreview.categoryName}
+                  className="w-full rounded-lg"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => {
+                      removePhoto(selectedPhotoPreview.category);
+                      setSelectedPhotoPreview(null);
+                    }}
+                    variant="destructive"
+                    className="flex-1"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    {t('photoCapture.deletePhoto')}
+                  </Button>
+                  <Button
+                    onClick={() => setSelectedPhotoPreview(null)}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    {t('common.close')}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
