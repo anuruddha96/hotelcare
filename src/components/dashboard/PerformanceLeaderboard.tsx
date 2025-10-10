@@ -140,14 +140,40 @@ export function PerformanceLeaderboard() {
         // Performance data
         const { data: performanceData } = await supabase
           .from('housekeeping_performance')
-          .select('*')
+          .select(`
+            *,
+            room_assignments!inner(is_dnd)
+          `)
           .eq('housekeeper_id', housekeeper.id)
           .gte('assignment_date', dateFrom);
 
-        if (performanceData && performanceData.length > 0) {
-          allPerformanceData = [...allPerformanceData, ...performanceData];
-          totalCompleted += performanceData.length;
-          performanceData.forEach(p => allMinutes.push(p.actual_duration_minutes));
+        // Filter out invalid performance data:
+        // 1. Exclude DND rooms completely
+        // 2. Checkout rooms: only >= 30 minutes (realistic time)
+        // 3. Daily cleaning: only >= 5 minutes (realistic time)
+        const validPerformanceData = performanceData?.filter(p => {
+          // Exclude DND assignments completely
+          if ((p as any).room_assignments?.is_dnd === true) {
+            return false;
+          }
+          
+          // Checkout rooms: minimum 30 minutes
+          if (p.assignment_type === 'checkout_cleaning' && p.actual_duration_minutes < 30) {
+            return false;
+          }
+          
+          // Daily cleaning: minimum 5 minutes
+          if (p.assignment_type === 'daily_cleaning' && p.actual_duration_minutes < 5) {
+            return false;
+          }
+          
+          return true;
+        }) || [];
+
+        if (validPerformanceData && validPerformanceData.length > 0) {
+          allPerformanceData = [...allPerformanceData, ...validPerformanceData];
+          totalCompleted += validPerformanceData.length;
+          validPerformanceData.forEach(p => allMinutes.push(p.actual_duration_minutes));
         }
 
         // Attendance data for punctuality
@@ -158,9 +184,9 @@ export function PerformanceLeaderboard() {
           .gte('work_date', dateFrom)
           .not('check_out_time', 'is', null);
 
-        // Separate daily and checkout performance
-        const dailyPerf = performanceData?.filter(p => p.assignment_type === 'daily_cleaning') || [];
-        const checkoutPerf = performanceData?.filter(p => p.assignment_type === 'checkout_cleaning') || [];
+        // Separate daily and checkout performance (already filtered for valid times)
+        const dailyPerf = validPerformanceData?.filter(p => p.assignment_type === 'daily_cleaning') || [];
+        const checkoutPerf = validPerformanceData?.filter(p => p.assignment_type === 'checkout_cleaning') || [];
 
         // Calculate metrics for this housekeeper
         const dailyAvgTime = dailyPerf.length ? 
@@ -169,11 +195,11 @@ export function PerformanceLeaderboard() {
         const checkoutAvgTime = checkoutPerf.length ?
           Math.round(checkoutPerf.reduce((sum, p) => sum + p.actual_duration_minutes, 0) / checkoutPerf.length) : 0;
 
-        const avgEfficiency = performanceData?.length ?
-          Math.round(performanceData.reduce((sum, p) => sum + p.efficiency_score, 0) / performanceData.length) : 100;
+        const avgEfficiency = validPerformanceData?.length ?
+          Math.round(validPerformanceData.reduce((sum, p) => sum + p.efficiency_score, 0) / validPerformanceData.length) : 100;
 
-        const avgDuration = performanceData?.length ?
-          Math.round(performanceData.reduce((sum, p) => sum + p.actual_duration_minutes, 0) / performanceData.length) : 0;
+        const avgDuration = validPerformanceData?.length ?
+          Math.round(validPerformanceData.reduce((sum, p) => sum + p.actual_duration_minutes, 0) / validPerformanceData.length) : 0;
 
         // Calculate punctuality (8:05 AM is the cutoff - 5 minute grace period from 8:00 AM start)
         const punctualDays = attendanceData?.filter(a => 
@@ -192,18 +218,18 @@ export function PerformanceLeaderboard() {
         const punctualityScore = punctualityRate * 30; // Max 30 points
 
         // Calculate on-time completion rate
-        const onTimeCompletions = performanceData?.filter(p => 
+        const onTimeCompletions = validPerformanceData?.filter(p => 
           !p.estimated_duration_minutes || p.actual_duration_minutes <= p.estimated_duration_minutes
         ).length || 0;
-        const onTimeRate = performanceData?.length ? onTimeCompletions / performanceData.length : 0;
+        const onTimeRate = validPerformanceData?.length ? onTimeCompletions / validPerformanceData.length : 0;
 
-        if (performanceData && performanceData.length > 0) {
+        if (validPerformanceData && validPerformanceData.length > 0) {
           const housekeeperEntry: LeaderboardEntry = {
             housekeeper_id: housekeeper.id,
             full_name: housekeeper.full_name,
             avg_duration_minutes: avgDuration,
             avg_efficiency_score: avgEfficiency,
-            total_completed: performanceData.length,
+            total_completed: validPerformanceData.length,
             daily_avg_time: dailyAvgTime,
             checkout_avg_time: checkoutAvgTime,
             daily_completed: dailyPerf.length,
@@ -227,16 +253,16 @@ export function PerformanceLeaderboard() {
         entry.rank_position = index + 1;
       });
 
-      // Calculate overview stats from ALL performance data
+      // Calculate overview stats from ALL performance data (already filtered for valid times and excluding DND)
       const avgMinutes = allMinutes.length > 0 ? 
         Math.round(allMinutes.reduce((sum, m) => sum + m, 0) / allMinutes.length) : 0;
       
       const avgEfficiency = allPerformanceData.length > 0 ?
         Math.round(allPerformanceData.reduce((sum, p) => sum + p.efficiency_score, 0) / allPerformanceData.length) : 0;
       
-      // Filter out unrealistic times (< 5 minutes - likely DND or forgotten submissions)
-      // and extremely high times (> 180 minutes - likely errors)
-      const realisticTimes = allMinutes.filter(m => m >= 5 && m <= 180);
+      // Filter out extremely high times (> 180 minutes - likely errors)
+      // Already filtered for minimums at data level (30 min checkout, 5 min daily)
+      const realisticTimes = allMinutes.filter(m => m <= 180);
       const bestTime = realisticTimes.length > 0 ? Math.min(...realisticTimes) : 0;
 
       setOverviewStats({
