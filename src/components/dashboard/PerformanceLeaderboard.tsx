@@ -473,11 +473,13 @@ export function PerformanceLeaderboard() {
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <div 
+                           <div 
                             className="text-center p-3 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors"
                             onClick={() => openDetailDialog(entry.housekeeper_id, entry.full_name, 'daily')}
                           >
-                            <div className="text-2xl font-bold text-blue-700">{entry.daily_avg_time}m</div>
+                            <div className="text-2xl font-bold text-blue-700">
+                              {entry.daily_completed === 0 ? '-' : `${entry.daily_avg_time}m`}
+                            </div>
                             <div className="text-xs text-blue-600">{t('performance.daily')}</div>
                           </div>
                         </TooltipTrigger>
@@ -488,11 +490,13 @@ export function PerformanceLeaderboard() {
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <div 
+                           <div 
                             className="text-center p-3 bg-green-50 rounded-lg cursor-pointer hover:bg-green-100 transition-colors"
                             onClick={() => openDetailDialog(entry.housekeeper_id, entry.full_name, 'checkout')}
                           >
-                            <div className="text-2xl font-bold text-green-700">{entry.checkout_avg_time}m</div>
+                            <div className="text-2xl font-bold text-green-700">
+                              {entry.checkout_completed === 0 ? '-' : `${entry.checkout_avg_time}m`}
+                            </div>
                             <div className="text-xs text-green-600">{t('performance.checkout')}</div>
                           </div>
                         </TooltipTrigger>

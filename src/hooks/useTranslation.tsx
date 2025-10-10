@@ -542,12 +542,8 @@ const translations = {
     'breakTypes.inactive': 'Inactive',
     'breakTypes.noBreakTypes': 'No break types configured yet.',
     
-    // Performance Analytics
+    // Performance Analytics (moved to comprehensive-translations.ts for full multilingual support)
     'performance.title': 'Performance Analytics',
-    'performance.avgMinutes': 'Avg Minutes',
-    'performance.efficiency': 'Efficiency',
-    'performance.completed': 'Completed',
-    'performance.bestTime': 'Best Time',
     'performance.today': 'Today',
     'performance.leaderboard': 'Housekeeping Leaderboard',
     'performance.leaderboardShort': 'Leaderboard',
@@ -556,7 +552,6 @@ const translations = {
     'performance.great': 'Great',
     'performance.good': 'Good',
     'performance.needsImprovement': 'Needs Improvement',
-    'performance.noData': 'No performance data available for the selected period',
     'performance.you': 'You',
     'performance.roomsCompleted': 'rooms completed',
     'performance.avgTime': 'Avg Time',
