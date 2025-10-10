@@ -1,6 +1,7 @@
 // Comprehensive translations to be added to useTranslation.tsx
 // This includes all missing translations for attendance, approval, team management,
 // performance, PMS, photos, linen, reports, and minibar sections
+// Updated: Added Required Actions and Photo Capture translations for all languages
 
 export const additionalTranslations = {
   en: {
@@ -8,7 +9,6 @@ export const additionalTranslations = {
     'housekeeping.tabs.staffManagement': 'Staff Management',
     'housekeeping.tabs.pendingApprovals': 'Pending Approvals',
     
-    // DND Room
     // DND Room
     'dnd.markRoomDND': 'Mark Room as DND',
     'dnd.tipCheckCompleted': '💡 Tip: Check completed tasks if DND sign is removed later',
