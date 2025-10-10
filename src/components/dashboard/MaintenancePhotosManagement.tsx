@@ -6,12 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { AlertTriangle, Calendar as CalendarIcon, Clock, MapPin, Wrench, Trash2, Plus } from 'lucide-react';
+import { AlertTriangle, Calendar as CalendarIcon, Clock, MapPin, Wrench, Trash2, Plus, CheckCircle, User } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
+import { MaintenanceResolutionDialog } from './MaintenanceResolutionDialog';
 
 interface MaintenanceIssue {
   id: string;
@@ -23,12 +24,19 @@ interface MaintenanceIssue {
   status: string;
   priority: string;
   notes: string | null;
+  resolution_text: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
   created_at: string;
   rooms: {
     room_number: string;
     hotel: string;
   };
   profiles: {
+    full_name: string;
+    nickname: string;
+  };
+  resolved_by_profile?: {
     full_name: string;
     nickname: string;
   };
@@ -42,9 +50,21 @@ export function MaintenancePhotosManagement() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [resolutionDialog, setResolutionDialog] = useState<{
+    open: boolean;
+    issueId: string;
+    roomNumber: string;
+    issueDescription: string;
+  }>({
+    open: false,
+    issueId: '',
+    roomNumber: '',
+    issueDescription: ''
+  });
 
   const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
   const canCreate = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const canResolve = profile?.role && ['admin', 'manager', 'housekeeping_manager', 'maintenance'].includes(profile.role);
 
   useEffect(() => {
     fetchMaintenanceIssues();
@@ -72,18 +92,22 @@ export function MaintenancePhotosManagement() {
         throw error;
       }
       
-      // Fetch reporter profiles separately to avoid FK issues
+      // Fetch reporter profiles and resolver profiles separately
       if (data && data.length > 0) {
         const reporterIds = [...new Set(data.map((item: any) => item.reported_by))];
+        const resolverIds = [...new Set(data.filter((item: any) => item.resolved_by).map((item: any) => item.resolved_by))];
+        const allUserIds = [...new Set([...reporterIds, ...resolverIds])];
+        
         const { data: profiles } = await supabase
           .from('profiles')
           .select('id, full_name, nickname')
-          .in('id', reporterIds);
+          .in('id', allUserIds);
         
         // Map profiles to issues
         const issuesWithProfiles = data.map((issue: any) => ({
           ...issue,
-          profiles: profiles?.find((p: any) => p.id === issue.reported_by) || { full_name: 'Unknown', nickname: '' }
+          profiles: profiles?.find((p: any) => p.id === issue.reported_by) || { full_name: 'Unknown', nickname: '' },
+          resolved_by_profile: issue.resolved_by ? profiles?.find((p: any) => p.id === issue.resolved_by) : null
         }));
         
         console.log('Fetched maintenance issues:', issuesWithProfiles.length, 'records');
@@ -162,7 +186,7 @@ export function MaintenancePhotosManagement() {
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <Wrench className="h-6 w-6 text-destructive" />
-            {t('maintenance.title')}
+            {t('maintenance.pageTitle')}
           </h2>
           <p className="text-muted-foreground mt-1">
             {t('maintenance.subtitle')}
@@ -220,7 +244,7 @@ export function MaintenancePhotosManagement() {
             >
               <CardHeader>
                 <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <CardTitle className="text-xl font-bold">
                       Room {issue.rooms?.room_number || 'N/A'}
                     </CardTitle>
@@ -231,16 +255,34 @@ export function MaintenancePhotosManagement() {
                       {t(`status.${issue.status}`).toUpperCase()}
                     </Badge>
                   </div>
-                  {canDelete && (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => handleDeleteIssue(issue.id)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      {t('maintenance.delete')}
-                    </Button>
-                  )}
+                  <div className="flex gap-2">
+                    {canResolve && issue.status !== 'resolved' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="bg-green-50 hover:bg-green-100 text-green-700 border-green-300"
+                        onClick={() => setResolutionDialog({
+                          open: true,
+                          issueId: issue.id,
+                          roomNumber: issue.rooms?.room_number || 'N/A',
+                          issueDescription: issue.issue_description
+                        })}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        {t('maintenance.markResolved')}
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleDeleteIssue(issue.id)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        {t('maintenance.delete')}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
 
@@ -296,6 +338,39 @@ export function MaintenancePhotosManagement() {
                   )}
                 </div>
 
+                {issue.status === 'resolved' && issue.resolution_text && (
+                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
+                    <h4 className="font-semibold text-green-700 dark:text-green-400 mb-2 flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4" />
+                      {t('maintenance.resolutionDetails')}
+                    </h4>
+                    <p className="text-foreground mb-3">{issue.resolution_text}</p>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-green-300 dark:border-green-700">
+                      {issue.resolved_by_profile && (
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-xs text-muted-foreground">{t('maintenance.resolvedBy')}</p>
+                            <p className="text-sm font-semibold">{issue.resolved_by_profile.full_name}</p>
+                          </div>
+                        </div>
+                      )}
+                      {issue.resolved_at && (
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="text-xs text-muted-foreground">{t('maintenance.resolvedAt')}</p>
+                            <p className="text-sm font-semibold">
+                              {new Date(issue.resolved_at).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {issue.photo_urls && issue.photo_urls.length > 0 && (
                   <div className="space-y-2">
                     <h4 className="font-semibold flex items-center gap-2">
@@ -342,6 +417,15 @@ export function MaintenancePhotosManagement() {
           fetchMaintenanceIssues();
           setIsAddDialogOpen(false);
         }}
+      />
+
+      <MaintenanceResolutionDialog
+        open={resolutionDialog.open}
+        onOpenChange={(open) => setResolutionDialog({ ...resolutionDialog, open })}
+        issueId={resolutionDialog.issueId}
+        roomNumber={resolutionDialog.roomNumber}
+        issueDescription={resolutionDialog.issueDescription}
+        onResolved={fetchMaintenanceIssues}
       />
     </div>
   );

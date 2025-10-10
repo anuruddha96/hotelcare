@@ -631,6 +631,7 @@ export type Database = {
           photo_urls: string[] | null
           priority: string
           reported_by: string
+          resolution_text: string | null
           resolved_at: string | null
           resolved_by: string | null
           room_id: string
@@ -647,6 +648,7 @@ export type Database = {
           photo_urls?: string[] | null
           priority?: string
           reported_by: string
+          resolution_text?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
           room_id: string
@@ -663,6 +665,7 @@ export type Database = {
           photo_urls?: string[] | null
           priority?: string
           reported_by?: string
+          resolution_text?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
           room_id?: string

@@ -242,8 +242,15 @@ export const additionalTranslations = {
 
     // Maintenance
     'maintenance.reportIssue': 'Report Issue',
+    'maintenance.pageTitle': 'Report Maintenance Issue',
     'maintenance.title': 'Maintenance Issues',
     'maintenance.subtitle': 'View all reported maintenance issues and photos',
+    'maintenance.markResolved': 'Mark as Resolved',
+    'maintenance.resolution': 'Resolution',
+    'maintenance.resolutionPlaceholder': 'Enter resolution details...',
+    'maintenance.resolvedBy': 'Resolved By',
+    'maintenance.resolvedAt': 'Resolved At',
+    'maintenance.resolutionDetails': 'Resolution Details',
     'maintenance.selectRoom': 'Select Room',
     'maintenance.selectRoomPlaceholder': 'Choose a room...',
     'maintenance.issueDescription': 'Issue Description',
@@ -258,6 +265,16 @@ export const additionalTranslations = {
     'maintenance.photos': 'Maintenance Photos',
     'maintenance.notes': 'Notes',
     'maintenance.delete': 'Delete',
+
+    // Common
+    'common.room': 'Room',
+    'common.cancel': 'Cancel',
+    'common.saving': 'Saving...',
+    'common.saved': 'Saved',
+    'common.takePhoto': 'Take Photo',
+    'common.uploadPhoto': 'Upload Photo',
+    'common.capture': 'Capture',
+    'common.photos': 'Photos',
 
     // Priority
     'priority.low': 'Low',
@@ -1098,9 +1115,16 @@ export const additionalTranslations = {
     'minibar.noData': 'Nincs minibar használati adat a kiválasztott időszakra',
 
     // Maintenance
-    'maintenance.reportIssue': 'Karbantartási probléma bejelentése',
+    'maintenance.reportIssue': 'Probléma bejelentése',
+    'maintenance.pageTitle': 'Karbantartási probléma bejelentése',
     'maintenance.title': 'Karbantartási problémák',
     'maintenance.subtitle': 'Az összes bejelentett karbantartási probléma és fotók megtekintése',
+    'maintenance.markResolved': 'Megoldottként jelöl',
+    'maintenance.resolution': 'Megoldás',
+    'maintenance.resolutionPlaceholder': 'Írd be a megoldás részleteit...',
+    'maintenance.resolvedBy': 'Megoldotta',
+    'maintenance.resolvedAt': 'Megoldás ideje',
+    'maintenance.resolutionDetails': 'Megoldás részletei',
     'maintenance.selectRoom': 'Szoba kiválasztása',
     'maintenance.selectRoomPlaceholder': 'Válassz szobát...',
     'maintenance.issueDescription': 'Probléma leírása',
@@ -1115,6 +1139,16 @@ export const additionalTranslations = {
     'maintenance.photos': 'Karbantartási fotók',
     'maintenance.notes': 'Megjegyzések',
     'maintenance.delete': 'Törlés',
+
+    // Common
+    'common.room': 'Szoba',
+    'common.cancel': 'Mégse',
+    'common.saving': 'Mentés...',
+    'common.saved': 'Mentve',
+    'common.takePhoto': 'Fotó készítése',
+    'common.uploadPhoto': 'Fotó feltöltése',
+    'common.capture': 'Rögzítés',
+    'common.photos': 'Fotók',
 
     // Priority
     'priority.low': 'Alacsony',
