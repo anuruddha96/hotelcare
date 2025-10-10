@@ -47,7 +47,7 @@ export function PerformanceLeaderboard() {
     bestTime: 0,
     totalHousekeepers: 0
   });
-  const [timeframe, setTimeframe] = useState('7');
+  const [timeframe, setTimeframe] = useState('30');
   const [loading, setLoading] = useState(true);
   const [detailDialog, setDetailDialog] = useState<{
     open: boolean;
