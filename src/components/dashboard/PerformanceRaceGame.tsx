@@ -180,13 +180,23 @@ export function PerformanceRaceGame() {
   const currentUser = participants.find(p => p.isCurrentUser);
 
   return (
-    <Card className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950 dark:via-indigo-950 dark:to-purple-950 border-none shadow-xl overflow-hidden">
-      <CardHeader className="pb-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white">
-        <div className="flex items-center justify-end">
+    <Card className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950 dark:via-indigo-950 dark:to-purple-950 border-none shadow-2xl overflow-hidden">
+      <CardHeader className="pb-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="text-xl md:text-2xl font-bold flex items-center gap-2">
+            🏁 {t('performanceRace.title')}
+          </CardTitle>
           <div className="flex items-center gap-2 text-sm md:text-base">
-            <Trophy className="h-4 w-4 md:h-5 md:w-5" />
+            <Trophy className="h-5 w-5" />
             <span className="font-semibold">{participants.length} {t('performanceRace.racers')}</span>
           </div>
+        </div>
+        
+        {/* Race announcement banner */}
+        <div className="mt-3 bg-white/20 backdrop-blur-sm rounded-lg p-2 text-center">
+          <p className="text-xs md:text-sm font-medium">
+            {t('performanceRace.everyoneSeesThisRace')}
+          </p>
         </div>
       </CardHeader>
 
@@ -284,7 +294,7 @@ export function PerformanceRaceGame() {
                     <div className={`rounded-full p-1.5 md:p-2 shadow-xl border-2 border-white ${
                       participant.progressPercentage === 100 ? 'animate-bounce' : ''
                     }`}>
-                      <span className="text-lg md:text-2xl inline-block" style={{ transform: 'scaleX(-1)' }}>
+                      <span className="text-lg md:text-2xl">
                         {participant.progressPercentage === 100 ? '🎉' : '🏃'}
                       </span>
                     </div>
