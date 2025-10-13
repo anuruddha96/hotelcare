@@ -1690,6 +1690,10 @@ export type Database = {
           department: string
         }[]
       }
+      get_user_assigned_hotel: {
+        Args: { user_id: string }
+        Returns: string
+      }
       get_user_organization_slug: {
         Args: { user_id: string }
         Returns: string
