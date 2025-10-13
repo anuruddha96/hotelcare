@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { HoldButton } from '@/components/ui/hold-button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -567,15 +568,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* Primary Action Buttons - Only Start button before Required Actions */}
           <div className="flex flex-col sm:flex-row gap-3">
             {assignment.status === 'assigned' && (
-              <Button
+              <HoldButton
                 size="lg"
-                onClick={() => updateAssignmentStatus('in_progress')}
+                holdDuration={2000}
+                onHoldComplete={() => updateAssignmentStatus('in_progress')}
                 disabled={loading}
                 className="w-full sm:w-auto"
+                holdText={t('housekeeping.holdToStart')}
+                releaseText={t('housekeeping.keepHolding')}
               >
                 <Play className="h-5 w-5" />
                 {t('housekeeping.start')}
-              </Button>
+              </HoldButton>
             )}
 
             {/* Change to Checkout Button - Only for managers/admins with daily cleaning */}

@@ -92,6 +92,25 @@ export const additionalTranslations = {
     'housekeeping.noTasksFor': 'No tasks for',
     'housekeeping.tasks': 'tasks',
     'housekeeping.loadingTasks': 'Loading tasks...',
+    'housekeeping.start': 'Start Cleaning',
+    'housekeeping.holdToStart': 'Press & Hold to Start',
+    'housekeeping.keepHolding': 'Keep holding...',
+    'housekeeping.complete': 'Complete',
+    'housekeeping.addNote': 'Add Note',
+    'housekeeping.addNoteTitle': 'Add Note for Room',
+    'housekeeping.enterNote': 'Enter your note here...',
+    'housekeeping.assignmentNotes': 'Assignment Notes',
+    'housekeeping.assignmentType': {
+      dailyClean: 'Daily Clean',
+      checkoutClean: 'Checkout Clean',
+      deepClean: 'Deep Clean',
+      maintenance: 'Maintenance'
+    },
+    'housekeeping.priority': {
+      high: 'High Priority',
+      medium: 'Medium Priority',
+      low: 'Low Priority'
+    },
     
     'housekeeping.tabs.teamView': 'Team View',
     'housekeeping.tabs.performance': 'Performance',
@@ -526,6 +545,25 @@ export const additionalTranslations = {
     'housekeeping.noTasksFor': 'No hay tareas para',
     'housekeeping.tasks': 'tareas',
     'housekeeping.loadingTasks': 'Cargando tareas...',
+    'housekeeping.start': 'Iniciar Limpieza',
+    'housekeeping.holdToStart': 'Mantén Presionado para Iniciar',
+    'housekeeping.keepHolding': 'Sigue sosteniendo...',
+    'housekeeping.complete': 'Completar',
+    'housekeeping.addNote': 'Agregar Nota',
+    'housekeeping.addNoteTitle': 'Agregar Nota para Habitación',
+    'housekeeping.enterNote': 'Escriba su nota aquí...',
+    'housekeeping.assignmentNotes': 'Notas de Asignación',
+    'housekeeping.assignmentType': {
+      dailyClean: 'Limpieza Diaria',
+      checkoutClean: 'Limpieza de Salida',
+      deepClean: 'Limpieza Profunda',
+      maintenance: 'Mantenimiento'
+    },
+    'housekeeping.priority': {
+      high: 'Prioridad Alta',
+      medium: 'Prioridad Media',
+      low: 'Prioridad Baja'
+    },
     
     'housekeeping.tabs.teamView': 'Vista de Equipo',
     'housekeeping.tabs.performance': 'Rendimiento',
@@ -911,6 +949,25 @@ export const additionalTranslations = {
     'housekeeping.noTasksFor': 'Không có nhiệm vụ cho',
     'housekeeping.tasks': 'nhiệm vụ',
     'housekeeping.loadingTasks': 'Đang tải nhiệm vụ...',
+    'housekeeping.start': 'Bắt đầu Dọn dẹp',
+    'housekeeping.holdToStart': 'Giữ để Bắt đầu',
+    'housekeeping.keepHolding': 'Tiếp tục giữ...',
+    'housekeeping.complete': 'Hoàn thành',
+    'housekeeping.addNote': 'Thêm Ghi chú',
+    'housekeeping.addNoteTitle': 'Thêm Ghi chú cho Phòng',
+    'housekeeping.enterNote': 'Nhập ghi chú của bạn ở đây...',
+    'housekeeping.assignmentNotes': 'Ghi chú Phân công',
+    'housekeeping.assignmentType': {
+      dailyClean: 'Dọn Hàng Ngày',
+      checkoutClean: 'Dọn Trả Phòng',
+      deepClean: 'Dọn Sâu',
+      maintenance: 'Bảo Trì'
+    },
+    'housekeeping.priority': {
+      high: 'Ưu Tiên Cao',
+      medium: 'Ưu Tiên Trung Bình',
+      low: 'Ưu Tiên Thấp'
+    },
     
     'housekeeping.tabs.teamView': 'Xem Nhóm',
     'housekeeping.tabs.performance': 'Hiệu suất',
@@ -1236,6 +1293,25 @@ export const additionalTranslations = {
     'housekeeping.noTasksFor': 'Ажил байхгүй',
     'housekeeping.tasks': 'ажил',
     'housekeeping.loadingTasks': 'Ажлууд ачаалж байна...',
+    'housekeeping.start': 'Цэвэрлэж эхлэх',
+    'housekeeping.holdToStart': 'Эхлүүлэхийн тулд дарж байна уу',
+    'housekeeping.keepHolding': 'Үргэлжлүүлэн дарж байна уу...',
+    'housekeeping.complete': 'Дуусгах',
+    'housekeeping.addNote': 'Тэмдэглэл нэмэх',
+    'housekeeping.addNoteTitle': 'Өрөөний Тэмдэглэл нэмэх',
+    'housekeeping.enterNote': 'Тэмдэглэлээ оруулна уу...',
+    'housekeeping.assignmentNotes': 'Даалгаврын Тэмдэглэл',
+    'housekeeping.assignmentType': {
+      dailyClean: 'Өдөр Тутмын Цэвэрлэгээ',
+      checkoutClean: 'Буцах Цэвэрлэгээ',
+      deepClean: 'Гүн Цэвэрлэгээ',
+      maintenance: 'Засвар'
+    },
+    'housekeeping.priority': {
+      high: 'Өндөр Ач Холбогдол',
+      medium: 'Дунд Ач Холбогдол',
+      low: 'Бага Ач Холбогдол'
+    },
     
     'housekeeping.tabs.teamView': 'Багийн харагдац',
     'housekeeping.tabs.performance': 'Гүйцэтгэл',
@@ -1585,6 +1661,25 @@ export const additionalTranslations = {
     'housekeeping.noTasksFor': 'Nincs feladat',
     'housekeeping.tasks': 'feladat',
     'housekeeping.loadingTasks': 'Feladatok betöltése...',
+    'housekeeping.start': 'Takarítás Indítása',
+    'housekeeping.holdToStart': 'Tartsa Nyomva az Indításhoz',
+    'housekeeping.keepHolding': 'Továbbra is tartsa...',
+    'housekeeping.complete': 'Befejezés',
+    'housekeeping.addNote': 'Jegyzet Hozzáadása',
+    'housekeeping.addNoteTitle': 'Jegyzet Hozzáadása a Szobához',
+    'housekeeping.enterNote': 'Írja be jegyzetét itt...',
+    'housekeeping.assignmentNotes': 'Feladatkijelölési Jegyzetek',
+    'housekeeping.assignmentType': {
+      dailyClean: 'Napi Takarítás',
+      checkoutClean: 'Kijelentkezési Takarítás',
+      deepClean: 'Mélytagarítás',
+      maintenance: 'Karbantartás'
+    },
+    'housekeeping.priority': {
+      high: 'Magas Prioritás',
+      medium: 'Közepes Prioritás',
+      low: 'Alacsony Prioritás'
+    },
     
     'housekeeping.tabs.teamView': 'Csapat nézet',
     'housekeeping.tabs.performance': 'Teljesítmény',

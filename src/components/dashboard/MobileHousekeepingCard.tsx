@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { HoldButton } from '@/components/ui/hold-button';
 import { Clock, MapPin, User, Camera, PlayCircle, AlertTriangle, Shirt } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
@@ -165,10 +166,19 @@ export function MobileHousekeepingCard({
         {/* Action Buttons */}
         <div className="space-y-2 pt-2">
           {assignment.status === 'assigned' && (
-            <Button onClick={onStart} className="w-full h-12 text-lg">
-              <PlayCircle className="h-5 w-5 mr-2" />
-              {t('housekeeping.start')}
-            </Button>
+            <div className="relative pb-8">
+              <HoldButton 
+                onClick={onStart}
+                onHoldComplete={onStart}
+                holdDuration={2000}
+                className="w-full h-12 text-lg"
+                holdText={t('housekeeping.holdToStart')}
+                releaseText={t('housekeeping.keepHolding')}
+              >
+                <PlayCircle className="h-5 w-5 mr-2" />
+                {t('housekeeping.start')}
+              </HoldButton>
+            </div>
           )}
 
           {assignment.status === 'in_progress' && (
