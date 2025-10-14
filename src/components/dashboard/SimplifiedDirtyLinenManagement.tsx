@@ -157,8 +157,10 @@ export function SimplifiedDirtyLinenManagement() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]); // Watch for actual date changes
+    if (dateRange?.from && dateRange?.to) {
+      fetchData();
+    }
+  }, [dateRange]); // Watch for date range changes
 
   const exportToCSV = () => {
     if (!dateRange?.from || !dateRange?.to) return;
