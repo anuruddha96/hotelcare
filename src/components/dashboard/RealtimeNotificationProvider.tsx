@@ -75,7 +75,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
           .subscribe()
       ] : []),
 
-      // Supervisor approvals
+      // Supervisor approvals (filtered by hotel)
       ...(profile?.role && ['manager', 'housekeeping_manager', 'admin'].includes(profile.role) ? [
         supabase
           .channel('supervisor-approvals-notifications')
@@ -87,13 +87,44 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
               table: 'room_assignments',
               filter: 'status=eq.completed'
             },
-            (payload) => {
+            async (payload) => {
               if (payload.new.status === 'completed' && payload.old.status !== 'completed') {
-                showNotification(
-                  `Room ${payload.new.room_id} completed and ready for approval`,
-                  'info',
-                  'Approval Required'
-                );
+                // Fetch room details to check hotel
+                const { data: roomData } = await supabase
+                  .from('rooms')
+                  .select('hotel')
+                  .eq('id', payload.new.room_id)
+                  .single();
+
+                if (roomData) {
+                  // Get manager's assigned hotel
+                  const { data: profileData } = await supabase
+                    .from('profiles')
+                    .select('assigned_hotel')
+                    .eq('id', user.id)
+                    .single();
+
+                  const userHotelId = profileData?.assigned_hotel;
+                  let userHotelName = userHotelId;
+
+                  // Get hotel name from hotel_id if needed
+                  if (userHotelId) {
+                    const { data: hotelName } = await supabase
+                      .rpc('get_hotel_name_from_id', { hotel_id: userHotelId });
+                    if (hotelName) {
+                      userHotelName = hotelName;
+                    }
+                  }
+
+                  // Only notify if the room belongs to the manager's hotel
+                  if (roomData.hotel === userHotelName || roomData.hotel === userHotelId) {
+                    showNotification(
+                      `Room completed and ready for approval`,
+                      'info',
+                      'Approval Required'
+                    );
+                  }
+                }
               }
             }
           )

@@ -172,8 +172,6 @@ export function MobileHousekeepingCard({
                 onHoldComplete={onStart}
                 holdDuration={2000}
                 className="w-full h-12 text-lg"
-                holdText={t('housekeeping.holdToStart')}
-                releaseText={t('housekeeping.keepHolding')}
               >
                 <PlayCircle className="h-5 w-5 mr-2" />
                 {t('housekeeping.start')}
@@ -182,10 +180,17 @@ export function MobileHousekeepingCard({
           )}
 
           {assignment.status === 'in_progress' && (
-            <Button onClick={onComplete} className="w-full h-12 text-lg bg-green-600 hover:bg-green-700">
-              <Camera className="h-5 w-5 mr-2" />
-              {t('housekeeping.markComplete')}
-            </Button>
+            <div className="relative pb-8">
+              <HoldButton 
+                onClick={onComplete}
+                onHoldComplete={onComplete}
+                holdDuration={2000}
+                className="w-full h-12 text-lg bg-green-600 hover:bg-green-700"
+              >
+                <Camera className="h-5 w-5 mr-2" />
+                {t('housekeeping.markComplete')}
+              </HoldButton>
+            </div>
           )}
 
           {/* Additional Action Buttons */}

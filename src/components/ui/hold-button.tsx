@@ -151,19 +151,6 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
           </svg>
         )}
 
-        {/* Instruction text */}
-        {!isHolding && !isComplete && holdText && (
-          <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground animate-fade-in">
-            {holdText}
-          </div>
-        )}
-
-        {/* Release warning */}
-        {isHolding && !isComplete && releaseText && progress < 95 && (
-          <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-primary font-medium animate-pulse">
-            {releaseText}
-          </div>
-        )}
       </div>
     )
   }

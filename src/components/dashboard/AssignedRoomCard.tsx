@@ -680,15 +680,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* Complete, Add Note, Details Buttons - After Required Actions */}
           {assignment.status === 'in_progress' && (
             <div className="flex flex-col sm:flex-row gap-3">
-              <Button 
-                size="lg" 
-                onClick={() => updateAssignmentStatus('completed')} 
-                disabled={loading} 
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white" 
-              > 
-                <CheckCircle className="h-5 w-5" /> 
-                {t('housekeeping.complete')} 
-              </Button>
+              <div className="relative pb-8 w-full sm:w-auto">
+                <HoldButton 
+                  onClick={() => updateAssignmentStatus('completed')}
+                  onHoldComplete={() => updateAssignmentStatus('completed')}
+                  holdDuration={2000}
+                  disabled={loading}
+                  className="w-full h-12 bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <CheckCircle className="h-5 w-5 mr-2" /> 
+                  {t('housekeeping.complete')} 
+                </HoldButton>
+              </div>
 
               <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
                 <DialogTrigger asChild>
