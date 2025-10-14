@@ -106,17 +106,6 @@ export function MobileHousekeepingCard({
           </div>
         )}
 
-        {/* Estimated Time */}
-        <div className="flex items-center gap-2 p-2 bg-blue-50 rounded">
-          <Clock className="h-4 w-4 text-blue-600" />
-          <div className="text-sm">
-            <p className="font-medium text-blue-800">{t('roomCard.estimatedTime')}</p>
-            <p className="text-lg font-bold text-blue-900">
-              {assignment.estimated_duration} {t('common.minutes')}
-            </p>
-          </div>
-        </div>
-
         {/* Strong Notifications for Towel/Linen Changes */}
         {(towelChangeRequired || linenChangeRequired) && (
           <div className="space-y-2">
