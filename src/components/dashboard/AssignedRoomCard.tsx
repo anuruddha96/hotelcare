@@ -687,6 +687,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   holdDuration={2000}
                   disabled={loading}
                   className="w-full h-12 bg-green-600 hover:bg-green-700 text-white"
+                  holdText={t('housekeeping.holdToComplete')}
+                  releaseText={t('housekeeping.keepHolding')}
                 >
                   <CheckCircle className="h-5 w-5 mr-2" /> 
                   {t('housekeeping.complete')} 

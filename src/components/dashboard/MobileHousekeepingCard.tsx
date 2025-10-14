@@ -161,6 +161,8 @@ export function MobileHousekeepingCard({
                 onHoldComplete={onStart}
                 holdDuration={2000}
                 className="w-full h-12 text-lg"
+                holdText={t('housekeeping.holdToStart')}
+                releaseText={t('housekeeping.keepHolding')}
               >
                 <PlayCircle className="h-5 w-5 mr-2" />
                 {t('housekeeping.start')}
@@ -175,6 +177,8 @@ export function MobileHousekeepingCard({
                 onHoldComplete={onComplete}
                 holdDuration={2000}
                 className="w-full h-12 text-lg bg-green-600 hover:bg-green-700"
+                holdText={t('housekeeping.holdToComplete')}
+                releaseText={t('housekeeping.keepHolding')}
               >
                 <Camera className="h-5 w-5 mr-2" />
                 {t('housekeeping.markComplete')}

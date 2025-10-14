@@ -128,29 +128,19 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
           </span>
         </Button>
 
-        {/* Circular progress ring */}
-        {isHolding && !isComplete && (
-          <svg 
-            className="absolute inset-0 w-full h-full pointer-events-none"
-            style={{ transform: 'rotate(-90deg)' }}
-          >
-            <circle
-              cx="50%"
-              cy="50%"
-              r="calc(50% - 2px)"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="3"
-              strokeDasharray={`${2 * Math.PI * 50}`}
-              strokeDashoffset={`${2 * Math.PI * 50 * (1 - progress / 100)}`}
-              className="text-primary transition-all duration-100"
-              style={{
-                transition: 'stroke-dashoffset 16ms linear'
-              }}
-            />
-          </svg>
+        {/* Instruction text */}
+        {!isHolding && !isComplete && holdText && (
+          <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground animate-fade-in">
+            {holdText}
+          </div>
         )}
 
+        {/* Release warning */}
+        {isHolding && !isComplete && releaseText && progress < 95 && (
+          <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-primary font-medium animate-pulse">
+            {releaseText}
+          </div>
+        )}
       </div>
     )
   }
