@@ -132,17 +132,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     
     const { data, error } = await supabase
       .from('staff_attendance')
-      .select('status, notes')
+      .select('status, notes, created_at')
       .eq('user_id', user.id)
       .eq('work_date', today)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: false });
     
-    if (data) {
-      setAttendanceStatus(data.status);
+    // Get the most recent record
+    const latestRecord = data && data.length > 0 ? data[0] : null;
+    
+    if (latestRecord) {
+      setAttendanceStatus(latestRecord.status);
       // Check if this was a manual check-in by admin
-      setIsManualCheckIn(data.notes === 'Manually checked in by admin');
+      setIsManualCheckIn(latestRecord.notes === 'Manually checked in by admin');
     } else {
       setAttendanceStatus(null);
       setIsManualCheckIn(false);
