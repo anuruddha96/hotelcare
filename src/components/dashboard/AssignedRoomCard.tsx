@@ -135,6 +135,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       .select('status, notes')
       .eq('user_id', user.id)
       .eq('work_date', today)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
     
     if (data) {
