@@ -85,6 +85,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
+  const [isManualCheckIn, setIsManualCheckIn] = useState(false);
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
   const [lostFoundDialogOpen, setLostFoundDialogOpen] = useState(false);
@@ -129,23 +130,20 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     
     const today = new Date().toISOString().split('T')[0];
     
-    console.log('Checking attendance for user:', user.id, 'on date:', today);
-    
     const { data, error } = await supabase
       .from('staff_attendance')
-      .select('status')
+      .select('status, notes')
       .eq('user_id', user.id)
       .eq('work_date', today)
       .maybeSingle();
     
-    console.log('Attendance data:', data, 'error:', error);
-    
     if (data) {
-      console.log('Setting attendance status to:', data.status);
       setAttendanceStatus(data.status);
+      // Check if this was a manual check-in by admin
+      setIsManualCheckIn(data.notes === 'Manually checked in by admin');
     } else {
-      console.log('No attendance record found, setting to null');
       setAttendanceStatus(null);
+      setIsManualCheckIn(false);
     }
   };
 
@@ -211,26 +209,26 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       }
     }
 
-    // Check if user is on break before starting work
-    if (newStatus === 'in_progress' && attendanceStatus === 'on_break') {
-      console.log('Blocked: User is on break');
-      showToast({
-        title: "🌸 Take Your Time",
-        description: "Please finish your break before starting work. Your well-being matters! 😌",
-      });
-      return;
-    }
+    // Skip attendance checks if user was manually checked in by admin
+    if (!isManualCheckIn) {
+      // Check if user is on break before starting work
+      if (newStatus === 'in_progress' && attendanceStatus === 'on_break') {
+        showToast({
+          title: "🌸 Take Your Time",
+          description: "Please finish your break before starting work. Your well-being matters! 😌",
+        });
+        return;
+      }
 
-    // Check if user is checked in before starting work
-    console.log('Current attendance status:', attendanceStatus);
-    if (newStatus === 'in_progress' && (!attendanceStatus || attendanceStatus === 'checked_out')) {
-      console.log('Blocked: User not checked in. Status:', attendanceStatus);
-      showToast({
-        title: "Check-in Required",
-        description: "Please check in first before starting your tasks",
-        variant: "destructive"
-      });
-      return;
+      // Check if user is checked in before starting work
+      if (newStatus === 'in_progress' && (!attendanceStatus || attendanceStatus === 'checked_out')) {
+        showToast({
+          title: "Check-in Required",
+          description: "Please check in first before starting your tasks",
+          variant: "destructive"
+        });
+        return;
+      }
     }
 
     // Check if user already has a room in progress (only for housekeepers)
