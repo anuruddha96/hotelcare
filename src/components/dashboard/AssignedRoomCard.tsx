@@ -110,9 +110,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       .select('status')
       .eq('user_id', user.id)
       .eq('work_date', today)
-      .single();
+      .maybeSingle();
     
-    if (!error && data) {
+    if (data) {
       setAttendanceStatus(data.status);
     } else {
       setAttendanceStatus(null);
