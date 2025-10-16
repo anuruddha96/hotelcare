@@ -126,25 +126,45 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   }, [assignment.completion_photos]);
 
   const checkAttendanceStatus = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.log('❌ No user ID found');
+      return;
+    }
     
     const today = new Date().toISOString().split('T')[0];
+    console.log('🔍 Checking attendance for:', { userId: user.id, date: today });
     
     const { data, error } = await supabase
       .from('staff_attendance')
-      .select('status, notes, created_at')
+      .select('id, status, notes, created_at, check_in_time')
       .eq('user_id', user.id)
       .eq('work_date', today)
       .order('created_at', { ascending: false });
     
+    console.log('📊 Attendance records found:', data?.length || 0);
+    console.log('📋 All records:', JSON.stringify(data, null, 2));
+    
+    if (error) {
+      console.error('❌ Error fetching attendance:', error);
+    }
+    
     // Get the most recent record
     const latestRecord = data && data.length > 0 ? data[0] : null;
     
+    console.log('✅ Latest record:', latestRecord);
+    
     if (latestRecord) {
+      const isManual = latestRecord.notes === 'Manually checked in by admin';
+      console.log('📝 Setting attendance status:', {
+        status: latestRecord.status,
+        isManualCheckIn: isManual,
+        notes: latestRecord.notes
+      });
+      
       setAttendanceStatus(latestRecord.status);
-      // Check if this was a manual check-in by admin
-      setIsManualCheckIn(latestRecord.notes === 'Manually checked in by admin');
+      setIsManualCheckIn(isManual);
     } else {
+      console.log('⚠️ No attendance record found - setting to null');
       setAttendanceStatus(null);
       setIsManualCheckIn(false);
     }
@@ -213,9 +233,17 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
 
     // Skip attendance checks if user was manually checked in by admin
+    console.log('🔐 Attendance check:', {
+      newStatus,
+      isManualCheckIn,
+      attendanceStatus,
+      willSkipChecks: isManualCheckIn
+    });
+    
     if (!isManualCheckIn) {
       // Check if user is on break before starting work
       if (newStatus === 'in_progress' && attendanceStatus === 'on_break') {
+        console.log('⏸️ User is on break - blocking start');
         showToast({
           title: "🌸 Take Your Time",
           description: "Please finish your break before starting work. Your well-being matters! 😌",
@@ -225,6 +253,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
       // Check if user is checked in before starting work
       if (newStatus === 'in_progress' && (!attendanceStatus || attendanceStatus === 'checked_out')) {
+        console.log('❌ User not checked in - blocking start', { attendanceStatus });
         showToast({
           title: "Check-in Required",
           description: "Please check in first before starting your tasks",
@@ -232,6 +261,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         });
         return;
       }
+    } else {
+      console.log('✅ Skipping attendance checks - manual check-in detected');
     }
 
     // Check if user already has a room in progress (only for housekeepers)
