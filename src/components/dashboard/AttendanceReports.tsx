@@ -200,7 +200,7 @@ export const AttendanceReports = () => {
     switch (status) {
       case 'checked_in':
         if (isFromPastDay) {
-          return <Badge className="bg-red-500 text-white">Not Signed Out</Badge>;
+          return <Badge className="bg-red-500 text-white whitespace-nowrap text-xs">Not Signed Out</Badge>;
         }
         return <Badge className="bg-green-500 text-white">Working</Badge>;
       case 'on_break':
