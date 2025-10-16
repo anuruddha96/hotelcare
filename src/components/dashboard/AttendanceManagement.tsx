@@ -215,6 +215,12 @@ export const AttendanceManagement = () => {
     }
 
     try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('organization_slug')
+        .eq('id', selectedUserForCheckIn)
+        .single();
+
       const { error } = await supabase
         .from('staff_attendance')
         .insert({
@@ -222,7 +228,8 @@ export const AttendanceManagement = () => {
           check_in_time: new Date().toISOString(),
           work_date: format(new Date(), 'yyyy-MM-dd'),
           status: 'checked_in',
-          notes: 'Manually checked in by admin'
+          notes: 'Manually checked in by admin',
+          organization_slug: profile?.organization_slug || 'rdhotels'
         });
 
       if (error) throw error;
