@@ -93,6 +93,30 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
   useEffect(() => {
     checkAttendanceStatus();
+    
+    // Set up realtime subscription for attendance changes
+    if (!user?.id) return;
+    
+    const channel = supabase
+      .channel('attendance-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'staff_attendance',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          // Refresh attendance status when it changes
+          checkAttendanceStatus();
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   // Update current photos when assignment changes
