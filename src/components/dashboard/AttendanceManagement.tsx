@@ -5,11 +5,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
-import { CalendarDays, Clock, MapPin, TrendingUp, Users, Download, FileText } from 'lucide-react';
+import { CalendarDays, Clock, MapPin, TrendingUp, Users, Download, FileText, UserPlus } from 'lucide-react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { AttendanceReports } from './AttendanceReports';
 
@@ -48,6 +49,8 @@ export const AttendanceManagement = () => {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
   const [employees, setEmployees] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [manualCheckInOpen, setManualCheckInOpen] = useState(false);
+  const [selectedUserForCheckIn, setSelectedUserForCheckIn] = useState<string>('');
 
   // Enhanced role permissions - HR and admins see everything, managers see their hotel only
   const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'top_management';
@@ -201,6 +204,47 @@ export const AttendanceManagement = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleManualCheckIn = async () => {
+    if (!selectedUserForCheckIn) {
+      toast({
+        title: "Error",
+        description: "Please select an employee",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('staff_attendance')
+        .insert({
+          user_id: selectedUserForCheckIn,
+          check_in_time: new Date().toISOString(),
+          work_date: format(new Date(), 'yyyy-MM-dd'),
+          status: 'checked_in',
+          notes: 'Manually checked in by admin'
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Employee checked in successfully",
+      });
+
+      setManualCheckInOpen(false);
+      setSelectedUserForCheckIn('');
+      fetchAttendanceData();
+    } catch (error) {
+      console.error('Error checking in employee:', error);
+      toast({
+        title: "Error",
+        description: "Failed to check in employee",
+        variant: "destructive"
+      });
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'checked_in':
@@ -279,6 +323,47 @@ export const AttendanceManagement = () => {
                   <Download className="h-4 w-4" />
                   {t('hr.exportCsv')}
                 </Button>
+
+                {isAdmin && (
+                  <Dialog open={manualCheckInOpen} onOpenChange={setManualCheckInOpen}>
+                    <DialogTrigger asChild>
+                      <Button className="flex items-center gap-2">
+                        <UserPlus className="h-4 w-4" />
+                        Manual Check-In
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Manual Employee Check-In</DialogTitle>
+                        <DialogDescription>
+                          Check in an employee who accidentally signed out or forgot to check in.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <Select value={selectedUserForCheckIn} onValueChange={setSelectedUserForCheckIn}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Employee" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {employees.map(emp => (
+                              <SelectItem key={emp.id} value={emp.id}>
+                                {emp.full_name} - {emp.role}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setManualCheckInOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleManualCheckIn}>
+                          Check In Now
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
             </CardContent>
           </Card>
