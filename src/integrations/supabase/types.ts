@@ -399,30 +399,57 @@ export type Database = {
       hotel_configurations: {
         Row: {
           created_at: string | null
+          custom_app_name: string | null
+          custom_branding_enabled: boolean | null
+          custom_favicon_url: string | null
+          custom_login_background: string | null
+          custom_logo_url: string | null
+          custom_primary_color: string | null
+          custom_secondary_color: string | null
+          custom_welcome_message: string | null
           hotel_id: string
           hotel_name: string
           id: string
           is_active: boolean | null
+          logo_scale: number | null
           organization_id: string | null
           settings: Json | null
           updated_at: string | null
         }
         Insert: {
           created_at?: string | null
+          custom_app_name?: string | null
+          custom_branding_enabled?: boolean | null
+          custom_favicon_url?: string | null
+          custom_login_background?: string | null
+          custom_logo_url?: string | null
+          custom_primary_color?: string | null
+          custom_secondary_color?: string | null
+          custom_welcome_message?: string | null
           hotel_id: string
           hotel_name: string
           id?: string
           is_active?: boolean | null
+          logo_scale?: number | null
           organization_id?: string | null
           settings?: Json | null
           updated_at?: string | null
         }
         Update: {
           created_at?: string | null
+          custom_app_name?: string | null
+          custom_branding_enabled?: boolean | null
+          custom_favicon_url?: string | null
+          custom_login_background?: string | null
+          custom_logo_url?: string | null
+          custom_primary_color?: string | null
+          custom_secondary_color?: string | null
+          custom_welcome_message?: string | null
           hotel_id?: string
           hotel_name?: string
           id?: string
           is_active?: boolean | null
+          logo_scale?: number | null
           organization_id?: string | null
           settings?: Json | null
           updated_at?: string | null

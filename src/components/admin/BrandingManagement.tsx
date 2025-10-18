@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTenant } from '@/contexts/TenantContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -6,52 +6,131 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import { BrandLogo } from '@/components/ui/brand-logo';
-import { Palette, Image, Type, Sparkles } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { Palette, Image, Type, Hotel } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export const BrandingManagement = () => {
-  const { organization, refreshTenant } = useTenant();
+  const { organization } = useTenant();
+  const { profile } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [hotels, setHotels] = useState<any[]>([]);
+  const [selectedHotel, setSelectedHotel] = useState<string>('');
   
-  const isEnterprise = organization?.settings?.subscription_tier === 'enterprise' || 
-                       (organization as any)?.allow_custom_branding;
+  // Super admins and admins have full access
+  const hasAccess = profile?.is_super_admin || profile?.role === 'admin';
 
   const [formData, setFormData] = useState({
-    custom_logo_url: (organization as any)?.custom_logo_url || '',
-    custom_favicon_url: (organization as any)?.custom_favicon_url || '',
-    custom_app_name: (organization as any)?.custom_app_name || organization?.name || '',
-    custom_primary_color: (organization as any)?.custom_primary_color || 'hsl(200, 76%, 58%)',
-    custom_secondary_color: (organization as any)?.custom_secondary_color || 'hsl(0, 0%, 42%)',
-    custom_login_background: (organization as any)?.custom_login_background || '',
-    custom_welcome_message: (organization as any)?.custom_welcome_message || '',
-    logo_scale: (organization as any)?.logo_scale || 3,
+    custom_branding_enabled: false,
+    custom_logo_url: '',
+    custom_favicon_url: '',
+    custom_app_name: '',
+    custom_primary_color: 'hsl(200, 76%, 58%)',
+    custom_secondary_color: 'hsl(0, 0%, 42%)',
+    custom_login_background: '',
+    custom_welcome_message: '',
+    logo_scale: 3,
   });
 
+  // Load hotels on component mount
+  useEffect(() => {
+    loadHotels();
+  }, []);
+
+  // Load hotel branding when hotel is selected
+  useEffect(() => {
+    if (selectedHotel) {
+      loadHotelBranding();
+    }
+  }, [selectedHotel]);
+
+  const loadHotels = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('hotel_configurations')
+        .select('*')
+        .eq('is_active', true)
+        .order('hotel_name');
+
+      if (error) throw error;
+      setHotels(data || []);
+      
+      // Auto-select first hotel if available
+      if (data && data.length > 0 && !selectedHotel) {
+        setSelectedHotel(data[0].hotel_id);
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const loadHotelBranding = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('hotel_configurations')
+        .select('*')
+        .eq('hotel_id', selectedHotel)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setFormData({
+          custom_branding_enabled: data.custom_branding_enabled || false,
+          custom_logo_url: data.custom_logo_url || '',
+          custom_favicon_url: data.custom_favicon_url || '',
+          custom_app_name: data.custom_app_name || data.hotel_name || '',
+          custom_primary_color: data.custom_primary_color || 'hsl(200, 76%, 58%)',
+          custom_secondary_color: data.custom_secondary_color || 'hsl(0, 0%, 42%)',
+          custom_login_background: data.custom_login_background || '',
+          custom_welcome_message: data.custom_welcome_message || '',
+          logo_scale: data.logo_scale || 3,
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleSave = async () => {
-    if (!organization?.id) return;
+    if (!selectedHotel) {
+      toast({
+        title: 'Error',
+        description: 'Please select a hotel first',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setLoading(true);
     try {
       const { error } = await supabase
-        .from('organizations')
+        .from('hotel_configurations')
         .update({
           ...formData,
-          allow_custom_branding: true,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', organization.id);
+        .eq('hotel_id', selectedHotel);
 
       if (error) throw error;
 
       toast({
         title: 'Branding Updated',
-        description: 'Your custom branding has been saved. Refresh the page to see changes.',
+        description: `Custom branding for ${hotels.find(h => h.hotel_id === selectedHotel)?.hotel_name} has been saved. Refresh the page to see changes.`,
       });
-
-      await refreshTenant();
       
       // Reload page to apply new branding
       setTimeout(() => window.location.reload(), 1500);
@@ -67,13 +146,14 @@ export const BrandingManagement = () => {
   };
 
   const handleReset = async () => {
-    if (!organization?.id) return;
+    if (!selectedHotel) return;
 
     setLoading(true);
     try {
       const { error } = await supabase
-        .from('organizations')
+        .from('hotel_configurations')
         .update({
+          custom_branding_enabled: false,
           custom_logo_url: null,
           custom_favicon_url: null,
           custom_app_name: null,
@@ -84,7 +164,7 @@ export const BrandingManagement = () => {
           logo_scale: 3,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', organization.id);
+        .eq('hotel_id', selectedHotel);
 
       if (error) throw error;
 
@@ -105,41 +185,32 @@ export const BrandingManagement = () => {
     }
   };
 
-  if (!isEnterprise) {
+  if (!hasAccess) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Enterprise Feature: Custom Branding
-          </CardTitle>
+          <CardTitle>Access Denied</CardTitle>
           <CardDescription>
-            White-label your HotelCare.app instance with your own branding
+            Only super admins and admins can manage custom branding
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent>
           <Alert>
-            <Sparkles className="h-4 w-4" />
             <AlertDescription>
-              Custom branding is available on the <strong>Enterprise plan</strong> ($299/month).
-              <br />
-              <br />
-              <strong>Included features:</strong>
-              <ul className="list-disc list-inside mt-2 space-y-1">
-                <li>Custom logo and favicon</li>
-                <li>Custom brand colors</li>
-                <li>Custom app name</li>
-                <li>Custom login background</li>
-                <li>Unlimited hotels</li>
-                <li>White-label option</li>
-                <li>Custom domain support</li>
-              </ul>
+              You don't have permission to access this feature. Please contact your system administrator.
             </AlertDescription>
           </Alert>
-          <Button className="w-full" size="lg">
-            Upgrade to Enterprise
-          </Button>
         </CardContent>
+      </Card>
+    );
+  }
+
+  if (!selectedHotel) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Loading Hotels...</CardTitle>
+        </CardHeader>
       </Card>
     );
   }
@@ -150,13 +221,47 @@ export const BrandingManagement = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Palette className="h-5 w-5" />
-            Custom Branding
+            Hotel-Specific Custom Branding
           </CardTitle>
           <CardDescription>
-            Customize the look and feel of your HotelCare.app instance
+            Configure custom branding for each hotel. When enabled, the hotel's logo will replace the HotelCare logo.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Hotel Selector */}
+          <div className="space-y-2">
+            <Label htmlFor="hotel_selector" className="flex items-center gap-2">
+              <Hotel className="h-4 w-4" />
+              Select Hotel
+            </Label>
+            <Select value={selectedHotel} onValueChange={setSelectedHotel}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a hotel..." />
+              </SelectTrigger>
+              <SelectContent>
+                {hotels.map((hotel) => (
+                  <SelectItem key={hotel.hotel_id} value={hotel.hotel_id}>
+                    {hotel.hotel_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Enable Custom Branding Toggle */}
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <div className="space-y-0.5">
+              <Label htmlFor="custom_branding_enabled">Enable Custom Branding</Label>
+              <p className="text-sm text-muted-foreground">
+                Replace HotelCare branding with custom hotel branding
+              </p>
+            </div>
+            <Switch
+              id="custom_branding_enabled"
+              checked={formData.custom_branding_enabled}
+              onCheckedChange={(checked) => setFormData({ ...formData, custom_branding_enabled: checked })}
+            />
+          </div>
           {/* Preview */}
           <div className="p-6 border rounded-lg bg-muted/50">
             <h3 className="text-sm font-medium mb-4">Preview</h3>
