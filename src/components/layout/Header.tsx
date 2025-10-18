@@ -73,7 +73,7 @@ export function Header() {
             <img 
               src={branding.logoUrl} 
               alt={branding.appName}
-              className="h-8 sm:h-10 w-auto cursor-pointer hover:opacity-80 transition-opacity"
+              className="h-12 sm:h-16 w-auto cursor-pointer hover:opacity-80 transition-opacity"
               onClick={() => navigate(`/${organizationSlug || 'rdhotels'}`)}
             />
           </div>

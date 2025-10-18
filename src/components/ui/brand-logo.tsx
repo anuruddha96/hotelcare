@@ -7,11 +7,11 @@ interface BrandLogoProps {
 }
 
 const sizeClasses = {
-  sm: 'h-8 w-auto',
-  md: 'h-12 w-auto',
-  lg: 'h-16 w-auto',
-  xl: 'h-24 w-auto',
-  '2xl': 'h-32 w-auto',
+  sm: 'h-12 w-auto',
+  md: 'h-16 w-auto',
+  lg: 'h-24 w-auto',
+  xl: 'h-32 w-auto',
+  '2xl': 'h-40 w-auto',
 };
 
 export const BrandLogo = ({ size = 'md', className = '', animated = false }: BrandLogoProps) => {

@@ -8,9 +8,9 @@ interface LogoSpinnerProps {
 export const LogoSpinner = ({ size = 'md', message }: LogoSpinnerProps) => {
   const { branding } = useBranding();
   const sizeClasses = {
-    sm: 'h-12 w-auto',
-    md: 'h-16 w-auto',
-    lg: 'h-24 w-auto',
+    sm: 'h-16 w-auto',
+    md: 'h-24 w-auto',
+    lg: 'h-32 w-auto',
   };
 
   return (
