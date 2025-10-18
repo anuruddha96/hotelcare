@@ -35,6 +35,7 @@ export const BrandingManagement = () => {
     custom_login_background: '',
     custom_welcome_message: '',
     logo_scale: 3,
+    logo_scale_auth: 9,
   });
 
   // Load hotels on component mount
@@ -94,6 +95,7 @@ export const BrandingManagement = () => {
           custom_login_background: data.custom_login_background || '',
           custom_welcome_message: data.custom_welcome_message || '',
           logo_scale: data.logo_scale ? Number(data.logo_scale) : 3,
+          logo_scale_auth: data.logo_scale_auth ? Number(data.logo_scale_auth) : 9,
         });
       }
     } catch (error: any) {
@@ -162,6 +164,7 @@ export const BrandingManagement = () => {
           custom_login_background: null,
           custom_welcome_message: null,
           logo_scale: 3,
+          logo_scale_auth: 9,
           updated_at: new Date().toISOString(),
         })
         .eq('hotel_id', selectedHotel);
@@ -318,10 +321,10 @@ export const BrandingManagement = () => {
             <p className="text-xs text-muted-foreground">Recommended: 15:5 ratio (e.g., 600x200px) PNG with transparent background</p>
           </div>
 
-          {/* Logo Scale */}
+          {/* Logo Scale - Header */}
           <div className="space-y-3">
             <Label htmlFor="logo_scale" className="flex items-center justify-between">
-              <span>Logo Size (Header)</span>
+              <span>Logo Size (Header/Dashboard)</span>
               <span className="text-sm font-normal text-muted-foreground">{formData.logo_scale}rem</span>
             </Label>
             <input
@@ -332,6 +335,29 @@ export const BrandingManagement = () => {
               step="0.5"
               value={formData.logo_scale}
               onChange={(e) => setFormData({ ...formData, logo_scale: parseFloat(e.target.value) })}
+              className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Small</span>
+              <span>Medium</span>
+              <span>Large</span>
+            </div>
+          </div>
+
+          {/* Logo Scale - Auth Page */}
+          <div className="space-y-3">
+            <Label htmlFor="logo_scale_auth" className="flex items-center justify-between">
+              <span>Logo Size (Login Page)</span>
+              <span className="text-sm font-normal text-muted-foreground">{formData.logo_scale_auth}rem</span>
+            </Label>
+            <input
+              id="logo_scale_auth"
+              type="range"
+              min="4"
+              max="16"
+              step="0.5"
+              value={formData.logo_scale_auth}
+              onChange={(e) => setFormData({ ...formData, logo_scale_auth: parseFloat(e.target.value) })}
               className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
             />
             <div className="flex justify-between text-xs text-muted-foreground">

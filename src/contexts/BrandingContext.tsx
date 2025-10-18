@@ -12,6 +12,7 @@ interface BrandingConfig {
   loginBackground?: string;
   welcomeMessage?: string;
   logoScale?: number;
+  logoScaleAuth?: number;
   isCustomBranded: boolean;
 }
 
@@ -85,6 +86,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           loginBackground: hotelConfig.custom_login_background,
           welcomeMessage: hotelConfig.custom_welcome_message,
           logoScale: hotelConfig.logo_scale ? Number(hotelConfig.logo_scale) : undefined,
+          logoScaleAuth: hotelConfig.logo_scale_auth ? Number(hotelConfig.logo_scale_auth) : undefined,
           isCustomBranded: true,
         };
         setBranding(customBranding);

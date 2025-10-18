@@ -120,8 +120,8 @@ export default function Auth() {
                 alt={branding.appName}
                 className="w-auto object-contain"
                 style={{ 
-                  height: branding.logoScale ? `${branding.logoScale}rem` : '9rem',
-                  maxHeight: '12rem'
+                  height: branding.logoScaleAuth ? `${branding.logoScaleAuth}rem` : '9rem',
+                  maxHeight: '16rem'
                 }}
               />
             </div>
