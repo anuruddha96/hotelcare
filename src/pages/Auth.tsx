@@ -83,6 +83,12 @@ export default function Auth() {
     const formData = new FormData(e.currentTarget);
     const email = formData.get('magic-email') as string;
 
+    if (!email || !email.trim()) {
+      toast.error('Please enter a valid email address');
+      setResetLoading(false);
+      return;
+    }
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
@@ -93,7 +99,9 @@ export default function Auth() {
     if (error) {
       toast.error(error.message || 'Failed to send magic link');
     } else {
-      toast.success('Magic link sent! Check your email to log in.');
+      toast.success('Magic link sent! Check your email to log in.', {
+        duration: 5000,
+      });
       setForgotPasswordOpen(false);
     }
     
