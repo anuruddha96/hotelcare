@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useParams, Navigate } from 'react-router-dom';
+import { useBranding } from '@/contexts/BrandingContext';
+import { AnimatedBackground } from '@/components/ui/animated-background';
+import { GlassCard } from '@/components/ui/glass-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
@@ -11,13 +14,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { supabase } from '@/integrations/supabase/client';
 import { Eye, EyeOff } from 'lucide-react';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
-import { SwipeAction } from '@/components/ui/swipe-action';
 import { useTranslation } from '@/hooks/useTranslation';
 
 export default function Auth() {
- const { signIn, signUp, user, loading } = useAuth();
+  const { signIn, signUp, user, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
+  const { branding } = useBranding();
   const [isLoading, setIsLoading] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
@@ -49,7 +52,6 @@ export default function Auth() {
     const emailOrUsername = formData.get('email') as string;
     const password = formData.get('password') as string;
 
-    // For now, just use direct sign in - username functionality can be added later
     const { error } = await signIn(emailOrUsername, password);
     
     if (error) {
@@ -177,7 +179,7 @@ export default function Auth() {
       toast.error(error.message || 'Failed to send SMS code');
     } else {
       toast.success('Verification code sent to your phone!');
-      setOtpEmail(phone); // Store phone number for verification
+      setOtpEmail(phone);
       setOtpStep(true);
     }
     
@@ -206,28 +208,37 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
-      <Card className="w-full max-w-sm sm:max-w-lg shadow-2xl border-0">
-        <CardHeader className="text-center space-y-3 sm:space-y-4 pb-4 sm:pb-6">
-          <div className="mx-auto w-24 h-16 sm:w-32 sm:h-20 flex items-center justify-center">
-            <img 
-              src="/logo.png"
-              alt="HotelCare.app - Hotel Operations Management" 
-              className="max-w-full max-h-full object-contain animate-logo-entrance"
-            />
+    <div className="min-h-screen flex items-center justify-center p-4 relative">
+      <AnimatedBackground />
+      
+      <GlassCard className="w-full max-w-md">
+        <CardHeader className="space-y-6 pb-8 px-6 sm:px-10 pt-10">
+          <div className="flex justify-center">
+            <div className="relative animate-logo-entrance">
+              <img
+                src={branding.logoUrl}
+                alt={branding.appName}
+                className="h-28 sm:h-36 w-auto object-contain"
+                style={{
+                  filter: 'drop-shadow(0 4px 20px rgba(0, 0, 0, 0.1))',
+                }}
+              />
+            </div>
           </div>
-          <CardTitle className="text-xl sm:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
-            Hotel Management Dashboard
-          </CardTitle>
-          <CardDescription className="text-sm sm:text-base px-2 sm:px-0">
-            Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
-          </CardDescription>
+          <div className="space-y-3 text-center">
+            <CardTitle className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent">
+              {branding.welcomeMessage || 'Welcome Back'}
+            </CardTitle>
+            <CardDescription className="text-base sm:text-lg">
+              Sign in to manage your hotel operations
+            </CardDescription>
+          </div>
         </CardHeader>
-        <CardContent className="px-4 sm:px-6">
+        <CardContent className="space-y-6 px-6 sm:px-10 pb-10">
           <div className="w-full">
             <h3 className="text-lg font-semibold text-center mb-4">Sign In</h3>
             
-            <form onSubmit={handleSignIn} className="space-y-3 sm:space-y-4">
+            <form onSubmit={handleSignIn} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="signin-email" className="text-sm">Email or Username</Label>
                 <Input
@@ -236,7 +247,7 @@ export default function Auth() {
                   type="text"
                   required
                   placeholder="Enter your email or username"
-                  className="h-9 sm:h-10"
+                  className="h-12 bg-background/50 backdrop-blur-sm border-primary/20 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                 />
               </div>
               <div className="space-y-2">
@@ -248,13 +259,13 @@ export default function Auth() {
                     type={showPassword ? "text" : "password"}
                     required
                     placeholder="Enter your password"
-                    className="h-9 sm:h-10 pr-10"
+                    className="h-12 bg-background/50 backdrop-blur-sm border-primary/20 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all pr-12"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="absolute right-0 top-0 h-9 sm:h-10 px-3 py-2 hover:bg-transparent"
+                    className="absolute right-0 top-0 h-12 px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? (
@@ -265,13 +276,13 @@ export default function Auth() {
                   </Button>
                 </div>
               </div>
-               <Button
-                  type="submit"
-                  className="w-full h-10 sm:h-11"
-                  disabled={isLoading}
-                >
-                  {isLoading ? t('auth.signingIn') : t('auth.signIn')}
-                </Button>
+              <Button
+                type="submit"
+                className="w-full h-12 text-base font-semibold bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]"
+                disabled={isLoading}
+              >
+                {isLoading ? t('auth.signingIn') : t('auth.signIn')}
+              </Button>
               
               <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
                 <DialogTrigger asChild>
@@ -426,24 +437,22 @@ export default function Auth() {
                           </div>
                         </div>
                         
-                        <div className="flex gap-2">
-                          <Button 
-                            type="button" 
-                            variant="outline" 
-                            className="w-full"
-                            onClick={() => {
-                              setOtpStep(false);
-                              setOtpCode('');
-                              setNewPassword('');
-                            }}
-                          >
-                            Back
-                          </Button>
-                          <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Resetting...' : 'Reset Password'}
-                          </Button>
-                        </div>
+                        <Button type="submit" className="w-full" disabled={resetLoading}>
+                          {resetLoading ? 'Resetting...' : 'Reset Password'}
+                        </Button>
                       </form>
+                      
+                      <Button 
+                        variant="ghost" 
+                        className="w-full" 
+                        onClick={() => {
+                          setOtpStep(false);
+                          setOtpCode('');
+                          setNewPassword('');
+                        }}
+                      >
+                        Back
+                      </Button>
                     </div>
                   )}
                 </DialogContent>
@@ -451,7 +460,7 @@ export default function Auth() {
             </form>
           </div>
         </CardContent>
-      </Card>
+      </GlassCard>
     </div>
   );
 }

@@ -817,7 +817,15 @@ export type Database = {
       }
       organizations: {
         Row: {
+          allow_custom_branding: boolean | null
           created_at: string | null
+          custom_app_name: string | null
+          custom_favicon_url: string | null
+          custom_login_background: string | null
+          custom_logo_url: string | null
+          custom_primary_color: string | null
+          custom_secondary_color: string | null
+          custom_welcome_message: string | null
           id: string
           is_active: boolean | null
           name: string
@@ -827,7 +835,15 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          allow_custom_branding?: boolean | null
           created_at?: string | null
+          custom_app_name?: string | null
+          custom_favicon_url?: string | null
+          custom_login_background?: string | null
+          custom_logo_url?: string | null
+          custom_primary_color?: string | null
+          custom_secondary_color?: string | null
+          custom_welcome_message?: string | null
           id?: string
           is_active?: boolean | null
           name: string
@@ -837,7 +853,15 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          allow_custom_branding?: boolean | null
           created_at?: string | null
+          custom_app_name?: string | null
+          custom_favicon_url?: string | null
+          custom_login_background?: string | null
+          custom_logo_url?: string | null
+          custom_primary_color?: string | null
+          custom_secondary_color?: string | null
+          custom_welcome_message?: string | null
           id?: string
           is_active?: boolean | null
           name?: string
@@ -1712,6 +1736,10 @@ export type Database = {
       }
       is_super_admin: {
         Args: { user_id: string }
+        Returns: boolean
+      }
+      organization_has_custom_branding: {
+        Args: { org_slug: string }
         Returns: boolean
       }
       update_assignment_type: {
