@@ -828,6 +828,7 @@ export type Database = {
           custom_welcome_message: string | null
           id: string
           is_active: boolean | null
+          logo_scale: number | null
           name: string
           settings: Json | null
           slug: string
@@ -846,6 +847,7 @@ export type Database = {
           custom_welcome_message?: string | null
           id?: string
           is_active?: boolean | null
+          logo_scale?: number | null
           name: string
           settings?: Json | null
           slug: string
@@ -864,6 +866,7 @@ export type Database = {
           custom_welcome_message?: string | null
           id?: string
           is_active?: boolean | null
+          logo_scale?: number | null
           name?: string
           settings?: Json | null
           slug?: string

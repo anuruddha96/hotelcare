@@ -27,6 +27,7 @@ export const BrandingManagement = () => {
     custom_secondary_color: (organization as any)?.custom_secondary_color || 'hsl(0, 0%, 42%)',
     custom_login_background: (organization as any)?.custom_login_background || '',
     custom_welcome_message: (organization as any)?.custom_welcome_message || '',
+    logo_scale: (organization as any)?.logo_scale || 3,
   });
 
   const handleSave = async () => {
@@ -80,6 +81,7 @@ export const BrandingManagement = () => {
           custom_secondary_color: 'hsl(0, 0%, 42%)',
           custom_login_background: null,
           custom_welcome_message: null,
+          logo_scale: 3,
           updated_at: new Date().toISOString(),
         })
         .eq('id', organization.id);
@@ -208,7 +210,30 @@ export const BrandingManagement = () => {
               onChange={(e) => setFormData({ ...formData, custom_logo_url: e.target.value })}
               placeholder="https://yourdomain.com/logo.png"
             />
-            <p className="text-xs text-muted-foreground">Recommended: 200x60px PNG with transparent background</p>
+            <p className="text-xs text-muted-foreground">Recommended: 15:5 ratio (e.g., 600x200px) PNG with transparent background</p>
+          </div>
+
+          {/* Logo Scale */}
+          <div className="space-y-3">
+            <Label htmlFor="logo_scale" className="flex items-center justify-between">
+              <span>Logo Size (Header)</span>
+              <span className="text-sm font-normal text-muted-foreground">{formData.logo_scale}rem</span>
+            </Label>
+            <input
+              id="logo_scale"
+              type="range"
+              min="2"
+              max="8"
+              step="0.5"
+              value={formData.logo_scale}
+              onChange={(e) => setFormData({ ...formData, logo_scale: parseFloat(e.target.value) })}
+              className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Small</span>
+              <span>Medium</span>
+              <span>Large</span>
+            </div>
           </div>
 
           {/* Favicon URL */}

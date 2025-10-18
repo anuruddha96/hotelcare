@@ -214,7 +214,7 @@ export default function Auth() {
               <img
                 src={branding.logoUrl}
                 alt={branding.appName}
-                className="h-28 sm:h-36 w-auto object-contain"
+                className="h-36 sm:h-44 w-auto object-contain"
               />
             </div>
           </div>

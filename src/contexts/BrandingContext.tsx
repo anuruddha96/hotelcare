@@ -9,6 +9,7 @@ interface BrandingConfig {
   secondaryColor: string;
   loginBackground?: string;
   welcomeMessage?: string;
+  logoScale?: number;
   isCustomBranded: boolean;
 }
 
@@ -58,6 +59,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         secondaryColor: (organization as any).custom_secondary_color || defaultBranding.secondaryColor,
         loginBackground: (organization as any).custom_login_background,
         welcomeMessage: (organization as any).custom_welcome_message,
+        logoScale: (organization as any).logo_scale || undefined,
         isCustomBranded: true,
       };
       setBranding(customBranding);
