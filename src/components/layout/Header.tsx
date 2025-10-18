@@ -70,12 +70,15 @@ export function Header() {
         <div className="flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo */}
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <div className="relative" style={{ aspectRatio: '3/1' }}>
+            <div className="relative">
               <img 
                 src={branding.logoUrl} 
                 alt={branding.appName}
-                className="h-12 sm:h-16 w-auto cursor-pointer hover:opacity-80 transition-opacity object-contain"
-                style={{ height: branding.logoScale ? `${branding.logoScale}rem` : undefined }}
+                className="w-auto cursor-pointer hover:opacity-80 transition-opacity object-contain"
+                style={{ 
+                  height: branding.logoScale ? `${branding.logoScale}rem` : '4rem',
+                  maxHeight: '5rem'
+                }}
                 onClick={() => navigate(`/${organizationSlug || 'rdhotels'}`)}
               />
             </div>

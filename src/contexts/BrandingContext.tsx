@@ -84,7 +84,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           secondaryColor: hotelConfig.custom_secondary_color || defaultBranding.secondaryColor,
           loginBackground: hotelConfig.custom_login_background,
           welcomeMessage: hotelConfig.custom_welcome_message,
-          logoScale: hotelConfig.logo_scale || undefined,
+          logoScale: hotelConfig.logo_scale ? Number(hotelConfig.logo_scale) : undefined,
           isCustomBranded: true,
         };
         setBranding(customBranding);

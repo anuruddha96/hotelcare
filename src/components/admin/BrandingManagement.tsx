@@ -93,7 +93,7 @@ export const BrandingManagement = () => {
           custom_secondary_color: data.custom_secondary_color || 'hsl(0, 0%, 42%)',
           custom_login_background: data.custom_login_background || '',
           custom_welcome_message: data.custom_welcome_message || '',
-          logo_scale: data.logo_scale || 3,
+          logo_scale: data.logo_scale ? Number(data.logo_scale) : 3,
         });
       }
     } catch (error: any) {

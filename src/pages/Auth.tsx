@@ -118,7 +118,11 @@ export default function Auth() {
               <img
                 src={branding.logoUrl}
                 alt={branding.appName}
-                className="h-36 sm:h-44 w-auto object-contain"
+                className="w-auto object-contain"
+                style={{ 
+                  height: branding.logoScale ? `${branding.logoScale}rem` : '9rem',
+                  maxHeight: '12rem'
+                }}
               />
             </div>
           </div>
