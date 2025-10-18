@@ -63,14 +63,25 @@ export function TranslationManagement() {
     try {
       // Load translations from the comprehensive translations file
       const translationKeys = Object.keys(additionalTranslations.en);
-      const translationData: Translation[] = translationKeys.map(key => ({
-        key,
-        en: additionalTranslations.en[key as keyof typeof additionalTranslations.en] as string,
-        hu: additionalTranslations.hu?.[key as keyof typeof additionalTranslations.hu] as string,
-        mn: additionalTranslations.mn?.[key as keyof typeof additionalTranslations.mn] as string,
-        es: additionalTranslations.es?.[key as keyof typeof additionalTranslations.es] as string,
-        vi: additionalTranslations.vi?.[key as keyof typeof additionalTranslations.vi] as string,
-      }));
+      const translationData: Translation[] = [];
+      
+      translationKeys.forEach(key => {
+        const enValue = additionalTranslations.en[key as keyof typeof additionalTranslations.en];
+        
+        // Skip nested objects - only process string translations
+        if (typeof enValue === 'object' && enValue !== null) {
+          return;
+        }
+        
+        translationData.push({
+          key,
+          en: enValue as string,
+          hu: additionalTranslations.hu?.[key as keyof typeof additionalTranslations.hu] as string,
+          mn: additionalTranslations.mn?.[key as keyof typeof additionalTranslations.mn] as string,
+          es: additionalTranslations.es?.[key as keyof typeof additionalTranslations.es] as string,
+          vi: additionalTranslations.vi?.[key as keyof typeof additionalTranslations.vi] as string,
+        });
+      });
 
       // Load custom translations from localStorage
       const customTranslations = localStorage.getItem('custom_translations');
