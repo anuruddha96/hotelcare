@@ -66,16 +66,18 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto px-3 sm:px-4 py-3">
+      <div className="container mx-auto px-3 sm:px-4 py-1.5 sm:py-2">
         <div className="flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo */}
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <img 
-              src={branding.logoUrl} 
-              alt={branding.appName}
-              className="h-12 sm:h-16 w-auto cursor-pointer hover:opacity-80 transition-opacity"
-              onClick={() => navigate(`/${organizationSlug || 'rdhotels'}`)}
-            />
+            <div className="relative" style={{ aspectRatio: '3/1' }}>
+              <img 
+                src={branding.logoUrl} 
+                alt={branding.appName}
+                className="h-10 sm:h-12 w-auto cursor-pointer hover:opacity-80 transition-opacity object-contain"
+                onClick={() => navigate(`/${organizationSlug || 'rdhotels'}`)}
+              />
+            </div>
           </div>
           
           {/* Right side actions */}
