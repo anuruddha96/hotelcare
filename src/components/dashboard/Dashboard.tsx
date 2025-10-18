@@ -336,8 +336,8 @@ export function Dashboard() {
                   <span>{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
               </TabsList>
-            ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
-              <TabsList className="grid w-full min-w-[400px] max-w-lg grid-cols-5 h-10 sm:h-12">
+            ) : profile?.role === 'admin' ? (
+              <TabsList className="grid w-full min-w-[500px] max-w-xl grid-cols-5 h-10 sm:h-12">
                 <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.tickets')}</span>
@@ -354,12 +354,29 @@ export function Dashboard() {
                   <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
-                {profile?.role === 'admin' && (
-                  <TabsTrigger value="admin" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                    <Settings className="h-3 w-3 sm:h-4 sm:w-4" />
-                    <span>Admin</span>
-                  </TabsTrigger>
-                )}
+                <TabsTrigger value="admin" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Settings className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>Admin</span>
+                </TabsTrigger>
+              </TabsList>
+            ) : ['manager','housekeeping_manager'].includes(profile?.role || '') ? (
+              <TabsList className="grid w-full min-w-[400px] max-w-lg grid-cols-4 h-10 sm:h-12">
+                <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>{t('dashboard.tickets')}</span>
+                </TabsTrigger>
+                <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Home className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>{t('dashboard.rooms')}</span>
+                </TabsTrigger>
+                <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>{t('dashboard.housekeeping')}</span>
+                </TabsTrigger>
+                <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>{t('dashboard.workStatus')}</span>
+                </TabsTrigger>
               </TabsList>
             ) : (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12">

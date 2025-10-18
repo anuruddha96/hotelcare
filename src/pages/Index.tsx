@@ -10,11 +10,6 @@ const Index = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background">
-        <img
-          src="/logo.png"
-          alt="HotelCare.app"
-          className="h-20 w-auto mb-4 animate-pulse"
-        />
         <div className="text-muted-foreground text-sm">Loading your workspace...</div>
       </div>
     );
