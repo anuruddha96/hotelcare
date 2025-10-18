@@ -5,13 +5,13 @@ import { useBranding } from '@/contexts/BrandingContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { Eye, EyeOff } from 'lucide-react';
-import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
+
 import { useTranslation } from '@/hooks/useTranslation';
 
 export default function Auth() {
@@ -24,11 +24,6 @@ export default function Auth() {
   const [resetLoading, setResetLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
-  const [otpStep, setOtpStep] = useState(false);
-  const [otpEmail, setOtpEmail] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
 
   if (loading) {
     return (
@@ -81,129 +76,30 @@ export default function Auth() {
     setIsLoading(false);
   };
 
-  const handleForgotPassword = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleMagicLink = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setResetLoading(true);
     
     const formData = new FormData(e.currentTarget);
-    const email = formData.get('reset-email') as string;
+    const email = formData.get('magic-email') as string;
 
-    const { error } = await supabase.functions.invoke('send-password-reset', {
-      body: { email }
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/${organizationSlug || 'rdhotels'}`,
+      },
     });
     
     if (error) {
-      toast.error(error.message || 'Failed to send reset email');
+      toast.error(error.message || 'Failed to send magic link');
     } else {
-      toast.success('Password reset email sent! Check your inbox.');
+      toast.success('Magic link sent! Check your email to log in.');
       setForgotPasswordOpen(false);
     }
     
     setResetLoading(false);
   };
 
-  const handleSendOTP = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setResetLoading(true);
-    
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('otp-email') as string;
-
-    const { error } = await supabase.functions.invoke('send-otp-password-reset', {
-      body: { email }
-    });
-    
-    if (error) {
-      toast.error(error.message || 'Failed to send OTP');
-    } else {
-      toast.success('Verification code sent! Check your email.');
-      setOtpEmail(email);
-      setOtpStep(true);
-    }
-    
-    setResetLoading(false);
-  };
-
-  const handleVerifyOTP = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setResetLoading(true);
-    
-    if (!otpCode || otpCode.length !== 6) {
-      toast.error('Please enter a valid 6-digit code');
-      setResetLoading(false);
-      return;
-    }
-
-    if (!newPassword || newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters long');
-      setResetLoading(false);
-      return;
-    }
-
-    const { error } = await supabase.functions.invoke('verify-otp-reset-password', {
-      body: { 
-        email: otpEmail,
-        otp_code: otpCode,
-        new_password: newPassword
-      }
-    });
-    
-    if (error) {
-      toast.error(error.message || 'Failed to reset password');
-    } else {
-      toast.success('Password reset successful! You can now log in with your new password.');
-      setForgotPasswordOpen(false);
-      setOtpStep(false);
-      setOtpCode('');
-      setNewPassword('');
-      setOtpEmail('');
-    }
-    
-    setResetLoading(false);
-  };
-
-  const handleSendSMSOTP = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setResetLoading(true);
-    
-    const formData = new FormData(e.currentTarget);
-    const phone = formData.get('sms-phone') as string;
-
-    const { error } = await supabase.functions.invoke('send-sms-otp', {
-      body: { phone }
-    });
-    
-    if (error) {
-      toast.error(error.message || 'Failed to send SMS code');
-    } else {
-      toast.success('Verification code sent to your phone!');
-      setOtpEmail(phone);
-      setOtpStep(true);
-    }
-    
-    setResetLoading(false);
-  };
-
-  const handleSendLoginLink = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setResetLoading(true);
-    
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('login-email') as string;
-
-    const { error } = await supabase.functions.invoke('generate-login-link', {
-      body: { email }
-    });
-    
-    if (error) {
-      toast.error(error.message || 'Failed to send login link');
-    } else {
-      toast.success('Login link sent! Check your email.');
-      setForgotPasswordOpen(false);
-    }
-    
-    setResetLoading(false);
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted/20">
@@ -220,10 +116,10 @@ export default function Auth() {
           </div>
           <div className="space-y-2 text-center">
             <CardTitle className="text-2xl sm:text-3xl font-bold">
-              {branding.welcomeMessage || 'Welcome Back'}
+              {branding.welcomeMessage || 'Welcome'}
             </CardTitle>
             <CardDescription className="text-sm sm:text-base">
-              Sign in to manage your hotel operations
+              The number one AI powered Hotel Management System
             </CardDescription>
           </div>
         </CardHeader>
@@ -279,174 +175,31 @@ export default function Auth() {
               <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
                 <DialogTrigger asChild>
                   <Button variant="ghost" size="sm" className="w-full mt-2 h-8 text-xs sm:text-sm">
-                    Forgot Password / Resend Verification
+                    Forgot Password?
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="w-[95vw] max-w-sm sm:max-w-md">
                   <DialogHeader>
-                    <DialogTitle className="text-lg sm:text-xl">Reset Password or Resend Verification</DialogTitle>
+                    <DialogTitle className="text-lg sm:text-xl">Get Magic Link</DialogTitle>
                     <DialogDescription className="text-sm">
-                      Choose an option to reset your password or resend email verification.
+                      Enter your email and we'll send you a magic link to log in.
                     </DialogDescription>
                   </DialogHeader>
-                  {!otpStep ? (
-                    <Tabs defaultValue="otp" className="w-full">
-                      <TabsList className="grid w-full grid-cols-4 h-8 sm:h-10">
-                        <TabsTrigger value="otp" className="text-xs sm:text-sm">Email OTP</TabsTrigger>
-                        <TabsTrigger value="sms" className="text-xs sm:text-sm">SMS OTP</TabsTrigger>
-                        <TabsTrigger value="email" className="text-xs sm:text-sm">Email Link</TabsTrigger>
-                        <TabsTrigger value="login-link" className="text-xs sm:text-sm">Login Link</TabsTrigger>
-                      </TabsList>
-                      
-                      <TabsContent value="otp">
-                        <form onSubmit={handleSendOTP} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="otp-email">Email</Label>
-                            <Input
-                              id="otp-email"
-                              name="otp-email"
-                              type="email"
-                              required
-                              placeholder="Enter your email"
-                            />
-                          </div>
-                          <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Send Verification Code'}
-                          </Button>
-                        </form>
-                      </TabsContent>
-                      
-                      <TabsContent value="email">
-                        <form onSubmit={handleForgotPassword} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="reset-email">Email</Label>
-                            <Input
-                              id="reset-email"
-                              name="reset-email"
-                              type="email"
-                              required
-                              placeholder="Enter your email"
-                            />
-                          </div>
-                          <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Send Reset Link'}
-                          </Button>
-                        </form>
-                      </TabsContent>
-                      
-                      <TabsContent value="sms">
-                        <form onSubmit={handleSendSMSOTP} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="sms-phone">Phone Number</Label>
-                            <Input
-                              id="sms-phone"
-                              name="sms-phone"
-                              type="tel"
-                              required
-                              placeholder="Enter your phone number"
-                            />
-                          </div>
-                          <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Send SMS Code'}
-                          </Button>
-                        </form>
-                      </TabsContent>
-                      
-                      <TabsContent value="login-link">
-                        <form onSubmit={handleSendLoginLink} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="login-email">Email</Label>
-                            <Input
-                              id="login-email"
-                              name="login-email"
-                              type="email"
-                              required
-                              placeholder="Enter your email"
-                            />
-                          </div>
-                          <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Send Login Link'}
-                          </Button>
-                        </form>
-                      </TabsContent>
-                    </Tabs>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="text-center">
-                        <h4 className="font-medium mb-2">Enter Verification Code</h4>
-                        <p className="text-sm text-muted-foreground mb-4">
-                          We sent a 6-digit code to {otpEmail}
-                        </p>
-                      </div>
-                      
-                      <form onSubmit={handleVerifyOTP} className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="otp-code">Verification Code</Label>
-                          <div className="flex justify-center">
-                            <InputOTP 
-                              maxLength={6} 
-                              value={otpCode}
-                              onChange={setOtpCode}
-                            >
-                              <InputOTPGroup>
-                                <InputOTPSlot index={0} />
-                                <InputOTPSlot index={1} />
-                                <InputOTPSlot index={2} />
-                                <InputOTPSlot index={3} />
-                                <InputOTPSlot index={4} />
-                                <InputOTPSlot index={5} />
-                              </InputOTPGroup>
-                            </InputOTP>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <Label htmlFor="new-password">New Password</Label>
-                          <div className="relative">
-                            <Input
-                              id="new-password"
-                              type={showNewPassword ? "text" : "password"}
-                              value={newPassword}
-                              onChange={(e) => setNewPassword(e.target.value)}
-                              required
-                              placeholder="Enter new password"
-                              className="pr-10"
-                              minLength={6}
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                              onClick={() => setShowNewPassword(!showNewPassword)}
-                            >
-                              {showNewPassword ? (
-                                <EyeOff className="h-4 w-4 text-muted-foreground" />
-                              ) : (
-                                <Eye className="h-4 w-4 text-muted-foreground" />
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                        
-                        <Button type="submit" className="w-full" disabled={resetLoading}>
-                          {resetLoading ? 'Resetting...' : 'Reset Password'}
-                        </Button>
-                      </form>
-                      
-                      <Button 
-                        variant="ghost" 
-                        className="w-full" 
-                        onClick={() => {
-                          setOtpStep(false);
-                          setOtpCode('');
-                          setNewPassword('');
-                        }}
-                      >
-                        Back
-                      </Button>
+                  <form onSubmit={handleMagicLink} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="magic-email">Email</Label>
+                      <Input
+                        id="magic-email"
+                        name="magic-email"
+                        type="email"
+                        required
+                        placeholder="Enter your email"
+                      />
                     </div>
-                  )}
+                    <Button type="submit" className="w-full" disabled={resetLoading}>
+                      {resetLoading ? 'Sending...' : 'Send Magic Link'}
+                    </Button>
+                  </form>
                 </DialogContent>
               </Dialog>
             </form>
