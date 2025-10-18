@@ -2,11 +2,9 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useParams, Navigate } from 'react-router-dom';
 import { useBranding } from '@/contexts/BrandingContext';
-import { AnimatedBackground } from '@/components/ui/animated-background';
-import { GlassCard } from '@/components/ui/glass-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
@@ -208,50 +206,44 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative">
-      <AnimatedBackground />
-      
-      <GlassCard className="w-full max-w-md">
-        <CardHeader className="space-y-6 pb-8 px-6 sm:px-10 pt-10">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted/20">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-6 pb-6 px-6 sm:px-8 pt-8">
           <div className="flex justify-center">
-            <div className="relative animate-logo-entrance">
+            <div className="relative">
               <img
                 src={branding.logoUrl}
                 alt={branding.appName}
-                className="h-28 sm:h-36 w-auto object-contain"
-                style={{
-                  filter: 'drop-shadow(0 4px 20px rgba(0, 0, 0, 0.1))',
-                }}
+                className="h-16 sm:h-20 w-auto object-contain"
               />
             </div>
           </div>
-          <div className="space-y-3 text-center">
-            <CardTitle className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary via-primary to-accent bg-clip-text text-transparent">
+          <div className="space-y-2 text-center">
+            <CardTitle className="text-2xl sm:text-3xl font-bold">
               {branding.welcomeMessage || 'Welcome Back'}
             </CardTitle>
-            <CardDescription className="text-base sm:text-lg">
+            <CardDescription className="text-sm sm:text-base">
               Sign in to manage your hotel operations
             </CardDescription>
           </div>
         </CardHeader>
-        <CardContent className="space-y-6 px-6 sm:px-10 pb-10">
+        <CardContent className="space-y-6 px-6 sm:px-8 pb-8">
           <div className="w-full">
             <h3 className="text-lg font-semibold text-center mb-4">Sign In</h3>
             
             <form onSubmit={handleSignIn} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="signin-email" className="text-sm">Email or Username</Label>
+                <Label htmlFor="signin-email">Email or Username</Label>
                 <Input
                   id="signin-email"
                   name="email"
                   type="text"
                   required
                   placeholder="Enter your email or username"
-                  className="h-12 bg-background/50 backdrop-blur-sm border-primary/20 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="signin-password" className="text-sm">Password</Label>
+                <Label htmlFor="signin-password">Password</Label>
                 <div className="relative">
                   <Input
                     id="signin-password"
@@ -259,13 +251,13 @@ export default function Auth() {
                     type={showPassword ? "text" : "password"}
                     required
                     placeholder="Enter your password"
-                    className="h-12 bg-background/50 backdrop-blur-sm border-primary/20 focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all pr-12"
+                    className="pr-10"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="absolute right-0 top-0 h-12 px-3 py-2 hover:bg-transparent"
+                    className="absolute right-0 top-0 h-10 px-3 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? (
@@ -278,7 +270,7 @@ export default function Auth() {
               </div>
               <Button
                 type="submit"
-                className="w-full h-12 text-base font-semibold bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]"
+                className="w-full"
                 disabled={isLoading}
               >
                 {isLoading ? t('auth.signingIn') : t('auth.signIn')}
@@ -460,7 +452,7 @@ export default function Auth() {
             </form>
           </div>
         </CardContent>
-      </GlassCard>
+      </Card>
     </div>
   );
 }

@@ -66,24 +66,21 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/80 backdrop-blur-lg supports-[backdrop-filter]:bg-background/60 shadow-sm">
-      <div className="container mx-auto px-4 sm:px-6 py-4">
-        <div className="flex items-center justify-between gap-3 sm:gap-6">
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container mx-auto px-3 sm:px-4 py-3">
+        <div className="flex items-center justify-between gap-2 sm:gap-4">
           {/* Logo */}
-          <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <img 
               src={branding.logoUrl} 
               alt={branding.appName}
-              className="h-12 sm:h-14 w-auto cursor-pointer hover:opacity-90 transition-all duration-300 hover:scale-105"
+              className="h-8 sm:h-10 w-auto cursor-pointer hover:opacity-80 transition-opacity"
               onClick={() => navigate(`/${organizationSlug || 'rdhotels'}`)}
-              style={{
-                filter: 'drop-shadow(0 2px 8px rgba(0, 0, 0, 0.05))',
-              }}
             />
           </div>
           
           {/* Right side actions */}
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3">
             {/* Hotel Switcher - only for multi-hotel users */}
             {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'top_management') && (
               <div className="hidden sm:block">
@@ -116,14 +113,14 @@ export function Header() {
             {/* User Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 h-10 sm:h-11 hover:bg-muted/50 transition-all">
-                  <Avatar className="h-8 w-8 sm:h-9 sm:w-9 ring-2 ring-primary/10">
+                <Button variant="ghost" className="flex items-center gap-2 px-2 sm:px-3 h-9">
+                  <Avatar className="h-7 w-7 sm:h-8 sm:w-8">
                     <AvatarImage src={profile?.profile_picture_url || ''} />
-                    <AvatarFallback className="bg-gradient-to-br from-primary to-primary/70 text-primary-foreground text-sm sm:text-base font-semibold">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-sm">
                       {profile?.full_name?.charAt(0) || profile?.email?.charAt(0) || 'U'}
                     </AvatarFallback>
                   </Avatar>
-                  <ChevronDown className="h-4 w-4 opacity-50 hidden sm:block" />
+                  <ChevronDown className="h-3 w-3 opacity-50 hidden sm:block" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end">
