@@ -84,7 +84,8 @@ export function RoomAssignmentSummary() {
         .order('room_number', { ascending: true });
 
       if (userHotelId) {
-        roomsQuery = roomsQuery.eq('hotel', userHotelId);
+        // Use .in() with an array to handle hotel names properly, including those with spaces
+        roomsQuery = roomsQuery.in('hotel', [userHotelId]);
       }
 
       const { data: roomsData, error: roomsError } = await roomsQuery;

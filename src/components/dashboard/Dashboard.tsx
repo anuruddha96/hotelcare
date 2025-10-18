@@ -13,6 +13,7 @@ import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
 import { CompanySettings } from './CompanySettings';
 import { HousekeepingTab } from './HousekeepingTab';
+import { RoomAssignmentSummaryDialog } from './RoomAssignmentSummaryDialog';
 import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
@@ -419,6 +420,9 @@ export function Dashboard() {
               </div>
               
               <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                {isManager && (
+                  <RoomAssignmentSummaryDialog />
+                )}
                 {canManageUsers && (
                   <Button
                     variant="outline"

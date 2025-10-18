@@ -12,7 +12,6 @@ import { ReportsDialog } from '@/components/dashboard/ReportsDialog';
 import { ProfileDialog } from '@/components/dashboard/ProfileDialog';
 import { SettingsDialog } from '@/components/dashboard/SettingsDialog';
 import { HotelSwitcher } from '@/components/layout/HotelSwitcher';
-import { RoomAssignmentSummary } from '@/components/dashboard/RoomAssignmentSummary';
 import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge';
 import { LogOut, Settings, User, ChevronDown } from 'lucide-react';
 import {
@@ -90,10 +89,6 @@ export function Header() {
             
             <div className="hidden md:block">
               <LanguageSwitcher />
-            </div>
-            
-            <div className="hidden lg:block">
-              <RoomAssignmentSummary />
             </div>
             
             <div className="hidden md:block">
