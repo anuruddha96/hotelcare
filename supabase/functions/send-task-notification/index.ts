@@ -99,12 +99,12 @@ const handler = async (req: Request): Promise<Response> => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${title} - RD Hotels</title>
+        <title>${title} - HotelCare.app</title>
         <style>
           body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
           .container { max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-          .header { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 40px 30px; text-align: center; }
-          .logo { font-size: 28px; font-weight: bold; color: white; margin-bottom: 8px; }
+          .header { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 30px 30px 20px; text-align: center; }
+          .logo { height: 60px; width: auto; margin-bottom: 10px; }
           .subtitle { color: rgba(255,255,255,0.9); font-size: 16px; }
           .content { padding: 40px 30px; }
           .notification-badge { display: inline-block; background: ${style.bgColor}; color: ${style.color}; padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: 600; margin-bottom: 20px; }
@@ -126,8 +126,8 @@ const handler = async (req: Request): Promise<Response> => {
       <body>
         <div class="container">
           <div class="header">
-            <div class="logo">🏨 RD Hotels</div>
-            <div class="subtitle">Hotel Management System</div>
+            <img src="https://rdhotels-management.lovable.app/logo.png" alt="HotelCare.app" class="logo">
+            <div class="subtitle">Hotel Operations Management</div>
           </div>
           
           <div class="content">
@@ -176,13 +176,13 @@ const handler = async (req: Request): Promise<Response> => {
             </div>
             
             <div class="message" style="font-size: 14px; color: #6b7280;">
-              Please log in to the RD Hotels management system to view full details and take action.
+              Please log in to the HotelCare.app management system to view full details and take action.
             </div>
           </div>
           
           <div class="footer">
             <div class="footer-text">
-              <strong>RD Hotels Management System</strong><br>
+              <strong>HotelCare.app</strong> - Hotel Operations Management<br>
               This is an automated notification. Please do not reply to this email.<br>
               If you need assistance, contact your system administrator.
             </div>
@@ -194,9 +194,9 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Send email
     const { error: emailError } = await resend.emails.send({
-      from: "RD Hotels <notifications@rdhotels.com>",
+      from: "HotelCare.app <notifications@hotelcare.app>",
       to: [profile.email],
-      subject: `${title} - RD Hotels`,
+      subject: `${title} - HotelCare.app`,
       html: emailHtml,
     });
 

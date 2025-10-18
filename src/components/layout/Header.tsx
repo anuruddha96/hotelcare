@@ -65,20 +65,21 @@ export function Header() {
       <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
         {/* Logo Section - More space on mobile */}
         <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
-          <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
-            <img
-              src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
-              alt="RD Hotels Logo"
-              className="h-8 sm:h-10 w-auto object-contain"
-            />
-            {/* Only show text on larger screens */}
-            <div className="hidden md:flex flex-col">
-              <span className="text-base font-semibold tracking-tight">RD Hotels</span>
-              <span className="text-xs text-muted-foreground">
-                {profile?.assigned_hotel || 'Hotel Care Hub'}
-              </span>
+          <a href="/" className="block">
+            <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition-all duration-200 hover:scale-105">
+              <img
+                src="/logo.png"
+                alt="HotelCare.app - Hotel Operations Management"
+                className="h-8 sm:h-10 w-auto object-contain"
+              />
+              <div className="hidden md:flex flex-col">
+                <span className="text-base font-semibold tracking-tight">HotelCare.app</span>
+                <span className="text-xs text-muted-foreground">
+                  {profile?.assigned_hotel || 'Hotel Operations'}
+                </span>
+              </div>
             </div>
-          </div>
+          </a>
         </div>
         
         {/* Right Section with Horizontal Scroll */}

@@ -68,6 +68,10 @@ const handler = async (req: Request): Promise<Response> => {
     let emailSubject = `New ${assignmentTypeDisplay}`;
     let emailBody = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://rdhotels-management.lovable.app/logo.png" alt="HotelCare.app" style="height: 60px; width: auto;">
+        </div>
+        
         <h2 style="color: #2563eb;">New ${assignmentTypeDisplay}</h2>
         
         <p>Hello ${staffProfile.full_name},</p>
@@ -113,15 +117,16 @@ const handler = async (req: Request): Promise<Response> => {
         </p>
         
         <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
-        <p style="color: #999; font-size: 12px;">
-          This is an automated notification from the Maintenance Management System.
+        <p style="color: #999; font-size: 12px; text-align: center;">
+          <strong>HotelCare.app</strong> - Hotel Operations Management<br>
+          This is an automated notification.
         </p>
       </div>
     `;
 
     // Send email using Resend
     const emailResponse = await resend.emails.send({
-      from: 'Maintenance System <noreply@resend.dev>',
+      from: 'HotelCare.app <noreply@hotelcare.app>',
       to: [staffProfile.email],
       subject: emailSubject,
       html: emailBody,

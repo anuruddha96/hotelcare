@@ -71,6 +71,10 @@ const handler = async (req: Request): Promise<Response> => {
 
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <img src="https://rdhotels-management.lovable.app/logo.png" alt="HotelCare.app" style="height: 60px; width: auto;">
+        </div>
+        
         <h2 style="color: #2563eb;">New Room Assignment</h2>
         
         <p>Hello ${staffName},</p>
@@ -100,14 +104,15 @@ const handler = async (req: Request): Promise<Response> => {
         
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
         
-        <p style="color: #9ca3af; font-size: 12px;">
-          This is an automated notification from the Housekeeping Management System.
+        <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+          <strong>HotelCare.app</strong> - Hotel Operations Management<br>
+          This is an automated notification
         </p>
       </div>
     `;
 
     const emailResponse = await resend.emails.send({
-      from: "Housekeeping Management <onboarding@resend.dev>",
+      from: "HotelCare.app <onboarding@resend.dev>",
       to: [profile.email],
       subject: `New Room Assignment - ${totalRooms} rooms for ${new Date(assignmentDate).toLocaleDateString()}`,
       html: emailHtml,

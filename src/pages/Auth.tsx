@@ -211,9 +211,9 @@ export default function Auth() {
         <CardHeader className="text-center space-y-3 sm:space-y-4 pb-4 sm:pb-6">
           <div className="mx-auto w-24 h-16 sm:w-32 sm:h-20 flex items-center justify-center">
             <img 
-              src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
-              alt="RD Hotels Logo" 
-              className="max-w-full max-h-full object-contain"
+              src="/logo.png"
+              alt="HotelCare.app - Hotel Operations Management" 
+              className="max-w-full max-h-full object-contain animate-logo-entrance"
             />
           </div>
           <CardTitle className="text-xl sm:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
