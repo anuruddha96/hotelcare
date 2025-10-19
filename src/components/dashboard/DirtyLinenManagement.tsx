@@ -153,7 +153,7 @@ export function DirtyLinenManagement() {
       const linenMap = new Map<string, string>((linenRes.data || []).map((l: any) => [l.id, l.display_name]));
       const hotelName = hotelNameRes.data;
 
-      // 3) Build view models for main data - filter by hotel if assigned
+      // 3) Build view models for main data - RLS now filters by hotel
       const counts: LinenCount[] = countsData
         .map((row: any) => {
           const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
@@ -167,18 +167,11 @@ export function DirtyLinenManagement() {
             work_date: row.work_date,
             created_at: row.created_at,
           };
-        })
-        .filter(count => {
-          // Filter by assigned hotel if user has one
-          if (profile?.assigned_hotel) {
-            return count.hotel === profile.assigned_hotel || count.hotel === hotelName;
-          }
-          return true;
         });
 
       setLinenCounts(counts);
 
-      // Build view models for current user's data - also filter by hotel
+      // Build view models for current user's data - RLS now filters by hotel
       const myCounts: LinenCount[] = myCountsRows
         .map((row: any) => {
           const room = roomMap.get(row.room_id) || { room_number: '—', hotel: '—' };
@@ -192,13 +185,6 @@ export function DirtyLinenManagement() {
             work_date: row.work_date,
             created_at: row.created_at,
           };
-        })
-        .filter(count => {
-          // Filter by assigned hotel if user has one
-          if (profile?.assigned_hotel) {
-            return count.hotel === profile.assigned_hotel || count.hotel === hotelName;
-          }
-          return true;
         });
 
       setMyLinenCounts(myCounts);
