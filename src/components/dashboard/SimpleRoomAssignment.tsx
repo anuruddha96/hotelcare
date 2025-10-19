@@ -1,28 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useTranslation } from '@/hooks/useTranslation';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { MapPin, User } from 'lucide-react';
+import { Users, Calendar, Clock } from 'lucide-react';
 
 interface Room {
   id: string;
   room_number: string;
-  room_name: string | null;
-  floor_number: number | null;
   status: string;
   hotel: string;
-  is_checkout_room: boolean;
-  existing_assignment?: {
-    id: string;
-    assigned_to: string;
-    staff_name: string;
-  } | null;
 }
 
 interface Staff {
@@ -33,63 +24,46 @@ interface Staff {
 
 interface SimpleRoomAssignmentProps {
   onAssignmentCreated: () => void;
-  selectedDate: string;
 }
 
-export function SimpleRoomAssignment({ onAssignmentCreated, selectedDate }: SimpleRoomAssignmentProps) {
+export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignmentProps) {
   const { user } = useAuth();
-  const { t } = useTranslation();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string>('');
   const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
-  const [estimatedDuration, setEstimatedDuration] = useState<string>('30');
-  const [notes, setNotes] = useState<string>('');
+  const [assignmentType, setAssignmentType] = useState<'daily_cleaning' | 'checkout_cleaning'>('daily_cleaning');
   const [loading, setLoading] = useState(false);
+  const [selectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     fetchData();
-  }, [selectedDate]);
+  }, []);
 
   const fetchData = async () => {
     try {
-      // Fetch dirty rooms
+      // Fetch dirty rooms that need cleaning
       const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
-        .select('id, room_number, room_name, floor_number, status, hotel, is_checkout_room')
+        .select('id, room_number, status, hotel')
         .eq('status', 'dirty')
         .order('hotel')
-        .order('is_checkout_room', { ascending: false })
         .order('room_number');
 
       if (roomsError) throw roomsError;
 
-      // Fetch existing assignments for the selected date
-      const { data: assignmentsData, error: assignmentsError } = await supabase
+      // Fetch active (non-completed) assignments for today to exclude already assigned rooms
+      const { data: activeAssignments, error: assignmentError } = await supabase
         .from('room_assignments')
-        .select(`
-          id,
-          room_id,
-          assigned_to,
-          profiles!room_assignments_assigned_to_fkey(full_name)
-        `)
+        .select('room_id')
         .eq('assignment_date', selectedDate)
         .in('status', ['assigned', 'in_progress']);
 
-      if (assignmentsError) throw assignmentsError;
+      if (assignmentError) throw assignmentError;
 
-      // Map assignments to rooms
-      const roomsWithAssignments = (roomsData || []).map(room => {
-        const assignment = assignmentsData?.find(a => a.room_id === room.id);
-        return {
-          ...room,
-          existing_assignment: assignment ? {
-            id: assignment.id,
-            assigned_to: assignment.assigned_to,
-            staff_name: (assignment.profiles as any)?.full_name || 'Unknown'
-          } : null
-        };
-      });
+      // Filter out rooms that have active assignments (but allow rooms with completed assignments)
+      const activeAssignedRoomIds = new Set(activeAssignments?.map(a => a.room_id) || []);
+      const availableRooms = (roomsData || []).filter(room => !activeAssignedRoomIds.has(room.id));
 
       // Fetch housekeeping staff
       const { data: staffData, error: staffError } = await supabase
@@ -100,83 +74,55 @@ export function SimpleRoomAssignment({ onAssignmentCreated, selectedDate }: Simp
 
       if (staffError) throw staffError;
 
-      setRooms(roomsWithAssignments);
+      setRooms(availableRooms);
       setStaff(staffData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
-      toast.error('Failed to load data');
+      toast.error('Failed to load rooms and staff');
     }
   };
 
-  const checkoutRooms = rooms.filter(r => r.is_checkout_room);
-  const dailyRooms = rooms.filter(r => !r.is_checkout_room);
-
-  const toggleRoom = (roomId: string) => {
-    setSelectedRooms(prev =>
-      prev.includes(roomId) ? prev.filter(id => id !== roomId) : [...prev, roomId]
-    );
-  };
-
-  const selectAll = () => {
-    const unassignedRoomIds = rooms
-      .filter(r => !r.existing_assignment)
-      .map(r => r.id);
-    setSelectedRooms(unassignedRoomIds);
-  };
-
-  const clearAll = () => setSelectedRooms([]);
-
-  const unassignRoom = async (assignmentId: string, roomNumber: string) => {
-    try {
-      const { error } = await supabase
-        .from('room_assignments')
-        .delete()
-        .eq('id', assignmentId);
-
-      if (error) throw error;
-
-      toast.success(`Room ${roomNumber} unassigned successfully`);
-      fetchData();
-    } catch (error) {
-      console.error('Error unassigning room:', error);
-      toast.error('Failed to unassign room');
-    }
-  };
-
-  const assignRooms = async () => {
+  const handleQuickAssign = async (type: 'daily_cleaning' | 'checkout_cleaning') => {
+    console.log('handleQuickAssign called', { type, selectedStaff, selectedRooms, user });
+    
     if (!selectedStaff) {
       toast.error('Please select a housekeeper first');
       return;
     }
 
-    if (selectedRooms.length === 0) {
-      toast.error('Please select at least one room');
+    if (!user?.id) {
+      console.error('User ID is missing:', user);
+      toast.error('User not properly authenticated. Please refresh the page.');
       return;
     }
 
-    if (!user?.id) {
-      toast.error('User not properly authenticated');
+    const roomsToAssign = type === 'daily_cleaning' 
+      ? rooms.filter(r => !selectedRooms.includes(r.id)) // All unselected rooms for daily
+      : selectedRooms; // Only selected rooms for checkout
+
+    if (roomsToAssign.length === 0) {
+      toast.error(`No rooms available for ${type.replace('_', ' ')}`);
       return;
     }
 
     setLoading(true);
     try {
-      const assignments = selectedRooms.map(roomId => {
-        const room = rooms.find(r => r.id === roomId);
-        const isCheckout = room?.is_checkout_room || false;
+      const assignments = (type === 'daily_cleaning' ? 
+        rooms.filter(r => !selectedRooms.includes(r.id)).map(r => r.id) : 
+        selectedRooms
+      ).map(roomId => ({
+        room_id: roomId,
+        assigned_to: selectedStaff,
+        assigned_by: user.id,
+        assignment_date: selectedDate,
+        assignment_type: type,
+        priority: type === 'checkout_cleaning' ? 2 : 1,
+        estimated_duration: type === 'checkout_cleaning' ? 45 : 30,
+        notes: `Quick assignment - ${type.replace('_', ' ')}`,
+        ready_to_clean: false // Managers must mark checkout rooms as ready from pending view
+      }));
 
-        return {
-          room_id: roomId,
-          assigned_to: selectedStaff,
-          assigned_by: user.id,
-          assignment_date: selectedDate,
-          assignment_type: (isCheckout ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
-          ready_to_clean: !isCheckout,
-          priority: isCheckout ? 2 : 1,
-          estimated_duration: parseInt(estimatedDuration) || 30,
-          notes: notes.trim() || null
-        };
-      });
+      console.log('Creating assignments:', assignments);
 
       const { error } = await supabase
         .from('room_assignments')
@@ -184,13 +130,33 @@ export function SimpleRoomAssignment({ onAssignmentCreated, selectedDate }: Simp
 
       if (error) throw error;
 
+      // Send email notifications for each assignment
+      for (const assignment of assignments) {
+        try {
+          const room = rooms.find(r => r.id === assignment.room_id);
+          await supabase.functions.invoke('send-work-assignment-notification', {
+            body: {
+              staff_id: assignment.assigned_to,
+              assignment_type: 'room_assignment',
+              assignment_details: {
+                room_number: room?.room_number || 'Unknown',
+                assignment_type: assignment.assignment_type
+              },
+              hotel_name: room?.hotel
+            }
+          });
+        } catch (notificationError) {
+          console.log('Failed to send notification for assignment:', notificationError);
+          // Don't break the flow if email fails
+        }
+      }
+
       const staffMember = staff.find(s => s.id === selectedStaff);
-      toast.success(`Assigned ${assignments.length} room(s) to ${staffMember?.full_name}`);
+      toast.success(`Assigned ${assignments.length} rooms for ${type.replace('_', ' ')} to ${staffMember?.full_name}`);
       
-      setSelectedRooms([]);
-      setNotes('');
       onAssignmentCreated();
-      fetchData();
+      setSelectedRooms([]);
+      fetchData(); // Refresh rooms list
     } catch (error) {
       console.error('Error creating assignments:', error);
       toast.error('Failed to create assignments');
@@ -199,196 +165,162 @@ export function SimpleRoomAssignment({ onAssignmentCreated, selectedDate }: Simp
     }
   };
 
-  const RoomCard = ({ room }: { room: Room }) => {
-    const isSelected = selectedRooms.includes(room.id);
-    const isAssigned = !!room.existing_assignment;
-
-    return (
-      <div
-        className={`border rounded-lg p-3 transition-colors ${
-          isSelected ? 'bg-blue-50 border-blue-300' : 'bg-background border-border'
-        } ${isAssigned ? 'opacity-75' : ''}`}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-start gap-2 flex-1 min-w-0">
-            {!isAssigned && (
-              <Checkbox
-                checked={isSelected}
-                onCheckedChange={() => toggleRoom(room.id)}
-                className="mt-1"
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-sm">{room.room_number}</div>
-              <div className="text-xs text-muted-foreground">
-                {room.room_name || 'Standard'} • Floor {room.floor_number || '?'}
-              </div>
-              {isAssigned && (
-                <div className="flex items-center gap-1 text-xs text-orange-600 mt-1">
-                  <User className="h-3 w-3" />
-                  <span>Already assigned to {room.existing_assignment?.staff_name}</span>
-                </div>
-              )}
-            </div>
-          </div>
-          {isAssigned && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-xs h-7 px-2"
-              onClick={() => unassignRoom(room.existing_assignment!.id, room.room_number)}
-            >
-              Unassign
-            </Button>
-          )}
-        </div>
-      </div>
+  const toggleRoomSelection = (roomId: string) => {
+    setSelectedRooms(prev => 
+      prev.includes(roomId) 
+        ? prev.filter(id => id !== roomId)
+        : [...prev, roomId]
     );
   };
 
-  const totalRooms = rooms.length;
-  const unassignedCount = rooms.filter(r => !r.existing_assignment).length;
+  const selectAllRooms = () => {
+    setSelectedRooms(rooms.map(r => r.id));
+  };
+
+  const clearSelection = () => {
+    setSelectedRooms([]);
+  };
+
+  const groupedRooms = rooms.reduce((groups, room) => {
+    if (!groups[room.hotel]) {
+      groups[room.hotel] = [];
+    }
+    groups[room.hotel].push(room);
+    return groups;
+  }, {} as Record<string, Room[]>);
 
   return (
-    <div className="space-y-6">
-      {/* Assignment Details Section */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Assignment Details</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Assign to Staff</label>
-            <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select housekeeping staff" />
-              </SelectTrigger>
-              <SelectContent>
-                {staff.map((member) => (
-                  <SelectItem key={member.id} value={member.id}>
-                    {member.full_name} {member.nickname && `(${member.nickname})`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Estimated Duration</label>
-            <Select value={estimatedDuration} onValueChange={setEstimatedDuration}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="15">15 minutes</SelectItem>
-                <SelectItem value="30">30 minutes</SelectItem>
-                <SelectItem value="45">45 minutes</SelectItem>
-                <SelectItem value="60">60 minutes</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="h-5 w-5" />
+          Quick Room Assignment
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Assign dirty rooms to housekeepers quickly and efficiently
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Staff Selection */}
         <div className="space-y-2">
-          <label className="text-sm font-medium">Notes (Optional)</label>
-          <Textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Any special instructions or notes for the housekeeper..."
-            className="min-h-[80px] resize-none"
-          />
+          <label className="text-sm font-medium">Select Housekeeper</label>
+          <Select value={selectedStaff} onValueChange={setSelectedStaff}>
+            <SelectTrigger>
+              <SelectValue placeholder="Choose housekeeper..." />
+            </SelectTrigger>
+            <SelectContent>
+              {staff.map((member) => (
+                <SelectItem key={member.id} value={member.id}>
+                  {member.full_name} {member.nickname && `(${member.nickname})`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      </div>
 
-      {/* Room Selection Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">
-            Select Rooms ({selectedRooms.length} selected)
-          </h3>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={selectAll}>
-              Select All
-            </Button>
-            <Button variant="outline" size="sm" onClick={clearAll}>
-              Clear All
-            </Button>
+        {/* Rooms to Assign */}
+        {rooms.length > 0 ? (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-medium">Dirty Rooms ({rooms.length})</h3>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={selectAllRooms}>
+                  Select All
+                </Button>
+                <Button size="sm" variant="outline" onClick={clearSelection}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            {/* Room List */}
+            <div className="max-h-64 overflow-y-auto space-y-3">
+              {Object.entries(groupedRooms).map(([hotel, hotelRooms]) => (
+                <div key={hotel} className="space-y-2">
+                  <h4 className="text-sm font-medium text-muted-foreground">{hotel}</h4>
+                  <div className="grid grid-cols-4 gap-2">
+                    {hotelRooms.map((room) => (
+                      <div
+                        key={room.id}
+                        className={`flex items-center gap-2 p-2 border rounded cursor-pointer hover:bg-muted/50 ${
+                          selectedRooms.includes(room.id) ? 'bg-blue-50 border-blue-200' : ''
+                        }`}
+                        onClick={() => toggleRoomSelection(room.id)}
+                      >
+                        <Checkbox
+                          checked={selectedRooms.includes(room.id)}
+                          onChange={() => {}} // Handled by parent onClick
+                        />
+                        <span className="text-sm font-medium">{room.room_number}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-
-        {rooms.length === 0 ? (
-          <Card>
-            <CardContent className="text-center py-8 text-muted-foreground">
-              <p>No dirty rooms available for assignment</p>
-            </CardContent>
-          </Card>
         ) : (
-          <div className="space-y-6">
-            {/* Hotel Grouping */}
-            {Array.from(new Set(rooms.map(r => r.hotel))).map(hotel => {
-              const hotelRooms = rooms.filter(r => r.hotel === hotel);
-              const hotelCheckoutRooms = hotelRooms.filter(r => r.is_checkout_room);
-              const hotelDailyRooms = hotelRooms.filter(r => !r.is_checkout_room);
-
-              return (
-                <Card key={hotel}>
-                  <CardContent className="p-4 space-y-4">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      <h4 className="font-semibold">{hotel} ({hotelRooms.length} rooms)</h4>
-                    </div>
-
-                    {/* Checkout Rooms Section */}
-                    {hotelCheckoutRooms.length > 0 && (
-                      <div className="space-y-3">
-                        <h5 className="text-sm font-medium text-orange-600 flex items-center gap-2">
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                          </svg>
-                          Checkout Rooms ({hotelCheckoutRooms.length})
-                        </h5>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {hotelCheckoutRooms.map(room => (
-                            <RoomCard key={room.id} room={room} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Daily Cleaning Rooms Section */}
-                    {hotelDailyRooms.length > 0 && (
-                      <div className="space-y-3">
-                        <h5 className="text-sm font-medium text-blue-600 flex items-center gap-2">
-                          <User className="h-4 w-4" />
-                          Daily Cleaning Rooms ({hotelDailyRooms.length})
-                        </h5>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {hotelDailyRooms.map(room => (
-                            <RoomCard key={room.id} room={room} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
+          <div className="text-center py-8 text-muted-foreground">
+            <p>No dirty rooms found! All rooms are clean.</p>
           </div>
         )}
-      </div>
 
-      {/* Assignment Button */}
-      {selectedRooms.length > 0 && (
-        <div className="sticky bottom-0 bg-background border-t pt-4">
-          <Button
-            onClick={assignRooms}
-            disabled={loading || !selectedStaff}
-            className="w-full"
-            size="lg"
-          >
-            {loading ? 'Assigning...' : `Assign ${selectedRooms.length} Room(s) to Staff`}
-          </Button>
+        {/* Assignment Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-3 p-4 border rounded-lg">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-blue-600" />
+              <h4 className="font-medium">Daily Cleaning</h4>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Assign ALL unselected rooms for daily maintenance cleaning
+            </p>
+            <div className="flex items-center justify-between">
+              <Badge variant="outline">
+                {rooms.length - selectedRooms.length} rooms
+              </Badge>
+              <Button
+                size="sm"
+                onClick={() => handleQuickAssign('daily_cleaning')}
+                disabled={loading || !selectedStaff || (rooms.length - selectedRooms.length) === 0}
+              >
+                <Clock className="h-4 w-4 mr-2" />
+                Assign Daily
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-3 p-4 border rounded-lg">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-orange-600" />
+              <h4 className="font-medium">Checkout Cleaning</h4>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Assign ONLY selected rooms for checkout cleaning (higher priority)
+            </p>
+            <div className="flex items-center justify-between">
+              <Badge variant="outline">
+                {selectedRooms.length} rooms
+              </Badge>
+              <Button
+                size="sm"
+                onClick={() => handleQuickAssign('checkout_cleaning')}
+                disabled={loading || !selectedStaff || selectedRooms.length === 0}
+                className="bg-orange-600 hover:bg-orange-700"
+              >
+                <Clock className="h-4 w-4 mr-2" />
+                Assign Checkout
+              </Button>
+            </div>
+          </div>
         </div>
-      )}
-    </div>
+
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>• Select rooms that need checkout cleaning (departing guests)</p>
+          <p>• Unselected rooms will be assigned for daily cleaning</p>
+          <p>• Both types can be assigned to the same housekeeper</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

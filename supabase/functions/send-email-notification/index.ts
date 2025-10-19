@@ -108,10 +108,6 @@ const handler = async (req: Request): Promise<Response> => {
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px;">
-          <div style="text-align: center; margin-bottom: 20px;">
-            <img src="https://rdhotels-management.lovable.app/logo.png" alt="HotelCare.app" style="height: 60px; width: auto;">
-          </div>
-          
           <h2 style="color: #007bff; margin-bottom: 20px;">🎟️ New Ticket Assignment - ${ticketNumber}</h2>
           
           <div style="background-color: white; padding: 20px; border-radius: 6px; margin-bottom: 20px;">
@@ -133,7 +129,7 @@ const handler = async (req: Request): Promise<Response> => {
           </div>
           
           <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6; text-align: center; color: #6c757d; font-size: 12px;">
-            <strong>HotelCare.app</strong> - Hotel Operations Management<br>
+            RD Hotels Management System<br>
             This is an automated notification
           </div>
         </div>
@@ -141,7 +137,7 @@ const handler = async (req: Request): Promise<Response> => {
     `;
 
     const result = await resend.emails.send({
-      from: "HotelCare.app <notifications@resend.dev>",
+      from: 'RD Hotels <notifications@resend.dev>',
       to: [to],
       subject: `🎟️ New Ticket Assignment: ${ticketNumber} - ${sanitizedTitle}`,
       html: emailHtml,

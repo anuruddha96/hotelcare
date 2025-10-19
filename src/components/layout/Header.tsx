@@ -1,7 +1,5 @@
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useBranding } from '@/contexts/BrandingContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -12,8 +10,9 @@ import { ReportsDialog } from '@/components/dashboard/ReportsDialog';
 import { ProfileDialog } from '@/components/dashboard/ProfileDialog';
 import { SettingsDialog } from '@/components/dashboard/SettingsDialog';
 import { HotelSwitcher } from '@/components/layout/HotelSwitcher';
+import { RoomAssignmentSummary } from '@/components/dashboard/RoomAssignmentSummary';
 import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge';
-import { LogOut, Settings, User, ChevronDown } from 'lucide-react';
+import { LogOut, Settings, User } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,10 +23,7 @@ import {
 
 export function Header() {
   const { profile, user, signOut } = useAuth();
-  const navigate = useNavigate();
-  const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
-  const { branding } = useBranding();
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
 
@@ -65,81 +61,87 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto px-3 sm:px-4 py-1.5 sm:py-2">
-        <div className="flex items-center justify-between gap-2 sm:gap-4">
-          {/* Logo */}
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <div className="relative">
-              <img 
-                src={branding.logoUrl} 
-                alt={branding.appName}
-                className="w-auto cursor-pointer hover:opacity-80 transition-opacity object-contain"
-                style={{ 
-                  height: branding.logoScale ? `${branding.logoScale}rem` : '4rem',
-                  maxHeight: '5rem'
-                }}
-                onClick={() => navigate(`/${organizationSlug || 'rdhotels'}`)}
-              />
+    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm">
+      <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
+        {/* Logo Section - More space on mobile */}
+        <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
+          <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
+            <img
+              src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
+              alt="RD Hotels Logo"
+              className="h-8 sm:h-10 w-auto object-contain"
+            />
+            {/* Only show text on larger screens */}
+            <div className="hidden md:flex flex-col">
+              <span className="text-base font-semibold tracking-tight">RD Hotels</span>
+              <span className="text-xs text-muted-foreground">
+                {profile?.assigned_hotel || 'Hotel Care Hub'}
+              </span>
             </div>
           </div>
-          
-          {/* Right side actions */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Hotel Switcher - only for multi-hotel users */}
-            {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'top_management') && (
-              <div className="hidden sm:block">
-                <HotelSwitcher />
-              </div>
-            )}
-            
-            <div className="hidden md:block">
-              <LanguageSwitcher />
-            </div>
-            
-            <div className="hidden md:block">
+        </div>
+        
+        {/* Right Section with Horizontal Scroll */}
+        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-hide max-w-[60%] sm:max-w-none">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <div className="shrink-0">
               <DirtyLinenCartBadge />
             </div>
+            <HotelSwitcher />
+            <LanguageSwitcher />
             
             {(profile?.role === 'admin' || profile?.role === 'manager') && (
-              <div className="hidden lg:flex items-center gap-2">
+              <>
                 <ReportsDialog />
                 <UserManagementDialog 
                   open={false}
                   onOpenChange={() => {}}
                 />
+              </>
+            )}
+            
+            {/* Profile Badge - Hidden on small screens */}
+            {profile && (
+              <div className="flex flex-col items-end gap-1 hidden sm:block">
+                <Badge 
+                  variant="secondary" 
+                  className="text-xs sm:text-sm"
+                >
+                  {getRoleLabel(profile.role)}
+                </Badge>
+                {profile.assigned_hotel && (
+                  <span className="text-xs text-muted-foreground hidden lg:inline">
+                    {profile.assigned_hotel}
+                  </span>
+                )}
               </div>
             )}
             
-            {/* User Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2 px-2 sm:px-3 h-9">
-                  <Avatar className="h-7 w-7 sm:h-8 sm:w-8">
+                <Button variant="ghost" className="relative h-8 w-8 sm:h-10 sm:w-10 rounded-full shrink-0">
+                  <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
                     <AvatarImage src={profile?.profile_picture_url || ''} />
-                    <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                      {profile?.full_name?.charAt(0) || profile?.email?.charAt(0) || 'U'}
+                    <AvatarFallback className="text-xs sm:text-sm">
+                      {((profile?.nickname || profile?.full_name || user?.email || 'U').charAt(0) || 'U').toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <ChevronDown className="h-3 w-3 opacity-50 hidden sm:block" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end">
+              <DropdownMenuContent className="w-48 sm:w-56" align="end">
                 <div className="flex items-center justify-start gap-2 p-2">
                   <div className="flex flex-col space-y-1 leading-none">
                     <p className="font-medium text-sm">
                       {profile?.nickname || profile?.full_name}
                     </p>
-                    <p className="w-[200px] truncate text-xs text-muted-foreground">
+                    <p className="w-[160px] sm:w-[200px] truncate text-xs text-muted-foreground">
                       {profile?.email}
                     </p>
-                    {profile && (
-                      <Badge variant="secondary" className={`${getRoleColor(profile.role)} text-white mt-1`}>
-                        {getRoleLabel(profile.role)}
-                      </Badge>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {profile && getRoleLabel(profile.role)}
+                    </p>
                     {profile?.assigned_hotel && (
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs text-muted-foreground sm:hidden">
                         {profile.assigned_hotel}
                       </p>
                     )}

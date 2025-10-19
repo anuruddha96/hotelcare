@@ -118,24 +118,19 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       .select('*')
       .eq('user_id', user.id)
       .eq('work_date', today)
-      .order('created_at', { ascending: false })
-      .limit(1);
+      .single();
 
-    if (error) {
+    if (error && error.code !== 'PGRST116') {
       console.error('Error fetching attendance:', error);
       return;
     }
 
-    // Get the latest record
-    const latestRecord = data && data.length > 0 ? data[0] : null;
-
-    if (latestRecord) {
-      setCurrentRecord(latestRecord as AttendanceRecord);
-      setNotes(latestRecord.notes || '');
+    if (data) {
+      setCurrentRecord(data as AttendanceRecord);
+      setNotes(data.notes || '');
       // Notify parent component about status change
-      onStatusChange?.(latestRecord.status);
+      onStatusChange?.(data.status);
     } else {
-      setCurrentRecord(null);
       onStatusChange?.(null);
     }
   };

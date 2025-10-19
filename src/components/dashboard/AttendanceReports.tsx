@@ -193,15 +193,9 @@ export const AttendanceReports = () => {
     URL.revokeObjectURL(url);
   };
 
-  const getStatusBadge = (status: string, workDate: string) => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const isFromPastDay = workDate < today;
-    
+  const getStatusBadge = (status: string) => {
     switch (status) {
       case 'checked_in':
-        if (isFromPastDay) {
-          return <Badge className="bg-red-500 text-white whitespace-nowrap text-xs">Not Signed Out</Badge>;
-        }
         return <Badge className="bg-green-500 text-white">Working</Badge>;
       case 'on_break':
         return <Badge className="bg-yellow-500 text-white">On Break</Badge>;
@@ -354,7 +348,7 @@ export const AttendanceReports = () => {
                     <TableCell>
                       {record.total_hours ? `${record.total_hours.toFixed(1)}h` : 'N/A'}
                     </TableCell>
-                    <TableCell>{getStatusBadge(record.status, record.work_date)}</TableCell>
+                    <TableCell>{getStatusBadge(record.status)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 max-w-xs">
                         <MapPin className="h-3 w-3" />

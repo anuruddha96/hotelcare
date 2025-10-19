@@ -85,7 +85,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
-  const [isManualCheckIn, setIsManualCheckIn] = useState(false);
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
   const [maintenanceDialogOpen, setMaintenanceDialogOpen] = useState(false);
   const [lostFoundDialogOpen, setLostFoundDialogOpen] = useState(false);
@@ -94,30 +93,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
   useEffect(() => {
     checkAttendanceStatus();
-    
-    // Set up realtime subscription for attendance changes
-    if (!user?.id) return;
-    
-    const channel = supabase
-      .channel('attendance-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'staff_attendance',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          // Refresh attendance status when it changes
-          checkAttendanceStatus();
-        }
-      )
-      .subscribe();
-    
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [user]);
 
   // Update current photos when assignment changes
@@ -126,47 +101,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   }, [assignment.completion_photos]);
 
   const checkAttendanceStatus = async () => {
-    if (!user?.id) {
-      console.log('❌ No user ID found');
-      return;
-    }
+    if (!user?.id) return;
     
     const today = new Date().toISOString().split('T')[0];
-    console.log('🔍 Checking attendance for:', { userId: user.id, date: today });
     
     const { data, error } = await supabase
       .from('staff_attendance')
-      .select('id, status, notes, created_at, check_in_time')
+      .select('status')
       .eq('user_id', user.id)
       .eq('work_date', today)
-      .order('created_at', { ascending: false });
+      .single();
     
-    console.log('📊 Attendance records found:', data?.length || 0);
-    console.log('📋 All records:', JSON.stringify(data, null, 2));
-    
-    if (error) {
-      console.error('❌ Error fetching attendance:', error);
-    }
-    
-    // Get the most recent record
-    const latestRecord = data && data.length > 0 ? data[0] : null;
-    
-    console.log('✅ Latest record:', latestRecord);
-    
-    if (latestRecord) {
-      const isManual = latestRecord.notes === 'Manually checked in by admin';
-      console.log('📝 Setting attendance status:', {
-        status: latestRecord.status,
-        isManualCheckIn: isManual,
-        notes: latestRecord.notes
-      });
-      
-      setAttendanceStatus(latestRecord.status);
-      setIsManualCheckIn(isManual);
+    if (!error && data) {
+      setAttendanceStatus(data.status);
     } else {
-      console.log('⚠️ No attendance record found - setting to null');
       setAttendanceStatus(null);
-      setIsManualCheckIn(false);
     }
   };
 
@@ -232,76 +181,23 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       }
     }
 
-    // CRITICAL: Fetch fresh attendance data before checking
-    let freshAttendanceStatus: string | null = null;
-    let freshIsManualCheckIn = false;
-    
-    if (newStatus === 'in_progress' && user?.id) {
-      const today = new Date().toISOString().split('T')[0];
-      console.log('🔄 Fetching FRESH attendance data...');
-      console.log('   User ID:', user.id);
-      console.log('   Date:', today);
-      console.log('   Auth UID:', (await supabase.auth.getUser()).data.user?.id);
-      
-      const { data: attendanceRecords, error: attError } = await supabase
-        .from('staff_attendance')
-        .select('id, status, notes, created_at, check_in_time')
-        .eq('user_id', user.id)
-        .eq('work_date', today)
-        .order('created_at', { ascending: false });
-      
-      console.log('📊 Query result:');
-      console.log('   Error:', attError);
-      console.log('   Records count:', attendanceRecords?.length || 0);
-      console.log('   All records:', JSON.stringify(attendanceRecords, null, 2));
-      
-      const latestRecord = attendanceRecords && attendanceRecords.length > 0 ? attendanceRecords[0] : null;
-      
-      if (latestRecord) {
-        freshAttendanceStatus = latestRecord.status;
-        freshIsManualCheckIn = latestRecord.notes === 'Manually checked in by admin';
-        console.log('✅ Latest record details:');
-        console.log('   ID:', latestRecord.id);
-        console.log('   Status:', latestRecord.status);
-        console.log('   Notes:', latestRecord.notes);
-        console.log('   Is Manual:', freshIsManualCheckIn);
-        console.log('   Created at:', latestRecord.created_at);
-      } else {
-        console.log('⚠️ No attendance records found');
-      }
+    // Check if user is on break before starting work
+    if (newStatus === 'in_progress' && attendanceStatus === 'on_break') {
+      showToast({
+        title: "🌸 Take Your Time",
+        description: "Please finish your break before starting work. Your well-being matters! 😌",
+      });
+      return;
     }
 
-    // Skip attendance checks if user was manually checked in by admin
-    console.log('🔐 Attendance check:', {
-      newStatus,
-      freshIsManualCheckIn,
-      freshAttendanceStatus,
-      willSkipChecks: freshIsManualCheckIn
-    });
-    
-    if (!freshIsManualCheckIn && newStatus === 'in_progress') {
-      // Check if user is on break before starting work
-      if (freshAttendanceStatus === 'on_break') {
-        console.log('⏸️ User is on break - blocking start');
-        showToast({
-          title: "🌸 Take Your Time",
-          description: "Please finish your break before starting work. Your well-being matters! 😌",
-        });
-        return;
-      }
-
-      // Check if user is checked in before starting work
-      if (!freshAttendanceStatus || freshAttendanceStatus === 'checked_out') {
-        console.log('❌ User not checked in - blocking start', { freshAttendanceStatus });
-        showToast({
-          title: "Check-in Required",
-          description: "Please check in first before starting your tasks",
-          variant: "destructive"
-        });
-        return;
-      }
-    } else if (freshIsManualCheckIn) {
-      console.log('✅ Skipping attendance checks - manual check-in detected');
+    // Check if user is checked in before starting work
+    if (newStatus === 'in_progress' && (!attendanceStatus || attendanceStatus === 'checked_out')) {
+      showToast({
+        title: "Check-in Required",
+        description: "Please check in first before starting your tasks",
+        variant: "destructive"
+      });
+      return;
     }
 
     // Check if user already has a room in progress (only for housekeepers)
@@ -625,7 +521,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <p className="text-lg font-semibold text-foreground">{assignment.rooms.room_name}</p>
             </div>
           )}
-          {assignment.estimated_duration && assignment.status === 'in_progress' && (
+          {assignment.estimated_duration && (
             <div className="col-span-2 flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-border">
               <div className="flex items-center gap-3">
                 <Clock className="h-5 w-5 text-primary" />
@@ -634,7 +530,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   <p className="text-lg font-semibold text-foreground">{assignment.estimated_duration} {t('common.minutes')}</p>
                 </div>
               </div>
-              {assignment.started_at && (
+              {assignment.status === 'in_progress' && assignment.started_at && (
                 <div className="bg-background px-3 py-2 rounded-md shadow-sm border border-border">
                   <PausableTimerComponent 
                     assignmentId={assignment.id}
@@ -784,20 +680,15 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* Complete, Add Note, Details Buttons - After Required Actions */}
           {assignment.status === 'in_progress' && (
             <div className="flex flex-col sm:flex-row gap-3">
-              <div className="relative pb-8 w-full sm:w-auto">
-                <HoldButton 
-                  onClick={() => updateAssignmentStatus('completed')}
-                  onHoldComplete={() => updateAssignmentStatus('completed')}
-                  holdDuration={2000}
-                  disabled={loading}
-                  className="w-full h-12 bg-green-600 hover:bg-green-700 text-white"
-                  holdText={t('housekeeping.holdToComplete')}
-                  releaseText={t('housekeeping.keepHolding')}
-                >
-                  <CheckCircle className="h-5 w-5 mr-2" /> 
-                  {t('housekeeping.complete')} 
-                </HoldButton>
-              </div>
+              <Button 
+                size="lg" 
+                onClick={() => updateAssignmentStatus('completed')} 
+                disabled={loading} 
+                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white" 
+              > 
+                <CheckCircle className="h-5 w-5" /> 
+                {t('housekeeping.complete')} 
+              </Button>
 
               <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
                 <DialogTrigger asChild>

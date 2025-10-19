@@ -4,7 +4,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Clock, MapPin, CheckCircle, AlertCircle, Calendar, X } from 'lucide-react';
+import { Clock, MapPin, CheckCircle, AlertCircle, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface PendingRoomsDialogProps {
@@ -121,23 +121,6 @@ export function PendingRoomsDialog({
     }
   };
 
-  const unassignRoom = async (assignmentId: string, roomNumber: string) => {
-    try {
-      const { error } = await supabase
-        .from('room_assignments')
-        .delete()
-        .eq('id', assignmentId);
-
-      if (error) throw error;
-
-      setAssignments(prev => prev.filter(a => a.id !== assignmentId));
-      toast.success(`Room ${roomNumber} unassigned successfully`);
-    } catch (error) {
-      console.error('Error unassigning room:', error);
-      toast.error('Failed to unassign room');
-    }
-  };
-
   const getPriorityColor = (priority: number) => {
     if (priority >= 3) return 'destructive';
     if (priority === 2) return 'secondary';
@@ -207,7 +190,7 @@ export function PendingRoomsDialog({
                 </div>
 
                 {assignment.is_checkout_room && (
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       {assignment.ready_to_clean ? (
                         <div className="flex items-center gap-2 text-green-600">
@@ -222,39 +205,16 @@ export function PendingRoomsDialog({
                       )}
                     </div>
                     
-                    <div className="flex gap-2">
-                      {!assignment.ready_to_clean && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => markAsReadyToClean(assignment.id)}
-                        >
-                          <CheckCircle className="h-3 w-3 mr-1" />
-                          {t('manager.markReady')}
-                        </Button>
-                      )}
+                    {!assignment.ready_to_clean && (
                       <Button
                         size="sm"
-                        variant="destructive"
-                        onClick={() => unassignRoom(assignment.id, assignment.room_number)}
+                        variant="outline"
+                        onClick={() => markAsReadyToClean(assignment.id)}
                       >
-                        <X className="h-3 w-3 mr-1" />
-                        Unassign
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        {t('manager.markReady')}
                       </Button>
-                    </div>
-                  </div>
-                )}
-                
-                {!assignment.is_checkout_room && (
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => unassignRoom(assignment.id, assignment.room_number)}
-                    >
-                      <X className="h-3 w-3 mr-1" />
-                      Unassign
-                    </Button>
+                    )}
                   </div>
                 )}
 

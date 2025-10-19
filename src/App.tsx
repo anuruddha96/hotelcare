@@ -5,7 +5,6 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-
 import { AuthProvider } from "@/hooks/useAuth";
 import { TranslationProvider } from "@/hooks/useTranslation";
 import { TenantProvider } from "@/contexts/TenantContext";
-import { BrandingProvider } from "@/contexts/BrandingContext";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -22,12 +21,10 @@ const TenantRouter = () => {
 
   return (
     <TenantProvider organizationSlug={organizationSlug}>
-      <BrandingProvider>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/auth" element={<Auth />} />
-        </Routes>
-      </BrandingProvider>
+      <Routes>
+        <Route path="/" element={<Index />} />
+        <Route path="/auth" element={<Auth />} />
+      </Routes>
     </TenantProvider>
   );
 };

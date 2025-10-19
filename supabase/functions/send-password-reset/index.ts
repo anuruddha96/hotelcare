@@ -73,12 +73,12 @@ const handler = async (req: Request): Promise<Response> => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Password Reset - HotelCare.app</title>
+        <title>Password Reset - RD Hotels</title>
         <style>
           body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
           .container { max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-          .header { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 30px 30px 20px; text-align: center; }
-          .logo { height: 60px; width: auto; margin-bottom: 10px; }
+          .header { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 40px 30px; text-align: center; }
+          .logo { font-size: 28px; font-weight: bold; color: white; margin-bottom: 8px; }
           .subtitle { color: rgba(255,255,255,0.9); font-size: 16px; }
           .content { padding: 40px 30px; }
           .greeting { font-size: 18px; color: #1f2937; margin-bottom: 20px; }
@@ -92,8 +92,8 @@ const handler = async (req: Request): Promise<Response> => {
       <body>
         <div class="container">
           <div class="header">
-            <img src="https://rdhotels-management.lovable.app/logo.png" alt="HotelCare.app" class="logo">
-            <div class="subtitle">Hotel Operations Management</div>
+            <div class="logo">🏨 RD Hotels</div>
+            <div class="subtitle">Hotel Management System</div>
           </div>
           
           <div class="content">
@@ -119,7 +119,7 @@ const handler = async (req: Request): Promise<Response> => {
           
           <div class="footer">
             <div class="footer-text">
-              <strong>HotelCare.app</strong> - Hotel Operations Management<br>
+              <strong>RD Hotels Management System</strong><br>
               This is an automated message. Please do not reply to this email.<br>
               If you need assistance, contact your system administrator.
             </div>
@@ -130,9 +130,9 @@ const handler = async (req: Request): Promise<Response> => {
     `;
 
     const { error: emailError } = await resend.emails.send({
-      from: "HotelCare.app <noreply@hotelcare.app>",
+      from: "RD Hotels <noreply@rdhotels.com>",
       to: [email],
-      subject: "Reset Your Password - HotelCare.app",
+      subject: "Reset Your Password - RD Hotels",
       html: emailHtml,
     });
 
