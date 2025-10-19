@@ -1,4 +1,4 @@
-import { EasyRoomAssignment } from './EasyRoomAssignment';
+import { SeparatedRoomAssignment } from './SeparatedRoomAssignment';
 
 interface RoomAssignmentDialogProps {
   onAssignmentCreated: () => void;
@@ -6,5 +6,5 @@ interface RoomAssignmentDialogProps {
 }
 
 export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: RoomAssignmentDialogProps) {
-  return <EasyRoomAssignment onAssignmentCreated={onAssignmentCreated} />;
+  return <SeparatedRoomAssignment onAssignmentCreated={onAssignmentCreated} />;
 }
