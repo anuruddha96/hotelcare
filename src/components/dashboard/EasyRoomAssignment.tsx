@@ -14,6 +14,7 @@ interface Room {
   room_number: string;
   status: string;
   hotel: string;
+  is_checkout_room: boolean;
 }
 
 interface Staff {
@@ -45,7 +46,7 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
       // Fetch dirty rooms
       const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
-        .select('id, room_number, status, hotel')
+        .select('id, room_number, status, hotel, is_checkout_room')
         .eq('status', 'dirty')
         .order('hotel')
         .order('room_number');
@@ -90,16 +91,23 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
 
     setLoading(true);
     try {
-      const assignments = selectedRooms.map(roomId => ({
-        room_id: roomId,
-        assigned_to: selectedStaff,
-        assigned_by: user.id,
-        assignment_date: selectedDate,
-        assignment_type: 'daily_cleaning' as const,
-        priority: 1,
-        estimated_duration: 30,
-        notes: 'Quick assignment - selected rooms'
-      }));
+      const assignments = selectedRooms.map(roomId => {
+        const room = rooms.find(r => r.id === roomId);
+        const isCheckout = room?.is_checkout_room || false;
+        const assignmentType: 'checkout_cleaning' | 'daily_cleaning' = isCheckout ? 'checkout_cleaning' : 'daily_cleaning';
+        
+        return {
+          room_id: roomId,
+          assigned_to: selectedStaff,
+          assigned_by: user.id,
+          assignment_date: selectedDate,
+          assignment_type: assignmentType,
+          ready_to_clean: !isCheckout, // Checkout rooms not ready by default
+          priority: isCheckout ? 2 : 1,
+          estimated_duration: isCheckout ? 45 : 30,
+          notes: `Quick assignment - selected rooms${isCheckout ? ' (Checkout - needs manager approval)' : ''}`
+        };
+      });
 
       console.log('Creating assignments:', assignments);
 

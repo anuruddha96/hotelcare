@@ -116,6 +116,9 @@ export function SeparatedRoomAssignment({ onAssignmentCreated }: SeparatedRoomAs
     }
   };
 
+  const [checkoutTime, setCheckoutTime] = useState('');
+  const [dailyTime, setDailyTime] = useState('');
+
   const handleAssign = async (type: 'checkout' | 'daily') => {
     const selectedStaff = type === 'checkout' ? selectedStaffCheckout : selectedStaffDaily;
     const selectedRoomIds = type === 'checkout' ? selectedCheckoutRooms : selectedDailyRooms;
@@ -135,6 +138,8 @@ export function SeparatedRoomAssignment({ onAssignmentCreated }: SeparatedRoomAs
       return;
     }
 
+    const scheduledTime = type === 'checkout' ? checkoutTime : dailyTime;
+    
     setLoading(true);
     try {
       const assignments = selectedRoomIds.map(roomId => ({
@@ -145,7 +150,8 @@ export function SeparatedRoomAssignment({ onAssignmentCreated }: SeparatedRoomAs
         assignment_type: (type === 'checkout' ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
         priority: type === 'checkout' ? 2 : 1,
         estimated_duration: type === 'checkout' ? 45 : 30,
-        ready_to_clean: false
+        ready_to_clean: type === 'daily', // Daily rooms ready immediately, checkout rooms need manager approval
+        notes: `${type === 'checkout' ? 'Checkout room cleaning' : 'Daily room maintenance'}${scheduledTime ? ` - Scheduled for ${scheduledTime}` : ''}`
       }));
 
       const { error } = await supabase
@@ -234,21 +240,32 @@ export function SeparatedRoomAssignment({ onAssignmentCreated }: SeparatedRoomAs
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Staff Selection */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t('quickAssign.selectHousekeeper')}</label>
-            <Select value={selectedStaff} onValueChange={onStaffChange}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('quickAssign.chooseHousekeeper')} />
-              </SelectTrigger>
-              <SelectContent>
-                {staff.map((member) => (
-                  <SelectItem key={member.id} value={member.id}>
-                    {member.full_name} {member.nickname && `(${member.nickname})`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Staff Selection and Time */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('quickAssign.selectHousekeeper')}</label>
+              <Select value={selectedStaff} onValueChange={onStaffChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('quickAssign.chooseHousekeeper')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {staff.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {member.full_name} {member.nickname && `(${member.nickname})`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Scheduled Time (Optional)</label>
+              <input
+                type="time"
+                value={type === 'checkout' ? checkoutTime : dailyTime}
+                onChange={(e) => type === 'checkout' ? setCheckoutTime(e.target.value) : setDailyTime(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md text-sm bg-background"
+              />
+            </div>
           </div>
 
           {/* Rooms List */}
