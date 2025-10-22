@@ -294,9 +294,24 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       if (!freshAttendanceStatus || freshAttendanceStatus === 'checked_out') {
         console.log('❌ User not checked in - blocking start', { freshAttendanceStatus });
         showToast({
-          title: "Check-in Required",
-          description: "Please check in first before starting your tasks",
-          variant: "destructive"
+          title: t('attendance.notCheckedIn'),
+          description: t('attendance.checkInRequired'),
+          variant: "destructive",
+          action: (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // Redirect to attendance tab
+                const attendanceTab = document.querySelector('[data-value="attendance"]') as HTMLElement;
+                if (attendanceTab) {
+                  attendanceTab.click();
+                }
+              }}
+            >
+              {t('attendance.goToCheckIn')}
+            </Button>
+          )
         });
         return;
       }
