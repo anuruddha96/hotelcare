@@ -579,12 +579,20 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </Badge>
             )}
             
-            {assignment.priority > 1 && (
+            {assignment.priority > 1 && assignment.status !== 'in_progress' && (
               <Badge 
                 variant="outline" 
-                className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0`}
+                className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0 animate-pulse`}
               >
-                {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
+                ⭐ {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
+              </Badge>
+            )}
+            {assignment.status === 'in_progress' && (
+              <Badge 
+                variant="default"
+                className="bg-amber-500 text-white font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 animate-pulse"
+              >
+                🔥 {t('housekeeping.inProgress')}
               </Badge>
             )}
             <Badge 
@@ -671,13 +679,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         <div className="space-y-4">
           {/* Primary Action Buttons - Only Start button before Required Actions */}
           <div className="flex flex-col sm:flex-row gap-3">
-            {assignment.status === 'assigned' && (
+          {assignment.status === 'assigned' && (
               <HoldButton
                 size="lg"
                 holdDuration={2000}
-                onHoldComplete={() => updateAssignmentStatus('in_progress')}
+                onHoldComplete={() => {
+                  console.log('Hold complete, starting room...');
+                  updateAssignmentStatus('in_progress');
+                }}
                 disabled={loading}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto select-none"
+                style={{
+                  WebkitUserSelect: 'none',
+                  WebkitTouchCallout: 'none',
+                  userSelect: 'none'
+                }}
                 holdText={t('housekeeping.holdToStart')}
                 releaseText={t('housekeeping.keepHolding')}
               >

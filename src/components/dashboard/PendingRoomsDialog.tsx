@@ -4,7 +4,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Clock, MapPin, CheckCircle, AlertCircle, Calendar } from 'lucide-react';
+import { Clock, MapPin, CheckCircle, AlertCircle, Calendar, Star, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface PendingRoomsDialogProps {
@@ -121,6 +121,48 @@ export function PendingRoomsDialog({
     }
   };
 
+  const unassignRoom = async (assignmentId: string, roomNumber: string) => {
+    try {
+      const { error } = await supabase
+        .from('room_assignments')
+        .delete()
+        .eq('id', assignmentId);
+
+      if (error) throw error;
+
+      setAssignments(prev => prev.filter(a => a.id !== assignmentId));
+      toast.success(`Room ${roomNumber} unassigned`);
+    } catch (error) {
+      console.error('Error unassigning room:', error);
+      toast.error(t('common.error'));
+    }
+  };
+
+  const updatePriority = async (assignmentId: string, newPriority: number) => {
+    try {
+      const { error } = await supabase
+        .from('room_assignments')
+        .update({ priority: newPriority })
+        .eq('id', assignmentId);
+
+      if (error) throw error;
+
+      setAssignments(prev => 
+        prev.map(assignment => 
+          assignment.id === assignmentId 
+            ? { ...assignment, priority: newPriority }
+            : assignment
+        )
+      );
+      
+      const priorityLabel = newPriority >= 3 ? 'High' : newPriority === 2 ? 'Medium' : 'Low';
+      toast.success(`Priority set to ${priorityLabel}`);
+    } catch (error) {
+      console.error('Error updating priority:', error);
+      toast.error(t('common.error'));
+    }
+  };
+
   const getPriorityColor = (priority: number) => {
     if (priority >= 3) return 'destructive';
     if (priority === 2) return 'secondary';
@@ -172,9 +214,19 @@ export function PendingRoomsDialog({
                     <span className="font-medium">Room {assignment.room_number}</span>
                     <span className="text-muted-foreground">• {assignment.hotel}</span>
                   </div>
-                  <Badge variant={getPriorityColor(assignment.priority)}>
-                    {getPriorityLabel(assignment.priority)}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={getPriorityColor(assignment.priority)}>
+                      {getPriorityLabel(assignment.priority)}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => unassignRoom(assignment.id, assignment.room_number)}
+                      className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-4 text-sm">
@@ -223,6 +275,38 @@ export function PendingRoomsDialog({
                     <strong>{t('assignment.notes')}:</strong> {assignment.notes}
                   </div>
                 )}
+
+                {/* Priority Controls */}
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  <Star className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground font-medium">Set Priority:</span>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant={assignment.priority === 1 ? "default" : "outline"}
+                      onClick={() => updatePriority(assignment.id, 1)}
+                      className={`h-7 text-xs ${assignment.priority === 1 ? 'bg-gray-500' : ''}`}
+                    >
+                      Low
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={assignment.priority === 2 ? "default" : "outline"}
+                      onClick={() => updatePriority(assignment.id, 2)}
+                      className={`h-7 text-xs ${assignment.priority === 2 ? 'bg-blue-500' : ''}`}
+                    >
+                      Medium
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={assignment.priority === 3 ? "default" : "outline"}
+                      onClick={() => updatePriority(assignment.id, 3)}
+                      className={`h-7 text-xs ${assignment.priority === 3 ? 'bg-red-500' : ''}`}
+                    >
+                      High
+                    </Button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>

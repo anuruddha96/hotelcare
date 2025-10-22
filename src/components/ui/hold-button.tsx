@@ -93,17 +93,23 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
         <Button
           ref={ref}
           className={cn(
-            "relative overflow-hidden transition-all duration-300",
+            "relative overflow-hidden transition-all duration-300 select-none touch-none",
             isHolding && "scale-105 shadow-lg",
             isComplete && "scale-95",
             className
           )}
+          style={{ 
+            WebkitUserSelect: 'none',
+            WebkitTouchCallout: 'none',
+            userSelect: 'none'
+          }}
           disabled={disabled}
           onMouseDown={startHolding}
           onMouseUp={stopHolding}
           onMouseLeave={stopHolding}
           onTouchStart={startHolding}
           onTouchEnd={stopHolding}
+          onContextMenu={(e) => e.preventDefault()}
           {...props}
         >
           {/* Background progress indicator */}

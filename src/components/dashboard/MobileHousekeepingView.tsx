@@ -187,25 +187,41 @@ export function MobileHousekeepingView() {
         return true; // Show all non-checkout assignments
       });
 
-      // Sort with checkout-ready first
+      // Sort with smart prioritization: in_progress > manual priority > checkout (by floor) > daily (by floor)
       assignmentsData.sort((a, b) => {
-        const checkoutRank = (x: any) => {
-          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 0; // top
-          return 1; // daily/others (checkout rooms without ready_to_clean are already filtered out)
-        };
         const statusPriority: Record<string, number> = {
           'in_progress': 1,
           'assigned': 2,
           'completed': 3,
           'cancelled': 4
         };
-        const checkoutDiff = checkoutRank(a) - checkoutRank(b);
-        if (checkoutDiff !== 0) return checkoutDiff;
+
+        // 1. In-progress rooms ALWAYS at the top
         const statusDiff = (statusPriority[a.status] ?? 99) - (statusPriority[b.status] ?? 99);
         if (statusDiff !== 0) return statusDiff;
-        const priorityDiff = (b.priority ?? 0) - (a.priority ?? 0);
+
+        // 2. Manual priority (only for assigned/in_progress)
+        const aPriority = (a.priority ?? 1);
+        const bPriority = (b.priority ?? 1);
+        const priorityDiff = bPriority - aPriority;
         if (priorityDiff !== 0) return priorityDiff;
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+
+        // 3. Checkout rooms before daily rooms
+        const aIsCheckout = a.assignment_type === 'checkout_cleaning' && a.ready_to_clean;
+        const bIsCheckout = b.assignment_type === 'checkout_cleaning' && b.ready_to_clean;
+        if (aIsCheckout && !bIsCheckout) return -1;
+        if (!aIsCheckout && bIsCheckout) return 1;
+
+        // 4. Within same type, group by floor
+        const aFloor = a.rooms?.floor_number ?? 999;
+        const bFloor = b.rooms?.floor_number ?? 999;
+        const floorDiff = aFloor - bFloor;
+        if (floorDiff !== 0) return floorDiff;
+
+        // 5. Within same floor, sort by room number
+        const aRoomNum = parseInt(a.rooms?.room_number?.replace(/\D/g, '') || '999');
+        const bRoomNum = parseInt(b.rooms?.room_number?.replace(/\D/g, '') || '999');
+        return aRoomNum - bRoomNum;
       });
 
       // If no specific filter, exclude completed tasks for cleaner view

@@ -134,6 +134,17 @@ All colors MUST be HSL.
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
+
+  /* Prevent text selection on interactive elements */
+  .no-select, 
+  button, 
+  [role="button"] {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
 }
 
 /* Mobile Touch Targets and Optimizations */
