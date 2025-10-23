@@ -333,6 +333,70 @@ export type Database = {
           },
         ]
       }
+      early_signout_requests: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          attendance_id: string
+          created_at: string
+          id: string
+          organization_slug: string | null
+          rejection_reason: string | null
+          requested_at: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          attendance_id: string
+          created_at?: string
+          id?: string
+          organization_slug?: string | null
+          rejection_reason?: string | null
+          requested_at?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          attendance_id?: string
+          created_at?: string
+          id?: string
+          organization_slug?: string | null
+          rejection_reason?: string | null
+          requested_at?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "early_signout_requests_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "early_signout_requests_attendance_id_fkey"
+            columns: ["attendance_id"]
+            isOneToOne: false
+            referencedRelation: "staff_attendance"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "early_signout_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       general_tasks: {
         Row: {
           assigned_by: string
@@ -399,30 +463,60 @@ export type Database = {
       hotel_configurations: {
         Row: {
           created_at: string | null
+          custom_app_name: string | null
+          custom_branding_enabled: boolean | null
+          custom_favicon_url: string | null
+          custom_login_background: string | null
+          custom_logo_url: string | null
+          custom_primary_color: string | null
+          custom_secondary_color: string | null
+          custom_welcome_message: string | null
           hotel_id: string
           hotel_name: string
           id: string
           is_active: boolean | null
+          logo_scale: number | null
+          logo_scale_auth: number | null
           organization_id: string | null
           settings: Json | null
           updated_at: string | null
         }
         Insert: {
           created_at?: string | null
+          custom_app_name?: string | null
+          custom_branding_enabled?: boolean | null
+          custom_favicon_url?: string | null
+          custom_login_background?: string | null
+          custom_logo_url?: string | null
+          custom_primary_color?: string | null
+          custom_secondary_color?: string | null
+          custom_welcome_message?: string | null
           hotel_id: string
           hotel_name: string
           id?: string
           is_active?: boolean | null
+          logo_scale?: number | null
+          logo_scale_auth?: number | null
           organization_id?: string | null
           settings?: Json | null
           updated_at?: string | null
         }
         Update: {
           created_at?: string | null
+          custom_app_name?: string | null
+          custom_branding_enabled?: boolean | null
+          custom_favicon_url?: string | null
+          custom_login_background?: string | null
+          custom_logo_url?: string | null
+          custom_primary_color?: string | null
+          custom_secondary_color?: string | null
+          custom_welcome_message?: string | null
           hotel_id?: string
           hotel_name?: string
           id?: string
           is_active?: boolean | null
+          logo_scale?: number | null
+          logo_scale_auth?: number | null
           organization_id?: string | null
           settings?: Json | null
           updated_at?: string | null
@@ -817,9 +911,18 @@ export type Database = {
       }
       organizations: {
         Row: {
+          allow_custom_branding: boolean | null
           created_at: string | null
+          custom_app_name: string | null
+          custom_favicon_url: string | null
+          custom_login_background: string | null
+          custom_logo_url: string | null
+          custom_primary_color: string | null
+          custom_secondary_color: string | null
+          custom_welcome_message: string | null
           id: string
           is_active: boolean | null
+          logo_scale: number | null
           name: string
           settings: Json | null
           slug: string
@@ -827,9 +930,18 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          allow_custom_branding?: boolean | null
           created_at?: string | null
+          custom_app_name?: string | null
+          custom_favicon_url?: string | null
+          custom_login_background?: string | null
+          custom_logo_url?: string | null
+          custom_primary_color?: string | null
+          custom_secondary_color?: string | null
+          custom_welcome_message?: string | null
           id?: string
           is_active?: boolean | null
+          logo_scale?: number | null
           name: string
           settings?: Json | null
           slug: string
@@ -837,9 +949,18 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          allow_custom_branding?: boolean | null
           created_at?: string | null
+          custom_app_name?: string | null
+          custom_favicon_url?: string | null
+          custom_login_background?: string | null
+          custom_logo_url?: string | null
+          custom_primary_color?: string | null
+          custom_secondary_color?: string | null
+          custom_welcome_message?: string | null
           id?: string
           is_active?: boolean | null
+          logo_scale?: number | null
           name?: string
           settings?: Json | null
           slug?: string
@@ -1505,9 +1626,9 @@ export type Database = {
         }
         Returns: Json
       }
-      create_user_with_profile: {
-        Args:
-          | {
+      create_user_with_profile:
+        | {
+            Args: {
               p_assigned_hotel?: string
               p_email: string
               p_full_name: string
@@ -1515,7 +1636,10 @@ export type Database = {
               p_phone_number?: string
               p_role?: Database["public"]["Enums"]["user_role"]
             }
-          | {
+            Returns: Json
+          }
+        | {
+            Args: {
               p_assigned_hotel?: string
               p_email?: string
               p_full_name: string
@@ -1524,8 +1648,8 @@ export type Database = {
               p_role?: Database["public"]["Enums"]["user_role"]
               p_username?: string
             }
-        Returns: Json
-      }
+            Returns: Json
+          }
       create_user_with_profile_v2: {
         Args: {
           p_assigned_hotel?: string
@@ -1538,18 +1662,12 @@ export type Database = {
         }
         Returns: Json
       }
-      delete_user_profile: {
-        Args: { p_user_id: string }
-        Returns: Json
-      }
+      delete_user_profile: { Args: { p_user_id: string }; Returns: Json }
       delete_user_profile_v2: {
         Args: { p_reassign_to: string; p_user_id: string }
         Returns: Json
       }
-      generate_ticket_number: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
+      generate_ticket_number: { Args: never; Returns: string }
       get_assignable_staff: {
         Args: { requesting_user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
@@ -1629,19 +1747,13 @@ export type Database = {
         Returns: Json
       }
       get_current_user_role: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: Database["public"]["Enums"]["user_role"]
       }
-      get_email_by_nickname: {
-        Args: { p_nickname: string }
-        Returns: string
-      }
-      get_email_case_insensitive: {
-        Args: { p_email: string }
-        Returns: string
-      }
+      get_email_by_nickname: { Args: { p_nickname: string }; Returns: string }
+      get_email_case_insensitive: { Args: { p_email: string }; Returns: string }
       get_employees_by_hotel: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: {
           assigned_hotel: string
           created_at: string
@@ -1651,14 +1763,8 @@ export type Database = {
           role: Database["public"]["Enums"]["user_role"]
         }[]
       }
-      get_hotel_id_from_name: {
-        Args: { hotel_name: string }
-        Returns: string
-      }
-      get_hotel_name_from_id: {
-        Args: { hotel_id: string }
-        Returns: string
-      }
+      get_hotel_id_from_name: { Args: { hotel_name: string }; Returns: string }
+      get_hotel_name_from_id: { Args: { hotel_id: string }; Returns: string }
       get_housekeeper_avg_rating: {
         Args: { days_back?: number; p_housekeeper_id: string }
         Returns: number
@@ -1690,14 +1796,8 @@ export type Database = {
           department: string
         }[]
       }
-      get_user_assigned_hotel: {
-        Args: { user_id: string }
-        Returns: string
-      }
-      get_user_organization_slug: {
-        Args: { user_id: string }
-        Returns: string
-      }
+      get_user_assigned_hotel: { Args: { user_id: string }; Returns: string }
+      get_user_organization_slug: { Args: { user_id: string }; Returns: string }
       get_user_role: {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
@@ -1710,8 +1810,9 @@ export type Database = {
         Args: { _user_id: string }
         Returns: boolean
       }
-      is_super_admin: {
-        Args: { user_id: string }
+      is_super_admin: { Args: { user_id: string }; Returns: boolean }
+      organization_has_custom_branding: {
+        Args: { org_slug: string }
         Returns: boolean
       }
       update_assignment_type: {
@@ -1734,10 +1835,7 @@ export type Database = {
         }
         Returns: Json
       }
-      user_can_view_ticket: {
-        Args: { ticket_id: string }
-        Returns: boolean
-      }
+      user_can_view_ticket: { Args: { ticket_id: string }; Returns: boolean }
     }
     Enums: {
       assignment_status: "assigned" | "in_progress" | "completed" | "cancelled"

@@ -51,6 +51,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [selectedBreakType, setSelectedBreakType] = useState<string>('');
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
+  const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: any} | null>(null);
   
   const isAdminOrHR = profile?.role && ['admin', 'hr', 'manager'].includes(profile.role);
 
@@ -134,9 +135,47 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       setNotes(latestRecord.notes || '');
       // Notify parent component about status change
       onStatusChange?.(latestRecord.status);
+      
+      // Check for early signout requests
+      checkEarlySignoutStatus(latestRecord.id);
     } else {
       setCurrentRecord(null);
       onStatusChange?.(null);
+      setEarlySignoutStatus(null);
+    }
+  };
+
+  const checkEarlySignoutStatus = async (attendanceId: string) => {
+    // Check for pending request
+    const { data: pendingRequest } = await supabase
+      .from('early_signout_requests')
+      .select('*, profiles!early_signout_requests_approved_by_fkey(full_name)')
+      .eq('attendance_id', attendanceId)
+      .eq('status', 'pending')
+      .maybeSingle();
+
+    if (pendingRequest) {
+      setEarlySignoutStatus({ type: 'pending', details: pendingRequest });
+      return;
+    }
+
+    // Check for processed requests
+    const { data: processedRequest } = await supabase
+      .from('early_signout_requests')
+      .select('*, profiles!early_signout_requests_approved_by_fkey(full_name)')
+      .eq('attendance_id', attendanceId)
+      .in('status', ['approved', 'rejected'])
+      .order('approved_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (processedRequest) {
+      setEarlySignoutStatus({ 
+        type: processedRequest.status as 'approved' | 'rejected', 
+        details: processedRequest 
+      });
+    } else {
+      setEarlySignoutStatus(null);
     }
   };
 
@@ -203,27 +242,64 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
     setIsLoading(true);
 
-    const { error } = await supabase
-      .from('staff_attendance')
-      .update({
-        check_out_time: new Date().toISOString(),
-        check_out_location: location,
-        notes: notes || null
-      })
-      .eq('id', currentRecord.id);
+    // Check if this is an early sign-out (between 8 PM and 4 AM)
+    const currentHour = new Date().getHours();
+    const isEarlySignout = currentHour >= 20 || currentHour < 4;
 
-    if (error) {
-      toast({
-        title: "Error",
-        description: "Failed to check out. Please try again.",
-        variant: "destructive"
-      });
+    if (isEarlySignout) {
+      // Create an early sign-out request instead of checking out immediately
+      try {
+        const { error } = await supabase
+          .from('early_signout_requests')
+          .insert({
+            user_id: user?.id,
+            attendance_id: currentRecord.id,
+            organization_slug: profile?.organization_slug || 'rdhotels'
+          });
+
+        if (error) throw error;
+
+        toast({
+          title: "Early Sign-Out Request Submitted",
+          description: "Your supervisor will review your request. You cannot work until it's approved.",
+          variant: "default"
+        });
+        
+        // Update local state to show pending status
+        setCurrentRecord(prev => prev ? { ...prev, status: 'pending_early_signout' } : null);
+        onStatusChange?.('pending_early_signout');
+      } catch (error) {
+        console.error('Error creating early signout request:', error);
+        toast({
+          title: "Error",
+          description: "Failed to submit early sign-out request",
+          variant: "destructive"
+        });
+      }
     } else {
-      toast({
-        title: t('workStatus.checkOutSuccess'),
-        description: t('workStatus.checkOutDescription'),
-      });
-      fetchTodaysAttendance();
+      // Normal check-out
+      const { error } = await supabase
+        .from('staff_attendance')
+        .update({
+          check_out_time: new Date().toISOString(),
+          check_out_location: location,
+          notes: notes || null
+        })
+        .eq('id', currentRecord.id);
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to check out. Please try again.",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: t('workStatus.checkOutSuccess'),
+          description: t('workStatus.checkOutDescription'),
+        });
+        fetchTodaysAttendance();
+      }
     }
 
     setIsLoading(false);
@@ -280,6 +356,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         return <Badge className="bg-yellow-500 text-white text-xs sm:text-sm">{t('attendance.onBreak')}</Badge>;
       case 'checked_out':
         return <Badge className="bg-gray-500 text-white text-xs sm:text-sm">{t('attendance.checkedOut')}</Badge>;
+      case 'pending_early_signout':
+        return <Badge className="bg-orange-500 text-white text-xs sm:text-sm animate-pulse">Pending Early Sign-Out Approval</Badge>;
       default:
         return <Badge variant="outline" className="text-xs sm:text-sm">Unknown</Badge>;
     }
@@ -327,6 +405,45 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             <div className="text-center">
               {getStatusBadge(currentRecord.status)}
             </div>
+
+            {/* Show early signout status */}
+            {earlySignoutStatus?.type === 'pending' && (
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <p className="text-sm font-medium text-orange-800">
+                  ⏳ Waiting for supervisor approval
+                </p>
+                <p className="text-xs text-orange-600 mt-1">
+                  You cannot start new work until your early sign-out is approved.
+                </p>
+              </div>
+            )}
+
+            {earlySignoutStatus?.type === 'approved' && (
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm font-medium text-green-800">
+                  ✅ Early sign-out approved
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  Approved by: {earlySignoutStatus.details?.profiles?.full_name || 'Supervisor'}
+                </p>
+              </div>
+            )}
+
+            {earlySignoutStatus?.type === 'rejected' && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm font-medium text-red-800">
+                  ❌ Early sign-out rejected
+                </p>
+                {earlySignoutStatus.details?.rejection_reason && (
+                  <p className="text-xs text-red-600 mt-1">
+                    Reason: {earlySignoutStatus.details.rejection_reason}
+                  </p>
+                )}
+                <p className="text-xs text-red-600 mt-1">
+                  Please continue working or contact your supervisor.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="flex justify-between items-center">

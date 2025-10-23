@@ -4,7 +4,8 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Clock, MapPin, CheckCircle, AlertCircle, Calendar, Star, X } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Clock, MapPin, CheckCircle, AlertCircle, Calendar, Star, X, ArrowLeftRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface PendingRoomsDialogProps {
@@ -163,6 +164,31 @@ export function PendingRoomsDialog({
     }
   };
 
+  const changeAssignmentType = async (assignmentId: string, roomNumber: string, newType: 'checkout_cleaning' | 'daily_cleaning') => {
+    try {
+      const { error } = await supabase
+        .from('room_assignments')
+        .update({ assignment_type: newType })
+        .eq('id', assignmentId);
+
+      if (error) throw error;
+
+      setAssignments(prev => 
+        prev.map(assignment => 
+          assignment.id === assignmentId 
+            ? { ...assignment, assignment_type: newType }
+            : assignment
+        )
+      );
+      
+      const typeLabel = newType === 'checkout_cleaning' ? 'Checkout Cleaning' : 'Daily Cleaning';
+      toast.success(`Room ${roomNumber} changed to ${typeLabel}`);
+    } catch (error) {
+      console.error('Error changing assignment type:', error);
+      toast.error(t('common.error'));
+    }
+  };
+
   const getPriorityColor = (priority: number) => {
     if (priority >= 3) return 'destructive';
     if (priority === 2) return 'secondary';
@@ -306,6 +332,24 @@ export function PendingRoomsDialog({
                       High
                     </Button>
                   </div>
+                </div>
+
+                {/* Change Assignment Type */}
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground font-medium">Change Type:</span>
+                  <Select
+                    value={assignment.assignment_type}
+                    onValueChange={(value) => changeAssignmentType(assignment.id, assignment.room_number, value as 'checkout_cleaning' | 'daily_cleaning')}
+                  >
+                    <SelectTrigger className="h-7 text-xs w-[160px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="checkout_cleaning">Checkout Cleaning</SelectItem>
+                      <SelectItem value="daily_cleaning">Daily Cleaning</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             ))}

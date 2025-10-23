@@ -16,8 +16,10 @@ import { RoomAssignmentDialog } from './RoomAssignmentDialog';
 import { WorkingRoomDetailDialog } from './WorkingRoomDetailDialog';
 import { PendingRoomsDialog } from './PendingRoomsDialog';
 import { DoneRoomsDialog } from './DoneRoomsDialog';
+import { EarlySignoutApprovalView } from './EarlySignoutApprovalView';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 // Real-time Break Timer Display Component for Managers
 function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; startedAt: string }) {
@@ -428,7 +430,13 @@ export function HousekeepingManagerView() {
   }
 
   return (
-    <div className="space-y-6">
+    <Tabs defaultValue="team" className="space-y-6">
+      <TabsList className="grid w-full grid-cols-2">
+        <TabsTrigger value="team">Team View</TabsTrigger>
+        <TabsTrigger value="early-signout">Early Sign-Out Approvals</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="team" className="space-y-6">
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-4">
@@ -716,6 +724,11 @@ export function HousekeepingManagerView() {
           selectedDate={selectedDate}
         />
       )}
-    </div>
+      </TabsContent>
+
+      <TabsContent value="early-signout">
+        <EarlySignoutApprovalView />
+      </TabsContent>
+    </Tabs>
   );
 }
