@@ -545,17 +545,15 @@ export function SupervisorApprovalView() {
           {/* Room Assignment Cards */}
           {pendingAssignments.length > 0 && (
             <div className="space-y-4">
-              {pendingAssignments.length > 0 && (
-                <div>
-                  <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                    Room Completion Approvals
-                  </h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Review completed room cleanings
-                  </p>
-                </div>
-              )}
+              <div>
+                <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  Room Completion Approvals
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Review completed room cleanings
+                </p>
+              </div>
               
               <div className="grid gap-4">
           {pendingAssignments.map((assignment) => (

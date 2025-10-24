@@ -92,6 +92,17 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [currentPhotos, setCurrentPhotos] = useState<string[]>(assignment.completion_photos || []);
   const [isRetrievingDND, setIsRetrievingDND] = useState(false);
 
+  // Priority and styling
+  const isHighPriority = assignment.priority >= 3;
+  const showPriorityPulse = isHighPriority && status !== 'completed' && status !== 'in_progress';
+  
+  const cardClassName = [
+    "group bg-card border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl w-full",
+    showPriorityPulse && "border-red-500 shadow-red-500/50 shadow-2xl animate-pulse",
+    status === 'in_progress' && "ring-2 ring-blue-500 ring-offset-2",
+    status === 'completed' && "opacity-75 bg-green-50 dark:bg-green-950"
+  ].filter(Boolean).join(" ");
+
   useEffect(() => {
     checkAttendanceStatus();
     
@@ -324,17 +335,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     // Managers, admins, and super admins can start multiple rooms
     if (newStatus === 'in_progress') {
       const isHousekeeper = profile?.role === 'housekeeping';
-  const isHighPriority = assignment.priority >= 3;
-  const showPriorityPulse = isHighPriority && status !== 'completed' && status !== 'in_progress';
-  
-  const cardClassName = [
-    "overflow-hidden transition-all duration-300 hover:shadow-lg border-2 relative",
-    status === 'in_progress' && "ring-2 ring-blue-500 ring-offset-2 shadow-xl scale-105",
-    status === 'completed' && "opacity-75 bg-green-50 dark:bg-green-950",
-    showPriorityPulse && "border-red-500 shadow-red-500/50 shadow-2xl before:absolute before:inset-0 before:rounded-lg before:bg-red-500/10 before:animate-pulse before:pointer-events-none"
-  ].filter(Boolean).join(" ");
+      const currentIsHighPriority = assignment.priority >= 3;
       
-      if (isHousekeeper && !isHighPriority) {
+      if (isHousekeeper && !currentIsHighPriority) {
         const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
         const { data: activeAssignments, error: checkError } = await supabase
           .from('room_assignments')
@@ -557,7 +560,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   };
 
   return (
-    <Card className="group bg-card border border-border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl w-full">
+    <Card className={cardClassName}>
       <CardHeader className="pb-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
           <div className="flex items-center gap-3 min-w-0 flex-1">
