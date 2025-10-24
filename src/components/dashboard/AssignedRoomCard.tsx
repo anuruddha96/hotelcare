@@ -320,11 +320,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
 
     // Check if user already has a room in progress (only for housekeepers)
+    // Allow starting high-priority rooms even with active rooms
     // Managers, admins, and super admins can start multiple rooms
     if (newStatus === 'in_progress') {
       const isHousekeeper = profile?.role === 'housekeeping';
+  const isHighPriority = assignment.priority >= 3;
+  const showPriorityPulse = isHighPriority && status !== 'completed' && status !== 'in_progress';
+  
+  const cardClassName = [
+    "overflow-hidden transition-all duration-300 hover:shadow-lg border-2 relative",
+    status === 'in_progress' && "ring-2 ring-blue-500 ring-offset-2 shadow-xl scale-105",
+    status === 'completed' && "opacity-75 bg-green-50 dark:bg-green-950",
+    showPriorityPulse && "border-red-500 shadow-red-500/50 shadow-2xl before:absolute before:inset-0 before:rounded-lg before:bg-red-500/10 before:animate-pulse before:pointer-events-none"
+  ].filter(Boolean).join(" ");
       
-      if (isHousekeeper) {
+      if (isHousekeeper && !isHighPriority) {
         const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
         const { data: activeAssignments, error: checkError } = await supabase
           .from('room_assignments')
@@ -340,7 +350,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           const activeRoomNumber = (activeAssignments[0] as any).rooms?.room_number || 'another room';
           showToast({
             title: "Already Working on a Room",
-            description: `Please complete ${activeRoomNumber} before starting work on this room. You can only work on one room at a time.`,
+            description: `Please complete ${activeRoomNumber} before starting work on this room. High-priority rooms can be started anytime.`,
             variant: "destructive"
           });
           return;

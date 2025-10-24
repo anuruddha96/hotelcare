@@ -75,6 +75,15 @@ export function MaintenancePhotosManagement() {
     try {
       const dateStr = selectedDate.toISOString().split('T')[0];
       
+      // Get current user's hotel to filter
+      const { data: currentUserProfile } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+
+      const userHotel = currentUserProfile?.assigned_hotel;
+      
       const { data, error } = await supabase
         .from('maintenance_issues')
         .select(`
@@ -104,11 +113,19 @@ export function MaintenancePhotosManagement() {
           .in('id', allUserIds);
         
         // Map profiles to issues
-        const issuesWithProfiles = data.map((issue: any) => ({
+        let issuesWithProfiles = data.map((issue: any) => ({
           ...issue,
           profiles: profiles?.find((p: any) => p.id === issue.reported_by) || { full_name: 'Unknown', nickname: '' },
           resolved_by_profile: issue.resolved_by ? profiles?.find((p: any) => p.id === issue.resolved_by) : null
         }));
+
+        // Filter by user's assigned hotel
+        if (userHotel) {
+          issuesWithProfiles = issuesWithProfiles.filter((issue: any) => 
+            issue.rooms?.hotel === userHotel || 
+            issue.rooms?.hotel === (profile?.assigned_hotel)
+          );
+        }
         
         console.log('Fetched maintenance issues:', issuesWithProfiles.length, 'records');
         setIssues(issuesWithProfiles as any);

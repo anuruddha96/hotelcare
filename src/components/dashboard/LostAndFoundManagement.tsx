@@ -62,6 +62,9 @@ export function LostAndFoundManagement() {
 
       console.log('Fetching lost and found up to date:', format(selectedDate, 'yyyy-MM-dd'));
 
+      // Get user's assigned hotel
+      const userHotel = profile?.assigned_hotel;
+
       const { data, error } = await supabase
         .from('lost_and_found')
         .select(`
@@ -96,8 +99,16 @@ export function LostAndFoundManagement() {
         throw error;
       }
       
-      console.log('Found items:', data?.length || 0, data);
-      setItems(data as any || []);
+      // Filter by user's assigned hotel
+      let filteredData = data || [];
+      if (userHotel && filteredData.length > 0) {
+        filteredData = filteredData.filter((item: any) => 
+          item.rooms?.hotel === userHotel
+        );
+      }
+      
+      console.log('Found items:', filteredData?.length || 0, filteredData);
+      setItems(filteredData as any || []);
     } catch (error: any) {
       console.error('Error fetching lost and found:', error);
       toast({

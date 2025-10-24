@@ -166,9 +166,15 @@ export function PendingRoomsDialog({
 
   const changeAssignmentType = async (assignmentId: string, roomNumber: string, newType: 'checkout_cleaning' | 'daily_cleaning') => {
     try {
+      // Determine ready_to_clean based on type
+      const readyToClean = newType === 'daily_cleaning' ? true : false;
+      
       const { error } = await supabase
         .from('room_assignments')
-        .update({ assignment_type: newType })
+        .update({ 
+          assignment_type: newType,
+          ready_to_clean: readyToClean
+        })
         .eq('id', assignmentId);
 
       if (error) throw error;
@@ -176,7 +182,7 @@ export function PendingRoomsDialog({
       setAssignments(prev => 
         prev.map(assignment => 
           assignment.id === assignmentId 
-            ? { ...assignment, assignment_type: newType }
+            ? { ...assignment, assignment_type: newType, ready_to_clean: readyToClean }
             : assignment
         )
       );

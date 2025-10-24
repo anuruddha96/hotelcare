@@ -71,6 +71,7 @@ export function SupervisorApprovalView() {
   const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null);
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
+  const [earlySignoutRequests, setEarlySignoutRequests] = useState<any[]>([]);
 
   useEffect(() => {
     fetchPendingAssignments();
@@ -154,7 +155,8 @@ export function SupervisorApprovalView() {
         }
       }
       
-      const { data, error } = await supabase
+      // First fetch room assignments, then fetch early sign-out requests
+      const { data: assignmentData, error: assignmentError } = await supabase
         .from('room_assignments')
         .select(`
           *,
@@ -178,10 +180,29 @@ export function SupervisorApprovalView() {
         .eq('assignment_date', dateStr)
         .order('completed_at', { ascending: false });
 
-      if (error) throw error;
-      
-      // Filter assignments by the user's selected hotel
-      let assignments = (data as any) || [];
+      if (assignmentError) throw assignmentError;
+
+      // Fetch early sign-out requests
+      const { data: earlySignoutData, error: earlySignoutError } = await supabase
+        .from('early_signout_requests')
+        .select(`
+          id,
+          user_id,
+          requested_at,
+          status,
+          rejection_reason,
+          profiles!user_id (
+            full_name,
+            nickname
+          )
+        `)
+        .eq('status', 'pending')
+        .order('requested_at', { ascending: false });
+
+      if (earlySignoutError) throw earlySignoutError;
+
+      // Filter room assignments by the user's selected hotel
+      let assignments = (assignmentData as any) || [];
       if (userHotelName) {
         assignments = assignments.filter((assignment: any) => 
           assignment.rooms?.hotel === userHotelName || 
@@ -189,7 +210,9 @@ export function SupervisorApprovalView() {
         );
       }
       
+      // Store both types in separate state or combine them for display
       setPendingAssignments(assignments);
+      setEarlySignoutRequests(earlySignoutData || []);
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
       toast.error('Failed to fetch pending assignments');
@@ -381,7 +404,7 @@ export function SupervisorApprovalView() {
         </Popover>
           </div>
 
-          {pendingAssignments.length === 0 ? (
+          {pendingAssignments.length === 0 && earlySignoutRequests.length === 0 ? (
         <Card className="text-center py-12">
           <CardContent>
             <CheckCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -394,7 +417,147 @@ export function SupervisorApprovalView() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4">
+        <div className="space-y-6">
+          {/* Early Sign-Out Request Cards */}
+          {earlySignoutRequests.length > 0 && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-orange-600" />
+                  Early Sign-Out Requests
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Staff requesting to sign out before regular hours
+                </p>
+              </div>
+              
+              {earlySignoutRequests.map((request) => (
+              <Card key={request.id} className="border-2 border-orange-300 bg-orange-50/50">
+                <CardHeader>
+                  <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                    <div className="flex items-center gap-3">
+                      <CardTitle className="text-xl font-bold text-foreground">
+                        {request.profiles?.full_name || 'Unknown'}
+                      </CardTitle>
+                      <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300">
+                        Early Sign-Out Request
+                      </Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                      <Clock className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Requested At</p>
+                        <p className="text-lg font-semibold">
+                          {new Date(request.requested_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={async () => {
+                        try {
+                          const { error } = await supabase
+                            .from('early_signout_requests')
+                            .update({
+                              status: 'approved',
+                              approved_by: (await supabase.auth.getUser()).data.user?.id,
+                              approved_at: new Date().toISOString()
+                            })
+                            .eq('id', request.id);
+
+                          if (error) throw error;
+
+                          // Actually check out the staff member
+                          const { data: attendance } = await supabase
+                            .from('staff_attendance')
+                            .select('*')
+                            .eq('user_id', request.user_id)
+                            .eq('work_date', new Date().toISOString().split('T')[0])
+                            .eq('status', 'checked_in')
+                            .single();
+
+                          if (attendance) {
+                            await supabase
+                              .from('staff_attendance')
+                              .update({
+                                check_out_time: new Date().toISOString(),
+                                status: 'checked_out'
+                              })
+                              .eq('id', attendance.id);
+                          }
+
+                          toast.success('Early sign-out approved');
+                          fetchPendingAssignments();
+                        } catch (error: any) {
+                          console.error('Error approving early signout:', error);
+                          toast.error('Failed to approve early sign-out');
+                        }
+                      }}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Approve Early Sign-Out
+                    </Button>
+                    
+                    <Button
+                      variant="destructive"
+                      onClick={async () => {
+                        const reason = prompt('Enter rejection reason:');
+                        if (!reason) return;
+                        
+                        try {
+                          const { error } = await supabase
+                            .from('early_signout_requests')
+                            .update({
+                              status: 'rejected',
+                              approved_by: (await supabase.auth.getUser()).data.user?.id,
+                              approved_at: new Date().toISOString(),
+                              rejection_reason: reason
+                            })
+                            .eq('id', request.id);
+
+                          if (error) throw error;
+
+                          toast.success('Early sign-out rejected');
+                          fetchPendingAssignments();
+                        } catch (error: any) {
+                          console.error('Error rejecting early signout:', error);
+                          toast.error('Failed to reject early sign-out');
+                        }
+                      }}
+                    >
+                      <AlertTriangle className="h-4 w-4 mr-2" />
+                      Reject
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+              ))}
+            </div>
+          )}
+          
+          {/* Room Assignment Cards */}
+          {pendingAssignments.length > 0 && (
+            <div className="space-y-4">
+              {pendingAssignments.length > 0 && (
+                <div>
+                  <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    Room Completion Approvals
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Review completed room cleanings
+                  </p>
+                </div>
+              )}
+              
+              <div className="grid gap-4">
           {pendingAssignments.map((assignment) => (
             <Card key={assignment.id} className="border border-border shadow-sm hover:shadow-md transition-all duration-200">
               <CardHeader>
@@ -607,12 +770,15 @@ export function SupervisorApprovalView() {
                   </div>
                </CardContent>
              </Card>
-           ))}
-         </div>
-       )}
+            ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
         </TabsContent>
 
-        <TabsContent value="history">
+        <TabsContent value="history" className="space-y-6">
           <ApprovalHistoryView />
         </TabsContent>
       </Tabs>
