@@ -180,38 +180,38 @@ export function PerformanceRaceGame() {
   const currentUser = participants.find(p => p.isCurrentUser);
 
   return (
-    <Card className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950 dark:via-indigo-950 dark:to-purple-950 border-none shadow-2xl overflow-hidden w-full">
+    <Card className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950 dark:via-indigo-950 dark:to-purple-950 border-none shadow-2xl overflow-hidden w-full block">
       <CardHeader className="pb-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-base sm:text-xl md:text-2xl font-bold flex items-center gap-2">
+          <CardTitle className="text-lg sm:text-xl md:text-2xl font-bold flex items-center gap-2">
             🏁 {t('performanceRace.title')}
           </CardTitle>
-          <div className="flex items-center gap-2 text-xs sm:text-sm md:text-base">
-            <Trophy className="h-4 w-4 sm:h-5 sm:w-5" />
+          <div className="flex items-center gap-2 text-sm sm:text-sm md:text-base">
+            <Trophy className="h-5 w-5 sm:h-5 sm:w-5" />
             <span className="font-semibold">{participants.length} {t('performanceRace.racers')}</span>
           </div>
         </div>
         
         {/* Race announcement banner */}
         <div className="mt-3 bg-white/20 backdrop-blur-sm rounded-lg p-2 text-center">
-          <p className="text-[10px] sm:text-xs md:text-sm font-medium leading-tight">
+          <p className="text-xs sm:text-xs md:text-sm font-medium leading-tight">
             {t('performanceRace.everyoneSeesThisRace')}
           </p>
         </div>
       </CardHeader>
 
-      <CardContent className="p-2 sm:p-3 md:p-6 space-y-3 sm:space-y-4">
+      <CardContent className="p-3 sm:p-3 md:p-6 space-y-4 sm:space-y-4">
         {/* Daily Motivational Quote */}
-        <div className="bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/30 dark:via-yellow-900/30 dark:to-orange-900/30 rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-4 border-2 border-amber-300 dark:border-amber-700">
+        <div className="bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-900/30 dark:via-yellow-900/30 dark:to-orange-900/30 rounded-lg sm:rounded-xl p-3 sm:p-3 md:p-4 border-2 border-amber-300 dark:border-amber-700">
           <div className="flex items-start gap-2 sm:gap-2 md:gap-3">
-            <div className="bg-yellow-400 dark:bg-yellow-600 rounded-full p-1 sm:p-1.5 md:p-2 mt-0.5 shrink-0">
-              <Star className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5 text-white" />
+            <div className="bg-yellow-400 dark:bg-yellow-600 rounded-full p-1.5 sm:p-1.5 md:p-2 mt-0.5 shrink-0">
+              <Star className="h-4 w-4 sm:h-4 sm:w-4 md:h-5 md:w-5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] sm:text-xs font-bold text-amber-800 dark:text-amber-200 uppercase tracking-wide mb-0.5 sm:mb-1">
+              <p className="text-xs sm:text-xs font-bold text-amber-800 dark:text-amber-200 uppercase tracking-wide mb-1 sm:mb-1">
                 {t('performanceRace.dailyMotivation')}
               </p>
-              <p className="text-[10px] sm:text-xs md:text-sm font-medium text-gray-800 dark:text-gray-200 italic leading-relaxed">
+              <p className="text-xs sm:text-xs md:text-sm font-medium text-gray-800 dark:text-gray-200 italic leading-relaxed">
                 "{getDailyQuote()}"
               </p>
             </div>
@@ -219,9 +219,9 @@ export function PerformanceRaceGame() {
         </div>
 
         {/* Race Track Container */}
-        <div className="bg-white dark:bg-gray-900 rounded-lg sm:rounded-xl p-2 sm:p-3 md:p-6 shadow-lg border-2 border-gray-200 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-900 rounded-lg sm:rounded-xl p-3 sm:p-3 md:p-6 shadow-lg border-2 border-gray-200 dark:border-gray-700">
           {/* Track markers */}
-          <div className="flex justify-between mb-2 sm:mb-3 md:mb-4 px-1 sm:px-2 text-[8px] sm:text-[10px] md:text-xs font-bold">
+          <div className="flex justify-between mb-3 sm:mb-3 md:mb-4 px-2 sm:px-2 text-xs sm:text-xs md:text-xs font-bold">
             <span className="text-green-600 dark:text-green-400">🚀 {t('performanceRace.start')}</span>
             <span className="text-gray-400 hidden sm:inline">25%</span>
             <span className="text-gray-400">50%</span>
@@ -230,7 +230,7 @@ export function PerformanceRaceGame() {
           </div>
 
           {/* Race lanes - All participants visible */}
-          <div className="space-y-2 sm:space-y-3 md:space-y-4">
+          <div className="space-y-3 sm:space-y-3 md:space-y-4">
             {participants.map((participant) => (
               <div 
                 key={participant.id}
@@ -241,33 +241,33 @@ export function PerformanceRaceGame() {
                 }`}
               >
                 {/* Participant info */}
-                <div className="flex items-center justify-between mb-1 sm:mb-2 px-0.5 sm:px-1">
-                  <div className="flex items-center gap-1 sm:gap-2 flex-1 min-w-0">
-                    <span className="text-sm sm:text-base md:text-lg shrink-0">{getRankEmoji(participant.rank)}</span>
+                <div className="flex items-center justify-between mb-2 sm:mb-2 px-1 sm:px-1">
+                  <div className="flex items-center gap-2 sm:gap-2 flex-1 min-w-0">
+                    <span className="text-base sm:text-base md:text-lg shrink-0">{getRankEmoji(participant.rank)}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-[10px] sm:text-xs md:text-sm text-gray-900 dark:text-gray-100 truncate">
+                      <p className="font-bold text-xs sm:text-xs md:text-sm text-gray-900 dark:text-gray-100 truncate">
                         {participant.nickname || participant.full_name}
                         {participant.isCurrentUser && (
-                          <span className="ml-1 sm:ml-2 text-[8px] sm:text-[10px] md:text-xs bg-blue-500 text-white px-1 sm:px-2 py-0.5 rounded-full">
+                          <span className="ml-2 sm:ml-2 text-xs sm:text-xs md:text-xs bg-blue-500 text-white px-2 sm:px-2 py-0.5 rounded-full">
                             {t('performanceRace.you')}
                           </span>
                         )}
                       </p>
-                      <p className="text-[8px] sm:text-[10px] md:text-xs text-gray-600 dark:text-gray-400">
+                      <p className="text-xs sm:text-xs md:text-xs text-gray-600 dark:text-gray-400">
                         {participant.completedToday}/{participant.avgEfficiency} {t('performanceRace.completed')}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
-                    <Zap className="h-2.5 w-2.5 sm:h-3 sm:w-3 md:h-4 md:w-4 text-yellow-500" />
-                    <span className="text-[10px] sm:text-xs md:text-sm font-bold text-gray-700 dark:text-gray-300">
+                  <div className="flex items-center gap-1 sm:gap-1 shrink-0">
+                    <Zap className="h-4 w-4 sm:h-4 sm:w-4 md:h-4 md:w-4 text-yellow-500" />
+                    <span className="text-xs sm:text-xs md:text-sm font-bold text-gray-700 dark:text-gray-300">
                       {participant.progressPercentage}%
                     </span>
                   </div>
                 </div>
 
                 {/* Progress track */}
-                <div className="relative h-8 sm:h-10 md:h-12 bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+                <div className="relative h-10 sm:h-10 md:h-12 bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
                   {/* Progress fill */}
                   <div
                     className={`absolute inset-y-0 left-0 transition-all duration-1000 ease-out ${
@@ -291,10 +291,10 @@ export function PerformanceRaceGame() {
                       left: `${Math.max(2, Math.min(participant.progressPercentage - 1, 96))}%` 
                     }}
                   >
-                    <div className={`rounded-full p-1.5 md:p-2 shadow-xl border-2 border-white ${
+                    <div className={`rounded-full p-2 md:p-2 shadow-xl border-2 border-white ${
                       participant.progressPercentage === 100 ? 'animate-bounce' : ''
                     }`}>
-                      <span className="text-lg md:text-2xl inline-block" style={{ transform: 'scaleX(-1)' }}>
+                      <span className="text-xl md:text-2xl inline-block" style={{ transform: 'scaleX(-1)' }}>
                         {participant.progressPercentage === 100 ? '🎉' : '🏃'}
                       </span>
                     </div>
@@ -307,27 +307,27 @@ export function PerformanceRaceGame() {
 
         {/* Top 3 Podium */}
         {participants.length >= 3 && (
-          <div className="bg-gradient-to-br from-yellow-50 via-amber-50 to-orange-50 dark:from-yellow-900/20 dark:via-amber-900/20 dark:to-orange-900/20 rounded-lg sm:rounded-xl p-2 sm:p-4 md:p-6 border-2 border-yellow-300 dark:border-yellow-700">
-            <h3 className="text-center font-bold text-xs sm:text-sm md:text-base text-yellow-800 dark:text-yellow-200 mb-2 sm:mb-4">
+          <div className="bg-gradient-to-br from-yellow-50 via-amber-50 to-orange-50 dark:from-yellow-900/20 dark:via-amber-900/20 dark:to-orange-900/20 rounded-lg sm:rounded-xl p-3 sm:p-4 md:p-6 border-2 border-yellow-300 dark:border-yellow-700">
+            <h3 className="text-center font-bold text-sm sm:text-sm md:text-base text-yellow-800 dark:text-yellow-200 mb-3 sm:mb-4">
               🏆 {t('performanceRace.topPerformers')}
             </h3>
-            <div className="grid grid-cols-3 gap-1 sm:gap-2 md:gap-4">
+            <div className="grid grid-cols-3 gap-2 sm:gap-2 md:gap-4">
               {participants.slice(0, 3).map((participant, index) => (
                 <div 
                   key={participant.id}
                   className={`text-center ${index === 0 ? 'order-2' : index === 1 ? 'order-1' : 'order-3'}`}
                 >
                   <div className={`${
-                    index === 0 ? 'text-3xl sm:text-4xl md:text-5xl mb-1 sm:mb-2' : 
-                    index === 1 ? 'text-2xl sm:text-3xl md:text-4xl mb-0.5 sm:mb-1 mt-2 sm:mt-4' : 
-                    'text-2xl sm:text-3xl md:text-4xl mb-0.5 sm:mb-1 mt-3 sm:mt-6'
+                    index === 0 ? 'text-4xl sm:text-4xl md:text-5xl mb-2 sm:mb-2' : 
+                    index === 1 ? 'text-3xl sm:text-3xl md:text-4xl mb-1 sm:mb-1 mt-3 sm:mt-4' : 
+                    'text-3xl sm:text-3xl md:text-4xl mb-1 sm:mb-1 mt-4 sm:mt-6'
                   }`}>
                     {getRankEmoji(participant.rank)}
                   </div>
-                  <p className="text-[8px] sm:text-[10px] md:text-xs font-bold text-gray-800 dark:text-gray-200 truncate px-0.5 sm:px-1">
+                  <p className="text-xs sm:text-xs md:text-xs font-bold text-gray-800 dark:text-gray-200 truncate px-1 sm:px-1">
                     {participant.nickname || participant.full_name}
                   </p>
-                  <p className="text-[8px] sm:text-[10px] md:text-xs text-gray-600 dark:text-gray-400">
+                  <p className="text-xs sm:text-xs md:text-xs text-gray-600 dark:text-gray-400">
                     {participant.completedToday} {t('performanceRace.tasks')}
                   </p>
                 </div>

@@ -92,13 +92,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [currentPhotos, setCurrentPhotos] = useState<string[]>(assignment.completion_photos || []);
   const [isRetrievingDND, setIsRetrievingDND] = useState(false);
 
-  // Priority and styling
+  // Priority and styling - static glow for high priority
   const isHighPriority = assignment.priority >= 3;
-  const showPriorityPulse = isHighPriority && status !== 'completed' && status !== 'in_progress';
+  const showPriorityGlow = isHighPriority && status !== 'completed' && status !== 'in_progress';
   
   const cardClassName = [
     "group bg-card border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl w-full",
-    showPriorityPulse && "border-red-500 shadow-red-500/50 shadow-2xl animate-pulse",
+    showPriorityGlow && "border-red-500 shadow-lg shadow-red-500/50",
     status === 'in_progress' && "ring-2 ring-blue-500 ring-offset-2",
     status === 'completed' && "opacity-75 bg-green-50 dark:bg-green-950"
   ].filter(Boolean).join(" ");

@@ -273,7 +273,7 @@ export function PendingRoomsDialog({
                   </Badge>
                 </div>
 
-                {assignment.is_checkout_room && (
+                {assignment.assignment_type === 'checkout_cleaning' && (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       {assignment.ready_to_clean ? (
