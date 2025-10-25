@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { HoldButton } from '@/components/ui/hold-button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -167,20 +168,23 @@ export function CompletionDialog({
                     Cancel
                   </Button>
                   
-                  <Button
-                    onClick={handleBasicCompletion}
+                  <HoldButton
+                    onHoldComplete={handleBasicCompletion}
                     className="flex-1"
                     disabled={isCompleting}
+                    holdDuration={2000}
+                    holdText={t('actions.holdToComplete')}
+                    releaseText={t('actions.releaseToCancel')}
                   >
                     {isCompleting ? (
                       <div className="flex items-center gap-2">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        Completing...
+                        {t('actions.completing')}
                       </div>
                     ) : (
-                      'Complete Task'
+                      t('actions.completeTask')
                     )}
-                  </Button>
+                  </HoldButton>
                 </div>
               </div>
             )}

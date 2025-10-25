@@ -243,6 +243,10 @@ const translations = {
     'actions.maintenance': 'Maintenance',
     'actions.photosRequired': 'Room Photos Required',
     'actions.photosRequiredMessage': 'You must capture room photos before completing this daily cleaning task. Please tap "Room Photos" to capture the required photos.',
+    'actions.completeTask': 'Complete Task',
+    'actions.completing': 'Completing...',
+    'actions.holdToComplete': 'Hold to Complete',
+    'actions.releaseToCancel': 'Release to Cancel',
     
     // Minibar
     'minibar.title': 'Minibar Tracking',
@@ -1278,6 +1282,10 @@ const translations = {
     'actions.maintenance': 'Mantenimiento',
     'actions.photosRequired': 'Fotos de Habitación Requeridas',
     'actions.photosRequiredMessage': 'Debe capturar fotos de la habitación antes de completar la limpieza diaria. Por favor toque "Fotos de Habitación" para capturar las fotos requeridas.',
+    'actions.completeTask': 'Completar Tarea',
+    'actions.completing': 'Completando...',
+    'actions.holdToComplete': 'Mantener para Completar',
+    'actions.releaseToCancel': 'Soltar para Cancelar',
     
     'minibar.items': 'Artículos del Minibar',
     'minibar.tracking': 'Seguimiento del Minibar',
@@ -1477,6 +1485,10 @@ const translations = {
     'actions.maintenance': 'Bảo Trì',
     'actions.photosRequired': 'Yêu Cầu Ảnh Phòng',
     'actions.photosRequiredMessage': 'Bạn phải chụp ảnh phòng trước khi hoàn thành công việc dọn dẹp hàng ngày. Vui lòng nhấn "Ảnh Phòng" để chụp các ảnh cần thiết.',
+    'actions.completeTask': 'Hoàn Thành Nhiệm Vụ',
+    'actions.completing': 'Đang Hoàn Thành...',
+    'actions.holdToComplete': 'Giữ để Hoàn Thành',
+    'actions.releaseToCancel': 'Thả Ra để Hủy',
     
     // Minibar Tracking
     'minibar.usage': 'Sử Dụng Minibar',
@@ -1661,6 +1673,10 @@ const translations = {
     'actions.maintenance': 'Засвар Үйлчилгээ',
     'actions.photosRequired': 'Өрөөний Зураг Шаардлагатай',
     'actions.photosRequiredMessage': 'Өдөр тутмын цэвэрлэгээний даалгаврыг дуусгахын өмнө өрөөний зургийг заавал авах ёстой. "Өрөөний Зураг" дээр дарж шаардлагатай зургуудыг авна уу.',
+    'actions.completeTask': 'Даалгаварыг Дуусгах',
+    'actions.completing': 'Дуусгаж байна...',
+    'actions.holdToComplete': 'Дуусгахын тулд дарж байна уу',
+    'actions.releaseToCancel': 'Цуцлахын тулд суллана уу',
     
     // Minibar Tracking
     'minibar.usage': 'Мини Барын Хэрэглээ',

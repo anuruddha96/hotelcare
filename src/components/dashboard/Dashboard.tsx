@@ -243,7 +243,7 @@ export function Dashboard() {
     
     switch (role) {
       case 'housekeeping':
-        return (!attendanceStatus || attendanceStatus === 'on_break') ? "attendance" : "housekeeping";
+        return "housekeeping"; // Always show My Tasks for housekeepers after sign-in
       case 'housekeeping_manager':
         return "housekeeping";
       case 'maintenance':

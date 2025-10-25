@@ -245,6 +245,9 @@ export function EnhancedDNDPhotoCapture({
           });
           setUploadedPhotos(prev => new Set(prev).add(photoId));
           toast.success('DND photo saved successfully!', { duration: 2000 });
+          
+          // Call onPhotoUploaded after successful upload
+          onPhotoUploaded?.();
         } catch (error: any) {
           console.error('Auto-save error:', error);
           setUploadingPhotos(prev => {
@@ -271,7 +274,7 @@ export function EnhancedDNDPhotoCapture({
       }
     });
     onOpenChange(false);
-    onPhotoUploaded?.();
+    // Don't call onPhotoUploaded on close - only on successful upload
   };
 
   const completedCount = photos.length;
