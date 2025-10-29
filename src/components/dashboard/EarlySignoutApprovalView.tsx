@@ -84,8 +84,35 @@ export function EarlySignoutApprovalView() {
 
       if (error) throw error;
 
-      // Filter by hotel for managers
+      // Auto-expire requests older than 10 minutes with pending status
+      const now = new Date();
+      const expiredRequests = (data || []).filter((request: any) => {
+        if (request.status !== 'pending') return false;
+        const requestTime = new Date(request.requested_at);
+        const minutesSinceRequest = (now.getTime() - requestTime.getTime()) / 60000;
+        return minutesSinceRequest > 10;
+      });
+
+      // Update expired requests
+      if (expiredRequests.length > 0) {
+        await supabase
+          .from('early_signout_requests')
+          .update({ status: 'expired' })
+          .in('id', expiredRequests.map(r => r.id));
+      }
+
+      // Filter by hotel for managers (only show requests from same hotel)
       const filteredData = (data || []).filter((request: any) => {
+        // Check if request has expired
+        if (request.status === 'pending') {
+          const requestTime = new Date(request.requested_at);
+          const minutesSinceRequest = (now.getTime() - requestTime.getTime()) / 60000;
+          if (minutesSinceRequest > 10) {
+            return false; // Hide expired requests
+          }
+        }
+        
+        // Filter by hotel
         if (!profileData?.assigned_hotel) return true; // Admin sees all
         return request.profiles?.assigned_hotel === profileData.assigned_hotel;
       });
@@ -102,6 +129,22 @@ export function EarlySignoutApprovalView() {
   const handleApprove = async (requestId: string, attendanceId: string) => {
     setProcessingId(requestId);
     try {
+      // Check if request is still pending (not already processed by another manager)
+      const { data: currentRequest, error: checkError } = await supabase
+        .from('early_signout_requests')
+        .select('status')
+        .eq('id', requestId)
+        .single();
+
+      if (checkError) throw checkError;
+
+      if (currentRequest.status !== 'pending') {
+        toast.error('This request has already been processed by another manager');
+        fetchRequests();
+        setProcessingId(null);
+        return;
+      }
+
       // Update the request
       const { error: requestError } = await supabase
         .from('early_signout_requests')
@@ -110,7 +153,8 @@ export function EarlySignoutApprovalView() {
           approved_by: user?.id,
           approved_at: new Date().toISOString()
         })
-        .eq('id', requestId);
+        .eq('id', requestId)
+        .eq('status', 'pending'); // Only update if still pending
 
       if (requestError) throw requestError;
 
@@ -144,6 +188,22 @@ export function EarlySignoutApprovalView() {
 
     setProcessingId(requestId);
     try {
+      // Check if request is still pending
+      const { data: currentRequest, error: checkError } = await supabase
+        .from('early_signout_requests')
+        .select('status')
+        .eq('id', requestId)
+        .single();
+
+      if (checkError) throw checkError;
+
+      if (currentRequest.status !== 'pending') {
+        toast.error('This request has already been processed by another manager');
+        fetchRequests();
+        setProcessingId(null);
+        return;
+      }
+
       const { error } = await supabase
         .from('early_signout_requests')
         .update({
@@ -152,7 +212,8 @@ export function EarlySignoutApprovalView() {
           approved_at: new Date().toISOString(),
           rejection_reason: reason
         })
-        .eq('id', requestId);
+        .eq('id', requestId)
+        .eq('status', 'pending'); // Only update if still pending
 
       if (error) throw error;
 
@@ -175,6 +236,8 @@ export function EarlySignoutApprovalView() {
         return <Badge className="bg-green-500 text-white">Approved</Badge>;
       case 'rejected':
         return <Badge className="bg-red-500 text-white">Rejected</Badge>;
+      case 'expired':
+        return <Badge className="bg-gray-500 text-white">Expired</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }

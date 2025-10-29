@@ -50,10 +50,11 @@ export function SimplifiedDirtyLinenManagement() {
   };
 
   const fetchData = async () => {
-    if (!dateRange?.from || !dateRange?.to) return;
+    if (!dateRange?.from) return;
     
+    // If 'to' is not set, use 'from' for single date selection
     const startDate = dateRange.from.toISOString().split('T')[0];
-    const endDate = dateRange.to.toISOString().split('T')[0];
+    const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
     
     try {
       // Step 1: Fetch dirty linen counts without joins
@@ -157,16 +158,16 @@ export function SimplifiedDirtyLinenManagement() {
   };
 
   useEffect(() => {
-    if (dateRange?.from && dateRange?.to) {
+    if (dateRange?.from) {
       fetchData();
     }
   }, [dateRange]); // Watch for date range changes
 
   const exportToCSV = () => {
-    if (!dateRange?.from || !dateRange?.to) return;
+    if (!dateRange?.from) return;
     
     const startDate = dateRange.from.toISOString().split('T')[0];
-    const endDate = dateRange.to.toISOString().split('T')[0];
+    const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
     
     // Header row with translated names
     let csv = t('linen.housekeepers') + ',' + itemTotals.map(i => getTranslatedLinenName(i.item_name)).join(',') + ',' + t('linen.total') + '\n';
