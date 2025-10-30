@@ -32,6 +32,17 @@ const linenItemTranslations: { [key: string]: string } = {
   'Small Towel': 'linen.smallTowel',
 };
 
+// Custom display order for linen items
+const linenItemDisplayOrder = [
+  'Bed Sheets Queen Size',
+  'Bed Sheets Twin Size',
+  'Duvet Covers',
+  'Big Pillow',
+  'Small Towel',
+  'Big Towel',
+  'Bath Mat',
+];
+
 export function SimplifiedDirtyLinenManagement() {
   const { profile } = useAuth();
   const { t } = useTranslation();
@@ -132,13 +143,21 @@ export function SimplifiedDirtyLinenManagement() {
         total += count;
       });
 
-      // Convert to arrays
+      // Convert to arrays with custom sort order
       const itemsArray = Array.from(itemMap.entries())
         .map(([item_name, total_count]) => ({
           item_name,
           total_count
         }))
-        .sort((a, b) => a.item_name.localeCompare(b.item_name));
+        .sort((a, b) => {
+          const indexA = linenItemDisplayOrder.indexOf(a.item_name);
+          const indexB = linenItemDisplayOrder.indexOf(b.item_name);
+          // If item is in the order list, use that order; otherwise, put it at the end
+          if (indexA === -1 && indexB === -1) return a.item_name.localeCompare(b.item_name);
+          if (indexA === -1) return 1;
+          if (indexB === -1) return -1;
+          return indexA - indexB;
+        });
 
       const housekeepersArray = Array.from(housekeeperMap.entries())
         .map(([housekeeper_name, data]) => ({
