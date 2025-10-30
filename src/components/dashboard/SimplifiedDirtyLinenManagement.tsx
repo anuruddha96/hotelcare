@@ -21,26 +21,26 @@ interface HousekeeperData {
   total: number;
 }
 
-// Mapping of linen item names to translation keys
+// Mapping of linen item names (from database) to translation keys
 const linenItemTranslations: { [key: string]: string } = {
-  'Bath Mat': 'linen.bathMat',
-  'Bed Sheets Queen Size': 'linen.bedSheetsQueenSize',
-  'Bed Sheets Twin Size': 'linen.bedSheetsTwinSize',
-  'Big Pillow': 'linen.bigPillow',
-  'Big Towel': 'linen.bigTowel',
-  'Duvet Covers': 'linen.duvetCovers',
-  'Small Towel': 'linen.smallTowel',
+  'bath_mat': 'linen.bathMat',
+  'bed_sheets_queen_size': 'linen.bedSheetsQueenSize',
+  'bed_sheets_twin_size': 'linen.bedSheetsTwinSize',
+  'big_pillow': 'linen.bigPillow',
+  'big_towel': 'linen.bigTowel',
+  'duvet_covers': 'linen.duvetCovers',
+  'small_towel': 'linen.smallTowel',
 };
 
-// Custom display order for linen items
+// Custom display order for linen items (matches database field names)
 const linenItemDisplayOrder = [
-  'Bed Sheets Queen Size',
-  'Bed Sheets Twin Size',
-  'Duvet Covers',
-  'Big Pillow',
-  'Small Towel',
-  'Big Towel',
-  'Bath Mat',
+  'bed_sheets_queen_size',
+  'bed_sheets_twin_size',
+  'duvet_covers',
+  'big_pillow',
+  'small_towel',
+  'big_towel',
+  'bath_mat',
 ];
 
 export function SimplifiedDirtyLinenManagement() {
