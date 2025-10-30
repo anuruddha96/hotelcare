@@ -909,6 +909,33 @@ export type Database = {
           },
         ]
       }
+      organization_settings: {
+        Row: {
+          id: string
+          organization_slug: string
+          setting_key: string
+          setting_value: Json
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          id?: string
+          organization_slug: string
+          setting_key: string
+          setting_value: Json
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          id?: string
+          organization_slug?: string
+          setting_key?: string
+          setting_value?: Json
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       organizations: {
         Row: {
           allow_custom_branding: boolean | null

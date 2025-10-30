@@ -73,18 +73,42 @@ export function HousekeepingTab() {
     fetchUserRole();
   }, [user?.id]);
 
-  // Load tab order from localStorage
+  // Load tab order from database
   useEffect(() => {
-    const savedOrder = localStorage.getItem('housekeepingTabOrder');
-    if (savedOrder) {
+    const loadTabOrder = async () => {
+      if (!user?.id) return;
+
       try {
-        const parsed = JSON.parse(savedOrder);
-        setOrderedTabs(parsed.map((t: any) => t.id));
-      } catch {
-        setOrderedTabs([]);
+        // Get user's organization
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('organization_slug')
+          .eq('id', user.id)
+          .single();
+
+        if (!profileData?.organization_slug) return;
+
+        // Load organization's tab order setting
+        const { data, error } = await supabase
+          .from('organization_settings')
+          .select('setting_value')
+          .eq('organization_slug', profileData.organization_slug)
+          .eq('setting_key', 'housekeeping_tab_order')
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data?.setting_value) {
+          const tabConfigs = data.setting_value as any[];
+          setOrderedTabs(tabConfigs.map((t: any) => t.id));
+        }
+      } catch (error) {
+        console.error('Error loading tab order:', error);
       }
-    }
-  }, []);
+    };
+
+    loadTabOrder();
+  }, [user?.id]);
 
   // Full management access: admin, top_management, manager, housekeeping_manager, marketing, control_finance, hr, front_office
   const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);

@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface TabConfig {
   id: string;
@@ -29,21 +31,43 @@ const DEFAULT_TAB_ORDER: TabConfig[] = [
 
 export function TabOrderManagement() {
   const { t } = useTranslation();
+  const { profile } = useAuth();
   const [tabs, setTabs] = useState<TabConfig[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load saved order from localStorage
-    const savedOrder = localStorage.getItem('housekeepingTabOrder');
-    if (savedOrder) {
-      try {
-        setTabs(JSON.parse(savedOrder));
-      } catch {
+    loadTabOrder();
+  }, [profile?.organization_slug]);
+
+  const loadTabOrder = async () => {
+    if (!profile?.organization_slug) {
+      setTabs(DEFAULT_TAB_ORDER);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('organization_settings')
+        .select('setting_value')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('setting_key', 'housekeeping_tab_order')
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data?.setting_value) {
+        setTabs(data.setting_value as unknown as TabConfig[]);
+      } else {
         setTabs(DEFAULT_TAB_ORDER);
       }
-    } else {
+    } catch (error) {
+      console.error('Error loading tab order:', error);
       setTabs(DEFAULT_TAB_ORDER);
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  };
 
   const moveTab = (index: number, direction: 'up' | 'down') => {
     const newTabs = [...tabs];
@@ -62,18 +86,69 @@ export function TabOrderManagement() {
     setTabs(newTabs);
   };
 
-  const saveOrder = () => {
-    localStorage.setItem('housekeepingTabOrder', JSON.stringify(tabs));
-    toast.success('Tab order saved successfully');
-    // Reload the page to apply changes
-    window.location.reload();
+  const saveOrder = async () => {
+    if (!profile?.organization_slug || !profile?.id) {
+      toast.error('Unable to save: Missing organization information');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('organization_settings')
+        .upsert([{
+          organization_slug: profile.organization_slug,
+          setting_key: 'housekeeping_tab_order',
+          setting_value: tabs as any,
+          updated_by: profile.id,
+        }], {
+          onConflict: 'organization_slug,setting_key'
+        });
+
+      if (error) throw error;
+
+      toast.success('Tab order saved successfully for all users');
+      // Reload the page to apply changes
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (error) {
+      console.error('Error saving tab order:', error);
+      toast.error('Failed to save tab order');
+    }
   };
 
-  const resetToDefault = () => {
-    setTabs(DEFAULT_TAB_ORDER);
-    localStorage.removeItem('housekeepingTabOrder');
-    toast.success('Reset to default order');
+  const resetToDefault = async () => {
+    if (!profile?.organization_slug) {
+      toast.error('Unable to reset: Missing organization information');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('organization_settings')
+        .delete()
+        .eq('organization_slug', profile.organization_slug)
+        .eq('setting_key', 'housekeeping_tab_order');
+
+      if (error) throw error;
+
+      setTabs(DEFAULT_TAB_ORDER);
+      toast.success('Reset to default order');
+      // Reload the page to apply changes
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (error) {
+      console.error('Error resetting tab order:', error);
+      toast.error('Failed to reset tab order');
+    }
   };
+
+  if (loading) {
+    return (
+      <Card className="p-6">
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card className="p-6">
@@ -82,7 +157,7 @@ export function TabOrderManagement() {
           <div>
             <h3 className="text-lg font-semibold">Housekeeping Tab Order</h3>
             <p className="text-sm text-muted-foreground">
-              Arrange the tabs in your preferred order
+              Arrange the tabs in your preferred order (applies to all users)
             </p>
           </div>
           <div className="flex gap-2">
