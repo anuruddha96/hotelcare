@@ -22,7 +22,7 @@ export function CompanySettings({ open, onOpenChange }: CompanySettingsProps) {
   const [logoUrl, setLogoUrl] = useState('/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png');
   const [newLogoFile, setNewLogoFile] = useState<File | null>(null);
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = profile?.role === 'admin' || profile?.is_super_admin;
 
   useEffect(() => {
     if (open) {
