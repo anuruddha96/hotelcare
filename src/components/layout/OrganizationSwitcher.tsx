@@ -62,15 +62,20 @@ export function OrganizationSwitcher() {
 
   const handleSwitchOrganization = async (slug: string) => {
     try {
-      // Update user's organization in profile
+      const selectedOrg = organizations.find(o => o.slug === slug);
+      
+      // Update user's organization in profile - set both slug and ID
       const { error } = await supabase
         .from('profiles')
-        .update({ organization_slug: slug, assigned_hotel: null })
+        .update({ 
+          organization_slug: slug, 
+          organization_id: selectedOrg?.id,
+          assigned_hotel: null 
+        })
         .eq('id', profile.id);
 
       if (error) throw error;
 
-      const selectedOrg = organizations.find(o => o.slug === slug);
       toast.success(`Switched to ${selectedOrg?.name || slug}`);
       
       // Navigate to the new organization

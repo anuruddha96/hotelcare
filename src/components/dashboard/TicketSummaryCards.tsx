@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { hotels } from './HotelFilter';
+import { useTenant } from '@/contexts/TenantContext';
 import { useTranslation } from '@/hooks/useTranslation';
 
 interface Ticket {
@@ -21,6 +21,8 @@ export const TicketSummaryCards: React.FC<TicketSummaryCardsProps> = ({
   selectedHotel,
 }) => {
   const { t } = useTranslation();
+  const { hotels: tenantHotels } = useTenant();
+  
   const filteredTickets = selectedHotel === 'all' 
     ? tickets 
     : tickets.filter(ticket => ticket.hotel === selectedHotel);
@@ -39,11 +41,11 @@ export const TicketSummaryCards: React.FC<TicketSummaryCardsProps> = ({
   const counts = getStatusCounts();
 
   const getHotelBreakdown = () => {
-    if (selectedHotel !== 'all') return null;
+    if (selectedHotel !== 'all' || !tenantHotels.length) return null;
     
-    return hotels.slice(1).map(hotel => ({
-      name: hotel.name,
-      count: tickets.filter(t => t.hotel === hotel.id).length,
+    return tenantHotels.map(hotel => ({
+      name: hotel.hotel_name,
+      count: tickets.filter(t => t.hotel === hotel.hotel_id).length,
     }));
   };
 

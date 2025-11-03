@@ -42,11 +42,4 @@ export const HotelFilter: React.FC<HotelFilterProps> = ({ value, onValueChange }
   );
 };
 
-// Export for backward compatibility - will be dynamically loaded
-export const hotels = [
-  { id: 'all', name: 'All Hotels' },
-  { id: 'memories-budapest', name: 'Hotel Memories Budapest' },
-  { id: 'mika-downtown', name: 'Hotel Mika Downtown' },
-  { id: 'ottofiori', name: 'Hotel Ottofiori' },
-  { id: 'gozsdu-court', name: 'Gozsdu Court Budapest' },
-];
+// Removed static hotels export - now dynamically loaded from tenant context
