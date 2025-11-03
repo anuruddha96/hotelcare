@@ -157,19 +157,28 @@ async function deleteFromStorage(
   try {
     // Extract bucket and path from URL
     const urlParts = photoUrl.split('/storage/v1/object/public/');
-    if (urlParts.length < 2) {
-      // Try alternative format
-      const altParts = photoUrl.split('/object/public/');
-      if (altParts.length < 2) {
-        result.errors.push(`Invalid photo URL format: ${photoUrl}`);
-        return false;
-      }
+    if (urlParts.length >= 2) {
+      // Full URL format with /storage/v1/object/public/
+      const [bucket, ...pathParts] = urlParts[1].split('/');
+      return await deleteFile(supabaseClient, bucket, pathParts.join('/'), result);
+    }
+    
+    // Try alternative format /object/public/
+    const altParts = photoUrl.split('/object/public/');
+    if (altParts.length >= 2) {
       const [bucket, ...pathParts] = altParts[1].split('/');
       return await deleteFile(supabaseClient, bucket, pathParts.join('/'), result);
     }
     
-    const [bucket, ...pathParts] = urlParts[1].split('/');
-    return await deleteFile(supabaseClient, bucket, pathParts.join('/'), result);
+    // Handle relative path format (old format): hotel-id/assignment-id/filename
+    // These are typically from room-photos bucket
+    if (!photoUrl.startsWith('http') && photoUrl.includes('/')) {
+      console.log(`Processing relative path: ${photoUrl}`);
+      return await deleteFile(supabaseClient, 'room-photos', photoUrl, result);
+    }
+    
+    result.errors.push(`Invalid photo URL format: ${photoUrl}`);
+    return false;
   } catch (error) {
     result.errors.push(`Error parsing photo URL ${photoUrl}: ${error.message}`);
     return false;
