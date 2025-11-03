@@ -77,3 +77,15 @@ verify_jwt = false
 
 [functions.generate-login-link]
 verify_jwt = false
+
+[functions.previo-sync-rooms]
+verify_jwt = true
+
+[functions.previo-sync-reservations]
+verify_jwt = true
+
+[functions.previo-update-room-status]
+verify_jwt = true
+
+[functions.previo-update-minibar]
+verify_jwt = true

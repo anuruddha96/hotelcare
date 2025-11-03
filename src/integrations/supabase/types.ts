@@ -1068,6 +1068,53 @@ export type Database = {
         }
         Relationships: []
       }
+      pms_sync_history: {
+        Row: {
+          changed_at: string | null
+          changed_by: string | null
+          created_at: string | null
+          data: Json | null
+          direction: string
+          error_message: string | null
+          hotel_id: string | null
+          id: string
+          sync_status: string
+          sync_type: string
+        }
+        Insert: {
+          changed_at?: string | null
+          changed_by?: string | null
+          created_at?: string | null
+          data?: Json | null
+          direction: string
+          error_message?: string | null
+          hotel_id?: string | null
+          id?: string
+          sync_status: string
+          sync_type: string
+        }
+        Update: {
+          changed_at?: string | null
+          changed_by?: string | null
+          created_at?: string | null
+          data?: Json | null
+          direction?: string
+          error_message?: string | null
+          hotel_id?: string | null
+          id?: string
+          sync_status?: string
+          sync_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_sync_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pms_upload_summary: {
         Row: {
           assigned_rooms: number | null
