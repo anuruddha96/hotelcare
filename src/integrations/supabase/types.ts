@@ -1029,6 +1029,45 @@ export type Database = {
         }
         Relationships: []
       }
+      photo_cleanup_log: {
+        Row: {
+          cleanup_date: string
+          created_at: string
+          deleted_completion_photos: number | null
+          deleted_dnd_photos: number | null
+          deleted_storage_files: number | null
+          errors: Json | null
+          id: string
+          initiated_by: string | null
+          status: string
+          storage_freed_mb: number | null
+        }
+        Insert: {
+          cleanup_date?: string
+          created_at?: string
+          deleted_completion_photos?: number | null
+          deleted_dnd_photos?: number | null
+          deleted_storage_files?: number | null
+          errors?: Json | null
+          id?: string
+          initiated_by?: string | null
+          status?: string
+          storage_freed_mb?: number | null
+        }
+        Update: {
+          cleanup_date?: string
+          created_at?: string
+          deleted_completion_photos?: number | null
+          deleted_dnd_photos?: number | null
+          deleted_storage_files?: number | null
+          errors?: Json | null
+          id?: string
+          initiated_by?: string | null
+          status?: string
+          storage_freed_mb?: number | null
+        }
+        Relationships: []
+      }
       pms_upload_summary: {
         Row: {
           assigned_rooms: number | null
@@ -1642,6 +1681,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_old_photos: { Args: never; Returns: undefined }
       create_authenticated_housekeeper: {
         Args: {
           p_assigned_hotel?: string
