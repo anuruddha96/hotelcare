@@ -64,12 +64,11 @@ export function OrganizationSwitcher() {
     try {
       const selectedOrg = organizations.find(o => o.slug === slug);
       
-      // Update user's organization in profile - set both slug and ID
+      // Update user's organization in profile
       const { error } = await supabase
         .from('profiles')
         .update({ 
-          organization_slug: slug, 
-          organization_id: selectedOrg?.id,
+          organization_slug: slug,
           assigned_hotel: null 
         })
         .eq('id', profile.id);
@@ -85,7 +84,7 @@ export function OrganizationSwitcher() {
       window.location.reload();
     } catch (error: any) {
       toast.error('Failed to switch organization');
-      console.error(error);
+      console.error('Organization switch error:', error);
     }
   };
 

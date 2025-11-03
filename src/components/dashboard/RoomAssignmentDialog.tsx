@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useTenant } from '@/contexts/TenantContext';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
@@ -41,7 +40,6 @@ interface HousekeepingStaff {
 
 export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: RoomAssignmentDialogProps) {
   const { user, profile } = useAuth();
-  const { organization } = useTenant();
   const { t } = useTranslation();
   const { toast } = useToast();
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -193,15 +191,6 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       return;
     }
 
-    if (!organization?.id) {
-      toast({
-        title: 'Error',
-        description: 'Organization not found',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     setLoading(true);
     try {
       // Determine assignment type based on room type automatically
@@ -218,8 +207,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           priority: 2, // Standard priority for all housekeeping tasks
           estimated_duration: estimatedDuration,
           notes: notes.trim() || null,
-          ready_to_clean: false, // Managers must mark checkout rooms as ready from pending view
-          organization_id: organization.id
+          ready_to_clean: false // Managers must mark checkout rooms as ready from pending view
         };
       });
 

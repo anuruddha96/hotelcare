@@ -28,8 +28,9 @@ export function HotelSwitcher() {
     return null;
   }
 
-  // Only show if there are multiple hotels
-  if (!hotels || hotels.length <= 1) {
+  // Show if there are hotels (even just 1, so user can see which hotel they're in)
+  // Hide only if no hotels exist
+  if (!hotels || hotels.length === 0) {
     return null;
   }
 

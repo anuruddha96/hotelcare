@@ -79,7 +79,6 @@ interface RoomWithTickets extends Room {
 export function RoomManagement() {
   const { profile } = useAuth();
   const { t } = useTranslation();
-  const { organization } = useTenant();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomWithTickets[]>([]);
   const [loading, setLoading] = useState(true);
@@ -242,15 +241,6 @@ export function RoomManagement() {
       return;
     }
 
-    if (!organization?.id) {
-      toast({
-        title: 'Error',
-        description: 'Organization not found',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
       const roomName = newRoom.room_name || generateRoomName(newRoom);
       
@@ -262,8 +252,7 @@ export function RoomManagement() {
           room_name: roomName,
           room_type: newRoom.room_type,
           bed_type: newRoom.bed_type,
-          floor_number: newRoom.floor_number ? parseInt(newRoom.floor_number) : null,
-          organization_id: organization.id
+          floor_number: newRoom.floor_number ? parseInt(newRoom.floor_number) : null
         });
 
       if (error) throw error;
