@@ -3,7 +3,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { OrganizationManagement } from './OrganizationManagement';
 import { HotelManagementView } from './HotelManagementView';
 import { TranslationManagement } from './TranslationManagement';
-import { Building2, Hotel, Languages } from 'lucide-react';
+import { PhotoCleanupManager } from '@/components/dashboard/PhotoCleanupManager';
+import { Building2, Hotel, Languages, HardDrive } from 'lucide-react';
 
 export const AdminTabs = () => {
   return (
@@ -22,6 +23,10 @@ export const AdminTabs = () => {
             <Languages className="w-4 h-4" />
             Translations
           </TabsTrigger>
+          <TabsTrigger value="system" className="gap-2">
+            <HardDrive className="w-4 h-4" />
+            System
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="organizations">
@@ -34,6 +39,18 @@ export const AdminTabs = () => {
 
         <TabsContent value="translations">
           <TranslationManagement />
+        </TabsContent>
+
+        <TabsContent value="system">
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold">System Management</h2>
+              <p className="text-muted-foreground mt-1">
+                Manage system resources and storage
+              </p>
+            </div>
+            <PhotoCleanupManager />
+          </div>
         </TabsContent>
       </Tabs>
     </div>
