@@ -252,13 +252,17 @@ export function RoomManagement() {
     }
 
     try {
-      console.log('Creating room with data:', newRoom);
+      // Find the hotel_id from the selected hotel name
+      const selectedHotel = hotels.find(h => h.name === newRoom.hotel);
+      const hotelId = selectedHotel?.id || newRoom.hotel;
+      
+      console.log('Creating room with hotel ID:', hotelId);
       const roomName = newRoom.room_name || generateRoomName(newRoom);
       
       const { data, error } = await supabase
         .from('rooms')
         .insert({
-          hotel: newRoom.hotel,
+          hotel: hotelId,
           room_number: newRoom.room_number,
           room_name: roomName,
           room_type: newRoom.room_type,
