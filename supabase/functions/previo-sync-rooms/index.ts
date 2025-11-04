@@ -65,6 +65,7 @@ serve(async (req) => {
 
     const roomsData: PrevioRoom[] = await response.json();
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
+    console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
 
     // Map Previo status to Hotel Care status
     const mapPrevioStatus = (previoStatus?: string): string => {
