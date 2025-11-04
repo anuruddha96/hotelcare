@@ -44,6 +44,7 @@ export const handler = async (req: Request): Promise<Response> => {
       assigned_hotel,
       role = 'housekeeping',
       password,
+      organization_slug,
     } = body;
 
     console.log('🔐 Creating Supabase clients');
@@ -165,6 +166,7 @@ export const handler = async (req: Request): Promise<Response> => {
         phone_number: phone_number || null,
         assigned_hotel: !assigned_hotel || assigned_hotel === 'none' ? null : assigned_hotel,
         nickname: generatedUsername,
+        organization_slug: organization_slug || null,
       }, {
         onConflict: 'id'
       });

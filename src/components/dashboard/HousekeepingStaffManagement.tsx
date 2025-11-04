@@ -31,13 +31,18 @@ export function HousekeepingStaffManagement() {
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [hotels, setHotels] = useState<any[]>([]);
+  const [allHotels, setAllHotels] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<any[]>([]);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [currentUserOrgSlug, setCurrentUserOrgSlug] = useState<string>('');
   const [newStaffData, setNewStaffData] = useState({
     full_name: '',
     phone_number: '',
     email: '',
     assigned_hotel: '',
     username: '',
+    organization_slug: '',
   });
   const [generatedCredentials, setGeneratedCredentials] = useState<{username: string, password: string, email: string} | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -46,37 +51,77 @@ export function HousekeepingStaffManagement() {
   useEffect(() => {
     fetchCurrentUserRole();
     fetchHousekeepingStaff();
-    fetchHotels();
+    fetchOrganizations();
+    fetchAllHotels();
   }, []);
 
   const fetchCurrentUserRole = async () => {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, is_super_admin, organization_slug')
         .eq('id', (await supabase.auth.getUser()).data.user?.id)
         .single();
 
       if (error) throw error;
       setCurrentUserRole(data?.role || '');
+      setIsSuperAdmin(data?.is_super_admin || false);
+      setCurrentUserOrgSlug(data?.organization_slug || '');
+      
+      // Set organization for non-super-admins
+      if (!data?.is_super_admin && data?.organization_slug) {
+        setNewStaffData(prev => ({
+          ...prev,
+          organization_slug: data.organization_slug
+        }));
+      }
     } catch (error: any) {
       console.error('Error fetching current user role:', error);
     }
   };
 
-  const fetchHotels = async () => {
+  const fetchOrganizations = async () => {
     try {
       const { data, error } = await supabase
-        .from('hotels')
-        .select('*')
+        .from('organizations')
+        .select('id, name, slug')
+        .eq('is_active', true)
         .order('name');
 
       if (error) throw error;
-      setHotels(data || []);
+      setOrganizations(data || []);
     } catch (error: any) {
-      console.error('Error fetching hotels:', error);
+      console.error('Error fetching organizations:', error);
     }
   };
+
+  const fetchAllHotels = async () => {
+    try {
+      // Fetch all hotels with their organization info
+      const { data, error } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name, organization_id, organizations(slug)')
+        .eq('is_active', true)
+        .order('hotel_name');
+
+      if (error) throw error;
+      setAllHotels(data || []);
+    } catch (error: any) {
+      console.error('Error fetching all hotels:', error);
+    }
+  };
+
+  // Filter hotels based on selected organization
+  useEffect(() => {
+    if (newStaffData.organization_slug) {
+      const filteredHotels = allHotels.filter(hotel => 
+        hotel.organizations?.slug === newStaffData.organization_slug
+      );
+      setHotels(filteredHotels);
+    } else {
+      setHotels([]);
+    }
+  }, [newStaffData.organization_slug, allHotels]);
 
   const fetchHousekeepingStaff = async () => {
     setLoading(true);
@@ -156,6 +201,17 @@ export function HousekeepingStaffManagement() {
       // Auto-generate username if not provided
       const username = newStaffData.username || await generateUsername(newStaffData.full_name);
       
+      // Validate organization_slug
+      if (!newStaffData.organization_slug) {
+        toast({
+          title: 'Error',
+          description: 'Please select an organization',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+
       // Call edge function which creates auth user and profile atomically
       const { data, error } = await supabase.functions.invoke('create-housekeeper', {
         body: {
@@ -165,6 +221,7 @@ export function HousekeepingStaffManagement() {
           phone_number: newStaffData.phone_number || null,
           assigned_hotel: newStaffData.assigned_hotel || null,
           username: username,
+          organization_slug: newStaffData.organization_slug,
         },
       });
 
@@ -210,6 +267,7 @@ export function HousekeepingStaffManagement() {
         email: '',
         assigned_hotel: '',
         username: '',
+        organization_slug: isSuperAdmin ? '' : currentUserOrgSlug,
       });
       setShowCreateForm(false);
       
@@ -318,6 +376,38 @@ export function HousekeepingStaffManagement() {
           <CardContent>
             <form onSubmit={handleCreateStaff} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Organization Selector - only for super admins and admins */}
+                {(isSuperAdmin || currentUserRole === 'admin') && (
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="staff_organization">Organization *</Label>
+                    <Select 
+                      value={newStaffData.organization_slug} 
+                      onValueChange={(value) => {
+                        setNewStaffData({ 
+                          ...newStaffData, 
+                          organization_slug: value,
+                          assigned_hotel: '' // Reset hotel when org changes
+                        });
+                      }}
+                      disabled={!isSuperAdmin && currentUserRole !== 'admin'}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select organization" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {organizations.map((org) => (
+                          <SelectItem key={org.id} value={org.slug}>
+                            {org.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Select which organization this housekeeper belongs to
+                    </p>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="staff_full_name">Full Name *</Label>
                   <Input
@@ -359,19 +449,25 @@ export function HousekeepingStaffManagement() {
                   <Select 
                     value={newStaffData.assigned_hotel} 
                     onValueChange={(value) => setNewStaffData({ ...newStaffData, assigned_hotel: value })}
+                    disabled={!newStaffData.organization_slug}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select hotel" />
+                      <SelectValue placeholder={newStaffData.organization_slug ? "Select hotel" : "Select organization first"} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">All Hotels</SelectItem>
                       {hotels.map((hotel) => (
-                        <SelectItem key={hotel.id} value={hotel.name}>
-                          {hotel.name}
+                        <SelectItem key={hotel.hotel_id} value={hotel.hotel_name}>
+                          {hotel.hotel_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {!newStaffData.organization_slug && (
+                    <p className="text-xs text-muted-foreground">
+                      Please select an organization first
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
