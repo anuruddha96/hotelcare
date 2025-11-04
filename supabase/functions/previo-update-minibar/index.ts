@@ -33,7 +33,7 @@ serve(async (req) => {
       throw new Error('Previo API credentials not configured');
     }
 
-    console.log(`Updating minibar for room ${roomNumber} in Previo for hotel: ${hotelId}`);
+    console.log(`Updating minibar for room ${roomNumber} in Previo REST API for hotel: ${hotelId}`);
     console.log(`Items:`, items);
 
     // Initialize Supabase client
@@ -56,39 +56,37 @@ serve(async (req) => {
       errors: [] as string[]
     };
 
+    // Create Basic Auth header
+    const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
+
     // Process each minibar item
     for (const item of items as MinibarItem[]) {
       try {
-        // Build XML request for Previo addAccountItem (using correct element names)
-        const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
-<request>
-  <login>${PREVIO_API_USER}</login>
-  <password>${PREVIO_API_PASSWORD}</password>
-  <hotId>${hotelId}</hotId>
-  <roomNumber>${roomNumber}</roomNumber>
-  <name>${item.item_name}</name>
-  <quantity>${item.quantity}</quantity>
-  <price>${item.price || 0}</price>
-  <segId>3</segId>
-</request>`;
-
-        // Call Previo XML API to add minibar item to guest account
-        const response = await fetch('https://api.previo.app/x1/hotel/addAccountItem', {
+        // Call Previo REST API to add minibar item to guest account
+        const response = await fetch('https://api.previo.app/rest/charge/item', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/xml',
+            'Authorization': `Basic ${auth}`,
+            'X-Previo-Hotel-ID': hotelId,
+            'Content-Type': 'application/json',
           },
-          body: xmlRequest
+          body: JSON.stringify({
+            roomNumber: roomNumber,
+            name: item.item_name,
+            quantity: item.quantity,
+            price: item.price || 0,
+            category: 'minibar'
+          })
         });
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error(`Previo API error for ${item.item_name}:`, errorText.substring(0, 500));
+          console.error(`Previo API error for ${item.item_name}:`, errorText);
           throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
         }
 
-        const responseText = await response.text();
-        console.log(`Item ${item.item_name} updated in Previo:`, responseText.substring(0, 200));
+        const responseData = await response.json();
+        console.log(`Item ${item.item_name} updated in Previo:`, responseData);
         
         syncResults.updated++;
 
@@ -120,7 +118,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true,
-        message: `Minibar updated in Previo for room ${roomNumber}`,
+        message: `Minibar updated in Previo REST API for room ${roomNumber}`,
         results: syncResults
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -1,22 +1,32 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
-import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface PrevioReservation {
-  id: string;
-  room_number: string;
-  arrival_date?: string;
-  departure_date?: string;
-  guest_name?: string;
-  adults?: number;
-  children?: number;
-  status?: string;
-  nights?: number;
+interface PrevioRoom {
+  id: number;
+  roomNumber: string;
+  roomKind: {
+    id: number;
+    name: string;
+  };
+  reservation?: {
+    id: number;
+    arrival: string;
+    departure: string;
+    guests: {
+      adults: number;
+      children: number;
+    };
+    nights: number;
+    status: string;
+  };
+  housekeeping?: {
+    status: string;
+  };
 }
 
 serve(async (req) => {
@@ -39,80 +49,31 @@ serve(async (req) => {
       throw new Error('Previo API credentials not configured');
     }
 
-    console.log(`Syncing reservations from Previo for hotel: ${hotelId}`);
+    console.log(`Syncing reservations from Previo REST API for hotel: ${hotelId}`);
 
-    // Build XML request for Previo
-    // Note: Trying different parameter combinations to find working format
-    const actualDateFrom = dateFrom || new Date().toISOString().split('T')[0];
-    const actualDateTo = dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Create Basic Auth header
+    const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
     
-    console.log('=== DETAILED DIAGNOSTICS ===');
-    console.log('Hotel ID:', hotelId);
-    console.log('Date From:', actualDateFrom);
-    console.log('Date To:', actualDateTo);
-    console.log('API User:', PREVIO_API_USER);
-    console.log('Password length:', PREVIO_API_PASSWORD?.length);
-    
-    // Try alternative: using resId search instead of date range search
-    // This may work better if the API expects a different search approach
-    const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
-<request>
-  <login>${PREVIO_API_USER}</login>
-  <password>${PREVIO_API_PASSWORD}</password>
-  <hotId>${hotelId}</hotId>
-  <dateFrom>${actualDateFrom}</dateFrom>
-  <dateTo>${actualDateTo}</dateTo>
-  <state>arrival</state>
-</request>`;
-
-    console.log('=== XML REQUEST ===');
-    console.log(xmlRequest);
-    console.log('=== CALLING API ===');
-    console.log('Endpoint: https://api.previo.app/x1/hotel/searchReservations');
-    console.log('Method: POST');
-    console.log('Content-Type: application/xml');
-
-    // Call Previo XML API to search reservations
-    const response = await fetch('https://api.previo.app/x1/hotel/searchReservations', {
-      method: 'POST',
+    // Call Previo REST API to get all rooms (includes reservation data)
+    const response = await fetch('https://api.previo.app/rest/rooms', {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/xml',
-      },
-      body: xmlRequest
+        'Authorization': `Basic ${auth}`,
+        'X-Previo-Hotel-ID': hotelId,
+        'Content-Type': 'application/json',
+      }
     });
 
-    console.log('=== RESPONSE STATUS ===');
-    console.log('Status:', response.status);
-    console.log('Status Text:', response.statusText);
-    console.log('OK:', response.ok);
-    console.log('Headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+    console.log(`Previo API response status: ${response.status}`);
 
-    const responseText = await response.text();
-    console.log('=== FULL RAW RESPONSE ===');
-    console.log(responseText);
-    console.log('=== RESPONSE LENGTH ===');
-    console.log('Characters:', responseText.length);
-    
-    // Parse XML response (use text/html as Deno DOMParser doesn't support text/xml)
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(responseText, 'text/html');
-    
-    if (!xmlDoc) {
-      throw new Error('Failed to parse XML response');
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Previo API error:', errorText);
+      throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
     }
 
-    // Check for Previo API errors
-    const errorEl = xmlDoc.querySelector('error');
-    if (errorEl) {
-      const errorCode = errorEl.querySelector('code')?.textContent || 'unknown';
-      const errorMessage = errorEl.querySelector('message')?.textContent || 'Unknown error';
-      throw new Error(`Previo API Error ${errorCode}: ${errorMessage}`);
-    }
-
-    // Extract reservations from XML
-    const reservationElements = xmlDoc.querySelectorAll('reservation');
-    const reservations = reservationElements.length;
-    console.log(`Received ${reservations} reservations from Previo`);
+    const roomsData: PrevioRoom[] = await response.json();
+    console.log(`Received ${roomsData.length} rooms from Previo REST API`);
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -129,7 +90,7 @@ serve(async (req) => {
     }
 
     const syncResults = {
-      total: reservations,
+      total: roomsData.length,
       updated: 0,
       checkouts_today: 0,
       arrivals_today: 0,
@@ -139,25 +100,31 @@ serve(async (req) => {
 
     const today = new Date().toISOString().split('T')[0];
 
-    // Process each reservation from XML
-    for (const resEl of Array.from(reservationElements)) {
+    // Process each room with reservation data
+    for (const roomData of roomsData) {
       try {
-        const roomNumber = resEl.querySelector('room_number')?.textContent || '';
-        const departureDate = resEl.querySelector('departure_date')?.textContent?.split('T')[0] || '';
-        const arrivalDate = resEl.querySelector('arrival_date')?.textContent?.split('T')[0] || '';
-        const status = resEl.querySelector('status')?.textContent || '';
-        const adultsText = resEl.querySelector('adults')?.textContent || '0';
-        const childrenText = resEl.querySelector('children')?.textContent || '0';
-        const nightsText = resEl.querySelector('nights')?.textContent || '0';
+        const roomNumber = roomData.roomNumber;
         
         if (!roomNumber) {
-          console.warn('Skipping reservation with no room_number');
+          console.warn('Skipping room with no roomNumber');
           continue;
         }
 
+        // Check if room has an active reservation
+        if (!roomData.reservation) {
+          continue; // Skip rooms without reservations
+        }
+
+        const reservation = roomData.reservation;
+        const departureDate = reservation.departure?.split('T')[0] || '';
+        const arrivalDate = reservation.arrival?.split('T')[0] || '';
+        const adults = reservation.guests?.adults || 0;
+        const children = reservation.guests?.children || 0;
+        const nights = reservation.nights || 0;
+
         const isCheckoutToday = departureDate === today;
         const isArrivalToday = arrivalDate === today;
-        const isStayover = !isCheckoutToday && !isArrivalToday && status === 'in_house';
+        const isStayover = !isCheckoutToday && !isArrivalToday && reservation.status === 'in_house';
 
         // Find the room in Hotel Care
         const { data: room } = await supabase
@@ -176,8 +143,8 @@ serve(async (req) => {
         const roomUpdate: any = {
           is_checkout_room: isCheckoutToday,
           checkout_time: isCheckoutToday ? departureDate : null,
-          guest_count: (parseInt(adultsText) || 0) + (parseInt(childrenText) || 0),
-          guest_nights_stayed: parseInt(nightsText) || 0,
+          guest_count: adults + children,
+          guest_nights_stayed: nights,
           updated_at: new Date().toISOString(),
         };
 
@@ -198,8 +165,8 @@ serve(async (req) => {
         if (isStayover) syncResults.stayovers++;
 
       } catch (error: any) {
-        console.error(`Error processing reservation:`, error);
-        syncResults.errors.push(`Reservation processing error: ${error.message}`);
+        console.error(`Error processing room:`, error);
+        syncResults.errors.push(`Room processing error: ${error.message}`);
       }
     }
 
@@ -226,7 +193,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true,
-        message: 'Reservations synced from Previo',
+        message: 'Reservations synced from Previo REST API',
         results: syncResults
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

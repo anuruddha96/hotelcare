@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
-import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,7 +15,7 @@ serve(async (req) => {
   try {
     const { roomId, status } = await req.json();
     
-    console.log('Updating Previo room status:', { roomId, status });
+    console.log('Updating Previo room status via REST API:', { roomId, status });
 
     // Get Previo API credentials from environment
     const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
@@ -88,54 +87,38 @@ serve(async (req) => {
     // Map HotelCare status to Previo status
     const previoStatus = mapToPrevioStatus(status);
 
-    console.log(`Updating room status in Previo - Room: ${room.room_number}, Status: ${previoStatus}`);
+    console.log(`Updating room status in Previo REST API - Room: ${room.room_number}, Status: ${previoStatus}`);
 
-    // Build XML request for Previo room status update (using correct element names)
-    const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
-<request>
-  <login>${PREVIO_API_USER}</login>
-  <password>${PREVIO_API_PASSWORD}</password>
-  <hotId>${pmsConfig.previo_hotel_id}</hotId>
-  <roomNumber>${room.room_number}</roomNumber>
-  <status>${previoStatus}</status>
-</request>`;
+    // Create Basic Auth header
+    const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
 
-    console.log('Calling Previo XML API to update room status');
-
-    // Call Previo XML API to update room status  
-    const previoResponse = await fetch('https://api.previo.app/x1/hotel/updateRoomStatus', {
-      method: 'POST',
+    // Call Previo REST API to update room status
+    const previoResponse = await fetch('https://api.previo.app/rest/housekeeping/room-status', {
+      method: 'PUT',
       headers: {
-        'Content-Type': 'application/xml',
+        'Authorization': `Basic ${auth}`,
+        'X-Previo-Hotel-ID': pmsConfig.previo_hotel_id,
+        'Content-Type': 'application/json',
       },
-      body: xmlRequest
+      body: JSON.stringify({
+        roomNumber: room.room_number,
+        status: previoStatus
+      })
     });
 
     if (!previoResponse.ok) {
       const errorText = await previoResponse.text();
-      console.error('Previo API error:', previoResponse.status, errorText.substring(0, 500));
+      console.error('Previo API error:', previoResponse.status, errorText);
       throw new Error(`Previo API error: ${previoResponse.status}`);
     }
 
-    const responseText = await previoResponse.text();
-    console.log(`Previo response: ${responseText.substring(0, 200)}`);
-    
-    // Check for Previo API errors in response (use text/html as Deno DOMParser doesn't support text/xml)
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(responseText, 'text/html');
-    const errorEl = xmlDoc?.querySelector('error');
-    if (errorEl) {
-      const errorCode = errorEl.querySelector('code')?.textContent || 'unknown';
-      const errorMessage = errorEl.querySelector('message')?.textContent || 'Unknown error';
-      throw new Error(`Previo API Error ${errorCode}: ${errorMessage}`);
-    }
-
-    console.log('Previo room status updated successfully');
+    const responseData = await previoResponse.json();
+    console.log('Previo room status updated successfully:', responseData);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: 'Room status updated in Previo',
+        message: 'Room status updated in Previo REST API',
         roomNumber: room.room_number,
         status: previoStatus
       }),
@@ -161,14 +144,14 @@ serve(async (req) => {
 function mapToPrevioStatus(status: string): string {
   switch (status) {
     case 'clean':
-      return 'CLEAN';
+      return 'clean';
     case 'dirty':
-      return 'DIRTY';
+      return 'dirty';
     case 'inspected':
-      return 'INSPECTED';
+      return 'inspected';
     case 'out_of_order':
-      return 'OUT_OF_ORDER';
+      return 'out_of_order';
     default:
-      return 'DIRTY';
+      return 'dirty';
   }
 }

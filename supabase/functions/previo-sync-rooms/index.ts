@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
-import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,12 +7,17 @@ const corsHeaders = {
 };
 
 interface PrevioRoom {
-  id: string;
-  room_number: string;
-  room_type?: string;
-  status?: string;
+  id: number;
+  roomNumber: string;
+  roomKind: {
+    id: number;
+    name: string;
+  };
   floor?: number;
-  is_active?: boolean;
+  housekeeping?: {
+    status: string;
+  };
+  isActive: boolean;
 }
 
 serve(async (req) => {
@@ -36,61 +40,31 @@ serve(async (req) => {
       throw new Error('Previo API credentials not configured');
     }
 
-    console.log(`Syncing rooms from Previo for hotel: ${hotelId}`);
+    console.log(`Syncing rooms from Previo REST API for hotel: ${hotelId}`);
 
-    // Build XML request for Previo (using correct element names)
-    const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
-<request>
-  <login>${PREVIO_API_USER}</login>
-  <password>${PREVIO_API_PASSWORD}</password>
-  <hotId>${hotelId}</hotId>
-  <roomOnly>true</roomOnly>
-  <includeOfflineRooms>1</includeOfflineRooms>
-</request>`;
+    // Create Basic Auth header
+    const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
 
-    console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/getRoomKinds');
-    console.log('XML Request:', xmlRequest);
-
-    // Call Previo XML API to get room kinds (room types)
-    const response = await fetch('https://api.previo.app/x1/hotel/getRoomKinds', {
-      method: 'POST',
+    // Call Previo REST API to get all rooms
+    const response = await fetch('https://api.previo.app/rest/rooms', {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/xml',
-      },
-      body: xmlRequest
+        'Authorization': `Basic ${auth}`,
+        'X-Previo-Hotel-ID': hotelId,
+        'Content-Type': 'application/json',
+      }
     });
 
     console.log(`Previo API response status: ${response.status}`);
-    console.log(`Previo API response headers:`, Object.fromEntries(response.headers.entries()));
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Previo API error response (full): ${errorText}`);
-      throw new Error(`Previo API error: ${response.status} ${response.statusText}. Check that hotel_id ${hotelId} is correct and credentials are valid.`);
+      console.error(`Previo API error response: ${errorText}`);
+      throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
     }
 
-    const responseText = await response.text();
-    console.log(`Previo API raw response (first 500 chars): ${responseText.substring(0, 500)}`);
-    
-    // Parse XML response (use text/html as Deno DOMParser doesn't support text/xml)
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(responseText, 'text/html');
-    
-    if (!xmlDoc) {
-      throw new Error('Failed to parse XML response');
-    }
-
-    // Check for Previo API errors
-    const errorEl = xmlDoc.querySelector('error');
-    if (errorEl) {
-      const errorCode = errorEl.querySelector('code')?.textContent || 'unknown';
-      const errorMessage = errorEl.querySelector('message')?.textContent || 'Unknown error';
-      throw new Error(`Previo API Error ${errorCode}: ${errorMessage}`);
-    }
-
-    // Extract room kinds from XML (Previo returns roomKind or objectKind elements)
-    const roomElements = xmlDoc.querySelectorAll('roomKind, objectKind');
-    console.log(`Received ${roomElements.length} room types from Previo`);
+    const roomsData: PrevioRoom[] = await response.json();
+    console.log(`Received ${roomsData.length} rooms from Previo REST API`);
 
     // Map Previo status to Hotel Care status
     const mapPrevioStatus = (previoStatus?: string): string => {
@@ -120,34 +94,26 @@ serve(async (req) => {
     }
 
     const syncResults = {
-      total: roomElements.length,
+      total: roomsData.length,
       updated: 0,
       created: 0,
       errors: [] as string[]
     };
 
-    // Process each room kind from XML
-    for (const roomEl of Array.from(roomElements)) {
+    // Process each room
+    for (const roomData of roomsData) {
       try {
-        // Extract room kind info (obkId, name, etc.)
-        const roomKindId = roomEl.querySelector('obkId')?.textContent || '';
-        const roomName = roomEl.querySelector('name')?.textContent || '';
-        const roomType = roomEl.querySelector('kind')?.textContent || '';
+        const roomNumber = roomData.roomNumber;
+        const roomType = roomData.roomKind?.name || '';
+        const floor = roomData.floor;
+        const status = roomData.housekeeping?.status;
         
-        // Note: getRoomKinds returns room TYPES/KINDS, not individual rooms
-        // We'll use the room type name as identifier
-        if (!roomName) {
-          console.warn('Skipping room kind with no name');
+        if (!roomNumber) {
+          console.warn('Skipping room with no roomNumber');
           continue;
         }
 
-        console.log(`Processing room kind: ${roomName} (ID: ${roomKindId})`);
-
-        // For now, we'll skip creating rooms from room kinds
-        // This endpoint returns room TYPES, not actual room numbers
-        // To get actual rooms, we'd need Hotel.getObjects or similar
-        console.warn('Note: getRoomKinds returns room types, not individual rooms. Skipping room creation.');
-        continue;
+        console.log(`Processing room: ${roomNumber} (Type: ${roomType})`);
 
         // Check if room exists in Hotel Care
         const { data: existingRoom } = await supabase
@@ -157,11 +123,11 @@ serve(async (req) => {
           .eq('hotel', hotelId)
           .single();
 
-        const roomData = {
+        const roomDataToSave = {
           room_number: roomNumber,
           hotel: hotelId,
           status: mapPrevioStatus(status),
-          floor: floor,
+          floor: floor || null,
           room_type: roomType,
           updated_at: new Date().toISOString(),
         };
@@ -170,16 +136,16 @@ serve(async (req) => {
           // Update existing room
           const { error } = await supabase
             .from('rooms')
-            .update(roomData)
+            .update(roomDataToSave)
             .eq('id', existingRoom.id);
 
           if (error) throw error;
           syncResults.updated++;
         } else {
-          // Create new room (only if it doesn't exist)
+          // Create new room
           const { error } = await supabase
             .from('rooms')
-            .insert(roomData);
+            .insert(roomDataToSave);
 
           if (error) throw error;
           syncResults.created++;
@@ -211,7 +177,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true,
-        message: 'Rooms synced from Previo',
+        message: 'Rooms synced from Previo REST API',
         results: syncResults
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
