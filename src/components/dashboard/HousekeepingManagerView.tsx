@@ -193,10 +193,10 @@ export function HousekeepingManagerView() {
 
   const fetchHousekeepingStaff = async () => {
     try {
-      // Get current user's profile to check if super admin
+      // Get current user's profile to check hotel assignment
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('assigned_hotel, is_super_admin')
+        .select('assigned_hotel')
         .eq('id', user?.id)
         .single();
 
@@ -205,8 +205,8 @@ export function HousekeepingManagerView() {
         .select('id, full_name, nickname, email, assigned_hotel')
         .eq('role', 'housekeeping');
 
-      // Super admins see all staff, others filtered by hotel
-      if (profileData?.assigned_hotel && !profileData?.is_super_admin) {
+      // Filter by the user's currently selected hotel
+      if (profileData?.assigned_hotel) {
         query = query.eq('assigned_hotel', profileData.assigned_hotel);
       }
 

@@ -68,6 +68,19 @@ export function SimplifiedDirtyLinenManagement() {
     const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
     
     try {
+      // Get current user's hotel filter
+      const { data: currentProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', profile?.id)
+        .single();
+
+      if (profileError) {
+        console.error('Error fetching profile:', profileError);
+      }
+
+      const userHotel = currentProfile?.assigned_hotel;
+      
       // Step 1: Fetch dirty linen counts without joins
       const { data: countsData, error: countsError } = await supabase
         .from('dirty_linen_counts')
@@ -89,12 +102,19 @@ export function SimplifiedDirtyLinenManagement() {
         return;
       }
 
-      // Step 2: Fetch housekeeper profiles separately
+      // Step 2: Fetch housekeeper profiles separately and filter by hotel
       const housekeeperIds = Array.from(new Set(countsData.map(c => c.housekeeper_id)));
-      const { data: housekeepersData, error: housekeepersError } = await supabase
+      let housekeepersQuery = supabase
         .from('profiles')
-        .select('id, full_name, nickname')
+        .select('id, full_name, nickname, assigned_hotel')
         .in('id', housekeeperIds);
+      
+      // Filter by hotel if user has one assigned
+      if (userHotel) {
+        housekeepersQuery = housekeepersQuery.eq('assigned_hotel', userHotel);
+      }
+      
+      const { data: housekeepersData, error: housekeepersError } = await housekeepersQuery;
 
       if (housekeepersError) {
         console.error('Error fetching housekeepers:', housekeepersError);
@@ -118,13 +138,20 @@ export function SimplifiedDirtyLinenManagement() {
       const linenItemsMap = new Map(
         linenItemsData?.map(l => [l.id, l.name]) || []
       );
+      
+      // Create a set of valid housekeeper IDs (filtered by hotel)
+      const validHousekeeperIds = new Set(housekeepersData?.map(h => h.id) || []);
 
-      // Step 5: Calculate totals by item type and housekeeper
+      // Step 5: Calculate totals by item type and housekeeper (only for housekeepers in selected hotel)
       const itemMap = new Map<string, number>();
       const housekeeperMap = new Map<string, { items: Map<string, number>, total: number }>();
       let total = 0;
 
       countsData.forEach((record) => {
+        // Skip counts from housekeepers not in the current hotel
+        if (!validHousekeeperIds.has(record.housekeeper_id)) {
+          return;
+        }
         const itemName = linenItemsMap.get(record.linen_item_id) || 'Unknown';
         const housekeeperName = housekeepersMap.get(record.housekeeper_id) || 'Unknown';
         const count = record.count;
