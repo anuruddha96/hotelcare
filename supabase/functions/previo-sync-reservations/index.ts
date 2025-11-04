@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,40 +32,57 @@ serve(async (req) => {
     }
 
     // Get Previo API credentials from environment
-    const PREVIO_API_URL = Deno.env.get('PREVIO_API_URL');
     const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
     const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
 
-    if (!PREVIO_API_URL || !PREVIO_API_USER || !PREVIO_API_PASSWORD) {
+    if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
       throw new Error('Previo API credentials not configured');
     }
 
     console.log(`Syncing reservations from Previo for hotel: ${hotelId}`);
 
-    // Call Previo API to search reservations
-    const response = await fetch(`${PREVIO_API_URL}`, {
+    // Build XML request for Previo
+    const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
+<request>
+  <username>${PREVIO_API_USER}</username>
+  <password>${PREVIO_API_PASSWORD}</password>
+  <hotel_id>${hotelId}</hotel_id>
+  <date_from>${dateFrom || new Date().toISOString().split('T')[0]}</date_from>
+  <date_to>${dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}</date_to>
+</request>`;
+
+    console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/searchReservations');
+
+    // Call Previo XML API to search reservations
+    const response = await fetch('https://api.previo.app/x1/hotel/searchReservations', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`)}`,
+        'Content-Type': 'text/xml',
       },
-      body: JSON.stringify({
-        method: 'Hotel.searchReservations',
-        params: {
-          hotel_id: hotelId,
-          date_from: dateFrom || new Date().toISOString().split('T')[0],
-          date_to: dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-        }
-      })
+      body: xmlRequest
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Previo API error: ${errorText.substring(0, 500)}`);
       throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
     }
 
-    const previoData = await response.json();
-    const reservations = previoData.result?.reservations || [];
-    console.log(`Received ${reservations.length} reservations from Previo`);
+    const responseText = await response.text();
+    console.log(`Previo API raw response (first 300 chars): ${responseText.substring(0, 300)}`);
+    
+    // Parse XML response
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(responseText, 'text/xml');
+    
+    if (!xmlDoc) {
+      throw new Error('Failed to parse XML response');
+    }
+
+    // Extract reservations from XML
+    const reservationElements = xmlDoc.querySelectorAll('reservation');
+    const reservations = reservationElements.length;
+    console.log(`Received ${reservations} reservations from Previo`);
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -81,7 +99,7 @@ serve(async (req) => {
     }
 
     const syncResults = {
-      total: reservations.length,
+      total: reservations,
       updated: 0,
       checkouts_today: 0,
       arrivals_today: 0,
@@ -91,39 +109,50 @@ serve(async (req) => {
 
     const today = new Date().toISOString().split('T')[0];
 
-    // Process each reservation
-    for (const reservation of reservations as PrevioReservation[]) {
+    // Process each reservation from XML
+    for (const resEl of Array.from(reservationElements)) {
       try {
-        const departureDate = reservation.departure_date?.split('T')[0];
-        const arrivalDate = reservation.arrival_date?.split('T')[0];
+        const roomNumber = resEl.querySelector('room_number')?.textContent || '';
+        const departureDate = resEl.querySelector('departure_date')?.textContent?.split('T')[0] || '';
+        const arrivalDate = resEl.querySelector('arrival_date')?.textContent?.split('T')[0] || '';
+        const status = resEl.querySelector('status')?.textContent || '';
+        const adultsText = resEl.querySelector('adults')?.textContent || '0';
+        const childrenText = resEl.querySelector('children')?.textContent || '0';
+        const nightsText = resEl.querySelector('nights')?.textContent || '0';
+        
+        if (!roomNumber) {
+          console.warn('Skipping reservation with no room_number');
+          continue;
+        }
+
         const isCheckoutToday = departureDate === today;
         const isArrivalToday = arrivalDate === today;
-        const isStayover = !isCheckoutToday && !isArrivalToday && reservation.status === 'in_house';
+        const isStayover = !isCheckoutToday && !isArrivalToday && status === 'in_house';
 
         // Find the room in Hotel Care
         const { data: room } = await supabase
           .from('rooms')
           .select('id')
-          .eq('room_number', reservation.room_number)
+          .eq('room_number', roomNumber)
           .eq('hotel', hotelId)
           .single();
 
         if (!room) {
-          syncResults.errors.push(`Room ${reservation.room_number} not found in Hotel Care`);
+          syncResults.errors.push(`Room ${roomNumber} not found in Hotel Care`);
           continue;
         }
 
         // Update room with reservation data
         const roomUpdate: any = {
           is_checkout_room: isCheckoutToday,
-          checkout_time: isCheckoutToday ? reservation.departure_date : null,
-          guest_count: (reservation.adults || 0) + (reservation.children || 0),
-          guest_nights_stayed: reservation.nights || 0,
+          checkout_time: isCheckoutToday ? departureDate : null,
+          guest_count: (parseInt(adultsText) || 0) + (parseInt(childrenText) || 0),
+          guest_nights_stayed: parseInt(nightsText) || 0,
           updated_at: new Date().toISOString(),
         };
 
         if (isArrivalToday) {
-          roomUpdate.arrival_time = reservation.arrival_date;
+          roomUpdate.arrival_time = arrivalDate;
         }
 
         const { error } = await supabase
@@ -139,8 +168,8 @@ serve(async (req) => {
         if (isStayover) syncResults.stayovers++;
 
       } catch (error: any) {
-        console.error(`Error processing reservation for room ${reservation.room_number}:`, error);
-        syncResults.errors.push(`Room ${reservation.room_number}: ${error.message}`);
+        console.error(`Error processing reservation:`, error);
+        syncResults.errors.push(`Reservation processing error: ${error.message}`);
       }
     }
 

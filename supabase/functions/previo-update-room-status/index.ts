@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,11 +19,10 @@ serve(async (req) => {
     console.log('Updating Previo room status:', { roomId, status });
 
     // Get Previo API credentials from environment
-    const previoUsername = Deno.env.get('PREVIO_API_USERNAME');
-    const previoPassword = Deno.env.get('PREVIO_API_PASSWORD');
-    const previoBaseUrl = Deno.env.get('PREVIO_API_BASE_URL');
+    const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
+    const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
 
-    if (!previoUsername || !previoPassword || !previoBaseUrl) {
+    if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
       throw new Error('Previo API credentials not configured');
     }
 
@@ -88,38 +88,45 @@ serve(async (req) => {
     // Map HotelCare status to Previo status
     const previoStatus = mapToPrevioStatus(status);
 
-    // Call Previo API to update room status
-    const previoUrl = `${previoBaseUrl}/api/rooms/${roomMapping.pms_room_id}/status`;
-    
-    console.log('Calling Previo API:', previoUrl);
-    
-    const previoResponse = await fetch(previoUrl, {
-      method: 'PUT',
+    console.log(`Updating room status in Previo - Room: ${room.room_number}, Status: ${previoStatus}`);
+
+    // Build XML request for Previo room status update
+    const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
+<request>
+  <username>${PREVIO_API_USER}</username>
+  <password>${PREVIO_API_PASSWORD}</password>
+  <hotel_id>${pmsConfig.previo_hotel_id}</hotel_id>
+  <room_number>${room.room_number}</room_number>
+  <status>${previoStatus}</status>
+</request>`;
+
+    console.log('Calling Previo XML API to update room status');
+
+    // Call Previo XML API to update room status  
+    const previoResponse = await fetch('https://api.previo.app/x1/hotel/updateRoomStatus', {
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${btoa(`${previoUsername}:${previoPassword}`)}`,
+        'Content-Type': 'text/xml',
       },
-      body: JSON.stringify({
-        status: previoStatus,
-        updated_at: new Date().toISOString()
-      })
+      body: xmlRequest
     });
 
     if (!previoResponse.ok) {
       const errorText = await previoResponse.text();
-      console.error('Previo API error:', previoResponse.status, errorText);
-      throw new Error(`Previo API error: ${previoResponse.status} ${errorText}`);
+      console.error('Previo API error:', previoResponse.status, errorText.substring(0, 500));
+      throw new Error(`Previo API error: ${previoResponse.status}`);
     }
 
-    const result = await previoResponse.json();
+    const responseText = await previoResponse.text();
+    console.log(`Previo response: ${responseText.substring(0, 200)}`);
 
-    console.log('Previo room status updated successfully:', result);
+    console.log('Previo room status updated successfully');
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Room status updated in Previo',
-        previoRoomId: roomMapping.pms_room_id,
+        roomNumber: room.room_number,
         status: previoStatus
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,30 +29,32 @@ serve(async (req) => {
     }
 
     // Get Previo API credentials from environment
-    const PREVIO_API_URL = Deno.env.get('PREVIO_API_URL');
     const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
     const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
 
-    if (!PREVIO_API_URL || !PREVIO_API_USER || !PREVIO_API_PASSWORD) {
+    if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
       throw new Error('Previo API credentials not configured');
     }
 
     console.log(`Syncing rooms from Previo for hotel: ${hotelId}`);
-    console.log(`Previo API URL: ${PREVIO_API_URL}`);
 
-    // Call Previo API to get rooms
-    const response = await fetch(`${PREVIO_API_URL}`, {
+    // Build XML request for Previo
+    const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
+<request>
+  <username>${PREVIO_API_USER}</username>
+  <password>${PREVIO_API_PASSWORD}</password>
+  <hotel_id>${hotelId}</hotel_id>
+</request>`;
+
+    console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/rooms');
+
+    // Call Previo XML API to get rooms
+    const response = await fetch('https://api.previo.app/x1/hotel/rooms', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`)}`,
+        'Content-Type': 'text/xml',
       },
-      body: JSON.stringify({
-        method: 'Hotel.rooms',
-        params: {
-          hotel_id: hotelId
-        }
-      })
+      body: xmlRequest
     });
 
     console.log(`Previo API response status: ${response.status}`);
@@ -59,20 +62,23 @@ serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`Previo API error response: ${errorText.substring(0, 500)}`);
-      throw new Error(`Previo API error: ${response.status} ${response.statusText}. Check API URL and credentials.`);
+      throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
     }
 
     const responseText = await response.text();
-    console.log(`Previo API raw response: ${responseText.substring(0, 200)}`);
+    console.log(`Previo API raw response (first 300 chars): ${responseText.substring(0, 300)}`);
     
-    let previoData;
-    try {
-      previoData = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error(`Failed to parse Previo response. Response starts with: ${responseText.substring(0, 100)}`);
-      throw new Error(`Invalid JSON response from Previo API. Please verify the API URL is correct. Got: ${responseText.substring(0, 100)}`);
+    // Parse XML response
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(responseText, 'text/xml');
+    
+    if (!xmlDoc) {
+      throw new Error('Failed to parse XML response');
     }
-    console.log(`Received ${previoData.result?.rooms?.length || 0} rooms from Previo`);
+
+    // Extract rooms from XML
+    const roomElements = xmlDoc.querySelectorAll('room');
+    console.log(`Received ${roomElements.length} rooms from Previo`);
 
     // Map Previo status to Hotel Care status
     const mapPrevioStatus = (previoStatus?: string): string => {
@@ -101,31 +107,41 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    const rooms = previoData.result?.rooms || [];
     const syncResults = {
-      total: rooms.length,
+      total: roomElements.length,
       updated: 0,
       created: 0,
       errors: [] as string[]
     };
 
-    // Process each room
-    for (const room of rooms as PrevioRoom[]) {
+    // Process each room from XML
+    for (const roomEl of Array.from(roomElements)) {
       try {
+        const roomNumber = roomEl.querySelector('room_number')?.textContent || '';
+        const roomType = roomEl.querySelector('room_type')?.textContent || '';
+        const status = roomEl.querySelector('status')?.textContent || '';
+        const floorText = roomEl.querySelector('floor')?.textContent || '0';
+        const floor = parseInt(floorText) || 0;
+
+        if (!roomNumber) {
+          console.warn('Skipping room with no room_number');
+          continue;
+        }
+
         // Check if room exists in Hotel Care
         const { data: existingRoom } = await supabase
           .from('rooms')
           .select('id')
-          .eq('room_number', room.room_number)
+          .eq('room_number', roomNumber)
           .eq('hotel', hotelId)
           .single();
 
         const roomData = {
-          room_number: room.room_number,
+          room_number: roomNumber,
           hotel: hotelId,
-          status: mapPrevioStatus(room.status),
-          floor: room.floor,
-          room_type: room.room_type,
+          status: mapPrevioStatus(status),
+          floor: floor,
+          room_type: roomType,
           updated_at: new Date().toISOString(),
         };
 
@@ -148,8 +164,8 @@ serve(async (req) => {
           syncResults.created++;
         }
       } catch (error: any) {
-        console.error(`Error processing room ${room.room_number}:`, error);
-        syncResults.errors.push(`Room ${room.room_number}: ${error.message}`);
+        console.error(`Error processing room:`, error);
+        syncResults.errors.push(`Room processing error: ${error.message}`);
       }
     }
 
