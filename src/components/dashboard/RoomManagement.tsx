@@ -220,14 +220,24 @@ export function RoomManagement() {
   const fetchHotels = async () => {
     try {
       const { data, error } = await supabase
-        .from('hotels')
-        .select('*')
-        .order('name');
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name')
+        .order('hotel_name');
 
       if (error) throw error;
-      setHotels(data || []);
+      // Map to the format expected by the component
+      const mappedHotels = (data || []).map(h => ({
+        id: h.hotel_id,
+        name: h.hotel_name
+      }));
+      setHotels(mappedHotels);
     } catch (error: any) {
       console.error('Error fetching hotels:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load hotels',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -242,9 +252,10 @@ export function RoomManagement() {
     }
 
     try {
+      console.log('Creating room with data:', newRoom);
       const roomName = newRoom.room_name || generateRoomName(newRoom);
       
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('rooms')
         .insert({
           hotel: newRoom.hotel,
@@ -253,9 +264,15 @@ export function RoomManagement() {
           room_type: newRoom.room_type,
           bed_type: newRoom.bed_type,
           floor_number: newRoom.floor_number ? parseInt(newRoom.floor_number) : null
-        });
+        })
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Room creation error:', error);
+        throw error;
+      }
+
+      console.log('Room created successfully:', data);
 
       toast({
         title: 'Success',
@@ -266,9 +283,10 @@ export function RoomManagement() {
       setNewRoom({ hotel: '', room_number: '', room_name: '', room_type: 'standard', bed_type: 'double', floor_number: '' });
       fetchRooms();
     } catch (error: any) {
+      console.error('Room creation failed:', error);
       toast({
         title: 'Error',
-        description: error.message,
+        description: error.message || 'Failed to create room',
         variant: 'destructive',
       });
     }
