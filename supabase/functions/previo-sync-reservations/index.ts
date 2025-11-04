@@ -54,6 +54,7 @@ serve(async (req) => {
 </request>`;
 
     console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/searchReservations');
+    console.log('XML Request:', xmlRequest);
 
     // Call Previo XML API to search reservations
     const response = await fetch('https://api.previo.app/x1/hotel/searchReservations', {
