@@ -47,6 +47,7 @@ serve(async (req) => {
 </request>`;
 
     console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/rooms');
+    console.log('XML Request:', xmlRequest);
 
     // Call Previo XML API to get rooms
     const response = await fetch('https://api.previo.app/x1/hotel/rooms', {
@@ -58,11 +59,12 @@ serve(async (req) => {
     });
 
     console.log(`Previo API response status: ${response.status}`);
+    console.log(`Previo API response headers:`, Object.fromEntries(response.headers.entries()));
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Previo API error response: ${errorText.substring(0, 500)}`);
-      throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
+      console.error(`Previo API error response (full): ${errorText}`);
+      throw new Error(`Previo API error: ${response.status} ${response.statusText}. Check that hotel_id ${hotelId} is correct and credentials are valid.`);
     }
 
     const responseText = await response.text();
