@@ -42,13 +42,12 @@ serve(async (req) => {
     console.log(`Syncing reservations from Previo for hotel: ${hotelId}`);
 
     // Build XML request for Previo (using correct element names)
-    // term specifies the date range type: created, check-in, check-out, overlap
+    // Try without term parameter first to see if that's causing the issue
     const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
 <request>
   <login>${PREVIO_API_USER}</login>
   <password>${PREVIO_API_PASSWORD}</password>
   <hotId>${hotelId}</hotId>
-  <term>overlap</term>
   <dateFrom>${dateFrom || new Date().toISOString().split('T')[0]}</dateFrom>
   <dateTo>${dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}</dateTo>
 </request>`;
