@@ -120,9 +120,9 @@ serve(async (req) => {
     const responseText = await previoResponse.text();
     console.log(`Previo response: ${responseText.substring(0, 200)}`);
     
-    // Check for Previo API errors in response
+    // Check for Previo API errors in response (use text/html as Deno DOMParser doesn't support text/xml)
     const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(responseText, 'text/xml');
+    const xmlDoc = parser.parseFromString(responseText, 'text/html');
     const errorEl = xmlDoc?.querySelector('error');
     if (errorEl) {
       const errorCode = errorEl.querySelector('code')?.textContent || 'unknown';

@@ -71,9 +71,9 @@ serve(async (req) => {
     const responseText = await response.text();
     console.log(`Previo API raw response (first 300 chars): ${responseText.substring(0, 300)}`);
     
-    // Parse XML response
+    // Parse XML response (use text/html as Deno DOMParser doesn't support text/xml)
     const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(responseText, 'text/xml');
+    const xmlDoc = parser.parseFromString(responseText, 'text/html');
     
     if (!xmlDoc) {
       throw new Error('Failed to parse XML response');
