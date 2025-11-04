@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -55,6 +55,8 @@ export function PMSUpload() {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [showWarningDialog, setShowWarningDialog] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [isSyncingPrevio, setIsSyncingPrevio] = useState(false);
+  const [previoSyncEnabled, setPrevioSyncEnabled] = useState(false);
 
   // Handle background processing notifications
   useEffect(() => {
@@ -577,6 +579,111 @@ export function PMSUpload() {
     toast.info(t('pms.uploadCancelled'));
   };
 
+  // Handle Previo PMS sync
+  const handlePrevioSync = async () => {
+    if (!selectedHotel || !user) {
+      toast.error('Please select a hotel first');
+      return;
+    }
+
+    setIsSyncingPrevio(true);
+    setResults(null);
+
+    try {
+      // Step 1: Sync rooms from Previo
+      console.log('Calling previo-sync-rooms for hotel:', selectedHotel);
+      
+      const { data: roomsData, error: roomsError } = await supabase.functions.invoke(
+        'previo-sync-rooms',
+        {
+          body: { 
+            hotelId: '788619' // Previo test hotel ID
+          }
+        }
+      );
+
+      if (roomsError) {
+        throw new Error(`Room sync failed: ${roomsError.message}`);
+      }
+
+      console.log('Rooms synced:', roomsData);
+
+      // Step 2: Sync reservations from Previo
+      const today = new Date().toISOString().split('T')[0];
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+      console.log('Calling previo-sync-reservations...');
+      
+      const { data: reservationsData, error: reservationsError } = await supabase.functions.invoke(
+        'previo-sync-reservations',
+        {
+          body: {
+            hotelId: '788619',
+            dateFrom: today,
+            dateTo: tomorrowStr
+          }
+        }
+      );
+
+      if (reservationsError) {
+        throw new Error(`Reservation sync failed: ${reservationsError.message}`);
+      }
+
+      console.log('Reservations synced:', reservationsData);
+
+      // Step 3: Show success message
+      toast.success('Successfully synced with Previo PMS!');
+      
+      // Step 4: Set results to show on screen
+      setResults({
+        processed: (roomsData?.roomsProcessed || 0) + (reservationsData?.reservationsProcessed || 0),
+        updated: (roomsData?.roomsUpdated || 0) + (reservationsData?.roomsUpdated || 0),
+        assigned: 0,
+        errors: [
+          ...(roomsData?.errors || []),
+          ...(reservationsData?.errors || [])
+        ]
+      });
+
+      // Step 5: Mark upload today (same as Excel upload)
+      markUploadToday();
+
+    } catch (error: any) {
+      console.error('Previo sync error:', error);
+      toast.error(`Previo sync failed: ${error.message}`);
+    } finally {
+      setIsSyncingPrevio(false);
+    }
+  };
+
+  // Check if Previo sync should be enabled for this hotel
+  useEffect(() => {
+    const checkPrevioEnabled = async () => {
+      if (!selectedHotel) {
+        setPrevioSyncEnabled(false);
+        return;
+      }
+      
+      // Only enable for HotelCare.App Testing Environment
+      const { data: hotelConfig } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_id, settings')
+        .eq('hotel_id', selectedHotel)
+        .single();
+      
+      // Enable Previo sync ONLY for hotelcare-test hotel
+      if (hotelConfig && hotelConfig.hotel_id === 'hotelcare-test') {
+        setPrevioSyncEnabled(true);
+      } else {
+        setPrevioSyncEnabled(false);
+      }
+    };
+    
+    checkPrevioEnabled();
+  }, [selectedHotel]);
+
   // Request notification permission on component mount
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
@@ -685,6 +792,30 @@ export function PMSUpload() {
               </div>
             </div>
             )}
+
+            {/* Upload Buttons */}
+            <div className="flex justify-center gap-4 mt-4">
+              {previoSyncEnabled && (
+                <Button
+                  onClick={handlePrevioSync}
+                  disabled={uploading || isSyncingPrevio || userRole !== 'admin' && userRole !== 'manager'}
+                  className="w-full max-w-xs"
+                  variant="outline"
+                >
+                  {isSyncingPrevio ? (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      Syncing with Previo...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Sync with Previo
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
           </>
         )}
 
