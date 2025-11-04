@@ -238,6 +238,8 @@ export function SupervisorApprovalView() {
 
   const handleApproval = async (assignmentId: string) => {
     try {
+      const assignment = pendingAssignments.find(a => a.id === assignmentId);
+      
       const updateData: any = {
         supervisor_approved: true,
         supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
@@ -250,6 +252,22 @@ export function SupervisorApprovalView() {
         .eq('id', assignmentId);
 
       if (error) throw error;
+
+      // Push status to Previo if room is approved
+      if (assignment?.room_id) {
+        try {
+          await supabase.functions.invoke('previo-update-room-status', {
+            body: { 
+              roomId: assignment.room_id,
+              status: 'clean'
+            }
+          });
+          console.log('Room status pushed to Previo');
+        } catch (previoError) {
+          console.error('Failed to update Previo:', previoError);
+          // Don't fail the approval if Previo update fails
+        }
+      }
 
       toast.success('Assignment approved successfully');
       showNotification(t('supervisor.roomMarkedClean'), 'success');

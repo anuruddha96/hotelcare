@@ -4,7 +4,8 @@ import { OrganizationManagement } from './OrganizationManagement';
 import { HotelManagementView } from './HotelManagementView';
 import { TranslationManagement } from './TranslationManagement';
 import { PhotoCleanupManager } from '@/components/dashboard/PhotoCleanupManager';
-import { Building2, Hotel, Languages, HardDrive } from 'lucide-react';
+import PMSConfigurationManagement from './PMSConfigurationManagement';
+import { Building2, Hotel, Languages, HardDrive, Cable } from 'lucide-react';
 
 export const AdminTabs = () => {
   return (
@@ -18,6 +19,10 @@ export const AdminTabs = () => {
           <TabsTrigger value="hotels" className="gap-2">
             <Hotel className="w-4 h-4" />
             Hotels
+          </TabsTrigger>
+          <TabsTrigger value="pms" className="gap-2">
+            <Cable className="w-4 h-4" />
+            PMS Config
           </TabsTrigger>
           <TabsTrigger value="translations" className="gap-2">
             <Languages className="w-4 h-4" />
@@ -35,6 +40,10 @@ export const AdminTabs = () => {
 
         <TabsContent value="hotels">
           <HotelManagementView />
+        </TabsContent>
+
+        <TabsContent value="pms">
+          <PMSConfigurationManagement />
         </TabsContent>
 
         <TabsContent value="translations">

@@ -1068,6 +1068,94 @@ export type Database = {
         }
         Relationships: []
       }
+      pms_configurations: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          is_active: boolean
+          last_sync_at: string | null
+          pms_hotel_id: string
+          pms_type: string
+          settings: Json | null
+          sync_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          is_active?: boolean
+          last_sync_at?: string | null
+          pms_hotel_id: string
+          pms_type?: string
+          settings?: Json | null
+          sync_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          is_active?: boolean
+          last_sync_at?: string | null
+          pms_hotel_id?: string
+          pms_type?: string
+          settings?: Json | null
+          sync_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_configurations_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_configurations"
+            referencedColumns: ["hotel_id"]
+          },
+        ]
+      }
+      pms_room_mappings: {
+        Row: {
+          created_at: string
+          hotelcare_room_number: string
+          id: string
+          is_active: boolean
+          pms_config_id: string
+          pms_room_id: string
+          pms_room_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hotelcare_room_number: string
+          id?: string
+          is_active?: boolean
+          pms_config_id: string
+          pms_room_id: string
+          pms_room_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hotelcare_room_number?: string
+          id?: string
+          is_active?: boolean
+          pms_config_id?: string
+          pms_room_id?: string
+          pms_room_name?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_room_mappings_pms_config_id_fkey"
+            columns: ["pms_config_id"]
+            isOneToOne: false
+            referencedRelation: "pms_configurations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pms_sync_history: {
         Row: {
           changed_at: string | null

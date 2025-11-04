@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -7,143 +7,151 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { hotelId, roomNumber, status, assignmentId } = await req.json();
+    const { roomId, status } = await req.json();
     
-    if (!hotelId || !roomNumber || !status) {
-      throw new Error('Hotel ID, room number, and status are required');
-    }
+    console.log('Updating Previo room status:', { roomId, status });
 
     // Get Previo API credentials from environment
-    const PREVIO_API_URL = Deno.env.get('PREVIO_API_URL');
-    const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
-    const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
+    const previoUsername = Deno.env.get('PREVIO_API_USERNAME');
+    const previoPassword = Deno.env.get('PREVIO_API_PASSWORD');
+    const previoBaseUrl = Deno.env.get('PREVIO_API_BASE_URL');
 
-    if (!PREVIO_API_URL || !PREVIO_API_USER || !PREVIO_API_PASSWORD) {
+    if (!previoUsername || !previoPassword || !previoBaseUrl) {
       throw new Error('Previo API credentials not configured');
     }
-
-    console.log(`Updating room ${roomNumber} status to ${status} in Previo for hotel: ${hotelId}`);
-
-    // Map Hotel Care status to Previo status
-    const mapToPrevioStatus = (hotelCareStatus: string): string => {
-      const statusMap: Record<string, string> = {
-        'clean': 'clean',
-        'dirty': 'dirty',
-        'in_progress': 'dirty',
-      };
-      return statusMap[hotelCareStatus] || 'dirty';
-    };
-
-    const previoStatus = mapToPrevioStatus(status);
-
-    // Call Previo API to update room status
-    // Note: This endpoint may vary based on Previo's actual API
-    // You may need to adjust this based on their documentation
-    const response = await fetch(`${PREVIO_API_URL}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`)}`,
-      },
-      body: JSON.stringify({
-        method: 'Hotel.updateRoomStatus',
-        params: {
-          hotel_id: hotelId,
-          room_number: roomNumber,
-          status: previoStatus,
-          timestamp: new Date().toISOString()
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
-    }
-
-    const previoData = await response.json();
-    console.log('Previo response:', previoData);
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get authorization header
-    const authHeader = req.headers.get('Authorization');
-    let userId: string | null = null;
-    
-    if (authHeader) {
-      const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
-      userId = user?.id || null;
+    // Get room information from HotelCare
+    const { data: room, error: roomError } = await supabase
+      .from('rooms')
+      .select('hotel, room_number')
+      .eq('id', roomId)
+      .single();
+
+    if (roomError || !room) {
+      throw new Error(`Room not found: ${roomId}`);
     }
 
-    // Log sync event
-    await supabase.from('pms_sync_history').insert({
-      sync_type: 'status_update',
-      direction: 'to_previo',
-      hotel_id: hotelId,
-      data: {
-        room_number: roomNumber,
-        hotel_care_status: status,
-        previo_status: previoStatus,
-        assignment_id: assignmentId,
-        response: previoData
+    // Get PMS configuration for this hotel
+    const { data: pmsConfig, error: configError } = await supabase
+      .from('pms_configurations')
+      .select(`
+        *,
+        pms_room_mappings (
+          hotelcare_room_number,
+          pms_room_id,
+          pms_room_name
+        )
+      `)
+      .eq('hotel_id', room.hotel)
+      .eq('pms_type', 'previo')
+      .eq('is_active', true)
+      .single();
+
+    if (configError || !pmsConfig) {
+      console.log('No PMS configuration found for hotel:', room.hotel);
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          message: 'No PMS integration configured for this hotel' 
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Find room mapping
+    const roomMapping = pmsConfig.pms_room_mappings?.find(
+      (m: any) => m.hotelcare_room_number === room.room_number
+    );
+
+    if (!roomMapping) {
+      console.log('No PMS mapping found for room:', room.room_number);
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          message: 'Room not mapped to PMS' 
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Map HotelCare status to Previo status
+    const previoStatus = mapToPrevioStatus(status);
+
+    // Call Previo API to update room status
+    const previoUrl = `${previoBaseUrl}/api/rooms/${roomMapping.pms_room_id}/status`;
+    
+    console.log('Calling Previo API:', previoUrl);
+    
+    const previoResponse = await fetch(previoUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${previoUsername}:${previoPassword}`)}`,
       },
-      changed_by: userId,
-      sync_status: 'success',
+      body: JSON.stringify({
+        status: previoStatus,
+        updated_at: new Date().toISOString()
+      })
     });
 
-    console.log('Room status updated in Previo successfully');
+    if (!previoResponse.ok) {
+      const errorText = await previoResponse.text();
+      console.error('Previo API error:', previoResponse.status, errorText);
+      throw new Error(`Previo API error: ${previoResponse.status} ${errorText}`);
+    }
+
+    const result = await previoResponse.json();
+
+    console.log('Previo room status updated successfully:', result);
 
     return new Response(
       JSON.stringify({ 
-        success: true,
-        message: `Room ${roomNumber} status updated to ${previoStatus} in Previo`,
-        data: previoData
+        success: true, 
+        message: 'Room status updated in Previo',
+        previoRoomId: roomMapping.pms_room_id,
+        status: previoStatus
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error: any) {
-    console.error('Previo room status update error:', error);
-    
-    // Log failed sync
-    try {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      
-      const { hotelId, roomNumber } = await req.json();
-      
-      await supabase.from('pms_sync_history').insert({
-        sync_type: 'status_update',
-        direction: 'to_previo',
-        hotel_id: hotelId || null,
-        data: { 
-          room_number: roomNumber,
-          error: error.message 
-        },
-        sync_status: 'failed',
-        error_message: error.message
-      });
-    } catch (logError) {
-      console.error('Failed to log error:', logError);
-    }
-
+    console.error('Previo update error:', error);
     return new Response(
       JSON.stringify({ 
-        success: false,
+        success: false, 
         error: error.message 
       }),
       { 
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );
   }
 });
+
+// Map HotelCare status to Previo status codes
+function mapToPrevioStatus(status: string): string {
+  switch (status) {
+    case 'clean':
+      return 'CLEAN';
+    case 'dirty':
+      return 'DIRTY';
+    case 'inspected':
+      return 'INSPECTED';
+    case 'out_of_order':
+      return 'OUT_OF_ORDER';
+    default:
+      return 'DIRTY';
+  }
+}
