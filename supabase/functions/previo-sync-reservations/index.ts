@@ -42,18 +42,31 @@ serve(async (req) => {
     console.log(`Syncing reservations from Previo for hotel: ${hotelId}`);
 
     // Build XML request for Previo (using correct element names)
-    // Try without term parameter first to see if that's causing the issue
+    const actualDateFrom = dateFrom || new Date().toISOString().split('T')[0];
+    const actualDateTo = dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    console.log('=== DETAILED DIAGNOSTICS ===');
+    console.log('Hotel ID:', hotelId);
+    console.log('Date From:', actualDateFrom);
+    console.log('Date To:', actualDateTo);
+    console.log('API User:', PREVIO_API_USER);
+    console.log('Password length:', PREVIO_API_PASSWORD?.length);
+    
     const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
 <request>
   <login>${PREVIO_API_USER}</login>
   <password>${PREVIO_API_PASSWORD}</password>
   <hotId>${hotelId}</hotId>
-  <dateFrom>${dateFrom || new Date().toISOString().split('T')[0]}</dateFrom>
-  <dateTo>${dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}</dateTo>
+  <dateFrom>${actualDateFrom}</dateFrom>
+  <dateTo>${actualDateTo}</dateTo>
 </request>`;
 
-    console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/searchReservations');
-    console.log('XML Request:', xmlRequest);
+    console.log('=== XML REQUEST ===');
+    console.log(xmlRequest);
+    console.log('=== CALLING API ===');
+    console.log('Endpoint: https://api.previo.app/x1/hotel/searchReservations');
+    console.log('Method: POST');
+    console.log('Content-Type: application/xml');
 
     // Call Previo XML API to search reservations
     const response = await fetch('https://api.previo.app/x1/hotel/searchReservations', {
@@ -64,14 +77,17 @@ serve(async (req) => {
       body: xmlRequest
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Previo API error: ${errorText.substring(0, 500)}`);
-      throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
-    }
+    console.log('=== RESPONSE STATUS ===');
+    console.log('Status:', response.status);
+    console.log('Status Text:', response.statusText);
+    console.log('OK:', response.ok);
+    console.log('Headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
 
     const responseText = await response.text();
-    console.log(`Previo API raw response (first 300 chars): ${responseText.substring(0, 300)}`);
+    console.log('=== FULL RAW RESPONSE ===');
+    console.log(responseText);
+    console.log('=== RESPONSE LENGTH ===');
+    console.log('Characters:', responseText.length);
     
     // Parse XML response (use text/html as Deno DOMParser doesn't support text/xml)
     const parser = new DOMParser();
