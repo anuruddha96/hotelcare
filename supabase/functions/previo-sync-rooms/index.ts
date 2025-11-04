@@ -37,6 +37,7 @@ serve(async (req) => {
     }
 
     console.log(`Syncing rooms from Previo for hotel: ${hotelId}`);
+    console.log(`Previo API URL: ${PREVIO_API_URL}`);
 
     // Call Previo API to get rooms
     const response = await fetch(`${PREVIO_API_URL}`, {
@@ -53,11 +54,24 @@ serve(async (req) => {
       })
     });
 
+    console.log(`Previo API response status: ${response.status}`);
+    
     if (!response.ok) {
-      throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      console.error(`Previo API error response: ${errorText.substring(0, 500)}`);
+      throw new Error(`Previo API error: ${response.status} ${response.statusText}. Check API URL and credentials.`);
     }
 
-    const previoData = await response.json();
+    const responseText = await response.text();
+    console.log(`Previo API raw response: ${responseText.substring(0, 200)}`);
+    
+    let previoData;
+    try {
+      previoData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`Failed to parse Previo response. Response starts with: ${responseText.substring(0, 100)}`);
+      throw new Error(`Invalid JSON response from Previo API. Please verify the API URL is correct. Got: ${responseText.substring(0, 100)}`);
+    }
     console.log(`Received ${previoData.result?.rooms?.length || 0} rooms from Previo`);
 
     // Map Previo status to Hotel Care status
