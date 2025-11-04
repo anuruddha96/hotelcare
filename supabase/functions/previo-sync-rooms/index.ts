@@ -7,17 +7,17 @@ const corsHeaders = {
 };
 
 interface PrevioRoom {
-  id: number;
-  roomNumber: string;
-  roomKind: {
-    id: number;
-    name: string;
-  };
-  floor?: number;
-  housekeeping?: {
-    status: string;
-  };
-  isActive: boolean;
+  roomId: number;
+  name: string;
+  roomKindId: number;
+  roomKindName: string;
+  roomTypeId: number;
+  roomCleanStatusId: number;
+  hasCapacity: boolean;
+  isHourlyBased: boolean;
+  capacity: number;
+  extraCapacity: number;
+  order: number;
 }
 
 serve(async (req) => {
@@ -67,17 +67,23 @@ serve(async (req) => {
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
     console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
 
-    // Map Previo status to Hotel Care status
-    const mapPrevioStatus = (previoStatus?: string): string => {
-      if (!previoStatus) return 'dirty';
-      const statusMap: Record<string, string> = {
-        'clean': 'clean',
-        'dirty': 'dirty',
-        'inspected': 'clean',
-        'out_of_order': 'dirty',
-        'out_of_service': 'dirty',
+    // Extract room number from name (e.g., "Egyágyas szoba Deluxe 001" -> "001")
+    const extractRoomNumber = (name: string): string | null => {
+      // Try to find a 3-digit number at the end of the name
+      const match = name.match(/(\d{3,4})$/);
+      return match ? match[1] : null;
+    };
+
+    // Map Previo clean status ID to Hotel Care status
+    const mapPrevioStatus = (statusId: number): string => {
+      const statusMap: Record<number, string> = {
+        1: 'clean',      // Clean
+        2: 'dirty',      // Dirty
+        3: 'clean',      // Inspected
+        4: 'dirty',      // Out of order
+        5: 'dirty',      // Out of service
       };
-      return statusMap[previoStatus.toLowerCase()] || 'dirty';
+      return statusMap[statusId] || 'dirty';
     };
 
     // Initialize Supabase client
@@ -104,17 +110,16 @@ serve(async (req) => {
     // Process each room
     for (const roomData of roomsData) {
       try {
-        const roomNumber = roomData.roomNumber;
-        const roomType = roomData.roomKind?.name || '';
-        const floor = roomData.floor;
-        const status = roomData.housekeeping?.status;
+        const roomNumber = extractRoomNumber(roomData.name);
+        const roomType = roomData.roomKindName || '';
+        const status = mapPrevioStatus(roomData.roomCleanStatusId);
         
         if (!roomNumber) {
-          console.warn('Skipping room with no roomNumber');
+          console.warn(`Skipping room with unparseable name: ${roomData.name}`);
           continue;
         }
 
-        console.log(`Processing room: ${roomNumber} (Type: ${roomType})`);
+        console.log(`Processing room: ${roomNumber} (Type: ${roomType}, Status ID: ${roomData.roomCleanStatusId} -> ${status})`);
 
         // Check if room exists in Hotel Care
         const { data: existingRoom } = await supabase
@@ -127,8 +132,7 @@ serve(async (req) => {
         const roomDataToSave = {
           room_number: roomNumber,
           hotel: hotelId,
-          status: mapPrevioStatus(status),
-          floor: floor || null,
+          status: status,
           room_type: roomType,
           updated_at: new Date().toISOString(),
         };
@@ -142,6 +146,7 @@ serve(async (req) => {
 
           if (error) throw error;
           syncResults.updated++;
+          console.log(`✓ Updated room ${roomNumber} to status: ${status}`);
         } else {
           // Create new room
           const { error } = await supabase
@@ -150,6 +155,7 @@ serve(async (req) => {
 
           if (error) throw error;
           syncResults.created++;
+          console.log(`✓ Created room ${roomNumber} with status: ${status}`);
         }
       } catch (error: any) {
         console.error(`Error processing room:`, error);

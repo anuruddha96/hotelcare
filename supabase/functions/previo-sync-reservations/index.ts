@@ -7,24 +7,21 @@ const corsHeaders = {
 };
 
 interface PrevioRoom {
-  id: number;
-  roomNumber: string;
-  roomKind: {
-    id: number;
-    name: string;
-  };
+  roomId: number;
+  name: string;
+  roomKindId: number;
+  roomKindName: string;
+  roomTypeId: number;
+  roomCleanStatusId: number;
+  hasCapacity: boolean;
+  isHourlyBased: boolean;
+  capacity: number;
+  extraCapacity: number;
+  order: number;
   reservation?: {
-    id: number;
-    arrival: string;
-    departure: string;
-    guests: {
-      adults: number;
-      children: number;
-    };
-    nights: number;
-    status: string;
-  };
-  housekeeping?: {
+    reservationId: number;
+    arrivalDate: string;
+    departureDate: string;
     status: string;
   };
 }
@@ -76,6 +73,13 @@ serve(async (req) => {
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
     console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
 
+    // Extract room number from name (e.g., "Egyágyas szoba Deluxe 001" -> "001")
+    const extractRoomNumber = (name: string): string | null => {
+      // Try to find a 3-digit number at the end of the name
+      const match = name.match(/(\d{3,4})$/);
+      return match ? match[1] : null;
+    };
+
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -104,28 +108,28 @@ serve(async (req) => {
     // Process each room with reservation data
     for (const roomData of roomsData) {
       try {
-        const roomNumber = roomData.roomNumber;
+        const roomNumber = extractRoomNumber(roomData.name);
         
         if (!roomNumber) {
-          console.warn('Skipping room with no roomNumber');
+          console.warn(`Skipping room with unparseable name: ${roomData.name}`);
           continue;
         }
 
         // Check if room has an active reservation
         if (!roomData.reservation) {
+          console.log(`Room ${roomNumber} has no reservation`);
           continue; // Skip rooms without reservations
         }
 
         const reservation = roomData.reservation;
-        const departureDate = reservation.departure?.split('T')[0] || '';
-        const arrivalDate = reservation.arrival?.split('T')[0] || '';
-        const adults = reservation.guests?.adults || 0;
-        const children = reservation.guests?.children || 0;
-        const nights = reservation.nights || 0;
+        const departureDate = reservation.departureDate?.split('T')[0] || '';
+        const arrivalDate = reservation.arrivalDate?.split('T')[0] || '';
 
         const isCheckoutToday = departureDate === today;
         const isArrivalToday = arrivalDate === today;
-        const isStayover = !isCheckoutToday && !isArrivalToday && reservation.status === 'in_house';
+        const isStayover = !isCheckoutToday && !isArrivalToday;
+
+        console.log(`Processing reservation for room ${roomNumber}: checkout=${isCheckoutToday}, arrival=${isArrivalToday}, stayover=${isStayover}`);
 
         // Find the room in Hotel Care
         const { data: room } = await supabase
@@ -136,6 +140,7 @@ serve(async (req) => {
           .single();
 
         if (!room) {
+          console.warn(`Room ${roomNumber} not found in Hotel Care database`);
           syncResults.errors.push(`Room ${roomNumber} not found in Hotel Care`);
           continue;
         }
@@ -143,15 +148,9 @@ serve(async (req) => {
         // Update room with reservation data
         const roomUpdate: any = {
           is_checkout_room: isCheckoutToday,
-          checkout_time: isCheckoutToday ? departureDate : null,
-          guest_count: adults + children,
-          guest_nights_stayed: nights,
+          checkout_time: isCheckoutToday ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
         };
-
-        if (isArrivalToday) {
-          roomUpdate.arrival_time = arrivalDate;
-        }
 
         const { error } = await supabase
           .from('rooms')
@@ -164,6 +163,8 @@ serve(async (req) => {
         if (isCheckoutToday) syncResults.checkouts_today++;
         if (isArrivalToday) syncResults.arrivals_today++;
         if (isStayover) syncResults.stayovers++;
+        
+        console.log(`✓ Updated reservation info for room ${roomNumber}`);
 
       } catch (error: any) {
         console.error(`Error processing room:`, error);
