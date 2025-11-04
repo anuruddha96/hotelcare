@@ -32,6 +32,25 @@ serve(async (req) => {
       throw new Error('Hotel ID is required');
     }
 
+    // Initialize Supabase client to look up hotel mapping
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Look up the HotelCare hotel_id from the Previo hotel ID
+    const { data: pmsConfig } = await supabase
+      .from('pms_configurations')
+      .select('hotel_id')
+      .eq('pms_hotel_id', hotelId)
+      .single();
+
+    if (!pmsConfig) {
+      throw new Error(`No PMS configuration found for Previo hotel ID: ${hotelId}`);
+    }
+
+    const hotelCareHotelId = pmsConfig.hotel_id;
+    console.log(`Syncing rooms from Previo REST API for Previo ID: ${hotelId}, HotelCare ID: ${hotelCareHotelId}`);
+
     // Get Previo API credentials from environment
     const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
     const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
@@ -39,8 +58,6 @@ serve(async (req) => {
     if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
       throw new Error('Previo API credentials not configured');
     }
-
-    console.log(`Syncing rooms from Previo REST API for hotel: ${hotelId}`);
 
     // Create Basic Auth header
     const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
@@ -67,12 +84,26 @@ serve(async (req) => {
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
     console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
 
-    // Extract room number from name (e.g., "Egyágyas szoba Deluxe 001" -> "001")
-    const extractRoomNumber = (name: string): string | null => {
-      // Try to find a 3-digit number at the end of the name
-      const match = name.match(/(\d{3,4})$/);
-      return match ? match[1] : null;
-    };
+    // Get room mappings for this hotel
+    const { data: pmsConfigWithMappings } = await supabase
+      .from('pms_configurations')
+      .select(`
+        id,
+        pms_room_mappings (
+          hotelcare_room_number,
+          pms_room_id
+        )
+      `)
+      .eq('hotel_id', hotelCareHotelId)
+      .eq('pms_type', 'previo')
+      .single();
+
+    if (!pmsConfigWithMappings || !pmsConfigWithMappings.pms_room_mappings) {
+      throw new Error('No room mappings found for this hotel. Please configure room mappings first.');
+    }
+
+    const roomMappings = pmsConfigWithMappings.pms_room_mappings as Array<{hotelcare_room_number: string; pms_room_id: string}>;
+    console.log(`Found ${roomMappings.length} room mappings`);
 
     // Map Previo clean status ID to Hotel Care status
     const mapPrevioStatus = (statusId: number): string => {
@@ -85,11 +116,6 @@ serve(async (req) => {
       };
       return statusMap[statusId] || 'dirty';
     };
-
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Get authorization header
     const authHeader = req.headers.get('Authorization');
@@ -110,53 +136,52 @@ serve(async (req) => {
     // Process each room
     for (const roomData of roomsData) {
       try {
-        const roomNumber = extractRoomNumber(roomData.name);
+        const roomKindId = roomData.roomKindId.toString();
         const roomType = roomData.roomKindName || '';
         const status = mapPrevioStatus(roomData.roomCleanStatusId);
         
-        if (!roomNumber) {
-          console.warn(`Skipping room with unparseable name: ${roomData.name}`);
+        // Find the mapping for this room kind
+        const mapping = roomMappings.find(m => m.pms_room_id === roomKindId);
+        
+        if (!mapping) {
+          console.warn(`No mapping found for roomKindId: ${roomKindId} (${roomType})`);
+          syncResults.errors.push(`No mapping for room kind: ${roomType}`);
           continue;
         }
 
-        console.log(`Processing room: ${roomNumber} (Type: ${roomType}, Status ID: ${roomData.roomCleanStatusId} -> ${status})`);
+        const roomNumber = mapping.hotelcare_room_number;
+        console.log(`Processing room: ${roomNumber} (PrevioKindId: ${roomKindId}, Type: ${roomType}, Status ID: ${roomData.roomCleanStatusId} -> ${status})`);
 
-        // Check if room exists in Hotel Care
+        // Check if room exists in Hotel Care using the HotelCare hotel_id
         const { data: existingRoom } = await supabase
           .from('rooms')
           .select('id')
           .eq('room_number', roomNumber)
-          .eq('hotel', hotelId)
+          .eq('hotel', hotelCareHotelId)
           .single();
 
+        if (!existingRoom) {
+          console.warn(`Room ${roomNumber} not found in HotelCare database`);
+          syncResults.errors.push(`Room ${roomNumber} not found`);
+          continue;
+        }
+
         const roomDataToSave = {
-          room_number: roomNumber,
-          hotel: hotelId,
           status: status,
           room_type: roomType,
           updated_at: new Date().toISOString(),
         };
 
-        if (existingRoom) {
-          // Update existing room
-          const { error } = await supabase
-            .from('rooms')
-            .update(roomDataToSave)
-            .eq('id', existingRoom.id);
+        // Update existing room
+        const { error } = await supabase
+          .from('rooms')
+          .update(roomDataToSave)
+          .eq('id', existingRoom.id);
 
-          if (error) throw error;
-          syncResults.updated++;
-          console.log(`✓ Updated room ${roomNumber} to status: ${status}`);
-        } else {
-          // Create new room
-          const { error } = await supabase
-            .from('rooms')
-            .insert(roomDataToSave);
-
-          if (error) throw error;
-          syncResults.created++;
-          console.log(`✓ Created room ${roomNumber} with status: ${status}`);
-        }
+        if (error) throw error;
+        syncResults.updated++;
+        console.log(`✓ Updated room ${roomNumber} to status: ${status}`);
+        
       } catch (error: any) {
         console.error(`Error processing room:`, error);
         syncResults.errors.push(`Room processing error: ${error.message}`);
@@ -167,12 +192,13 @@ serve(async (req) => {
     await supabase.from('pms_sync_history').insert({
       sync_type: 'rooms',
       direction: 'from_previo',
-      hotel_id: hotelId,
+      hotel_id: hotelCareHotelId,
       data: {
         total: syncResults.total,
         updated: syncResults.updated,
         created: syncResults.created,
-        errors: syncResults.errors
+        errors: syncResults.errors,
+        previo_hotel_id: hotelId
       },
       changed_by: userId,
       sync_status: syncResults.errors.length > 0 ? 'partial' : 'success',

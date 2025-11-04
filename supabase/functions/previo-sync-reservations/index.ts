@@ -38,6 +38,25 @@ serve(async (req) => {
       throw new Error('Hotel ID is required');
     }
 
+    // Initialize Supabase client to look up hotel mapping
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Look up the HotelCare hotel_id from the Previo hotel ID
+    const { data: pmsConfig } = await supabase
+      .from('pms_configurations')
+      .select('hotel_id')
+      .eq('pms_hotel_id', hotelId)
+      .single();
+
+    if (!pmsConfig) {
+      throw new Error(`No PMS configuration found for Previo hotel ID: ${hotelId}`);
+    }
+
+    const hotelCareHotelId = pmsConfig.hotel_id;
+    console.log(`Syncing reservations from Previo REST API for Previo ID: ${hotelId}, HotelCare ID: ${hotelCareHotelId}`);
+
     // Get Previo API credentials from environment
     const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
     const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
@@ -45,8 +64,6 @@ serve(async (req) => {
     if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
       throw new Error('Previo API credentials not configured');
     }
-
-    console.log(`Syncing reservations from Previo REST API for hotel: ${hotelId}`);
 
     // Create Basic Auth header
     const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
@@ -79,11 +96,6 @@ serve(async (req) => {
       const match = name.match(/(\d{3,4})$/);
       return match ? match[1] : null;
     };
-
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Get authorization header
     const authHeader = req.headers.get('Authorization');
@@ -131,12 +143,12 @@ serve(async (req) => {
 
         console.log(`Processing reservation for room ${roomNumber}: checkout=${isCheckoutToday}, arrival=${isArrivalToday}, stayover=${isStayover}`);
 
-        // Find the room in Hotel Care
+        // Find the room in Hotel Care using HotelCare hotel_id
         const { data: room } = await supabase
           .from('rooms')
           .select('id')
           .eq('room_number', roomNumber)
-          .eq('hotel', hotelId)
+          .eq('hotel', hotelCareHotelId)
           .single();
 
         if (!room) {
@@ -176,14 +188,15 @@ serve(async (req) => {
     await supabase.from('pms_sync_history').insert({
       sync_type: 'reservations',
       direction: 'from_previo',
-      hotel_id: hotelId,
+      hotel_id: hotelCareHotelId,
       data: {
         total: syncResults.total,
         updated: syncResults.updated,
         checkouts_today: syncResults.checkouts_today,
         arrivals_today: syncResults.arrivals_today,
         stayovers: syncResults.stayovers,
-        errors: syncResults.errors
+        errors: syncResults.errors,
+        previo_hotel_id: hotelId
       },
       changed_by: userId,
       sync_status: syncResults.errors.length > 0 ? 'partial' : 'success',
