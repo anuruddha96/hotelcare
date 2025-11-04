@@ -637,13 +637,16 @@ export function PMSUpload() {
       toast.success('Successfully synced with Previo PMS!');
       
       // Step 4: Set results to show on screen
+      const roomResults = roomsData?.results || {};
+      const reservationResults = reservationsData?.results || {};
+      
       setResults({
-        processed: (roomsData?.roomsProcessed || 0) + (reservationsData?.reservationsProcessed || 0),
-        updated: (roomsData?.roomsUpdated || 0) + (reservationsData?.roomsUpdated || 0),
+        processed: (roomResults.total || 0),
+        updated: (roomResults.updated || 0) + (reservationResults.updated || 0),
         assigned: 0,
         errors: [
-          ...(roomsData?.errors || []),
-          ...(reservationsData?.errors || [])
+          ...(roomResults.errors || []),
+          ...(reservationResults.errors || [])
         ]
       });
 
