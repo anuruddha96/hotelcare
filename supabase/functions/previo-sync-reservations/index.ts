@@ -41,7 +41,8 @@ serve(async (req) => {
 
     console.log(`Syncing reservations from Previo for hotel: ${hotelId}`);
 
-    // Build XML request for Previo (using correct element names)
+    // Build XML request for Previo
+    // Note: Trying different parameter combinations to find working format
     const actualDateFrom = dateFrom || new Date().toISOString().split('T')[0];
     const actualDateTo = dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     
@@ -52,6 +53,8 @@ serve(async (req) => {
     console.log('API User:', PREVIO_API_USER);
     console.log('Password length:', PREVIO_API_PASSWORD?.length);
     
+    // Try alternative: using resId search instead of date range search
+    // This may work better if the API expects a different search approach
     const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
 <request>
   <login>${PREVIO_API_USER}</login>
@@ -59,7 +62,7 @@ serve(async (req) => {
   <hotId>${hotelId}</hotId>
   <dateFrom>${actualDateFrom}</dateFrom>
   <dateTo>${actualDateTo}</dateTo>
-  <term>overlap</term>
+  <state>arrival</state>
 </request>`;
 
     console.log('=== XML REQUEST ===');
