@@ -108,8 +108,8 @@ serve(async (req) => {
     // Map Previo clean status ID to Hotel Care status
     const mapPrevioStatus = (statusId: number): string => {
       const statusMap: Record<number, string> = {
-        1: 'clean',      // Clean
-        2: 'dirty',      // Dirty
+        1: 'dirty',      // Untidy/Dirty
+        2: 'clean',      // Clean
         3: 'clean',      // Inspected
         4: 'dirty',      // Out of order
         5: 'dirty',      // Out of service
