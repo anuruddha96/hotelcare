@@ -90,13 +90,13 @@ serve(async (req) => {
 
     console.log(`Updating room status in Previo - Room: ${room.room_number}, Status: ${previoStatus}`);
 
-    // Build XML request for Previo room status update
+    // Build XML request for Previo room status update (using correct element names)
     const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
 <request>
-  <username>${PREVIO_API_USER}</username>
+  <login>${PREVIO_API_USER}</login>
   <password>${PREVIO_API_PASSWORD}</password>
-  <hotel_id>${pmsConfig.previo_hotel_id}</hotel_id>
-  <room_number>${room.room_number}</room_number>
+  <hotId>${pmsConfig.previo_hotel_id}</hotId>
+  <roomNumber>${room.room_number}</roomNumber>
   <status>${previoStatus}</status>
 </request>`;
 
@@ -106,7 +106,7 @@ serve(async (req) => {
     const previoResponse = await fetch('https://api.previo.app/x1/hotel/updateRoomStatus', {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/xml',
+        'Content-Type': 'application/xml',
       },
       body: xmlRequest
     });
@@ -119,6 +119,16 @@ serve(async (req) => {
 
     const responseText = await previoResponse.text();
     console.log(`Previo response: ${responseText.substring(0, 200)}`);
+    
+    // Check for Previo API errors in response
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(responseText, 'text/xml');
+    const errorEl = xmlDoc?.querySelector('error');
+    if (errorEl) {
+      const errorCode = errorEl.querySelector('code')?.textContent || 'unknown';
+      const errorMessage = errorEl.querySelector('message')?.textContent || 'Unknown error';
+      throw new Error(`Previo API Error ${errorCode}: ${errorMessage}`);
+    }
 
     console.log('Previo room status updated successfully');
 

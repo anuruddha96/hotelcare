@@ -41,14 +41,14 @@ serve(async (req) => {
 
     console.log(`Syncing reservations from Previo for hotel: ${hotelId}`);
 
-    // Build XML request for Previo
+    // Build XML request for Previo (using correct element names)
     const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
 <request>
-  <username>${PREVIO_API_USER}</username>
+  <login>${PREVIO_API_USER}</login>
   <password>${PREVIO_API_PASSWORD}</password>
-  <hotel_id>${hotelId}</hotel_id>
-  <date_from>${dateFrom || new Date().toISOString().split('T')[0]}</date_from>
-  <date_to>${dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}</date_to>
+  <hotId>${hotelId}</hotId>
+  <dateFrom>${dateFrom || new Date().toISOString().split('T')[0]}</dateFrom>
+  <dateTo>${dateTo || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}</dateTo>
 </request>`;
 
     console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/searchReservations');
@@ -57,7 +57,7 @@ serve(async (req) => {
     const response = await fetch('https://api.previo.app/x1/hotel/searchReservations', {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/xml',
+        'Content-Type': 'application/xml',
       },
       body: xmlRequest
     });
@@ -77,6 +77,14 @@ serve(async (req) => {
     
     if (!xmlDoc) {
       throw new Error('Failed to parse XML response');
+    }
+
+    // Check for Previo API errors
+    const errorEl = xmlDoc.querySelector('error');
+    if (errorEl) {
+      const errorCode = errorEl.querySelector('code')?.textContent || 'unknown';
+      const errorMessage = errorEl.querySelector('message')?.textContent || 'Unknown error';
+      throw new Error(`Previo API Error ${errorCode}: ${errorMessage}`);
     }
 
     // Extract reservations from XML

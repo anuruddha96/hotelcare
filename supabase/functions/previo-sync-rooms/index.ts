@@ -38,22 +38,24 @@ serve(async (req) => {
 
     console.log(`Syncing rooms from Previo for hotel: ${hotelId}`);
 
-    // Build XML request for Previo
+    // Build XML request for Previo (using correct element names)
     const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
 <request>
-  <username>${PREVIO_API_USER}</username>
+  <login>${PREVIO_API_USER}</login>
   <password>${PREVIO_API_PASSWORD}</password>
-  <hotel_id>${hotelId}</hotel_id>
+  <hotId>${hotelId}</hotId>
+  <roomOnly>true</roomOnly>
+  <includeOfflineRooms>1</includeOfflineRooms>
 </request>`;
 
-    console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/rooms');
+    console.log('Calling Previo XML API: https://api.previo.app/x1/hotel/getRoomKinds');
     console.log('XML Request:', xmlRequest);
 
-    // Call Previo XML API to get rooms
-    const response = await fetch('https://api.previo.app/x1/hotel/rooms', {
+    // Call Previo XML API to get room kinds (room types)
+    const response = await fetch('https://api.previo.app/x1/hotel/getRoomKinds', {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/xml',
+        'Content-Type': 'application/xml',
       },
       body: xmlRequest
     });
@@ -68,7 +70,7 @@ serve(async (req) => {
     }
 
     const responseText = await response.text();
-    console.log(`Previo API raw response (first 300 chars): ${responseText.substring(0, 300)}`);
+    console.log(`Previo API raw response (first 500 chars): ${responseText.substring(0, 500)}`);
     
     // Parse XML response
     const parser = new DOMParser();
@@ -78,9 +80,17 @@ serve(async (req) => {
       throw new Error('Failed to parse XML response');
     }
 
-    // Extract rooms from XML
-    const roomElements = xmlDoc.querySelectorAll('room');
-    console.log(`Received ${roomElements.length} rooms from Previo`);
+    // Check for Previo API errors
+    const errorEl = xmlDoc.querySelector('error');
+    if (errorEl) {
+      const errorCode = errorEl.querySelector('code')?.textContent || 'unknown';
+      const errorMessage = errorEl.querySelector('message')?.textContent || 'Unknown error';
+      throw new Error(`Previo API Error ${errorCode}: ${errorMessage}`);
+    }
+
+    // Extract room kinds from XML (Previo returns roomKind or objectKind elements)
+    const roomElements = xmlDoc.querySelectorAll('roomKind, objectKind');
+    console.log(`Received ${roomElements.length} room types from Previo`);
 
     // Map Previo status to Hotel Care status
     const mapPrevioStatus = (previoStatus?: string): string => {
@@ -116,19 +126,28 @@ serve(async (req) => {
       errors: [] as string[]
     };
 
-    // Process each room from XML
+    // Process each room kind from XML
     for (const roomEl of Array.from(roomElements)) {
       try {
-        const roomNumber = roomEl.querySelector('room_number')?.textContent || '';
-        const roomType = roomEl.querySelector('room_type')?.textContent || '';
-        const status = roomEl.querySelector('status')?.textContent || '';
-        const floorText = roomEl.querySelector('floor')?.textContent || '0';
-        const floor = parseInt(floorText) || 0;
-
-        if (!roomNumber) {
-          console.warn('Skipping room with no room_number');
+        // Extract room kind info (obkId, name, etc.)
+        const roomKindId = roomEl.querySelector('obkId')?.textContent || '';
+        const roomName = roomEl.querySelector('name')?.textContent || '';
+        const roomType = roomEl.querySelector('kind')?.textContent || '';
+        
+        // Note: getRoomKinds returns room TYPES/KINDS, not individual rooms
+        // We'll use the room type name as identifier
+        if (!roomName) {
+          console.warn('Skipping room kind with no name');
           continue;
         }
+
+        console.log(`Processing room kind: ${roomName} (ID: ${roomKindId})`);
+
+        // For now, we'll skip creating rooms from room kinds
+        // This endpoint returns room TYPES, not actual room numbers
+        // To get actual rooms, we'd need Hotel.getObjects or similar
+        console.warn('Note: getRoomKinds returns room types, not individual rooms. Skipping room creation.');
+        continue;
 
         // Check if room exists in Hotel Care
         const { data: existingRoom } = await supabase

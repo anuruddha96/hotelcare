@@ -26,11 +26,10 @@ serve(async (req) => {
     }
 
     // Get Previo API credentials from environment
-    const PREVIO_API_URL = Deno.env.get('PREVIO_API_URL');
     const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
     const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
 
-    if (!PREVIO_API_URL || !PREVIO_API_USER || !PREVIO_API_PASSWORD) {
+    if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
       throw new Error('Previo API credentials not configured');
     }
 
@@ -60,34 +59,36 @@ serve(async (req) => {
     // Process each minibar item
     for (const item of items as MinibarItem[]) {
       try {
-        // Call Previo API to update minibar consumption
-        // Note: This endpoint may vary based on Previo's actual API
-        // You may need to adjust this based on their documentation
-        const response = await fetch(`${PREVIO_API_URL}`, {
+        // Build XML request for Previo addAccountItem (using correct element names)
+        const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
+<request>
+  <login>${PREVIO_API_USER}</login>
+  <password>${PREVIO_API_PASSWORD}</password>
+  <hotId>${hotelId}</hotId>
+  <roomNumber>${roomNumber}</roomNumber>
+  <name>${item.item_name}</name>
+  <quantity>${item.quantity}</quantity>
+  <price>${item.price || 0}</price>
+  <segId>3</segId>
+</request>`;
+
+        // Call Previo XML API to add minibar item to guest account
+        const response = await fetch('https://api.previo.app/x1/hotel/addAccountItem', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Basic ${btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`)}`,
+            'Content-Type': 'application/xml',
           },
-          body: JSON.stringify({
-            method: 'Hotel.addMinibarConsumption',
-            params: {
-              hotel_id: hotelId,
-              room_number: roomNumber,
-              item_name: item.item_name,
-              quantity: item.quantity,
-              price: item.price,
-              timestamp: item.recorded_at || new Date().toISOString()
-            }
-          })
+          body: xmlRequest
         });
 
         if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Previo API error for ${item.item_name}:`, errorText.substring(0, 500));
           throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
         }
 
-        const previoData = await response.json();
-        console.log(`Item ${item.item_name} updated in Previo:`, previoData);
+        const responseText = await response.text();
+        console.log(`Item ${item.item_name} updated in Previo:`, responseText.substring(0, 200));
         
         syncResults.updated++;
 
