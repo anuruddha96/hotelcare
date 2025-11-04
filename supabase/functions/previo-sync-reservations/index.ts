@@ -59,6 +59,7 @@ serve(async (req) => {
   <hotId>${hotelId}</hotId>
   <dateFrom>${actualDateFrom}</dateFrom>
   <dateTo>${actualDateTo}</dateTo>
+  <term>overlap</term>
 </request>`;
 
     console.log('=== XML REQUEST ===');
