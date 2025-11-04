@@ -179,7 +179,8 @@ export default function PMSConfigurationManagement() {
       });
     
     if (error) {
-      toast.error('Failed to add room mapping');
+      console.error('Room mapping error:', error);
+      toast.error(`Failed to add room mapping: ${error.message}`);
     } else {
       toast.success('Room mapping added');
       setNewRoomNumber('');
@@ -311,9 +312,13 @@ export default function PMSConfigurationManagement() {
               {pmsConfig && (
                 <div className="space-y-4 p-4 border rounded-lg">
                   <h3 className="font-semibold">Room Mappings</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Map HotelCare room numbers to Previo room type IDs
-                  </p>
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950 rounded-lg mb-4">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Important:</p>
+                    <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+                      Enter the <strong>actual room number</strong> from HotelCare (e.g., "101", "102", "201"), 
+                      NOT the room type name. This links specific rooms to Previo room type IDs.
+                    </p>
+                  </div>
 
                   {/* Add New Mapping */}
                   <div className="grid grid-cols-4 gap-2">
