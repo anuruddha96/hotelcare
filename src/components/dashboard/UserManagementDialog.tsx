@@ -74,41 +74,94 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [currentUserIsSuperAdmin, setCurrentUserIsSuperAdmin] = useState(false);
+  const [currentUserOrgSlug, setCurrentUserOrgSlug] = useState<string>('');
   const [hotels, setHotels] = useState<any[]>([]);
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [selectedOrgSlug, setSelectedOrgSlug] = useState<string>('');
   const [generatedCredentials, setGeneratedCredentials] = useState<{username: string; password: string; email: string} | null>(null);
   useEffect(() => {
     if (open) {
-      fetchUsers();
-      fetchHotels();
       fetchCurrentUserRole();
     }
   }, [open]);
+
+  useEffect(() => {
+    if (open && currentUserOrgSlug) {
+      fetchUsers();
+      fetchOrganizations();
+      fetchHotels();
+    }
+  }, [open, currentUserOrgSlug, selectedOrgSlug]);
 
   const fetchCurrentUserRole = async () => {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('role, is_super_admin')
+        .select('role, is_super_admin, organization_slug')
         .eq('id', (await supabase.auth.getUser()).data.user?.id)
         .single();
 
       if (error) throw error;
       setCurrentUserRole(data?.role || '');
       setCurrentUserIsSuperAdmin(data?.is_super_admin || false);
+      setCurrentUserOrgSlug(data?.organization_slug || '');
+      setSelectedOrgSlug(data?.organization_slug || '');
     } catch (error: any) {
       console.error('Error fetching current user role:', error);
     }
   };
 
+  const fetchOrganizations = async () => {
+    try {
+      if (currentUserIsSuperAdmin || currentUserRole === 'admin') {
+        const { data, error } = await supabase
+          .from('organizations')
+          .select('*')
+          .eq('is_active', true)
+          .order('name');
+
+        if (error) throw error;
+        setOrganizations(data || []);
+      }
+    } catch (error: any) {
+      console.error('Error fetching organizations:', error);
+    }
+  };
+
   const fetchHotels = async () => {
     try {
-      const { data, error } = await supabase
-        .from('hotels')
-        .select('*')
-        .order('name');
+      // Determine which organization to filter by
+      const orgToFilter = (currentUserIsSuperAdmin || currentUserRole === 'admin') && selectedOrgSlug 
+        ? selectedOrgSlug 
+        : currentUserOrgSlug;
 
-      if (error) throw error;
-      setHotels(data || []);
+      // Build query based on permissions - using any to avoid TypeScript deep type instantiation issues
+      let result;
+      
+      if (!currentUserIsSuperAdmin && orgToFilter) {
+        // Regular users: filter by their organization
+        result = await (supabase as any)
+          .from('hotels')
+          .select('*')
+          .eq('organization_slug', orgToFilter)
+          .order('name');
+      } else if ((currentUserIsSuperAdmin || currentUserRole === 'admin') && orgToFilter) {
+        // Admin/super admin with org selected: filter by selected org
+        result = await (supabase as any)
+          .from('hotels')
+          .select('*')
+          .eq('organization_slug', orgToFilter)
+          .order('name');
+      } else {
+        // Super admin viewing all: no filter
+        result = await (supabase as any)
+          .from('hotels')
+          .select('*')
+          .order('name');
+      }
+      
+      if (result.error) throw result.error;
+      setHotels(result.data || []);
     } catch (error: any) {
       console.error('Error fetching hotels:', error);
     }
@@ -141,6 +194,17 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate organization is selected
+    if (!selectedOrgSlug) {
+      toast({
+        title: 'Error',
+        description: 'Please select an organization',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     setLoading(true);
 
     try {
@@ -152,6 +216,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
           phone_number: newUserData.phone_number || null,
           assigned_hotel: newUserData.assigned_hotel || null,
           password: newUserData.password || null,
+          organization_slug: selectedOrgSlug,
         },
       });
 
@@ -643,27 +708,51 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       <div className="text-sm text-muted-foreground">
                         This setting will be configured through the Admin Settings → Ticket Permissions menu.
                       </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="hotel">Assigned Hotel</Label>
-                      <Select 
-                        value={newUserData.assigned_hotel} 
-                        onValueChange={(value: string) => setNewUserData({ ...newUserData, assigned_hotel: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select hotel (optional)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No specific hotel</SelectItem>
-                          {hotels.map((hotel) => (
-                            <SelectItem key={hotel.id} value={hotel.name}>
-                              {hotel.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                      </div>
+
+                     {(currentUserIsSuperAdmin || currentUserRole === 'admin') && (
+                       <div className="space-y-2">
+                         <Label htmlFor="organization">Organization</Label>
+                         <Select 
+                           value={selectedOrgSlug} 
+                           onValueChange={(value: string) => {
+                             setSelectedOrgSlug(value);
+                             setNewUserData({ ...newUserData, assigned_hotel: '' });
+                           }}
+                         >
+                           <SelectTrigger>
+                             <SelectValue placeholder="Select organization" />
+                           </SelectTrigger>
+                           <SelectContent>
+                             {organizations.map((org) => (
+                               <SelectItem key={org.id} value={org.slug}>
+                                 {org.name}
+                               </SelectItem>
+                             ))}
+                           </SelectContent>
+                         </Select>
+                       </div>
+                     )}
+                     
+                     <div className="space-y-2">
+                       <Label htmlFor="hotel">Assigned Hotel</Label>
+                       <Select 
+                         value={newUserData.assigned_hotel} 
+                         onValueChange={(value: string) => setNewUserData({ ...newUserData, assigned_hotel: value })}
+                       >
+                         <SelectTrigger>
+                           <SelectValue placeholder="Select hotel (optional)" />
+                         </SelectTrigger>
+                         <SelectContent>
+                           <SelectItem value="none">No specific hotel</SelectItem>
+                           {hotels.map((hotel) => (
+                             <SelectItem key={hotel.id} value={hotel.name}>
+                               {hotel.name}
+                             </SelectItem>
+                           ))}
+                         </SelectContent>
+                       </Select>
+                     </div>
                   </div>
                   
                   <div className="flex justify-end">
