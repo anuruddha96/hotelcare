@@ -135,33 +135,37 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         ? selectedOrgSlug 
         : currentUserOrgSlug;
 
-      // Build query based on permissions - using any to avoid TypeScript deep type instantiation issues
-      let result;
-      
-      if (!currentUserIsSuperAdmin && orgToFilter) {
-        // Regular users: filter by their organization
-        result = await (supabase as any)
-          .from('hotels')
-          .select('*')
-          .eq('organization_slug', orgToFilter)
-          .order('name');
-      } else if ((currentUserIsSuperAdmin || currentUserRole === 'admin') && orgToFilter) {
-        // Admin/super admin with org selected: filter by selected org
-        result = await (supabase as any)
-          .from('hotels')
-          .select('*')
-          .eq('organization_slug', orgToFilter)
-          .order('name');
-      } else {
-        // Super admin viewing all: no filter
-        result = await (supabase as any)
-          .from('hotels')
-          .select('*')
-          .order('name');
+      // Query hotel_configurations which has organization relationships
+      let query = supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name, organization_id')
+        .eq('is_active', true);
+
+      // Filter by organization if specified
+      if (orgToFilter) {
+        // Get organization ID from slug
+        const { data: orgData } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('slug', orgToFilter)
+          .single();
+        
+        if (orgData) {
+          query = query.eq('organization_id', orgData.id);
+        }
       }
       
-      if (result.error) throw result.error;
-      setHotels(result.data || []);
+      const { data, error } = await query.order('hotel_name');
+      
+      if (error) throw error;
+      
+      // Transform to match expected format (id, name)
+      const transformedHotels = (data || []).map(hotel => ({
+        id: hotel.hotel_id,
+        name: hotel.hotel_name
+      }));
+      
+      setHotels(transformedHotels);
     } catch (error: any) {
       console.error('Error fetching hotels:', error);
     }
