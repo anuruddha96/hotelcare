@@ -57,10 +57,41 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
   const fetchRooms = async () => {
     try {
-      const { data, error } = await supabase
+      // Get current user's profile to filter by organization and hotel
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('assigned_hotel, organization_slug')
+        .eq('id', user?.id)
+        .single();
+
+      if (!profileData?.assigned_hotel) {
+        console.log('No hotel assigned to user');
+        return;
+      }
+
+      // Query rooms filtered by organization and hotel
+      let roomsQuery = supabase
         .from('rooms')
-        .select('id, room_number, hotel, status, room_name, floor_number, is_checkout_room, checkout_time, guest_count')
+        .select('id, room_number, hotel, status, room_name, floor_number, is_checkout_room, checkout_time, guest_count, organization_slug')
         .eq('status', 'dirty')
+        .eq('organization_slug', profileData.organization_slug);
+
+      // Filter by assigned hotel (handle both hotel_id and hotel_name)
+      // First try direct match, then try getting hotel name from ID
+      const { data: hotelConfig } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', profileData.assigned_hotel)
+        .single();
+
+      if (hotelConfig) {
+        roomsQuery = roomsQuery.eq('hotel', hotelConfig.hotel_name);
+      } else {
+        // Fallback: try direct hotel match
+        roomsQuery = roomsQuery.eq('hotel', profileData.assigned_hotel);
+      }
+
+      const { data, error } = await roomsQuery
         .order('hotel')
         .order('room_number');
 

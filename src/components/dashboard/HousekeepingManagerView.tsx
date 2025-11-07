@@ -193,24 +193,36 @@ export function HousekeepingManagerView() {
 
   const fetchHousekeepingStaff = async () => {
     try {
-      // Get current user's profile to check hotel assignment
+      // Get current user's profile to check hotel and organization assignment
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('assigned_hotel')
+        .select('assigned_hotel, organization_slug')
         .eq('id', user?.id)
         .single();
 
-      let query = supabase
-        .from('profiles')
-        .select('id, full_name, nickname, email, assigned_hotel')
-        .eq('role', 'housekeeping');
-
-      // Filter by the user's currently selected hotel
-      if (profileData?.assigned_hotel) {
-        query = query.eq('assigned_hotel', profileData.assigned_hotel);
+      if (!profileData?.assigned_hotel || !profileData?.organization_slug) {
+        console.log('No hotel or organization assigned to user');
+        setHousekeepingStaff([]);
+        return;
       }
 
-      const { data, error } = await query.order('full_name');
+      // Get hotel name from hotel_id if needed
+      const { data: hotelConfig } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', profileData.assigned_hotel)
+        .single();
+
+      const hotelFilter = hotelConfig?.hotel_name || profileData.assigned_hotel;
+
+      // Filter housekeeping staff by both organization and hotel
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname, email, assigned_hotel, organization_slug')
+        .eq('role', 'housekeeping')
+        .eq('organization_slug', profileData.organization_slug)
+        .eq('assigned_hotel', hotelFilter)
+        .order('full_name');
 
       if (error) throw error;
       setHousekeepingStaff(data || []);
