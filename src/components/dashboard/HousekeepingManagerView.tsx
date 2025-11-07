@@ -338,6 +338,21 @@ export function HousekeepingManagerView() {
         .eq('id', user?.id)
         .single();
 
+      // First get hotel name from hotel_id if needed
+      let hotelNameToFilter = profileData?.assigned_hotel;
+      
+      if (profileData?.assigned_hotel) {
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name')
+          .eq('hotel_id', profileData.assigned_hotel)
+          .single();
+        
+        if (hotelConfig?.hotel_name) {
+          hotelNameToFilter = hotelConfig.hotel_name;
+        }
+      }
+
       let query = supabase
         .from('room_assignments')
         .select(`
@@ -349,12 +364,9 @@ export function HousekeepingManagerView() {
         `)
         .eq('assignment_date', selectedDate);
 
-      // Filter by hotel if assigned - check both hotel_id and hotel_name
-      if (profileData?.assigned_hotel) {
-        const { data: hotelName } = await supabase
-          .rpc('get_hotel_name_from_id', { hotel_id: profileData.assigned_hotel });
-        
-        query = query.or(`rooms.hotel.eq.${profileData.assigned_hotel},rooms.hotel.eq.${hotelName}`);
+      // Filter by hotel if assigned
+      if (hotelNameToFilter) {
+        query = query.eq('rooms.hotel', hotelNameToFilter);
       }
 
       const { data, error } = await query;

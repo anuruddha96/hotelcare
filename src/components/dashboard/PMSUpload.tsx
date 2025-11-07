@@ -312,12 +312,17 @@ export function PMSUpload() {
             .select('id, status, room_number, room_type, is_checkout_room, hotel')
             .eq('room_number', roomNumber);
 
-          // Filter by selected hotel if available - check both hotel_id and hotel_name
+          // Filter by selected hotel if available
           if (selectedHotel) {
-            const { data: hotelName } = await supabase
-              .rpc('get_hotel_name_from_id', { hotel_id: selectedHotel });
+            // Get hotel name from hotel_id if needed
+            const { data: hotelConfig } = await supabase
+              .from('hotel_configurations')
+              .select('hotel_name')
+              .eq('hotel_id', selectedHotel)
+              .single();
             
-            roomQuery = roomQuery.or(`hotel.eq.${selectedHotel},hotel.eq.${hotelName}`);
+            const hotelNameToFilter = hotelConfig?.hotel_name || selectedHotel;
+            roomQuery = roomQuery.eq('hotel', hotelNameToFilter);
           }
 
           const { data: rooms, error: roomError } = await roomQuery;
@@ -588,6 +593,8 @@ export function PMSUpload() {
 
     setIsSyncingPrevio(true);
     setResults(null);
+    setCheckoutRooms([]);
+    setDailyCleaningRooms([]);
 
     try {
       // Step 1: Sync rooms from Previo
@@ -633,10 +640,55 @@ export function PMSUpload() {
 
       console.log('Reservations synced:', reservationsData);
 
-      // Step 3: Show success message
+      // Step 3: Fetch rooms to populate checkout and daily cleaning lists
+      // Get hotel name from hotel_id
+      const { data: hotelConfig } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', selectedHotel)
+        .single();
+      
+      const hotelNameToFilter = hotelConfig?.hotel_name || selectedHotel;
+
+      const { data: roomsList, error: roomsListError } = await supabase
+        .from('rooms')
+        .select('room_number, room_type, status, is_checkout_room, guest_count, checkout_time, notes')
+        .eq('hotel', hotelNameToFilter)
+        .eq('status', 'dirty');
+
+      if (!roomsListError && roomsList) {
+        const checkoutRoomsList: any[] = [];
+        const dailyCleaningRoomsList: any[] = [];
+
+        roomsList.forEach((room) => {
+          if (room.is_checkout_room) {
+            checkoutRoomsList.push({
+              roomNumber: room.room_number,
+              roomType: room.room_type,
+              departureTime: room.checkout_time ? new Date(room.checkout_time).toLocaleTimeString() : undefined,
+              guestCount: room.guest_count || 0,
+              status: 'checkout',
+              notes: room.notes
+            });
+          } else {
+            dailyCleaningRoomsList.push({
+              roomNumber: room.room_number,
+              roomType: room.room_type,
+              guestCount: room.guest_count || 0,
+              status: 'daily_cleaning',
+              notes: room.notes
+            });
+          }
+        });
+
+        setCheckoutRooms(checkoutRoomsList);
+        setDailyCleaningRooms(dailyCleaningRoomsList);
+      }
+
+      // Step 4: Show success message
       toast.success('Successfully synced with Previo PMS!');
       
-      // Step 4: Set results to show on screen
+      // Step 5: Set results to show on screen
       const roomResults = roomsData?.results || {};
       const reservationResults = reservationsData?.results || {};
       
@@ -650,7 +702,7 @@ export function PMSUpload() {
         ]
       });
 
-      // Step 5: Mark upload today (same as Excel upload)
+      // Step 6: Mark upload today (same as Excel upload)
       markUploadToday();
 
     } catch (error: any) {
@@ -801,7 +853,7 @@ export function PMSUpload() {
               {previoSyncEnabled && (
                 <Button
                   onClick={handlePrevioSync}
-                  disabled={uploading || isSyncingPrevio || userRole !== 'admin' && userRole !== 'manager'}
+                  disabled={uploading || isSyncingPrevio || !(userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager')}
                   className="w-full max-w-xs"
                   variant="outline"
                 >
