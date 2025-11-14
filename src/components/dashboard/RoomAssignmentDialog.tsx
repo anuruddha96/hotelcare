@@ -78,15 +78,16 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
       // Filter by assigned hotel (handle both hotel_id and hotel_name)
       // assigned_hotel can be either hotel_id or hotel_name, need to check both
-      const { data: hotelConfig } = await supabase
+      const { data: hotelConfigs } = await supabase
         .from('hotel_configurations')
         .select('hotel_id, hotel_name')
-        .or(`hotel_id.eq.${profileData.assigned_hotel},hotel_name.eq.${profileData.assigned_hotel}`)
-        .single();
+        .or(`hotel_id.eq."${profileData.assigned_hotel}",hotel_name.eq."${profileData.assigned_hotel}"`);
+
+      const hotelConfig = hotelConfigs?.[0];
 
       if (hotelConfig) {
         // Try matching with both hotel_id and hotel_name in rooms table
-        roomsQuery = roomsQuery.or(`hotel.eq.${hotelConfig.hotel_id},hotel.eq.${hotelConfig.hotel_name}`);
+        roomsQuery = roomsQuery.or(`hotel.eq."${hotelConfig.hotel_id}",hotel.eq."${hotelConfig.hotel_name}"`);
       } else {
         // Fallback: try direct hotel match
         roomsQuery = roomsQuery.eq('hotel', profileData.assigned_hotel);

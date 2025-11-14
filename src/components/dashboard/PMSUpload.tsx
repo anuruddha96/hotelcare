@@ -723,11 +723,12 @@ export function PMSUpload() {
       
       // Only enable for HotelCare.App Testing Environment
       // selectedHotel is the hotel_name from profile, so we need to look it up
-      const { data: hotelConfig } = await supabase
+      const { data: hotelConfigs } = await supabase
         .from('hotel_configurations')
         .select('hotel_id, hotel_name, settings')
-        .or(`hotel_id.eq.${selectedHotel},hotel_name.eq.${selectedHotel}`)
-        .single();
+        .or(`hotel_id.eq."${selectedHotel}",hotel_name.eq."${selectedHotel}"`);
+      
+      const hotelConfig = hotelConfigs?.[0];
       
       // Enable Previo sync ONLY for hotelcare-test hotel
       if (hotelConfig && hotelConfig.hotel_id === 'hotelcare-test') {
