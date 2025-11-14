@@ -81,16 +81,21 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       const { data: hotelConfigs } = await supabase
         .from('hotel_configurations')
         .select('hotel_id, hotel_name')
-        .or(`hotel_id.eq."${profileData.assigned_hotel}",hotel_name.eq."${profileData.assigned_hotel}"`);
+        .or(`hotel_id.eq."${profileData.assigned_hotel}",hotel_name.eq."${profileData.assigned_hotel}"`)
+        .limit(1);
 
       const hotelConfig = hotelConfigs?.[0];
+      
+      console.log('🏨 Assignment dialog - Hotel config lookup:', profileData.assigned_hotel, '→', hotelConfig);
 
       if (hotelConfig) {
         // Try matching with both hotel_id and hotel_name in rooms table
         roomsQuery = roomsQuery.or(`hotel.eq."${hotelConfig.hotel_id}",hotel.eq."${hotelConfig.hotel_name}"`);
+        console.log('✅ Filtering assignment rooms by:', hotelConfig.hotel_id, 'OR', hotelConfig.hotel_name);
       } else {
         // Fallback: try direct hotel match
         roomsQuery = roomsQuery.eq('hotel', profileData.assigned_hotel);
+        console.log('⚠️ Fallback: direct hotel match for', profileData.assigned_hotel);
       }
 
       const { data, error } = await roomsQuery

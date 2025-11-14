@@ -732,7 +732,7 @@ export function PMSUpload() {
       const { data: hotelConfigs, error } = await supabase
         .from('hotel_configurations')
         .select('hotel_id, hotel_name, settings')
-        .or(`hotel_id.eq.${selectedHotel},hotel_name.eq.${selectedHotel}`)
+        .or(`hotel_id.eq."${selectedHotel}",hotel_name.eq."${selectedHotel}"`)
         .limit(1);
       
       if (error) {
@@ -936,8 +936,8 @@ export function PMSUpload() {
               <span className="font-medium">{t('pms.uploadComplete')}</span>
             </div>
             
-            {/* Only show statistics to admins */}
-            {userRole === 'admin' && (
+            {/* Show statistics to admins and managers */}
+            {(userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager') && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="text-center p-4 bg-blue-50 rounded-lg">
                   <div className="text-2xl font-bold text-blue-600">{results.processed}</div>
@@ -997,6 +997,11 @@ export function PMSUpload() {
         <PMSUploadHistoryDialog
           open={historyDialogOpen}
           onOpenChange={setHistoryDialogOpen}
+        />
+        
+        <PMSSyncHistoryDialog
+          open={syncHistoryDialogOpen}
+          onOpenChange={setSyncHistoryDialogOpen}
         />
 
         {/* Warning Dialog for Second Upload */}
