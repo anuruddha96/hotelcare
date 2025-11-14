@@ -733,7 +733,7 @@ export function PMSUpload() {
         .from('hotel_configurations')
         .select('hotel_id, hotel_name, settings')
         .or(`hotel_id.eq.${selectedHotel},hotel_name.eq.${selectedHotel}`)
-        .single();
+        .limit(1);
       
       if (error) {
         console.error('❌ Error fetching hotel config:', error);
@@ -741,15 +741,15 @@ export function PMSUpload() {
         return;
       }
       
-      console.log('🔍 Found hotel config:', hotelConfigs);
+      console.log('🔍 Found hotel configs:', hotelConfigs);
       
       // Enable Previo sync for hotelcare-test hotel for managers and admins
-      if (hotelConfigs && hotelConfigs.hotel_id === 'hotelcare-test') {
+      if (hotelConfigs && hotelConfigs.length > 0 && hotelConfigs[0].hotel_id === 'hotelcare-test') {
         const hasPermission = userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager';
         console.log('✅ Hotel is hotelcare-test, has permission:', hasPermission);
         setPrevioSyncEnabled(hasPermission);
       } else {
-        console.log('❌ Previo sync disabled. Hotel ID:', hotelConfigs?.hotel_id);
+        console.log('❌ Previo sync disabled. Config found:', hotelConfigs);
         setPrevioSyncEnabled(false);
       }
     };

@@ -129,11 +129,11 @@ export function RoomManagement() {
             .from('hotel_configurations')
             .select('hotel_id, hotel_name')
             .or(`hotel_id.eq.${profile.assigned_hotel},hotel_name.eq.${profile.assigned_hotel}`)
-            .single();
+            .limit(1);
           
-          if (hotelConfigs) {
+          if (hotelConfigs && hotelConfigs.length > 0) {
             // Filter by either hotel_id or hotel_name
-            query = query.or(`hotel.eq.${hotelConfigs.hotel_id},hotel.eq.${hotelConfigs.hotel_name}`);
+            query = query.or(`hotel.eq.${hotelConfigs[0].hotel_id},hotel.eq.${hotelConfigs[0].hotel_name}`);
           } else {
             // Fallback: just filter by the assigned hotel value
             query = query.eq('hotel', profile.assigned_hotel);
@@ -156,11 +156,11 @@ export function RoomManagement() {
             .from('hotel_configurations')
             .select('hotel_id, hotel_name')
             .or(`hotel_id.eq.${profile.assigned_hotel},hotel_name.eq.${profile.assigned_hotel}`)
-            .single();
+            .limit(1);
           
-          if (hotelConfigs) {
+          if (hotelConfigs && hotelConfigs.length > 0) {
             // Filter by either hotel_id or hotel_name
-            query = query.or(`hotel.eq.${hotelConfigs.hotel_id},hotel.eq.${hotelConfigs.hotel_name}`);
+            query = query.or(`hotel.eq.${hotelConfigs[0].hotel_id},hotel.eq.${hotelConfigs[0].hotel_name}`);
           } else {
             // Fallback: just filter by the assigned hotel value
             query = query.eq('hotel', profile.assigned_hotel);
