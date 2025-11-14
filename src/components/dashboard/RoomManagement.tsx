@@ -122,14 +122,22 @@ export function RoomManagement() {
         let query = base
           .select('*, is_checkout_room, checkout_time, guest_count, last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)' as any);
         
-        // Filter by assigned hotel - check both hotel field and use helper function
+        // Filter by assigned hotel - need to match against hotel_id or hotel_name
         if (profile.assigned_hotel) {
-          // Get the hotel name from the hotel_id
-          const { data: hotelName } = await supabase
-            .rpc('get_hotel_name_from_id', { hotel_id: profile.assigned_hotel });
+          // Get matching hotel configuration to find both hotel_id and hotel_name
+          const { data: hotelConfigs } = await supabase
+            .from('hotel_configurations')
+            .select('hotel_id, hotel_name')
+            .or(`hotel_id.eq.${profile.assigned_hotel},hotel_name.eq.${profile.assigned_hotel}`)
+            .single();
           
-          // Filter by either the hotel_id or hotel_name
-          query = query.or(`hotel.eq.${profile.assigned_hotel},hotel.eq.${hotelName}`);
+          if (hotelConfigs) {
+            // Filter by either hotel_id or hotel_name
+            query = query.or(`hotel.eq.${hotelConfigs.hotel_id},hotel.eq.${hotelConfigs.hotel_name}`);
+          } else {
+            // Fallback: just filter by the assigned hotel value
+            query = query.eq('hotel', profile.assigned_hotel);
+          }
         }
         
         const res = await query
@@ -141,14 +149,22 @@ export function RoomManagement() {
         let query = base
           .select('*, is_checkout_room, checkout_time, guest_count');
         
-        // Filter by assigned hotel - check both hotel field and use helper function
+        // Filter by assigned hotel - need to match against hotel_id or hotel_name
         if (profile.assigned_hotel) {
-          // Get the hotel name from the hotel_id
-          const { data: hotelName } = await supabase
-            .rpc('get_hotel_name_from_id', { hotel_id: profile.assigned_hotel });
+          // Get matching hotel configuration to find both hotel_id and hotel_name
+          const { data: hotelConfigs } = await supabase
+            .from('hotel_configurations')
+            .select('hotel_id, hotel_name')
+            .or(`hotel_id.eq.${profile.assigned_hotel},hotel_name.eq.${profile.assigned_hotel}`)
+            .single();
           
-          // Filter by either the hotel_id or hotel_name
-          query = query.or(`hotel.eq.${profile.assigned_hotel},hotel.eq.${hotelName}`);
+          if (hotelConfigs) {
+            // Filter by either hotel_id or hotel_name
+            query = query.or(`hotel.eq.${hotelConfigs.hotel_id},hotel.eq.${hotelConfigs.hotel_name}`);
+          } else {
+            // Fallback: just filter by the assigned hotel value
+            query = query.eq('hotel', profile.assigned_hotel);
+          }
         }
         
         const res = await query
