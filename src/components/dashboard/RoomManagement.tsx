@@ -125,18 +125,22 @@ export function RoomManagement() {
         // Filter by assigned hotel - need to match against hotel_id or hotel_name
         if (profile.assigned_hotel) {
           // Get matching hotel configuration to find both hotel_id and hotel_name
-          const { data: hotelConfigs } = await supabase
+          const { data: hotelConfigs, error: configError } = await supabase
             .from('hotel_configurations')
             .select('hotel_id, hotel_name')
-            .or(`hotel_id.eq.${profile.assigned_hotel},hotel_name.eq.${profile.assigned_hotel}`)
+            .or(`hotel_id.eq."${profile.assigned_hotel}",hotel_name.eq."${profile.assigned_hotel}"`)
             .limit(1);
+          
+          console.log('🏨 Hotel config lookup for:', profile.assigned_hotel, '→', hotelConfigs);
           
           if (hotelConfigs && hotelConfigs.length > 0) {
             // Filter by either hotel_id or hotel_name
-            query = query.or(`hotel.eq.${hotelConfigs[0].hotel_id},hotel.eq.${hotelConfigs[0].hotel_name}`);
+            query = query.or(`hotel.eq."${hotelConfigs[0].hotel_id}",hotel.eq."${hotelConfigs[0].hotel_name}"`);
+            console.log('✅ Filtering rooms by hotel_id:', hotelConfigs[0].hotel_id, 'OR hotel_name:', hotelConfigs[0].hotel_name);
           } else {
             // Fallback: just filter by the assigned hotel value
             query = query.eq('hotel', profile.assigned_hotel);
+            console.log('⚠️ Fallback: filtering by assigned_hotel only');
           }
         }
         
@@ -152,18 +156,22 @@ export function RoomManagement() {
         // Filter by assigned hotel - need to match against hotel_id or hotel_name
         if (profile.assigned_hotel) {
           // Get matching hotel configuration to find both hotel_id and hotel_name
-          const { data: hotelConfigs } = await supabase
+          const { data: hotelConfigs, error: configError } = await supabase
             .from('hotel_configurations')
             .select('hotel_id, hotel_name')
-            .or(`hotel_id.eq.${profile.assigned_hotel},hotel_name.eq.${profile.assigned_hotel}`)
+            .or(`hotel_id.eq."${profile.assigned_hotel}",hotel_name.eq."${profile.assigned_hotel}"`)
             .limit(1);
+          
+          console.log('🏨 Hotel config lookup for:', profile.assigned_hotel, '→', hotelConfigs);
           
           if (hotelConfigs && hotelConfigs.length > 0) {
             // Filter by either hotel_id or hotel_name
-            query = query.or(`hotel.eq.${hotelConfigs[0].hotel_id},hotel.eq.${hotelConfigs[0].hotel_name}`);
+            query = query.or(`hotel.eq."${hotelConfigs[0].hotel_id}",hotel.eq."${hotelConfigs[0].hotel_name}"`);
+            console.log('✅ Filtering rooms by hotel_id:', hotelConfigs[0].hotel_id, 'OR hotel_name:', hotelConfigs[0].hotel_name);
           } else {
             // Fallback: just filter by the assigned hotel value
             query = query.eq('hotel', profile.assigned_hotel);
+            console.log('⚠️ Fallback: filtering by assigned_hotel only');
           }
         }
         
