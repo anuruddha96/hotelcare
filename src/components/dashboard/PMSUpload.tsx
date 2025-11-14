@@ -725,42 +725,37 @@ export function PMSUpload() {
       }
       
       console.log('🔍 Checking Previo sync for hotel:', selectedHotel);
+      console.log('👤 User role:', userRole);
       
-      // Only enable for HotelCare.App Testing Environment
+      // Enable for admins, managers with hotelcare-test hotel
       // selectedHotel can be either hotel_name or hotel_id from profile
       const { data: hotelConfigs, error } = await supabase
         .from('hotel_configurations')
-        .select('hotel_id, hotel_name, settings');
+        .select('hotel_id, hotel_name, settings')
+        .or(`hotel_id.eq.${selectedHotel},hotel_name.eq.${selectedHotel}`)
+        .single();
       
       if (error) {
-        console.error('❌ Error fetching hotel configs:', error);
+        console.error('❌ Error fetching hotel config:', error);
         setPrevioSyncEnabled(false);
         return;
       }
       
-      console.log('📋 All hotel configs:', hotelConfigs);
+      console.log('🔍 Found hotel config:', hotelConfigs);
       
-      // Find matching hotel by either hotel_id or hotel_name (case-insensitive comparison)
-      const hotelConfig = hotelConfigs?.find(
-        config => 
-          config.hotel_id?.toLowerCase() === selectedHotel?.toLowerCase() || 
-          config.hotel_name?.toLowerCase() === selectedHotel?.toLowerCase()
-      );
-      
-      console.log('🔍 Found hotel config:', hotelConfig);
-      
-      // Enable Previo sync ONLY for hotelcare-test hotel
-      if (hotelConfig && hotelConfig.hotel_id === 'hotelcare-test') {
-        console.log('✅ Previo sync enabled for hotel:', hotelConfig.hotel_name);
-        setPrevioSyncEnabled(true);
+      // Enable Previo sync for hotelcare-test hotel for managers and admins
+      if (hotelConfigs && hotelConfigs.hotel_id === 'hotelcare-test') {
+        const hasPermission = userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager';
+        console.log('✅ Hotel is hotelcare-test, has permission:', hasPermission);
+        setPrevioSyncEnabled(hasPermission);
       } else {
-        console.log('❌ Previo sync disabled. Hotel ID:', hotelConfig?.hotel_id);
+        console.log('❌ Previo sync disabled. Hotel ID:', hotelConfigs?.hotel_id);
         setPrevioSyncEnabled(false);
       }
     };
     
     checkPrevioEnabled();
-  }, [selectedHotel]);
+  }, [selectedHotel, userRole]);
 
   // Request notification permission on component mount
   useEffect(() => {
