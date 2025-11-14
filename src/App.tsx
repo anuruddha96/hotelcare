@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-
 import { AuthProvider } from "@/hooks/useAuth";
 import { TranslationProvider } from "@/hooks/useTranslation";
 import { TenantProvider } from "@/contexts/TenantContext";
+import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNotificationProvider";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -33,22 +34,24 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TranslationProvider>
       <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <BrowserRouter>
-            <Routes>
-              {/* Legacy routes - redirect to rdhotels organization */}
-              <Route path="/" element={<Navigate to="/rdhotels" replace />} />
-              <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
-              
-              {/* Multi-tenant routes */}
-              <Route path="/:organizationSlug/*" element={<TenantRouter />} />
-              
-              {/* Catch-all */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
+        <RealtimeNotificationProvider>
+          <TooltipProvider>
+            <Toaster />
+            <BrowserRouter>
+              <Routes>
+                {/* Legacy routes - redirect to rdhotels organization */}
+                <Route path="/" element={<Navigate to="/rdhotels" replace />} />
+                <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
+                
+                {/* Multi-tenant routes */}
+                <Route path="/:organizationSlug/*" element={<TenantRouter />} />
+                
+                {/* Catch-all */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </RealtimeNotificationProvider>
       </AuthProvider>
     </TranslationProvider>
   </QueryClientProvider>
