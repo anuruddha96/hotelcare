@@ -11,6 +11,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
 import { PMSUploadHistoryDialog } from './PMSUploadHistoryDialog';
+import { PMSSyncHistoryDialog } from './PMSSyncHistoryDialog';
 import * as XLSX from 'xlsx';
 import {
   AlertDialog,
@@ -53,6 +54,7 @@ export function PMSUpload() {
     errors: string[];
   } | null>(null);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [syncHistoryDialogOpen, setSyncHistoryDialogOpen] = useState(false);
   const [showWarningDialog, setShowWarningDialog] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isSyncingPrevio, setIsSyncingPrevio] = useState(false);
@@ -717,27 +719,42 @@ export function PMSUpload() {
   useEffect(() => {
     const checkPrevioEnabled = async () => {
       if (!selectedHotel) {
+        console.log('❌ No hotel selected');
         setPrevioSyncEnabled(false);
         return;
       }
       
+      console.log('🔍 Checking Previo sync for hotel:', selectedHotel);
+      
       // Only enable for HotelCare.App Testing Environment
       // selectedHotel can be either hotel_name or hotel_id from profile
-      const { data: hotelConfigs } = await supabase
+      const { data: hotelConfigs, error } = await supabase
         .from('hotel_configurations')
         .select('hotel_id, hotel_name, settings');
       
-      // Find matching hotel by either hotel_id or hotel_name
+      if (error) {
+        console.error('❌ Error fetching hotel configs:', error);
+        setPrevioSyncEnabled(false);
+        return;
+      }
+      
+      console.log('📋 All hotel configs:', hotelConfigs);
+      
+      // Find matching hotel by either hotel_id or hotel_name (case-insensitive comparison)
       const hotelConfig = hotelConfigs?.find(
-        config => config.hotel_id === selectedHotel || config.hotel_name === selectedHotel
+        config => 
+          config.hotel_id?.toLowerCase() === selectedHotel?.toLowerCase() || 
+          config.hotel_name?.toLowerCase() === selectedHotel?.toLowerCase()
       );
+      
+      console.log('🔍 Found hotel config:', hotelConfig);
       
       // Enable Previo sync ONLY for hotelcare-test hotel
       if (hotelConfig && hotelConfig.hotel_id === 'hotelcare-test') {
         console.log('✅ Previo sync enabled for hotel:', hotelConfig.hotel_name);
         setPrevioSyncEnabled(true);
       } else {
-        console.log('❌ Previo sync disabled. Hotel config:', hotelConfig);
+        console.log('❌ Previo sync disabled. Hotel ID:', hotelConfig?.hotel_id);
         setPrevioSyncEnabled(false);
       }
     };
@@ -759,19 +776,31 @@ export function PMSUpload() {
           <FileSpreadsheet className="h-5 w-5" />
           {t('pms.title')}
         </CardTitle>
-        <div className="flex justify-between items-start">
+          <div className="flex justify-between items-start">
           <div>
             <p className="text-sm text-muted-foreground">
               {t('pms.subtitle')}
             </p>
           </div>
-          <Button 
-            variant="outline" 
-            onClick={() => setHistoryDialogOpen(true)}
-            className="text-sm"
-          >
-            View History
-          </Button>
+          <div className="flex gap-2">
+            {previoSyncEnabled && (
+              <Button 
+                variant="outline" 
+                onClick={() => setSyncHistoryDialogOpen(true)}
+                className="text-sm"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Sync History
+              </Button>
+            )}
+            <Button 
+              variant="outline" 
+              onClick={() => setHistoryDialogOpen(true)}
+              className="text-sm"
+            >
+              View History
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

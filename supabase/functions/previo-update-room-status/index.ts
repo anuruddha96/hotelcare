@@ -115,6 +115,20 @@ serve(async (req) => {
     const responseData = await previoResponse.json();
     console.log('Previo room status updated successfully:', responseData);
 
+    // Log success to sync history
+    await supabase
+      .from('pms_sync_history')
+      .insert({
+        hotel_id: room.hotel,
+        sync_type: 'room_status_update',
+        room_id: roomId,
+        room_number: room.room_number,
+        status: 'success',
+        request_payload: { roomNumber: room.room_number, status: previoStatus },
+        response_payload: responseData,
+        synced_by: null // System sync
+      });
+
     return new Response(
       JSON.stringify({ 
         success: true, 
@@ -127,6 +141,33 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('Previo update error:', error);
+    
+    // Log failure to sync history
+    try {
+      const { roomId } = await req.json();
+      const { data: room } = await supabase
+        .from('rooms')
+        .select('hotel, room_number')
+        .eq('id', roomId)
+        .single();
+      
+      if (room) {
+        await supabase
+          .from('pms_sync_history')
+          .insert({
+            hotel_id: room.hotel,
+            sync_type: 'room_status_update',
+            room_id: roomId,
+            room_number: room.room_number,
+            status: 'failed',
+            error_message: error.message,
+            synced_by: null
+          });
+      }
+    } catch (logError) {
+      console.error('Failed to log sync error:', logError);
+    }
+    
     return new Response(
       JSON.stringify({ 
         success: false, 
