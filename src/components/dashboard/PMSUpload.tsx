@@ -722,18 +722,22 @@ export function PMSUpload() {
       }
       
       // Only enable for HotelCare.App Testing Environment
-      // selectedHotel is the hotel_name from profile, so we need to look it up
+      // selectedHotel can be either hotel_name or hotel_id from profile
       const { data: hotelConfigs } = await supabase
         .from('hotel_configurations')
-        .select('hotel_id, hotel_name, settings')
-        .or(`hotel_id.eq."${selectedHotel}",hotel_name.eq."${selectedHotel}"`);
+        .select('hotel_id, hotel_name, settings');
       
-      const hotelConfig = hotelConfigs?.[0];
+      // Find matching hotel by either hotel_id or hotel_name
+      const hotelConfig = hotelConfigs?.find(
+        config => config.hotel_id === selectedHotel || config.hotel_name === selectedHotel
+      );
       
       // Enable Previo sync ONLY for hotelcare-test hotel
       if (hotelConfig && hotelConfig.hotel_id === 'hotelcare-test') {
+        console.log('✅ Previo sync enabled for hotel:', hotelConfig.hotel_name);
         setPrevioSyncEnabled(true);
       } else {
+        console.log('❌ Previo sync disabled. Hotel config:', hotelConfig);
         setPrevioSyncEnabled(false);
       }
     };
