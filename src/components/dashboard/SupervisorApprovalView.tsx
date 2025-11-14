@@ -255,35 +255,50 @@ export function SupervisorApprovalView() {
 
       // Push status to Previo only for specific hotels with PMS integration
       if (assignment?.room_id && assignment?.rooms?.hotel) {
-        const hotelId = assignment.rooms.hotel;
+        const hotelValue = assignment.rooms.hotel;
         
-        // Check if this hotel has Previo PMS integration enabled
-        const { data: pmsConfig } = await supabase
-          .from('pms_configurations')
-          .select('is_active, pms_type')
-          .eq('hotel_id', hotelId)
-          .eq('pms_type', 'previo')
-          .eq('is_active', true)
-          .maybeSingle();
+        // Find the hotel configuration by matching either hotel_id or hotel_name
+        const { data: hotelConfigs } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_id, hotel_name');
         
-        // Only push to Previo if PMS integration is active for this hotel
-        if (pmsConfig) {
-          try {
-            const { data: result, error: previoError } = await supabase.functions.invoke('previo-update-room-status', {
-              body: { 
-                roomId: assignment.room_id,
-                status: 'clean'
+        const matchingConfig = hotelConfigs?.find(
+          config => config.hotel_id === hotelValue || config.hotel_name === hotelValue
+        );
+        
+        if (matchingConfig) {
+          // Check if this hotel has Previo PMS integration enabled
+          const { data: pmsConfig } = await supabase
+            .from('pms_configurations')
+            .select('is_active, pms_type, hotel_id')
+            .eq('hotel_id', matchingConfig.hotel_id)
+            .eq('pms_type', 'previo')
+            .eq('is_active', true)
+            .maybeSingle();
+          
+          // Only push to Previo if PMS integration is active for this hotel
+          if (pmsConfig) {
+            try {
+              console.log(`🔄 Pushing room status to Previo PMS for room ${assignment.rooms?.room_number}`);
+              
+              const { data: result, error: previoError } = await supabase.functions.invoke('previo-update-room-status', {
+                body: { 
+                  roomId: assignment.room_id,
+                  status: 'clean'
+                }
+              });
+              
+              if (previoError) {
+                console.error('❌ Previo update error:', previoError);
+                toast.error('Room approved but failed to update PMS');
+              } else {
+                console.log('✅ Room status pushed to Previo successfully:', result);
+                toast.success('Room approved and PMS updated');
               }
-            });
-            
-            if (previoError) {
-              console.error('Previo update error:', previoError);
-            } else {
-              console.log('Room status pushed to Previo successfully:', result);
+            } catch (previoError) {
+              console.error('Failed to update Previo:', previoError);
+              // Don't fail the approval if Previo update fails
             }
-          } catch (previoError) {
-            console.error('Failed to update Previo:', previoError);
-            // Don't fail the approval if Previo update fails
           }
         }
       }
