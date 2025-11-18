@@ -231,6 +231,17 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
     setLoading(true);
     try {
+      // Get user's organization slug
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('organization_slug')
+        .eq('id', user.id)
+        .single();
+
+      if (!profileData?.organization_slug) {
+        throw new Error('User organization not found');
+      }
+
       // Determine assignment type based on room type automatically
       const assignments = selectedRooms.map(roomId => {
         const room = rooms.find(r => r.id === roomId);
@@ -242,10 +253,11 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           assigned_by: user.id,
           assignment_date: selectedDate,
           assignment_type: assignmentType,
-          priority: 2, // Standard priority for all housekeeping tasks
+          priority: 2,
           estimated_duration: estimatedDuration,
           notes: notes.trim() || null,
-          ready_to_clean: false // Managers must mark checkout rooms as ready from pending view
+          ready_to_clean: false,
+          organization_slug: profileData.organization_slug
         };
       });
 

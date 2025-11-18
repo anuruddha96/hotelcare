@@ -90,6 +90,17 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
 
     setLoading(true);
     try {
+      // Get user's organization slug
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('organization_slug')
+        .eq('id', user.id)
+        .single();
+
+      if (!profileData?.organization_slug) {
+        throw new Error('User organization not found');
+      }
+
       const assignments = selectedRooms.map(roomId => ({
         room_id: roomId,
         assigned_to: selectedStaff,
@@ -98,7 +109,8 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
         assignment_type: 'daily_cleaning' as const,
         priority: 1,
         estimated_duration: 30,
-        notes: 'Quick assignment - selected rooms'
+        notes: 'Quick assignment - selected rooms',
+        organization_slug: profileData.organization_slug
       }));
 
       console.log('Creating assignments:', assignments);
