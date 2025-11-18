@@ -107,6 +107,17 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
 
     setLoading(true);
     try {
+      // Get user's organization slug
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('organization_slug')
+        .eq('id', user.id)
+        .single();
+
+      if (!profileData?.organization_slug) {
+        throw new Error('User organization not found');
+      }
+
       const assignments = (type === 'daily_cleaning' ? 
         rooms.filter(r => !selectedRooms.includes(r.id)).map(r => r.id) : 
         selectedRooms
@@ -119,7 +130,8 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
         priority: type === 'checkout_cleaning' ? 2 : 1,
         estimated_duration: type === 'checkout_cleaning' ? 45 : 30,
         notes: `Quick assignment - ${type.replace('_', ' ')}`,
-        ready_to_clean: false // Managers must mark checkout rooms as ready from pending view
+        ready_to_clean: false,
+        organization_slug: profileData.organization_slug
       }));
 
       console.log('Creating assignments:', assignments);
