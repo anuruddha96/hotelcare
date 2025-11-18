@@ -131,31 +131,26 @@ export function SupervisorApprovalView() {
     try {
       const dateStr = selectedDate.toISOString().split('T')[0];
       
-      // Get current user's profile to get assigned hotel
+      // Get current user's organization
       const { data: currentUser } = await supabase.auth.getUser();
       if (!currentUser.user) return;
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('assigned_hotel')
+        .select('organization_slug')
         .eq('id', currentUser.user.id)
         .single();
 
       if (profileError) throw profileError;
 
-      // Get hotel name from hotel_id if needed
-      const userHotelId = profile?.assigned_hotel;
-      let userHotelName = userHotelId;
-
-      if (userHotelId) {
-        const { data: hotelName } = await supabase
-          .rpc('get_hotel_name_from_id', { hotel_id: userHotelId });
-        if (hotelName) {
-          userHotelName = hotelName;
-        }
+      const userOrgSlug = profile?.organization_slug;
+      if (!userOrgSlug) {
+        setPendingAssignments([]);
+        setEarlySignoutRequests([]);
+        return;
       }
       
-      // First fetch room assignments, then fetch early sign-out requests
+      // Fetch room assignments filtered by organization
       const { data: assignmentData, error: assignmentError } = await supabase
         .from('room_assignments')
         .select(`
@@ -178,6 +173,7 @@ export function SupervisorApprovalView() {
         .eq('status', 'completed')
         .eq('supervisor_approved', false)
         .eq('assignment_date', dateStr)
+        .eq('organization_slug', userOrgSlug)
         .order('completed_at', { ascending: false });
 
       if (assignmentError) throw assignmentError;
@@ -197,21 +193,13 @@ export function SupervisorApprovalView() {
           )
         `)
         .eq('status', 'pending')
+        .eq('organization_slug', userOrgSlug)
         .order('requested_at', { ascending: false });
 
       if (earlySignoutError) throw earlySignoutError;
-
-      // Filter room assignments by the user's selected hotel
-      let assignments = (assignmentData as any) || [];
-      if (userHotelName) {
-        assignments = assignments.filter((assignment: any) => 
-          assignment.rooms?.hotel === userHotelName || 
-          assignment.rooms?.hotel === userHotelId
-        );
-      }
       
-      // Store both types in separate state or combine them for display
-      setPendingAssignments(assignments);
+      // Store both types in separate state
+      setPendingAssignments(assignmentData || []);
       setEarlySignoutRequests(earlySignoutData || []);
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
