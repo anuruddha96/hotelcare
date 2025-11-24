@@ -30,10 +30,10 @@ Deno.serve(async (req) => {
       }
     );
 
-    // Calculate date 2 weeks ago
-    const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-    const cutoffDate = twoWeeksAgo.toISOString();
+    // Calculate date 3 days ago
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const cutoffDate = threeDaysAgo.toISOString();
 
     console.log(`Cleaning up photos older than ${cutoffDate}`);
 
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
       storageFreedMB: 0,
     };
 
-    // 1. Clean up DND photos older than 2 weeks
+    // 1. Clean up DND photos older than 3 days
     const { data: oldDndPhotos, error: dndError } = await supabaseClient
       .from('dnd_photos')
       .select('id, photo_url')
@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Clean up completion photos from room_assignments older than 2 weeks
+    // 2. Clean up completion photos from room_assignments older than 3 days
     const { data: oldAssignments, error: assignmentError } = await supabaseClient
       .from('room_assignments')
       .select('id, completion_photos')
