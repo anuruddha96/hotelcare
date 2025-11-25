@@ -223,6 +223,15 @@ export function PhotoCleanupManager() {
                 </div>
               </div>
 
+              <Alert className="bg-muted/50">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>About Cached Egress & Bandwidth</AlertTitle>
+                <AlertDescription>
+                  Cached Egress is historical bandwidth usage from CDN/cache and cannot be cleared - it represents data transfer that has already occurred. 
+                  To reduce future bandwidth costs, focus on deleting unnecessary files above. Files are now sorted newest to oldest for easier selection.
+                </AlertDescription>
+              </Alert>
+
               {storageStatus.buckets.length > 0 && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -250,7 +259,9 @@ export function PhotoCleanupManager() {
                   </div>
                   <div className="space-y-2">
                     {storageStatus.buckets.map((bucket: any) => {
-                      const bucketFiles = storageStatus.files?.filter((f: StorageFile) => f.bucket === bucket.name) || [];
+                      // Sort files by creation date (newest first)
+                      const bucketFiles = (storageStatus.files?.filter((f: StorageFile) => f.bucket === bucket.name) || [])
+                        .sort((a: StorageFile, b: StorageFile) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                       const selectedInBucket = bucketFiles.filter((f: StorageFile) => selectedFiles.has(f.path)).length;
                       const isExpanded = expandedBuckets.has(bucket.name);
                       
