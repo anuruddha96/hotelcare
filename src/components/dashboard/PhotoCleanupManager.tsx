@@ -3,15 +3,28 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Trash2, AlertCircle, CheckCircle, Loader2, HardDrive, Database } from "lucide-react";
+import { Trash2, AlertCircle, CheckCircle, Loader2, HardDrive, Database, ChevronDown, ChevronUp } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
+interface StorageFile {
+  bucket: string;
+  path: string;
+  name: string;
+  size: number;
+  createdAt: string;
+}
 
 export function PhotoCleanupManager() {
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [storageStatus, setStorageStatus] = useState<any>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [expandedBuckets, setExpandedBuckets] = useState<Set<string>>(new Set(['room-photos', 'dnd-photos']));
   const { toast } = useToast();
 
   useEffect(() => {
@@ -36,6 +49,98 @@ export function PhotoCleanupManager() {
       });
     } finally {
       setLoadingStatus(false);
+    }
+  };
+
+  const toggleBucket = (bucketName: string) => {
+    const newExpanded = new Set(expandedBuckets);
+    if (newExpanded.has(bucketName)) {
+      newExpanded.delete(bucketName);
+    } else {
+      newExpanded.add(bucketName);
+    }
+    setExpandedBuckets(newExpanded);
+  };
+
+  const toggleFileSelection = (filePath: string) => {
+    const newSelected = new Set(selectedFiles);
+    if (newSelected.has(filePath)) {
+      newSelected.delete(filePath);
+    } else {
+      newSelected.add(filePath);
+    }
+    setSelectedFiles(newSelected);
+  };
+
+  const toggleBucketSelection = (bucketName: string) => {
+    const bucketFiles = storageStatus?.files?.filter((f: StorageFile) => f.bucket === bucketName) || [];
+    const allSelected = bucketFiles.every((f: StorageFile) => selectedFiles.has(f.path));
+    
+    const newSelected = new Set(selectedFiles);
+    if (allSelected) {
+      bucketFiles.forEach((f: StorageFile) => newSelected.delete(f.path));
+    } else {
+      bucketFiles.forEach((f: StorageFile) => newSelected.add(f.path));
+    }
+    setSelectedFiles(newSelected);
+  };
+
+  const deleteSelectedFiles = async () => {
+    if (selectedFiles.size === 0) {
+      toast({
+        variant: "destructive",
+        title: "No files selected",
+        description: "Please select files to delete",
+      });
+      return;
+    }
+
+    setIsDeleting(true);
+
+    try {
+      // Group files by bucket
+      const filesByBucket = new Map<string, string[]>();
+      selectedFiles.forEach(filePath => {
+        const file = storageStatus?.files?.find((f: StorageFile) => f.path === filePath);
+        if (file) {
+          if (!filesByBucket.has(file.bucket)) {
+            filesByBucket.set(file.bucket, []);
+          }
+          filesByBucket.get(file.bucket)!.push(filePath);
+        }
+      });
+
+      let totalDeleted = 0;
+      let totalFreed = 0;
+
+      // Delete files from each bucket
+      for (const [bucket, files] of filesByBucket) {
+        const { data, error } = await supabase.functions.invoke('delete-storage-files', {
+          body: { bucket, files }
+        });
+
+        if (error) throw error;
+
+        totalDeleted += data.deletedCount;
+        totalFreed += data.freedMB;
+      }
+
+      toast({
+        title: "Files Deleted",
+        description: `Deleted ${totalDeleted} files (~${totalFreed.toFixed(2)} MB freed)`,
+      });
+
+      setSelectedFiles(new Set());
+      await fetchStorageStatus();
+    } catch (error: any) {
+      console.error('Delete error:', error);
+      toast({
+        variant: "destructive",
+        title: "Delete Failed",
+        description: error.message || "Failed to delete files",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -119,21 +224,86 @@ export function PhotoCleanupManager() {
               </div>
 
               {storageStatus.buckets.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-sm font-medium">Storage by Bucket:</div>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium">Storage by Bucket:</div>
+                    {selectedFiles.size > 0 && (
+                      <Button 
+                        onClick={deleteSelectedFiles} 
+                        disabled={isDeleting}
+                        variant="destructive"
+                        size="sm"
+                      >
+                        {isDeleting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Deleting...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete {selectedFiles.size} files
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
                   <div className="space-y-2">
-                    {storageStatus.buckets.map((bucket: any) => (
-                      <div key={bucket.name} className="flex items-center justify-between p-3 bg-muted/30 rounded">
-                        <div className="flex items-center gap-2">
-                          <Database className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{bucket.name}</span>
-                          <Badge variant="secondary">{bucket.fileCount} files</Badge>
-                        </div>
-                        <span className="text-sm text-muted-foreground">
-                          {bucket.sizeMB.toFixed(2)} MB
-                        </span>
-                      </div>
-                    ))}
+                    {storageStatus.buckets.map((bucket: any) => {
+                      const bucketFiles = storageStatus.files?.filter((f: StorageFile) => f.bucket === bucket.name) || [];
+                      const selectedInBucket = bucketFiles.filter((f: StorageFile) => selectedFiles.has(f.path)).length;
+                      const isExpanded = expandedBuckets.has(bucket.name);
+                      
+                      return (
+                        <Collapsible key={bucket.name} open={isExpanded} onOpenChange={() => toggleBucket(bucket.name)}>
+                          <div className="border rounded-lg">
+                            <CollapsibleTrigger className="w-full">
+                              <div className="flex items-center justify-between p-3 hover:bg-muted/50 transition-colors">
+                                <div className="flex items-center gap-3">
+                                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                  <Database className="h-4 w-4 text-muted-foreground" />
+                                  <span className="font-medium">{bucket.name}</span>
+                                  <Badge variant="secondary">{bucket.fileCount} files</Badge>
+                                  {selectedInBucket > 0 && (
+                                    <Badge variant="default">{selectedInBucket} selected</Badge>
+                                  )}
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                  {bucket.sizeMB.toFixed(2)} MB
+                                </span>
+                              </div>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <div className="border-t p-3 space-y-2">
+                                <div className="flex items-center gap-2 pb-2 border-b">
+                                  <Checkbox
+                                    checked={bucketFiles.length > 0 && bucketFiles.every((f: StorageFile) => selectedFiles.has(f.path))}
+                                    onCheckedChange={() => toggleBucketSelection(bucket.name)}
+                                  />
+                                  <span className="text-sm font-medium">Select All</span>
+                                </div>
+                                <div className="max-h-64 overflow-y-auto space-y-1">
+                                  {bucketFiles.map((file: StorageFile) => (
+                                    <div key={file.path} className="flex items-center gap-2 p-2 hover:bg-muted/30 rounded text-sm">
+                                      <Checkbox
+                                        checked={selectedFiles.has(file.path)}
+                                        onCheckedChange={() => toggleFileSelection(file.path)}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="truncate">{file.name}</div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {(file.size / 1024).toFixed(2)} KB • {new Date(file.createdAt).toLocaleDateString()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </CollapsibleContent>
+                          </div>
+                        </Collapsible>
+                      );
+                    })}
                   </div>
                 </div>
               )}
