@@ -34,48 +34,51 @@ Deno.serve(async (req) => {
     const bucketDetails: Array<{ name: string; fileCount: number; sizeMB: number }> = [];
 
     // Calculate storage for each bucket
+    const filesList: Array<{ bucket: string; path: string; name: string; size: number; createdAt: string }> = [];
+    
     for (const bucket of buckets || []) {
       try {
-        const { data: files } = await supabaseClient.storage
-          .from(bucket.name)
-          .list('', {
-            limit: 1000,
-            sortBy: { column: 'name', order: 'asc' }
-          });
+        let bucketSize = 0;
+        let bucketFiles = 0;
 
-        if (files) {
-          let bucketSize = 0;
-          let bucketFiles = 0;
+        // Recursively count and list files in all folders
+        const listFilesRecursively = async (path: string = '') => {
+          const { data } = await supabaseClient.storage
+            .from(bucket.name)
+            .list(path, { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } });
 
-          // Recursively count files in all folders
-          const countFilesRecursively = async (path: string = '') => {
-            const { data } = await supabaseClient.storage
-              .from(bucket.name)
-              .list(path, { limit: 1000 });
-
-            if (data) {
-              for (const item of data) {
-                if (item.id) { // it's a file
-                  bucketSize += item.metadata?.size || 0;
-                  bucketFiles++;
-                } else { // it's a folder
-                  await countFilesRecursively(path ? `${path}/${item.name}` : item.name);
-                }
+          if (data) {
+            for (const item of data) {
+              if (item.id) { // it's a file
+                const fileSize = item.metadata?.size || 0;
+                bucketSize += fileSize;
+                bucketFiles++;
+                
+                // Add to files list for browsing
+                filesList.push({
+                  bucket: bucket.name,
+                  path: path ? `${path}/${item.name}` : item.name,
+                  name: item.name,
+                  size: fileSize,
+                  createdAt: item.created_at || ''
+                });
+              } else { // it's a folder
+                await listFilesRecursively(path ? `${path}/${item.name}` : item.name);
               }
             }
-          };
+          }
+        };
 
-          await countFilesRecursively();
+        await listFilesRecursively();
 
-          totalSize += bucketSize;
-          totalFiles += bucketFiles;
+        totalSize += bucketSize;
+        totalFiles += bucketFiles;
 
-          bucketDetails.push({
-            name: bucket.name,
-            fileCount: bucketFiles,
-            sizeMB: bucketSize / (1024 * 1024)
-          });
-        }
+        bucketDetails.push({
+          name: bucket.name,
+          fileCount: bucketFiles,
+          sizeMB: bucketSize / (1024 * 1024)
+        });
       } catch (error) {
         console.error(`Error processing bucket ${bucket.name}:`, error);
       }
@@ -113,6 +116,7 @@ Deno.serve(async (req) => {
         totalSizeGB: totalSize / (1024 * 1024 * 1024),
         totalFiles,
         buckets: bucketDetails,
+        files: filesList,
         pendingCleanup: {
           dndPhotos: dndCount || 0,
           completionPhotos: completionPhotosCount,
