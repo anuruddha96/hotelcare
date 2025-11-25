@@ -44,59 +44,41 @@ Deno.serve(async (req) => {
 
     console.log(`Deleting ${files.length} files from bucket: ${bucket}`);
 
-    // Calculate total size before deletion
-    let totalSize = 0;
-    for (const filePath of files) {
-      try {
-        const pathParts = filePath.split('/');
-        const fileName = pathParts.pop();
-        const folderPath = pathParts.join('/');
+    // Process files in batches of 100 to avoid timeouts
+    const BATCH_SIZE = 100;
+    let totalDeleted = 0;
+    const errors = [];
 
-        const { data: fileData } = await supabaseClient.storage
-          .from(bucket)
-          .list(folderPath || undefined, {
-            search: fileName
-          });
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const batch = files.slice(i, i + BATCH_SIZE);
+      console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(files.length / BATCH_SIZE)}: ${batch.length} files`);
+      
+      const { error } = await supabaseClient.storage
+        .from(bucket)
+        .remove(batch);
 
-        if (fileData && fileData.length > 0) {
-          totalSize += fileData[0].metadata?.size || 0;
-        }
-      } catch (error) {
-        console.error(`Error getting file size for ${filePath}:`, error);
+      if (error) {
+        console.error(`Batch delete error:`, error);
+        errors.push({ batch: Math.floor(i / BATCH_SIZE) + 1, error: error.message });
+      } else {
+        totalDeleted += batch.length;
       }
     }
 
-    // Delete files from storage
-    const { data, error } = await supabaseClient.storage
-      .from(bucket)
-      .remove(files);
-
-    if (error) {
-      console.error('Delete error:', error);
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: error.message 
-        }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 500,
-        }
-      );
-    }
-
-    console.log(`Successfully deleted ${files.length} files, freed ~${(totalSize / (1024 * 1024)).toFixed(2)} MB`);
+    const hasErrors = errors.length > 0;
+    console.log(`Completed: ${totalDeleted}/${files.length} files deleted${hasErrors ? ` (${errors.length} batches failed)` : ''}`);
 
     return new Response(
       JSON.stringify({
-        success: true,
-        deletedCount: files.length,
-        freedMB: totalSize / (1024 * 1024),
-        message: `Successfully deleted ${files.length} files (~${(totalSize / (1024 * 1024)).toFixed(2)} MB freed)`
+        success: !hasErrors || totalDeleted > 0,
+        deletedCount: totalDeleted,
+        totalRequested: files.length,
+        errors: hasErrors ? errors : undefined,
+        message: `Successfully deleted ${totalDeleted} of ${files.length} files${hasErrors ? ` (${errors.length} batches had errors)` : ''}`
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
+        status: hasErrors && totalDeleted === 0 ? 500 : 200,
       }
     );
   } catch (error) {
