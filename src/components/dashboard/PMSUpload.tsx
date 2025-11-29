@@ -300,8 +300,8 @@ export function PMSUpload() {
 
         try {
           // Skip empty or invalid rows
-          if (!row || !row.Room || row.Room === null || row.Room === undefined) {
-            processed.errors.push(`Skipping empty row at index ${i}`);
+          if (!row || !row.Room || row.Room === null || row.Room === undefined || String(row.Room).trim() === '') {
+            // Silently skip truly empty rows (don't count as errors)
             continue;
           }
 

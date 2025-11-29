@@ -164,27 +164,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     // If email login fails and input doesn't contain @, try username lookup
     if (error && !emailOrUsername.includes('@')) {
-      console.log('Email login failed, trying username lookup');
+      console.log('Email login failed, trying username lookup for:', emailOrUsername);
       try {
         // Resolve email via secure RPC to bypass RLS during pre-auth
         const { data: emailData, error: rpcError } = await supabase.rpc('get_email_by_nickname', {
           p_nickname: emailOrUsername,
         });
-        console.log('Username RPC lookup:', emailData, rpcError);
+        console.log('Username RPC lookup result:', { emailData, rpcError });
         
-        if (emailData) {
-          console.log('Found email for username, attempting login with:', emailData);
+        if (emailData && !rpcError) {
+          console.log('Found email for username, attempting login');
           const result = await supabase.auth.signInWithPassword({
             email: emailData as string,
             password,
           });
           error = result.error;
-          console.log('Username-based login result:', result.error);
+          console.log('Username-based login result:', result.error ? 'failed' : 'success');
+          
+          // If password is wrong after finding username, provide clearer error
+          if (error && error.message === 'Invalid login credentials') {
+            error.message = 'Invalid password for username: ' + emailOrUsername;
+          }
+        } else if (rpcError) {
+          console.error('Username lookup RPC error:', rpcError);
+          error.message = 'Username not found: ' + emailOrUsername;
+        } else {
+          error.message = 'Username not found: ' + emailOrUsername;
         }
-
       } catch (lookupError) {
-        console.error('Username lookup failed:', lookupError);
-        // Keep original error if username lookup fails
+        console.error('Username lookup failed with exception:', lookupError);
+        error.message = 'Username not found: ' + emailOrUsername;
       }
     }
     
