@@ -97,15 +97,33 @@ export function HousekeepingStaffManagement() {
 
   const fetchAllHotels = async () => {
     try {
-      // Fetch all hotels with their organization info
-      const { data, error } = await supabase
+      // Fetch all hotels with their organization info via manual join
+      const { data: hotelsData, error: hotelsError } = await supabase
         .from('hotel_configurations')
-        .select('hotel_id, hotel_name, organization_id, organizations(slug)')
+        .select('hotel_id, hotel_name, organization_id')
         .eq('is_active', true)
         .order('hotel_name');
 
-      if (error) throw error;
-      setAllHotels(data || []);
+      if (hotelsError) throw hotelsError;
+
+      // Fetch organizations separately
+      const { data: orgsData, error: orgsError } = await supabase
+        .from('organizations')
+        .select('id, slug')
+        .eq('is_active', true);
+
+      if (orgsError) throw orgsError;
+
+      // Create a map of organization id to slug
+      const orgMap = new Map(orgsData?.map(org => [org.id, org.slug]) || []);
+
+      // Merge the data
+      const enrichedHotels = (hotelsData || []).map(hotel => ({
+        ...hotel,
+        organization_slug: hotel.organization_id ? orgMap.get(hotel.organization_id) : null
+      }));
+
+      setAllHotels(enrichedHotels);
     } catch (error: any) {
       console.error('Error fetching all hotels:', error);
     }
@@ -114,8 +132,8 @@ export function HousekeepingStaffManagement() {
   // Filter hotels based on selected organization
   useEffect(() => {
     if (newStaffData.organization_slug) {
-      const filteredHotels = allHotels.filter(hotel => 
-        hotel.organizations?.slug === newStaffData.organization_slug
+      const filteredHotels = allHotels.filter((hotel: any) => 
+        hotel.organization_slug === newStaffData.organization_slug
       );
       setHotels(filteredHotels);
     } else {
@@ -643,8 +661,8 @@ export function HousekeepingStaffManagement() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">All Hotels</SelectItem>
-                      {hotels.map((hotel) => (
-                        <SelectItem key={hotel.id} value={hotel.name}>{hotel.name}</SelectItem>
+                      {allHotels.map((hotel: any) => (
+                        <SelectItem key={hotel.hotel_id} value={hotel.hotel_name}>{hotel.hotel_name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
