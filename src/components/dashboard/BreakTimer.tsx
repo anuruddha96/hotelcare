@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Clock } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Clock, Volume2, VolumeX } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 
 interface BreakTimerProps {
@@ -13,6 +14,9 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [isOvertime, setIsOvertime] = useState(false);
   const [breakDuration, setBreakDuration] = useState(30); // default 30 minutes
+  const [alarmPlayed, setAlarmPlayed] = useState(false);
+  const [alarmMuted, setAlarmMuted] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // Fetch break duration from database
   useEffect(() => {
@@ -32,6 +36,59 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
     fetchBreakDuration();
   }, [breakType]);
 
+  // Play alarm sound using Web Audio API
+  const playAlarmSound = useCallback(() => {
+    if (alarmMuted) return;
+    
+    try {
+      // Create audio context if not exists
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      
+      const ctx = audioContextRef.current;
+      
+      // Play a sequence of beeps
+      const playBeep = (startTime: number, frequency: number, duration: number) => {
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, startTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+        
+        oscillator.start(startTime);
+        oscillator.stop(startTime + duration);
+      };
+      
+      const now = ctx.currentTime;
+      
+      // Play 3 ascending beeps
+      playBeep(now, 800, 0.2);
+      playBeep(now + 0.3, 1000, 0.2);
+      playBeep(now + 0.6, 1200, 0.3);
+      
+      // Repeat after 1 second
+      setTimeout(() => {
+        if (!alarmMuted && audioContextRef.current) {
+          const ctx2 = audioContextRef.current;
+          const now2 = ctx2.currentTime;
+          playBeep(now2, 800, 0.2);
+          playBeep(now2 + 0.3, 1000, 0.2);
+          playBeep(now2 + 0.6, 1200, 0.3);
+        }
+      }, 1500);
+      
+    } catch (error) {
+      console.error('Error playing alarm sound:', error);
+    }
+  }, [alarmMuted]);
+
   useEffect(() => {
     const startTime = new Date(startedAt).getTime();
     
@@ -43,6 +100,12 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
       
       setTimeRemaining(remaining);
       setIsOvertime(remaining <= 0);
+      
+      // Play alarm at 2 minutes remaining (120 seconds)
+      if (remaining <= 120 && remaining > 115 && !alarmPlayed) {
+        setAlarmPlayed(true);
+        playAlarmSound();
+      }
       
       if (remaining <= -300 && onComplete) { // 5 minutes overtime
         onComplete();
@@ -56,7 +119,16 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
     const interval = setInterval(updateTimer, 1000);
 
     return () => clearInterval(interval);
-  }, [breakType, startedAt, onComplete, breakDuration]);
+  }, [breakType, startedAt, onComplete, breakDuration, alarmPlayed, playAlarmSound]);
+
+  // Cleanup audio context on unmount
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
 
   const formatTime = (seconds: number) => {
     const absSeconds = Math.abs(seconds);
@@ -69,7 +141,8 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
 
   const getTimerColor = () => {
     if (isOvertime) return 'bg-red-500 text-white animate-pulse';
-    if (timeRemaining <= 300) return 'bg-orange-500 text-white'; // 5 minutes left
+    if (timeRemaining <= 120) return 'bg-orange-500 text-white'; // 2 minutes left
+    if (timeRemaining <= 300) return 'bg-yellow-500 text-white'; // 5 minutes left
     return 'bg-blue-500 text-white';
   };
 
@@ -80,9 +153,24 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
   return (
     <div className="flex flex-col items-center justify-center space-y-3 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200 shadow-sm">
       {/* Break Type Badge */}
-      <Badge variant="outline" className="text-sm font-semibold bg-white border-blue-300 text-blue-700 px-3 py-1">
-        {getBreakTypeName()}
-      </Badge>
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className="text-sm font-semibold bg-white border-blue-300 text-blue-700 px-3 py-1">
+          {getBreakTypeName()}
+        </Badge>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0"
+          onClick={() => setAlarmMuted(!alarmMuted)}
+          title={alarmMuted ? 'Unmute alarm' : 'Mute alarm'}
+        >
+          {alarmMuted ? (
+            <VolumeX className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <Volume2 className="h-4 w-4 text-blue-600" />
+          )}
+        </Button>
+      </div>
       
       {/* Timer Display */}
       <div className={`relative inline-flex items-center gap-3 px-6 py-4 rounded-2xl shadow-md ${getTimerColor()} transition-all duration-300`}>
@@ -99,8 +187,14 @@ export function BreakTimer({ breakType, startedAt, onComplete }: BreakTimerProps
           <span className="text-sm font-semibold">Break time exceeded</span>
         </div>
       )}
-      {timeRemaining <= 300 && timeRemaining > 0 && (
-        <div className="flex items-center gap-2 bg-orange-100 text-orange-700 px-4 py-2 rounded-full">
+      {timeRemaining <= 120 && timeRemaining > 0 && (
+        <div className="flex items-center gap-2 bg-orange-100 text-orange-700 px-4 py-2 rounded-full animate-pulse">
+          <span className="text-lg">🔔</span>
+          <span className="text-sm font-semibold">Break ending in {Math.ceil(timeRemaining / 60)} min!</span>
+        </div>
+      )}
+      {timeRemaining > 120 && timeRemaining <= 300 && (
+        <div className="flex items-center gap-2 bg-yellow-100 text-yellow-700 px-4 py-2 rounded-full">
           <span className="text-lg">⏰</span>
           <span className="text-sm font-semibold">Break ending soon</span>
         </div>

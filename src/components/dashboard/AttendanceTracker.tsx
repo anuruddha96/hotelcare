@@ -15,6 +15,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { SwipeToEndBreak } from './SwipeToEndBreak';
 import { BreakRequestDialog } from './BreakRequestDialog';
 import { SwipeAction } from '@/components/ui/swipe-action';
+import { PendingRoomsSignoutDialog } from './PendingRoomsSignoutDialog';
 
 interface AttendanceRecord {
   id: string;
@@ -41,6 +42,14 @@ interface BreakType {
   is_active: boolean;
 }
 
+interface PendingRoom {
+  id: string;
+  room_number: string;
+  hotel: string;
+  status: string;
+  assignment_type: string;
+}
+
 export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status: string | null) => void }) => {
   const { user, profile } = useAuth();
   const { toast } = useToast();
@@ -52,6 +61,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
   const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: any} | null>(null);
+  const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
+  const [pendingRooms, setPendingRooms] = useState<PendingRoom[]>([]);
   
   const isAdminOrHR = profile?.role && ['admin', 'hr', 'manager'].includes(profile.role);
 
@@ -230,6 +241,41 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     }
   };
 
+  // Check for pending room assignments
+  const checkPendingRooms = async (): Promise<PendingRoom[]> => {
+    if (!user) return [];
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    const { data, error } = await supabase
+      .from('room_assignments')
+      .select(`
+        id,
+        status,
+        assignment_type,
+        rooms!fk_room_assignments_room_id (
+          room_number,
+          hotel
+        )
+      `)
+      .eq('assigned_to', user.id)
+      .eq('assignment_date', today)
+      .in('status', ['assigned', 'in_progress']);
+    
+    if (error) {
+      console.error('Error checking pending rooms:', error);
+      return [];
+    }
+    
+    return (data || []).map((assignment: any) => ({
+      id: assignment.id,
+      room_number: assignment.rooms?.room_number || 'Unknown',
+      hotel: assignment.rooms?.hotel || 'Unknown',
+      status: assignment.status,
+      assignment_type: assignment.assignment_type,
+    }));
+  };
+
   const handleCheckOut = async () => {
     if (!currentRecord || !location) {
       toast({
@@ -241,6 +287,23 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     }
 
     setIsLoading(true);
+
+    // First, check for pending rooms (only for housekeeping staff)
+    if (profile?.role === 'housekeeping') {
+      const rooms = await checkPendingRooms();
+      if (rooms.length > 0) {
+        setPendingRooms(rooms);
+        setPendingRoomsDialogOpen(true);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    await performCheckOut();
+  };
+
+  const performCheckOut = async () => {
+    if (!currentRecord || !location) return;
 
     // Check if this is an early sign-out (between 8 PM and 4 AM)
     const currentHour = new Date().getHours();
@@ -303,6 +366,13 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     }
 
     setIsLoading(false);
+  };
+
+  const handleApprovalRequested = () => {
+    // Update status to show pending approval
+    setCurrentRecord(prev => prev ? { ...prev, status: 'pending_early_signout' } : null);
+    onStatusChange?.('pending_early_signout');
+    fetchTodaysAttendance();
   };
 
   const handleBreak = async (isStartingBreak: boolean) => {
@@ -636,6 +706,19 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t('breakTypes.title')}</h3>
         <BreakTypesManagement />
       </div>
+    )}
+
+    {/* Pending Rooms Sign-out Dialog */}
+    {currentRecord && user && (
+      <PendingRoomsSignoutDialog
+        open={pendingRoomsDialogOpen}
+        onOpenChange={setPendingRoomsDialogOpen}
+        pendingRooms={pendingRooms}
+        userId={user.id}
+        attendanceId={currentRecord.id}
+        organizationSlug={profile?.organization_slug || 'rdhotels'}
+        onApprovalRequested={handleApprovalRequested}
+      />
     )}
     </div>
   );
