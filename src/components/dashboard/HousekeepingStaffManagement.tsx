@@ -13,6 +13,7 @@ import { UserPlus, Users, Edit, Key, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
+import { TrainingAssignmentManager } from '@/components/training';
 
 interface HousekeepingStaff {
   id: string;
@@ -854,6 +855,14 @@ export function HousekeepingStaffManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Training Assignment Section */}
+      {currentUserOrgSlug && (
+        <TrainingAssignmentManager 
+          organizationSlug={currentUserOrgSlug}
+          hotelFilter={currentUserHotel || undefined}
+        />
+      )}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { HotelSwitcher } from '@/components/layout/HotelSwitcher';
 import { OrganizationSwitcher } from '@/components/layout/OrganizationSwitcher';
 import { RoomAssignmentSummary } from '@/components/dashboard/RoomAssignmentSummary';
 import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge';
+import { TrainingHelpButton } from '@/components/training';
 import { LogOut, Settings, User } from 'lucide-react';
 import {
   DropdownMenu,
@@ -91,6 +92,7 @@ export function Header() {
             <OrganizationSwitcher />
             <HotelSwitcher />
             <LanguageSwitcher />
+            <TrainingHelpButton />
             
             {(profile?.role === 'admin' || profile?.role === 'manager') && (
               <>
