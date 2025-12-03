@@ -1883,6 +1883,145 @@ export type Database = {
           },
         ]
       }
+      training_guide_steps: {
+        Row: {
+          action_type: string | null
+          created_at: string | null
+          guide_id: string
+          highlight_padding: number | null
+          id: string
+          position: string | null
+          requires_action: boolean | null
+          step_key: string
+          step_order: number
+          target_selector: string | null
+        }
+        Insert: {
+          action_type?: string | null
+          created_at?: string | null
+          guide_id: string
+          highlight_padding?: number | null
+          id?: string
+          position?: string | null
+          requires_action?: boolean | null
+          step_key: string
+          step_order: number
+          target_selector?: string | null
+        }
+        Update: {
+          action_type?: string | null
+          created_at?: string | null
+          guide_id?: string
+          highlight_padding?: number | null
+          id?: string
+          position?: string | null
+          requires_action?: boolean | null
+          step_key?: string
+          step_order?: number
+          target_selector?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_guide_steps_guide_id_fkey"
+            columns: ["guide_id"]
+            isOneToOne: false
+            referencedRelation: "training_guides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      training_guides: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          slug: string
+          sort_order: number | null
+          target_role: string | null
+          total_steps: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          slug: string
+          sort_order?: number | null
+          target_role?: string | null
+          total_steps?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          slug?: string
+          sort_order?: number | null
+          target_role?: string | null
+          total_steps?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      user_training_assignments: {
+        Row: {
+          assigned_by: string | null
+          completed_at: string | null
+          completed_steps: Json | null
+          created_at: string | null
+          current_step: number | null
+          guide_id: string
+          id: string
+          organization_slug: string | null
+          started_at: string | null
+          status: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          assigned_by?: string | null
+          completed_at?: string | null
+          completed_steps?: Json | null
+          created_at?: string | null
+          current_step?: number | null
+          guide_id: string
+          id?: string
+          organization_slug?: string | null
+          started_at?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          assigned_by?: string | null
+          completed_at?: string | null
+          completed_steps?: Json | null
+          created_at?: string | null
+          current_step?: number | null
+          guide_id?: string
+          id?: string
+          organization_slug?: string | null
+          started_at?: string | null
+          status?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_training_assignments_guide_id_fkey"
+            columns: ["guide_id"]
+            isOneToOne: false
+            referencedRelation: "training_guides"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
