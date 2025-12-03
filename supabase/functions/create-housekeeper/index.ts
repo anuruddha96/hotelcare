@@ -6,19 +6,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Sanitize a name to a safe ASCII username for emails
-function sanitizeUsername(name: string) {
-  const base = String(name)
-    .normalize('NFD') // split accents
-    .replace(/[\u0300-\u036f]/g, '') // remove accents
-    .toLowerCase()
-    .replace(/[^a-z0-9.]+/g, '.') // allow letters, numbers and dots
-    .replace(/\.+/g, '.') // collapse consecutive dots
-    .replace(/^\./, '') // no leading dot
-    .replace(/\.$/, ''); // no trailing dot
-  return base || 'user';
-}
-
 export const handler = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -74,12 +61,13 @@ export const handler = async (req: Request): Promise<Response> => {
 
     const { data: roleRow } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, organization_slug')
       .eq('id', user.id)
       .maybeSingle();
 
     const callerRole = roleRow?.role as string | undefined;
-    console.log('🎭 Caller role:', callerRole);
+    const callerOrgSlug = roleRow?.organization_slug as string | undefined;
+    console.log('🎭 Caller role:', callerRole, 'Org:', callerOrgSlug);
     
     if (!callerRole || !['admin', 'housekeeping_manager', 'manager', 'top_management'].includes(callerRole)) {
       console.error('❌ Insufficient permissions for role:', callerRole);
@@ -97,12 +85,32 @@ export const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log('✅ Permission check passed');
+    // Use caller's org if not super admin and no org provided
+    const finalOrgSlug = organization_slug || callerOrgSlug || 'rdhotels';
+    
+    console.log('✅ Permission check passed, using org:', finalOrgSlug);
 
-    // 2) Generate credentials with timestamp to ensure uniqueness
-    const timestamp = Date.now().toString().slice(-6);
-    const baseName = sanitizeUsername(String(full_name).trim());
-    const generatedUsername = `${baseName}.${timestamp}`;
+    // 2) Get the next sequence number for this organization
+    console.log('🔢 Getting next sequence number for org:', finalOrgSlug);
+    
+    const { data: seqData, error: seqError } = await admin.rpc('get_next_housekeeper_sequence', {
+      p_org_slug: finalOrgSlug
+    });
+
+    if (seqError) {
+      console.error('❌ Sequence error:', seqError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Failed to generate sequence number' }),
+        { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+      );
+    }
+
+    const sequenceNumber = seqData as number;
+    console.log('🔢 Got sequence number:', sequenceNumber);
+
+    // 3) Generate username in format: Firstname_XXX (e.g., Nam_024)
+    const firstName = String(full_name).trim().split(' ')[0];
+    const generatedUsername = `${firstName}_${String(sequenceNumber).padStart(3, '0')}`;
 
     const generatedPassword = (password && String(password).trim().length
       ? String(password).trim()
@@ -110,11 +118,11 @@ export const handler = async (req: Request): Promise<Response> => {
 
     let finalEmail = email && String(email).trim().length
       ? String(email).trim()
-      : `${generatedUsername}@rdhotels.local`;
+      : `${generatedUsername.toLowerCase()}@${finalOrgSlug}.local`;
 
     console.log('🔑 Generated credentials:', { username: generatedUsername, email: finalEmail });
 
-    // 3) Create auth user with service role - handle email conflicts
+    // 4) Create auth user with service role - handle email conflicts
     console.log('👤 Creating auth user...');
     let authResult = await admin.auth.admin.createUser({
       email: finalEmail,
@@ -130,7 +138,8 @@ export const handler = async (req: Request): Promise<Response> => {
     // If email already exists, try with a unique generated email
     if (authResult.error?.message?.includes('already been registered')) {
       console.log('⚠️ Email already exists, trying with unique email...');
-      finalEmail = `${generatedUsername}@rdhotels.local`;
+      const timestamp = Date.now().toString().slice(-4);
+      finalEmail = `${generatedUsername.toLowerCase()}.${timestamp}@${finalOrgSlug}.local`;
       authResult = await admin.auth.admin.createUser({
         email: finalEmail,
         password: generatedPassword,
@@ -154,7 +163,7 @@ export const handler = async (req: Request): Promise<Response> => {
     const newUserId = authResult.data.user.id;
     console.log('✅ Auth user created:', newUserId);
 
-    // 4) Insert profile with same id - handle conflicts with upsert
+    // 5) Insert profile with same id
     console.log('📝 Creating profile...');
     const { error: insertProfileErr } = await admin
       .from('profiles')
@@ -166,7 +175,7 @@ export const handler = async (req: Request): Promise<Response> => {
         phone_number: phone_number || null,
         assigned_hotel: !assigned_hotel || assigned_hotel === 'none' ? null : assigned_hotel,
         nickname: generatedUsername,
-        organization_slug: organization_slug || null,
+        organization_slug: finalOrgSlug,
       }, {
         onConflict: 'id'
       });

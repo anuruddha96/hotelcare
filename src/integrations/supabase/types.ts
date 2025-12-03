@@ -14,6 +14,60 @@ export type Database = {
   }
   public: {
     Tables: {
+      archived_housekeepers: {
+        Row: {
+          archive_expires_at: string
+          archived_at: string
+          archived_by: string | null
+          assigned_hotel: string | null
+          attendance_data: Json | null
+          created_at: string | null
+          email: string | null
+          full_name: string
+          id: string
+          nickname: string | null
+          organization_slug: string | null
+          original_profile_id: string
+          performance_data: Json | null
+          phone_number: string | null
+          ratings_data: Json | null
+        }
+        Insert: {
+          archive_expires_at?: string
+          archived_at?: string
+          archived_by?: string | null
+          assigned_hotel?: string | null
+          attendance_data?: Json | null
+          created_at?: string | null
+          email?: string | null
+          full_name: string
+          id?: string
+          nickname?: string | null
+          organization_slug?: string | null
+          original_profile_id: string
+          performance_data?: Json | null
+          phone_number?: string | null
+          ratings_data?: Json | null
+        }
+        Update: {
+          archive_expires_at?: string
+          archived_at?: string
+          archived_by?: string | null
+          assigned_hotel?: string | null
+          attendance_data?: Json | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string
+          id?: string
+          nickname?: string | null
+          organization_slug?: string | null
+          original_profile_id?: string
+          performance_data?: Json | null
+          phone_number?: string | null
+          ratings_data?: Json | null
+        }
+        Relationships: []
+      }
       break_requests: {
         Row: {
           approved_at: string | null
@@ -604,6 +658,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      housekeeper_username_sequence: {
+        Row: {
+          last_sequence_number: number
+          organization_slug: string
+          updated_at: string
+        }
+        Insert: {
+          last_sequence_number?: number
+          organization_slug: string
+          updated_at?: string
+        }
+        Update: {
+          last_sequence_number?: number
+          organization_slug?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       housekeeping_notes: {
         Row: {
@@ -1989,6 +2061,10 @@ export type Database = {
       get_housekeeping_summary: {
         Args: { target_date?: string; user_id: string }
         Returns: Json
+      }
+      get_next_housekeeper_sequence: {
+        Args: { p_org_slug: string }
+        Returns: number
       }
       get_user_access_config: {
         Args: { user_role: Database["public"]["Enums"]["user_role"] }
