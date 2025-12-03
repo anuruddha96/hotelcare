@@ -11,6 +11,27 @@ interface TargetRect {
   height: number;
 }
 
+// Map step keys to required tab navigation
+const STEP_TAB_MAPPING: { [key: string]: { mainTab: string; subTab?: string } } = {
+  // Attendance steps
+  'check_in': { mainTab: 'attendance' },
+  'request_break': { mainTab: 'attendance' },
+  'end_break': { mainTab: 'attendance' },
+  'sign_out': { mainTab: 'attendance' },
+  
+  // Room/Housekeeping steps
+  'view_rooms': { mainTab: 'housekeeping' },
+  'start_room': { mainTab: 'housekeeping' },
+  'capture_photos': { mainTab: 'housekeeping' },
+  'dirty_linen': { mainTab: 'housekeeping' },
+  'complete_room': { mainTab: 'housekeeping' },
+  'mark_dnd': { mainTab: 'housekeeping' },
+  'retrieve_dnd': { mainTab: 'housekeeping' },
+  
+  // DND specific
+  'dnd_management': { mainTab: 'housekeeping', subTab: 'dnd-photos' },
+};
+
 export function TrainingOverlay() {
   const {
     isTrainingActive,
@@ -28,11 +49,32 @@ export function TrainingOverlay() {
 
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
   const [showCompletion, setShowCompletion] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [completionLoading, setCompletionLoading] = useState(false);
 
   const ui = getTranslatedUI();
 
+  // Navigate to the correct tab for a step
+  const navigateToStep = useCallback((stepKey: string) => {
+    const mapping = STEP_TAB_MAPPING[stepKey];
+    if (!mapping) return;
+
+    setIsNavigating(true);
+
+    // Dispatch custom event for Dashboard to listen to
+    const event = new CustomEvent('training-navigate', {
+      detail: { mainTab: mapping.mainTab, subTab: mapping.subTab }
+    });
+    window.dispatchEvent(event);
+
+    // Wait for DOM to update
+    setTimeout(() => {
+      setIsNavigating(false);
+    }, 600);
+  }, []);
+
   const updateTargetPosition = useCallback(() => {
-    if (!currentStep?.target_selector) {
+    if (!currentStep?.target_selector || isNavigating) {
       setTargetRect(null);
       return;
     }
@@ -60,11 +102,19 @@ export function TrainingOverlay() {
     } else {
       setTargetRect(null);
     }
-  }, [currentStep]);
+  }, [currentStep, isNavigating]);
+
+  // Navigate when step changes
+  useEffect(() => {
+    if (isTrainingActive && currentStep?.step_key) {
+      navigateToStep(currentStep.step_key);
+    }
+  }, [isTrainingActive, currentStep?.step_key, navigateToStep]);
 
   useEffect(() => {
-    if (isTrainingActive) {
-      updateTargetPosition();
+    if (isTrainingActive && !isNavigating) {
+      // Delay initial position update to allow for navigation
+      const initialDelay = setTimeout(updateTargetPosition, 100);
       
       // Update position on resize/scroll
       const handleUpdate = () => updateTargetPosition();
@@ -75,12 +125,13 @@ export function TrainingOverlay() {
       const interval = setInterval(handleUpdate, 500);
       
       return () => {
+        clearTimeout(initialDelay);
         window.removeEventListener('resize', handleUpdate);
         window.removeEventListener('scroll', handleUpdate, true);
         clearInterval(interval);
       };
     }
-  }, [isTrainingActive, currentStep, updateTargetPosition]);
+  }, [isTrainingActive, currentStep, updateTargetPosition, isNavigating]);
 
   const handleNext = () => {
     if (currentStepIndex === totalSteps - 1) {
@@ -91,8 +142,21 @@ export function TrainingOverlay() {
   };
 
   const handleComplete = async () => {
-    setShowCompletion(false);
-    await completeTraining();
+    setCompletionLoading(true);
+    try {
+      await completeTraining();
+    } catch (error) {
+      console.error('Error completing training:', error);
+    } finally {
+      setCompletionLoading(false);
+      setShowCompletion(false);
+    }
+  };
+
+  const handleCompletionDialogChange = (open: boolean) => {
+    if (!completionLoading) {
+      setShowCompletion(open);
+    }
   };
 
   if (!isTrainingActive || !currentStep) {
@@ -155,9 +219,10 @@ export function TrainingOverlay() {
       {/* Completion dialog */}
       <TrainingCompletionDialog
         open={showCompletion}
-        onOpenChange={setShowCompletion}
+        onOpenChange={handleCompletionDialogChange}
         onComplete={handleComplete}
         guideName={currentGuide?.name || ''}
+        loading={completionLoading}
       />
     </>
   );
