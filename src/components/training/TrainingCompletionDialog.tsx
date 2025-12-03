@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, PartyPopper } from 'lucide-react';
+import { CheckCircle, PartyPopper, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useTrainingGuide } from '@/contexts/TrainingGuideContext';
 
@@ -9,6 +9,7 @@ interface TrainingCompletionDialogProps {
   onOpenChange: (open: boolean) => void;
   onComplete: () => void;
   guideName: string;
+  loading?: boolean;
 }
 
 export function TrainingCompletionDialog({
@@ -16,6 +17,7 @@ export function TrainingCompletionDialog({
   onOpenChange,
   onComplete,
   guideName,
+  loading = false,
 }: TrainingCompletionDialogProps) {
   const { getTranslatedUI, getTranslatedGuide } = useTrainingGuide();
   const ui = getTranslatedUI();
@@ -24,6 +26,12 @@ export function TrainingCompletionDialog({
   const guideSlug = guideName.toLowerCase().replace(/\s+/g, '-');
   const translatedGuide = getTranslatedGuide(guideSlug);
   const displayName = translatedGuide.name || guideName;
+
+  const handleComplete = () => {
+    if (!loading) {
+      onComplete();
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -64,8 +72,19 @@ export function TrainingCompletionDialog({
         </div>
 
         <DialogFooter>
-          <Button onClick={onComplete} className="w-full">
-            {ui.finishButton}
+          <Button 
+            onClick={handleComplete} 
+            className="w-full"
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Finishing...
+              </>
+            ) : (
+              ui.finishButton
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

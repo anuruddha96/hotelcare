@@ -724,6 +724,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 }}
                 holdText={t('housekeeping.holdToStart')}
                 releaseText={t('housekeeping.keepHolding')}
+                data-training="start-room-button"
               >
                 <Play className="h-5 w-5" />
                 {t('housekeeping.start')}
@@ -761,6 +762,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     variant="outline"
                     onClick={() => setDailyPhotoDialogOpen(true)}
                     className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                    data-training="room-photos-button"
                   >
                     <Camera className="h-4 w-4 flex-shrink-0" />
                     <span className="text-[10px] leading-tight text-center break-words">{t('actions.roomPhotos')}</span>
@@ -773,6 +775,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   variant="outline"
                   onClick={() => setEnhancedDndPhotoDialogOpen(true)}
                   className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-orange-300 text-orange-700 hover:bg-orange-100"
+                  data-training="dnd-button"
                 >
                   <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                   <span className="text-[10px] leading-tight text-center break-words">{t('actions.dndPhoto')}</span>
@@ -784,6 +787,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   variant="outline"
                   onClick={() => setDirtyLinenDialogOpen(true)}
                   className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-amber-300 text-amber-700 hover:bg-amber-100"
+                  data-training="dirty-linen-button"
                 >
                   <Shirt className="h-4 w-4 flex-shrink-0" />
                   <span className="text-[10px] leading-tight text-center break-words">{t('actions.dirtyLinen')}</span>
@@ -806,6 +810,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   variant="outline"
                   onClick={() => setLostFoundDialogOpen(true)}
                   className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-green-300 text-green-700 hover:bg-green-100"
+                  data-training="lost-found-button"
                 >
                   <Package className="h-4 w-4 flex-shrink-0" />
                   <span className="text-[10px] leading-tight text-center break-words">{t('actions.lostAndFound')}</span>
@@ -817,6 +822,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   variant="outline"
                   onClick={() => setMaintenanceDialogOpen(true)}
                   className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-red-300 text-red-700 hover:bg-red-100"
+                  data-training="maintenance-button"
                 >
                   <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                   <span className="text-[10px] leading-tight text-center break-words">{t('actions.maintenance')}</span>
@@ -837,6 +843,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   className="w-full h-12 bg-green-600 hover:bg-green-700 text-white"
                   holdText={t('housekeeping.holdToComplete')}
                   releaseText={t('housekeeping.keepHolding')}
+                  data-training="complete-room-button"
                 >
                   <CheckCircle className="h-5 w-5 mr-2" /> 
                   {t('housekeeping.complete')} 
@@ -849,6 +856,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     size="lg" 
                     variant="outline" 
                     className="w-full sm:w-auto"
+                    data-training="notes-button"
                   >
                     <MessageSquare className="h-5 w-5" />
                     {t('housekeeping.addNote')}
