@@ -395,7 +395,9 @@ export type Database = {
           created_at: string
           id: string
           organization_slug: string | null
+          pending_rooms_info: Json | null
           rejection_reason: string | null
+          request_reason: string | null
           requested_at: string
           status: string
           updated_at: string
@@ -408,7 +410,9 @@ export type Database = {
           created_at?: string
           id?: string
           organization_slug?: string | null
+          pending_rooms_info?: Json | null
           rejection_reason?: string | null
+          request_reason?: string | null
           requested_at?: string
           status?: string
           updated_at?: string
@@ -421,7 +425,9 @@ export type Database = {
           created_at?: string
           id?: string
           organization_slug?: string | null
+          pending_rooms_info?: Json | null
           rejection_reason?: string | null
+          request_reason?: string | null
           requested_at?: string
           status?: string
           updated_at?: string
