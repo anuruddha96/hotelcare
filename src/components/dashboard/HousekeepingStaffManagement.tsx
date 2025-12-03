@@ -302,19 +302,36 @@ export function HousekeepingStaffManagement() {
   // Edit handlers
   const openEdit = async (member: HousekeepingStaff) => {
     // Fetch full profile with organization_slug
-    const { data } = await supabase
+    const { data: profileData } = await supabase
       .from('profiles')
       .select('organization_slug')
       .eq('id', member.id)
       .single();
 
-    const orgSlug = data?.organization_slug || currentUserOrgSlug;
+    const orgSlug = profileData?.organization_slug || currentUserOrgSlug;
     
-    // Filter hotels for this user's organization
-    const filteredHotels = allHotels.filter((hotel: any) => 
-      hotel.organization_slug === orgSlug
-    );
-    setEditHotels(filteredHotels);
+    // Fetch hotels directly filtered by organization to ensure data is available
+    const { data: hotelsData } = await supabase
+      .from('hotel_configurations')
+      .select('hotel_id, hotel_name, organization_id')
+      .eq('is_active', true);
+
+    const { data: orgsData } = await supabase
+      .from('organizations')
+      .select('id, slug')
+      .eq('is_active', true);
+
+    const orgMap = new Map(orgsData?.map(org => [org.id, org.slug]) || []);
+    
+    // Enrich hotels with organization_slug and filter
+    const enrichedHotels = (hotelsData || [])
+      .map(hotel => ({
+        ...hotel,
+        organization_slug: hotel.organization_id ? orgMap.get(hotel.organization_id) : null
+      }))
+      .filter((hotel: any) => hotel.organization_slug === orgSlug);
+    
+    setEditHotels(enrichedHotels);
 
     setEditData({
       id: member.id,
