@@ -63,12 +63,21 @@ export function PendingRoomsSignoutDialog({
     setIsSubmitting(true);
 
     try {
-      // Create early signout request with pending rooms info
+      // Create early signout request with pending rooms info and reason
+      const pendingRoomsInfo = pendingRooms.map(r => ({
+        room_number: r.room_number,
+        hotel: r.hotel,
+        status: r.status,
+        assignment_type: r.assignment_type
+      }));
+
       const { error } = await supabase.from('early_signout_requests').insert({
         user_id: userId,
         attendance_id: attendanceId,
         organization_slug: organizationSlug,
         status: 'pending',
+        request_reason: reason.trim(),
+        pending_rooms_info: pendingRoomsInfo,
       });
 
       if (error) throw error;
