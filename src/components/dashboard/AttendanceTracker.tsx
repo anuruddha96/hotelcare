@@ -488,7 +488,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             <div className="space-y-4">
               {currentRecord.status === 'checked_in' && (
                 <>
-                  <div className="space-y-3">
+                  <div className="space-y-3" data-training="break-type-selector">
                     <div className="text-xs sm:text-sm font-medium text-center">{t('attendance.selectBreakType')}</div>
                     <Select value={selectedBreakType} onValueChange={setSelectedBreakType}>
                       <SelectTrigger className="w-full">
@@ -522,6 +522,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                       variant="outline"
                       className="w-full bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:scale-105 text-sm"
                       disabled={isLoading}
+                      data-training="break-button"
                     >
                       <Coffee className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
                       {t('attendance.startBreak')} 😌
@@ -533,6 +534,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                     variant="outline"
                     className="w-full transition-all duration-300 hover:scale-105 text-sm"
                     disabled={isLoading}
+                    data-training="sign-out-button"
                   >
                     <LogOut className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
                     {t('attendance.endShift')}
@@ -551,16 +553,19 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                     </div>
                   )}
                   
-                  <SwipeToEndBreak
-                    onSwipeComplete={() => handleBreak(false)}
-                    disabled={isLoading}
-                  />
+                  <div data-training="end-break-button">
+                    <SwipeToEndBreak
+                      onSwipeComplete={() => handleBreak(false)}
+                      disabled={isLoading}
+                    />
+                  </div>
                   
                   <Button
                     onClick={handleCheckOut}
                     variant="outline"
                     className="w-full transition-all duration-300 hover:scale-105"
                     disabled={isLoading}
+                    data-training="sign-out-button"
                   >
                     <LogOut className="h-4 w-4 mr-2" />
                     {t('attendance.endShift')}
@@ -599,7 +604,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             />
 
             {/* Swipe to Check-in */}
-            <div className="space-y-3">
+            <div className="space-y-3" data-training="check-in-button">
               <div className="flex items-center gap-2 p-2 sm:p-3 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
                 <div className="text-xl sm:text-2xl">🌅</div>
                 <div className="flex-1 min-w-0">

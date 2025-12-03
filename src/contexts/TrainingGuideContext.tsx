@@ -170,8 +170,10 @@ export function TrainingGuideProvider({ children }: { children: React.ReactNode 
           id: newAssignment.id,
           guide_id: newAssignment.guide_id,
           status: newAssignment.status,
-          current_step: newAssignment.current_step,
-          completed_steps: newAssignment.completed_steps || [],
+          current_step: newAssignment.current_step || 0,
+          completed_steps: (Array.isArray(newAssignment.completed_steps) 
+            ? newAssignment.completed_steps 
+            : []) as number[],
         };
       }
     } else if (currentAssignment && currentAssignment.status === 'assigned') {
