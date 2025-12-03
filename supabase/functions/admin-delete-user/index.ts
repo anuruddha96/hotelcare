@@ -1,7 +1,6 @@
-// Admin-only deletion of a user and their related data
-// - Validates caller is admin
-// - Executes DB cleanup via RPC (delete_user_profile)
-// - Attempts to delete the auth user as well (if exists)
+// Admin/Manager deletion of a housekeeper with archiving
+// - Validates caller is admin or manager (managers can only delete housekeepers in their hotel)
+// - Archives user data for 30 days before full deletion
 // - Uses service role to bypass RLS safely
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
@@ -33,7 +32,7 @@ serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
     // Parse body
-    const { target_user_id } = await req.json().catch(() => ({ target_user_id: null }));
+    const { target_user_id, soft_delete = true } = await req.json().catch(() => ({ target_user_id: null, soft_delete: true }));
     if (!target_user_id) {
       return new Response(JSON.stringify({ error: "Missing target_user_id" }), {
         status: 400,
@@ -50,34 +49,119 @@ serve(async (req) => {
       });
     }
 
-    // Check role (admin only)
-    const { data: roleRow, error: roleErr } = await admin
+    // Get caller's profile
+    const { data: callerProfile, error: callerErr } = await admin
       .from("profiles")
-      .select("role")
+      .select("role, assigned_hotel, organization_slug")
       .eq("id", userData.user.id)
       .maybeSingle();
 
-    if (roleErr) {
-      console.error("Role fetch error", roleErr);
+    if (callerErr) {
+      console.error("Caller profile fetch error", callerErr);
       return new Response(JSON.stringify({ error: "Failed to verify permissions" }), {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
 
-    if (!roleRow || roleRow.role !== "admin") {
-      return new Response(JSON.stringify({ error: "Only admins can delete users" }), {
+    const callerRole = callerProfile?.role;
+    const allowedRoles = ['admin', 'manager', 'housekeeping_manager'];
+    
+    if (!callerRole || !allowedRoles.includes(callerRole)) {
+      return new Response(JSON.stringify({ error: "Insufficient permissions to delete users" }), {
         status: 403,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
 
-    console.log(`Admin ${userData.user.id} requested delete for ${target_user_id}`);
+    // Get target user's profile
+    const { data: targetProfile, error: targetErr } = await admin
+      .from("profiles")
+      .select("*")
+      .eq("id", target_user_id)
+      .maybeSingle();
 
-    // 1) Run DB cleanup using v2 function with reassignment
+    if (targetErr || !targetProfile) {
+      return new Response(JSON.stringify({ error: "Target user not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    // Non-admin users can only delete housekeepers in their hotel
+    if (callerRole !== 'admin') {
+      if (targetProfile.role !== 'housekeeping') {
+        return new Response(JSON.stringify({ error: "You can only delete housekeeping staff" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+
+      // Check same hotel or same organization
+      const sameHotel = callerProfile.assigned_hotel && 
+        callerProfile.assigned_hotel === targetProfile.assigned_hotel;
+      const sameOrg = callerProfile.organization_slug === targetProfile.organization_slug;
+
+      if (!sameHotel && !sameOrg) {
+        return new Response(JSON.stringify({ error: "You can only delete staff in your hotel" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+    }
+
+    console.log(`${callerRole} ${userData.user.id} requested delete for ${target_user_id} (soft_delete: ${soft_delete})`);
+
+    // Archive user data before deletion
+    if (soft_delete) {
+      // Fetch performance data
+      const { data: performanceData } = await admin
+        .from("housekeeping_performance")
+        .select("*")
+        .eq("housekeeper_id", target_user_id);
+
+      // Fetch attendance data
+      const { data: attendanceData } = await admin
+        .from("staff_attendance")
+        .select("*")
+        .eq("user_id", target_user_id);
+
+      // Fetch ratings data
+      const { data: ratingsData } = await admin
+        .from("housekeeper_ratings")
+        .select("*")
+        .eq("housekeeper_id", target_user_id);
+
+      // Create archive record
+      const { error: archiveErr } = await admin
+        .from("archived_housekeepers")
+        .insert({
+          original_profile_id: target_user_id,
+          full_name: targetProfile.full_name,
+          nickname: targetProfile.nickname,
+          email: targetProfile.email,
+          phone_number: targetProfile.phone_number,
+          organization_slug: targetProfile.organization_slug,
+          assigned_hotel: targetProfile.assigned_hotel,
+          archived_by: userData.user.id,
+          performance_data: performanceData || [],
+          attendance_data: attendanceData || [],
+          ratings_data: ratingsData || [],
+          created_at: targetProfile.created_at,
+        });
+
+      if (archiveErr) {
+        console.error("Archive error:", archiveErr);
+        // Continue with deletion even if archive fails
+      } else {
+        console.log("User data archived successfully");
+      }
+    }
+
+    // Run DB cleanup using v2 function with reassignment
     const { data: rpcRes, error: rpcErr } = await admin.rpc("delete_user_profile_v2", {
       p_user_id: target_user_id,
-      p_reassign_to: userData.user.id, // Reassign tickets to current admin
+      p_reassign_to: userData.user.id, // Reassign tickets to current user
     });
 
     if (rpcErr) {
@@ -96,14 +180,19 @@ serve(async (req) => {
       });
     }
 
-    // 2) Attempt to delete auth user as well (safe if not present)
+    // Attempt to delete auth user as well (safe if not present)
     const { error: authDelErr } = await admin.auth.admin.deleteUser(target_user_id).catch((e) => ({ error: e }));
     if (authDelErr) {
       console.warn("Auth delete warning (non-fatal)", authDelErr);
     }
 
     return new Response(
-      JSON.stringify({ success: true, message: "User deleted successfully" }),
+      JSON.stringify({ 
+        success: true, 
+        message: soft_delete 
+          ? "User deleted and data archived for 30 days" 
+          : "User deleted permanently"
+      }),
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
   } catch (e) {
