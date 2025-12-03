@@ -41,6 +41,7 @@ interface Profile {
   created_at: string;
   assigned_hotel?: string;
   is_super_admin?: boolean;
+  organization_slug?: string;
 }
 
 interface UserManagementDialogProps {
@@ -70,12 +71,14 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     role: 'housekeeping' as Profile['role'],
     assigned_hotel: '',
     is_super_admin: false,
+    organization_slug: '',
   });
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [currentUserIsSuperAdmin, setCurrentUserIsSuperAdmin] = useState(false);
   const [currentUserOrgSlug, setCurrentUserOrgSlug] = useState<string>('');
   const [hotels, setHotels] = useState<any[]>([]);
+  const [editHotels, setEditHotels] = useState<any[]>([]);
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [selectedOrgSlug, setSelectedOrgSlug] = useState<string>('');
   const [generatedCredentials, setGeneratedCredentials] = useState<{username: string; password: string; email: string} | null>(null);
@@ -330,7 +333,16 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     }
   };
 
-  const handleEditUser = (user: Profile) => {
+  const handleEditUser = async (user: Profile) => {
+    // Get the user's organization_slug from profiles
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('organization_slug')
+      .eq('id', user.id)
+      .single();
+    
+    const userOrgSlug = userProfile?.organization_slug || currentUserOrgSlug;
+    
     setEditUserData({
       id: user.id,
       full_name: user.full_name,
@@ -341,8 +353,52 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       role: user.role,
       assigned_hotel: user.assigned_hotel || '',
       is_super_admin: user.is_super_admin || false,
+      organization_slug: userOrgSlug,
     });
+    
+    // Fetch hotels for this organization
+    await fetchHotelsForOrg(userOrgSlug);
     setEditDialogOpen(true);
+  };
+  
+  const fetchHotelsForOrg = async (orgSlug: string) => {
+    try {
+      if (!orgSlug) {
+        setEditHotels([]);
+        return;
+      }
+      
+      // Get organization ID from slug
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('slug', orgSlug)
+        .single();
+      
+      if (!orgData) {
+        setEditHotels([]);
+        return;
+      }
+      
+      const { data, error } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name')
+        .eq('is_active', true)
+        .eq('organization_id', orgData.id)
+        .order('hotel_name');
+      
+      if (error) throw error;
+      
+      const transformedHotels = (data || []).map(hotel => ({
+        id: hotel.hotel_id,
+        name: hotel.hotel_name
+      }));
+      
+      setEditHotels(transformedHotels);
+    } catch (error: any) {
+      console.error('Error fetching hotels for org:', error);
+      setEditHotels([]);
+    }
   };
 
   const handleUpdateUser = async () => {
@@ -376,6 +432,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       if (editUserData.email) profileUpdates.email = editUserData.email;
       if (editUserData.phone_number) profileUpdates.phone_number = editUserData.phone_number;
       if (editUserData.role) profileUpdates.role = editUserData.role;
+      if (editUserData.organization_slug) profileUpdates.organization_slug = editUserData.organization_slug;
       if (editUserData.assigned_hotel && editUserData.assigned_hotel !== 'none') {
         profileUpdates.assigned_hotel = editUserData.assigned_hotel;
       } else if (editUserData.assigned_hotel === 'none') {
@@ -419,7 +476,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         role: 'housekeeping',
         assigned_hotel: '',
         is_super_admin: false,
+        organization_slug: '',
       });
+      setEditHotels([]);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -940,6 +999,30 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                   </Select>
                 </div>
                 
+                {(currentUserIsSuperAdmin || currentUserRole === 'admin') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_organization">Organization</Label>
+                    <Select 
+                      value={editUserData.organization_slug} 
+                      onValueChange={async (value: string) => {
+                        setEditUserData({ ...editUserData, organization_slug: value, assigned_hotel: '' });
+                        await fetchHotelsForOrg(value);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select organization" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {organizations.map((org) => (
+                          <SelectItem key={org.id} value={org.slug}>
+                            {org.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                
                 <div className="space-y-2">
                   <Label htmlFor="edit_hotel">Assigned Hotel</Label>
                   <Select value={editUserData.assigned_hotel} onValueChange={(value) => setEditUserData({ ...editUserData, assigned_hotel: value })}>
@@ -948,7 +1031,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">All Hotels</SelectItem>
-                      {hotels.map((hotel) => (
+                      {editHotels.map((hotel) => (
                         <SelectItem key={hotel.id} value={hotel.name}>{hotel.name}</SelectItem>
                       ))}
                     </SelectContent>
