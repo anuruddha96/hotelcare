@@ -149,17 +149,30 @@ export function HousekeepingStaffManagement() {
     }
   };
 
-  // Filter hotels based on selected organization for new staff form
+  // Filter hotels based on organization for new staff form
+  // For managers: use currentUserOrgSlug directly since they don't see org selector
+  // For admins: use newStaffData.organization_slug from the selector
   useEffect(() => {
-    if (newStaffData.organization_slug) {
+    const isManager = !isSuperAdmin && currentUserRole !== 'admin';
+    const orgToUse = isManager ? currentUserOrgSlug : newStaffData.organization_slug;
+    
+    if (orgToUse && allHotels.length > 0) {
       const filteredHotels = allHotels.filter((hotel: any) => 
-        hotel.organization_slug === newStaffData.organization_slug
+        hotel.organization_slug === orgToUse
       );
       setHotels(filteredHotels);
+      
+      // For managers, also ensure organization_slug is set in newStaffData
+      if (isManager && currentUserOrgSlug && !newStaffData.organization_slug) {
+        setNewStaffData(prev => ({
+          ...prev,
+          organization_slug: currentUserOrgSlug
+        }));
+      }
     } else {
       setHotels([]);
     }
-  }, [newStaffData.organization_slug, allHotels]);
+  }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole]);
 
   const fetchHousekeepingStaff = async () => {
     setLoading(true);
@@ -301,30 +314,43 @@ export function HousekeepingStaffManagement() {
 
   // Edit handlers
   const openEdit = async (member: HousekeepingStaff) => {
-    // Fetch full profile with organization_slug
+    // Get current user's org if not already loaded
+    let userOrgSlug = currentUserOrgSlug;
+    if (!userOrgSlug) {
+      const { data: userData } = await supabase
+        .from('profiles')
+        .select('organization_slug')
+        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+      userOrgSlug = userData?.organization_slug || '';
+    }
+
+    // Fetch housekeeper's profile with organization_slug
     const { data: profileData } = await supabase
       .from('profiles')
       .select('organization_slug')
       .eq('id', member.id)
       .single();
 
-    const orgSlug = profileData?.organization_slug || currentUserOrgSlug;
+    // Use housekeeper's org, fallback to current user's org
+    const orgSlug = profileData?.organization_slug || userOrgSlug;
     
-    // Fetch hotels directly filtered by organization to ensure data is available
-    const { data: hotelsData } = await supabase
-      .from('hotel_configurations')
-      .select('hotel_id, hotel_name, organization_id')
-      .eq('is_active', true);
+    // Fetch hotels and organizations to filter by org
+    const [hotelsResult, orgsResult] = await Promise.all([
+      supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name, organization_id')
+        .eq('is_active', true),
+      supabase
+        .from('organizations')
+        .select('id, slug')
+        .eq('is_active', true)
+    ]);
 
-    const { data: orgsData } = await supabase
-      .from('organizations')
-      .select('id, slug')
-      .eq('is_active', true);
-
-    const orgMap = new Map(orgsData?.map(org => [org.id, org.slug]) || []);
+    const orgMap = new Map(orgsResult.data?.map(org => [org.id, org.slug]) || []);
     
-    // Enrich hotels with organization_slug and filter
-    const enrichedHotels = (hotelsData || [])
+    // Enrich hotels with organization_slug and filter by the relevant org
+    const enrichedHotels = (hotelsResult.data || [])
       .map(hotel => ({
         ...hotel,
         organization_slug: hotel.organization_id ? orgMap.get(hotel.organization_id) : null
@@ -561,10 +587,10 @@ export function HousekeepingStaffManagement() {
                   <Select 
                     value={newStaffData.assigned_hotel} 
                     onValueChange={(value) => setNewStaffData({ ...newStaffData, assigned_hotel: value })}
-                    disabled={!newStaffData.organization_slug}
+                    disabled={hotels.length === 0}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={newStaffData.organization_slug ? "Select hotel" : "Select organization first"} />
+                      <SelectValue placeholder={hotels.length > 0 ? "Select hotel" : "Loading hotels..."} />
                     </SelectTrigger>
                     <SelectContent>
                       {hotels.map((hotel) => (
@@ -574,7 +600,7 @@ export function HousekeepingStaffManagement() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {!newStaffData.organization_slug && (
+                  {hotels.length === 0 && (isSuperAdmin || currentUserRole === 'admin') && !newStaffData.organization_slug && (
                     <p className="text-xs text-muted-foreground">
                       Please select an organization first
                     </p>
