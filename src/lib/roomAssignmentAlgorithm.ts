@@ -1,5 +1,12 @@
 // Room Assignment Algorithm for fair distribution
 
+// Time constants (in minutes)
+export const CHECKOUT_MINUTES = 45;
+export const DAILY_MINUTES = 15;
+export const BREAK_TIME_MINUTES = 30;
+export const STANDARD_SHIFT_MINUTES = 480; // 8 hours
+export const AVAILABLE_WORK_MINUTES = STANDARD_SHIFT_MINUTES - BREAK_TIME_MINUTES; // 450 minutes
+
 export interface RoomForAssignment {
   id: string;
   room_number: string;
@@ -24,6 +31,40 @@ export interface AssignmentPreview {
   totalWeight: number;
   checkoutCount: number;
   dailyCount: number;
+  // Time estimation fields
+  estimatedMinutes: number;
+  totalWithBreak: number;
+  exceedsShift: boolean;
+  overageMinutes: number;
+}
+
+// Calculate estimated time for a room in minutes
+export function calculateRoomTime(room: RoomForAssignment): number {
+  return room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
+}
+
+// Calculate time estimation for a preview
+export function calculateTimeEstimation(rooms: RoomForAssignment[]): {
+  estimatedMinutes: number;
+  totalWithBreak: number;
+  exceedsShift: boolean;
+  overageMinutes: number;
+} {
+  const estimatedMinutes = rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0);
+  const totalWithBreak = estimatedMinutes + BREAK_TIME_MINUTES;
+  const exceedsShift = totalWithBreak > STANDARD_SHIFT_MINUTES;
+  const overageMinutes = exceedsShift ? totalWithBreak - STANDARD_SHIFT_MINUTES : 0;
+  
+  return { estimatedMinutes, totalWithBreak, exceedsShift, overageMinutes };
+}
+
+// Format minutes to hours and minutes string
+export function formatMinutesToTime(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours === 0) return `${mins}m`;
+  if (mins === 0) return `${hours}h`;
+  return `${hours}h ${mins}m`;
 }
 
 // Weight calculation based on room characteristics
@@ -88,7 +129,11 @@ export function autoAssignRooms(
       rooms: [],
       totalWeight: 0,
       checkoutCount: 0,
-      dailyCount: 0
+      dailyCount: 0,
+      estimatedMinutes: 0,
+      totalWithBreak: BREAK_TIME_MINUTES,
+      exceedsShift: false,
+      overageMinutes: 0
     }));
   }
 
@@ -232,13 +277,16 @@ export function autoAssignRooms(
       return parseInt(a.room_number) - parseInt(b.room_number);
     });
 
+    const timeEstimate = calculateTimeEstimation(sortedRooms);
+
     return {
       staffId: s.id,
       staffName: s.full_name,
       rooms: sortedRooms,
       totalWeight: staffWeights.get(s.id) || 0,
       checkoutCount: sortedRooms.filter(r => r.is_checkout_room).length,
-      dailyCount: sortedRooms.filter(r => !r.is_checkout_room).length
+      dailyCount: sortedRooms.filter(r => !r.is_checkout_room).length,
+      ...timeEstimate
     };
   });
 }
@@ -291,6 +339,13 @@ export function moveRoom(
     }
     return parseInt(a.room_number) - parseInt(b.room_number);
   });
+  
+  // Recalculate time estimates for both
+  const fromTimeEstimate = calculateTimeEstimation(fromPreview.rooms);
+  const toTimeEstimate = calculateTimeEstimation(toPreview.rooms);
+  
+  Object.assign(fromPreview, fromTimeEstimate);
+  Object.assign(toPreview, toTimeEstimate);
   
   return newPreviews;
 }
