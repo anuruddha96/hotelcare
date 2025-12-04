@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Users, Plus, Calendar, CheckCircle, Trash2, Clock } from 'lucide-react';
+import { Users, Plus, Calendar, CheckCircle, Trash2, Clock, Wand2 } from 'lucide-react';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
 import { CompactRoomCard } from './CompactRoomCard';
 import { RoomAssignmentDialog } from './RoomAssignmentDialog';
@@ -17,6 +17,7 @@ import { WorkingRoomDetailDialog } from './WorkingRoomDetailDialog';
 import { PendingRoomsDialog } from './PendingRoomsDialog';
 import { DoneRoomsDialog } from './DoneRoomsDialog';
 import { EarlySignoutApprovalView } from './EarlySignoutApprovalView';
+import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -111,6 +112,7 @@ export function HousekeepingManagerView() {
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [loading, setLoading] = useState(true);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
+  const [autoAssignDialogOpen, setAutoAssignDialogOpen] = useState(false);
   const [bulkUnassignMode, setBulkUnassignMode] = useState(false);
   const [selectedAssignments, setSelectedAssignments] = useState<string[]>([]);
   const [roomAssignments, setRoomAssignments] = useState<RoomAssignment[]>([]);
@@ -412,6 +414,7 @@ export function HousekeepingManagerView() {
     fetchTeamAssignments();
     fetchRoomAssignments();
     setAssignmentDialogOpen(false);
+    setAutoAssignDialogOpen(false);
     toast.success(t('assignment.successMessage').replace('{count}', '1').replace('{staffName}', 'staff'));
   };
 
@@ -500,23 +503,39 @@ export function HousekeepingManagerView() {
             </>
           )}
           
-          <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                {t('team.assignRoom')}
+              <Button
+                variant="secondary"
+                onClick={() => setAutoAssignDialogOpen(true)}
+                className="flex items-center gap-2"
+              >
+                <Wand2 className="h-4 w-4" />
+                Auto Assign
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{t('team.createAssignment')}</DialogTitle>
-              </DialogHeader>
-              <RoomAssignmentDialog 
-                onAssignmentCreated={handleAssignmentCreated}
+              
+              <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="flex items-center gap-2">
+                    <Plus className="h-4 w-4" />
+                    {t('team.assignRoom')}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>{t('team.createAssignment')}</DialogTitle>
+                  </DialogHeader>
+                  <RoomAssignmentDialog 
+                    onAssignmentCreated={handleAssignmentCreated}
+                    selectedDate={selectedDate}
+                  />
+                </DialogContent>
+              </Dialog>
+
+              <AutoRoomAssignment
+                open={autoAssignDialogOpen}
+                onOpenChange={setAutoAssignDialogOpen}
                 selectedDate={selectedDate}
+                onAssignmentCreated={handleAssignmentCreated}
               />
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 

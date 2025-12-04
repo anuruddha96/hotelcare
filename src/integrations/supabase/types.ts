@@ -1589,8 +1589,10 @@ export type Database = {
           linen_change_required: boolean | null
           notes: string | null
           organization_slug: string | null
+          room_capacity: number | null
           room_name: string | null
           room_number: string
+          room_size_sqm: number | null
           room_type: string | null
           status: string | null
           towel_change_required: boolean | null
@@ -1616,8 +1618,10 @@ export type Database = {
           linen_change_required?: boolean | null
           notes?: string | null
           organization_slug?: string | null
+          room_capacity?: number | null
           room_name?: string | null
           room_number: string
+          room_size_sqm?: number | null
           room_type?: string | null
           status?: string | null
           towel_change_required?: boolean | null
@@ -1643,8 +1647,10 @@ export type Database = {
           linen_change_required?: boolean | null
           notes?: string | null
           organization_slug?: string | null
+          room_capacity?: number | null
           room_name?: string | null
           room_number?: string
+          room_size_sqm?: number | null
           room_type?: string | null
           status?: string | null
           towel_change_required?: boolean | null
