@@ -9,7 +9,7 @@ export function usePendingApprovals() {
       try {
         const dateStr = new Date().toISOString().split('T')[0];
         
-        // Get current user's organization
+        // Get current user's organization, hotel, and role
         const { data: currentUser } = await supabase.auth.getUser();
         if (!currentUser.user) {
           setPendingCount(0);
@@ -18,26 +18,37 @@ export function usePendingApprovals() {
 
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('organization_slug')
+          .select('organization_slug, assigned_hotel, role')
           .eq('id', currentUser.user.id)
           .single();
 
         if (profileError) throw profileError;
 
         const userOrgSlug = profile?.organization_slug;
+        const userHotel = profile?.assigned_hotel;
+        const userRole = profile?.role;
+        
         if (!userOrgSlug) {
           setPendingCount(0);
           return;
         }
 
-        // Fetch assignments filtered by organization
-        const { data, error } = await supabase
+        // Build query for pending approvals
+        let query = supabase
           .from('room_assignments')
-          .select('id')
+          .select('id, rooms!inner(hotel)')
           .eq('status', 'completed')
           .eq('supervisor_approved', false)
           .eq('assignment_date', dateStr)
           .eq('organization_slug', userOrgSlug);
+
+        // For managers/housekeeping_managers, filter by their assigned hotel
+        // Admins and top_management see all hotels in their organization
+        if (userHotel && !['admin', 'top_management'].includes(userRole || '')) {
+          query = query.eq('rooms.hotel', userHotel);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
 

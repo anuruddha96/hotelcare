@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { UserPlus, Users, Edit, Key, Trash2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { UserPlus, Users, Edit, Key, Trash2, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -34,6 +35,7 @@ export function HousekeepingStaffManagement() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [hotels, setHotels] = useState<any[]>([]);
   const [allHotels, setAllHotels] = useState<any[]>([]);
+  const [hotelsLoading, setHotelsLoading] = useState(true);
   const [editHotels, setEditHotels] = useState<any[]>([]);
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
@@ -47,7 +49,15 @@ export function HousekeepingStaffManagement() {
     assigned_hotel: '',
     username: '',
     organization_slug: '',
+    use_custom_password: false,
+    custom_password: '',
   });
+  
+  // Username validation state
+  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
+  const [existingUsernameCount, setExistingUsernameCount] = useState(0);
+  const [previewUsername, setPreviewUsername] = useState('');
+  
   const [generatedCredentials, setGeneratedCredentials] = useState<{username: string, password: string, email: string} | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState({ 
@@ -93,8 +103,8 @@ export function HousekeepingStaffManagement() {
       setCurrentUserOrgSlug(data?.organization_slug || '');
       setCurrentUserHotel(data?.assigned_hotel || '');
       
-      // Set organization for non-super-admins
-      if (!data?.is_super_admin && data?.organization_slug) {
+      // Set organization for non-super-admins immediately
+      if (!data?.is_super_admin && data?.role !== 'admin' && data?.organization_slug) {
         setNewStaffData(prev => ({
           ...prev,
           organization_slug: data.organization_slug
@@ -121,6 +131,7 @@ export function HousekeepingStaffManagement() {
   };
 
   const fetchAllHotels = async () => {
+    setHotelsLoading(true);
     try {
       const { data: hotelsData, error: hotelsError } = await supabase
         .from('hotel_configurations')
@@ -147,13 +158,15 @@ export function HousekeepingStaffManagement() {
       setAllHotels(enrichedHotels);
     } catch (error: any) {
       console.error('Error fetching all hotels:', error);
+    } finally {
+      setHotelsLoading(false);
     }
   };
 
   // Filter hotels based on organization for new staff form
-  // For managers: use currentUserOrgSlug directly since they don't see org selector
-  // For admins: use newStaffData.organization_slug from the selector
   useEffect(() => {
+    if (hotelsLoading) return;
+    
     const isManager = !isSuperAdmin && currentUserRole !== 'admin';
     const orgToUse = isManager ? currentUserOrgSlug : newStaffData.organization_slug;
     
@@ -162,18 +175,61 @@ export function HousekeepingStaffManagement() {
         hotel.organization_slug === orgToUse
       );
       setHotels(filteredHotels);
-      
-      // For managers, also ensure organization_slug is set in newStaffData
-      if (isManager && currentUserOrgSlug && !newStaffData.organization_slug) {
-        setNewStaffData(prev => ({
-          ...prev,
-          organization_slug: currentUserOrgSlug
-        }));
-      }
-    } else {
+    } else if (!orgToUse && allHotels.length > 0) {
+      // No org selected yet - show empty for admins, or filtered for managers
       setHotels([]);
     }
-  }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole]);
+  }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole, hotelsLoading]);
+
+  // Check username availability when full_name changes
+  const checkUsernameAvailability = useCallback(async (fullName: string, orgSlug: string) => {
+    if (!fullName.trim() || !orgSlug) {
+      setUsernameStatus('idle');
+      setPreviewUsername('');
+      return;
+    }
+
+    const firstName = fullName.trim().split(' ')[0];
+    if (!firstName) {
+      setUsernameStatus('idle');
+      setPreviewUsername('');
+      return;
+    }
+
+    setUsernameStatus('checking');
+    
+    try {
+      // Check for existing usernames with the same first name pattern in this organization
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('nickname')
+        .eq('organization_slug', orgSlug)
+        .ilike('nickname', `${firstName}_%`);
+
+      if (error) throw error;
+
+      const count = data?.length || 0;
+      setExistingUsernameCount(count);
+      
+      // Generate preview username (next available number)
+      const nextNumber = String(count + 1).padStart(3, '0');
+      setPreviewUsername(`${firstName}_${nextNumber}`);
+      setUsernameStatus('available');
+    } catch (error) {
+      console.error('Error checking username:', error);
+      setUsernameStatus('idle');
+    }
+  }, []);
+
+  // Debounced username check
+  useEffect(() => {
+    const orgSlug = newStaffData.organization_slug || currentUserOrgSlug;
+    const timer = setTimeout(() => {
+      checkUsernameAvailability(newStaffData.full_name, orgSlug);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [newStaffData.full_name, newStaffData.organization_slug, currentUserOrgSlug, checkUsernameAvailability]);
 
   const fetchHousekeepingStaff = async () => {
     setLoading(true);
@@ -224,8 +280,11 @@ export function HousekeepingStaffManagement() {
     setLoading(true);
     
     try {
+      // Get org slug (use manager's org if not admin)
+      const orgSlug = newStaffData.organization_slug || currentUserOrgSlug;
+      
       // Validate organization_slug
-      if (!newStaffData.organization_slug) {
+      if (!orgSlug) {
         toast({
           title: 'Error',
           description: 'Please select an organization',
@@ -246,6 +305,17 @@ export function HousekeepingStaffManagement() {
         return;
       }
 
+      // Validate custom password if enabled
+      if (newStaffData.use_custom_password && newStaffData.custom_password.length < 6) {
+        toast({
+          title: 'Error',
+          description: 'Password must be at least 6 characters',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+
       // Call edge function which creates auth user and profile atomically
       const { data, error } = await supabase.functions.invoke('create-housekeeper', {
         body: {
@@ -254,7 +324,8 @@ export function HousekeepingStaffManagement() {
           email: newStaffData.email || null,
           phone_number: newStaffData.phone_number || null,
           assigned_hotel: newStaffData.assigned_hotel,
-          organization_slug: newStaffData.organization_slug,
+          organization_slug: orgSlug,
+          password: newStaffData.use_custom_password ? newStaffData.custom_password : null,
         },
       });
 
@@ -297,7 +368,11 @@ export function HousekeepingStaffManagement() {
         assigned_hotel: '',
         username: '',
         organization_slug: isSuperAdmin ? '' : currentUserOrgSlug,
+        use_custom_password: false,
+        custom_password: '',
       });
+      setUsernameStatus('idle');
+      setPreviewUsername('');
       setShowCreateForm(false);
       
       fetchHousekeepingStaff();
@@ -487,6 +562,10 @@ export function HousekeepingStaffManagement() {
     );
   }
 
+  // Check if hotels are ready for display
+  const isHotelsReady = !hotelsLoading && hotels.length > 0;
+  const showSelectOrgFirst = (isSuperAdmin || currentUserRole === 'admin') && !newStaffData.organization_slug;
+
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-0">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -556,9 +635,32 @@ export function HousekeepingStaffManagement() {
                     placeholder="Enter full name"
                     required
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Username will be auto-generated as: FirstName_XXX
-                  </p>
+                  <div className="flex items-center gap-2 text-xs">
+                    {usernameStatus === 'checking' && (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        <span className="text-muted-foreground">Checking username...</span>
+                      </>
+                    )}
+                    {usernameStatus === 'available' && previewUsername && (
+                      <>
+                        <CheckCircle2 className="h-3 w-3 text-green-600" />
+                        <span className="text-green-600">
+                          Username will be: <strong>{previewUsername}</strong>
+                          {existingUsernameCount > 0 && (
+                            <span className="text-muted-foreground ml-1">
+                              ({existingUsernameCount} existing with same first name)
+                            </span>
+                          )}
+                        </span>
+                      </>
+                    )}
+                    {usernameStatus === 'idle' && (
+                      <span className="text-muted-foreground">
+                        Username will be auto-generated as: FirstName_XXX
+                      </span>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="space-y-2">
@@ -588,10 +690,14 @@ export function HousekeepingStaffManagement() {
                   <Select 
                     value={newStaffData.assigned_hotel} 
                     onValueChange={(value) => setNewStaffData({ ...newStaffData, assigned_hotel: value })}
-                    disabled={hotels.length === 0}
+                    disabled={hotelsLoading || showSelectOrgFirst}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={hotels.length > 0 ? "Select hotel" : "Loading hotels..."} />
+                      <SelectValue placeholder={
+                        hotelsLoading ? "Loading hotels..." : 
+                        showSelectOrgFirst ? "Select organization first" :
+                        hotels.length > 0 ? "Select hotel" : "No hotels available"
+                      } />
                     </SelectTrigger>
                     <SelectContent>
                       {hotels.map((hotel) => (
@@ -601,9 +707,48 @@ export function HousekeepingStaffManagement() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {hotels.length === 0 && (isSuperAdmin || currentUserRole === 'admin') && !newStaffData.organization_slug && (
+                  {showSelectOrgFirst && (
                     <p className="text-xs text-muted-foreground">
                       Please select an organization first
+                    </p>
+                  )}
+                </div>
+
+                {/* Custom Password Section */}
+                <div className="space-y-3 md:col-span-2 pt-2 border-t">
+                  <div className="flex items-center gap-3">
+                    <Switch 
+                      id="use_custom_password"
+                      checked={newStaffData.use_custom_password}
+                      onCheckedChange={(checked) => setNewStaffData({
+                        ...newStaffData, 
+                        use_custom_password: checked,
+                        custom_password: checked ? newStaffData.custom_password : ''
+                      })}
+                    />
+                    <Label htmlFor="use_custom_password" className="cursor-pointer">
+                      Set custom password
+                    </Label>
+                  </div>
+                  
+                  {newStaffData.use_custom_password && (
+                    <div className="space-y-2">
+                      <Input
+                        type="text"
+                        value={newStaffData.custom_password}
+                        onChange={(e) => setNewStaffData({...newStaffData, custom_password: e.target.value})}
+                        placeholder="Enter custom password (min 6 characters)"
+                        minLength={6}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Enter a simple password for the housekeeper to remember (e.g., hk2024)
+                      </p>
+                    </div>
+                  )}
+                  
+                  {!newStaffData.use_custom_password && (
+                    <p className="text-xs text-muted-foreground">
+                      A secure password will be auto-generated if custom password is not set
                     </p>
                   )}
                 </div>
@@ -699,44 +844,60 @@ export function HousekeepingStaffManagement() {
                         {member.email || t('staff.noEmailProvided')}
                       </p>
                       {member.phone_number && (
-                        <p className="text-xs sm:text-sm text-muted-foreground">📞 {member.phone_number}</p>
+                        <p className="text-xs text-muted-foreground">{member.phone_number}</p>
                       )}
-                      <p className="text-xs text-blue-600">
-                        Hotel: {member.assigned_hotel || t('staff.allHotels')}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {t('staff.added')} {format(new Date(member.created_at), 'MMM dd, yyyy')}
-                      </p>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
-                    <Badge className="bg-blue-500 text-white text-xs" variant="secondary">
-                      {t('staff.housekeeper')}
-                    </Badge>
-                    <Button size="sm" variant="outline" onClick={() => openEdit(member)}>
-                      <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => openResetPassword(member)}>
-                      <Key className="h-3 w-3 sm:h-4 sm:w-4" />
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => openDeleteConfirm(member)}>
-                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                    </Button>
+                  <div className="flex flex-col gap-2 items-start sm:items-end">
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant="secondary" className="text-xs">
+                        {member.role}
+                      </Badge>
+                      {member.assigned_hotel && (
+                        <Badge variant="outline" className="text-xs">
+                          {member.assigned_hotel}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t('staff.joined')}: {format(new Date(member.created_at), 'PP')}
+                    </p>
+                    <div className="flex gap-1">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => openEdit(member)}
+                        className="h-7 px-2"
+                      >
+                        <Edit className="h-3 w-3" />
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => openResetPassword(member)}
+                        className="h-7 px-2"
+                      >
+                        <Key className="h-3 w-3" />
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => openDeleteConfirm(member)}
+                        className="h-7 px-2 text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
           ))}
-          
           {staff.length === 0 && (
             <Card>
-              <CardContent className="text-center py-8">
-                <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <h3 className="font-medium mb-2">No housekeeping staff yet</h3>
-                <p className="text-muted-foreground">
-                  Use the "Add Housekeeper" button above to get started
-                </p>
+              <CardContent className="py-8 text-center text-muted-foreground">
+                <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>{t('staff.noHousekeepingStaff')}</p>
               </CardContent>
             </Card>
           )}
@@ -745,94 +906,106 @@ export function HousekeepingStaffManagement() {
 
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Housekeeper</DialogTitle>
+            <DialogTitle>Edit Staff Member</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="edit_full_name">Full Name</Label>
-              <Input id="edit_full_name" value={editData.full_name} onChange={(e) => setEditData({ ...editData, full_name: e.target.value })} />
+              <Label>Full Name</Label>
+              <Input
+                value={editData.full_name}
+                onChange={(e) => setEditData({ ...editData, full_name: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit_nickname">Username</Label>
-              <Input id="edit_nickname" value={editData.nickname} onChange={(e) => setEditData({ ...editData, nickname: e.target.value })} placeholder="e.g., Nam_024" />
-              <p className="text-xs text-muted-foreground">This is the login username</p>
+              <Label>Nickname (Username)</Label>
+              <Input
+                value={editData.nickname}
+                onChange={(e) => setEditData({ ...editData, nickname: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit_phone">Phone</Label>
-              <Input id="edit_phone" value={editData.phone_number} onChange={(e) => setEditData({ ...editData, phone_number: e.target.value })} />
+              <Label>Phone Number</Label>
+              <Input
+                value={editData.phone_number}
+                onChange={(e) => setEditData({ ...editData, phone_number: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit_email">Email</Label>
-              <Input id="edit_email" type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} />
+              <Label>Email</Label>
+              <Input
+                value={editData.email}
+                onChange={(e) => setEditData({ ...editData, email: e.target.value })}
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit_hotel">Assigned Hotel</Label>
-              <Select value={editData.assigned_hotel} onValueChange={(v) => setEditData({ ...editData, assigned_hotel: v })}>
+              <Label>Assigned Hotel</Label>
+              <Select 
+                value={editData.assigned_hotel} 
+                onValueChange={(value) => setEditData({ ...editData, assigned_hotel: value })}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select hotel" />
                 </SelectTrigger>
                 <SelectContent>
-                  {editHotels.map((hotel: any) => (
-                    <SelectItem key={hotel.hotel_id} value={hotel.hotel_name}>{hotel.hotel_name}</SelectItem>
+                  {editHotels.map((hotel) => (
+                    <SelectItem key={hotel.hotel_id} value={hotel.hotel_name}>
+                      {hotel.hotel_name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-              <Button onClick={saveEdit} disabled={loading}>Save</Button>
-            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button onClick={saveEdit} disabled={loading}>
+              {loading ? 'Saving...' : 'Save Changes'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Password Reset Dialog */}
       <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Reset Password for {resetPasswordUserName}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            {!generatedPassword ? (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="new_password">New Password (Optional)</Label>
-                  <Input 
-                    id="new_password" 
-                    type="text"
-                    value={newPassword} 
-                    onChange={(e) => setNewPassword(e.target.value)} 
-                    placeholder="Leave blank to auto-generate"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Leave blank to generate a random password automatically
-                  </p>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setResetPasswordOpen(false)}>Cancel</Button>
-                  <Button onClick={handleResetPassword} disabled={loading}>
-                    {loading ? 'Resetting...' : 'Reset Password'}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <div className="space-y-4">
-                <div className="p-4 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
-                  <p className="text-sm text-green-700 dark:text-green-300 mb-2">Password reset successfully!</p>
-                  <div className="space-y-2">
-                    <Label>New Password:</Label>
-                    <Input value={generatedPassword} readOnly className="font-mono" />
-                  </div>
-                </div>
-                <Button className="w-full" onClick={() => {
-                  setResetPasswordOpen(false);
-                  setGeneratedPassword('');
-                }}>
-                  Close
-                </Button>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>New Password (leave empty to auto-generate)</Label>
+              <Input
+                type="text"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password or leave empty"
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter a custom password or leave empty to generate a secure one
+              </p>
+            </div>
+            {generatedPassword && (
+              <div className="p-4 bg-green-50 dark:bg-green-950 rounded border border-green-200 dark:border-green-800">
+                <Label className="text-green-800 dark:text-green-200">New Password:</Label>
+                <Input 
+                  value={generatedPassword} 
+                  readOnly 
+                  className="mt-1 bg-background"
+                />
+                <p className="text-xs text-green-700 dark:text-green-300 mt-2">
+                  Please provide this password to the staff member
+                </p>
               </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setResetPasswordOpen(false)}>Close</Button>
+            {!generatedPassword && (
+              <Button onClick={handleResetPassword} disabled={loading}>
+                {loading ? 'Resetting...' : 'Reset Password'}
+              </Button>
             )}
           </div>
         </DialogContent>
@@ -844,12 +1017,16 @@ export function HousekeepingStaffManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteUserName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the housekeeper from the system. Their performance data and photos will be archived for 30 days before permanent deletion.
+              This will archive the staff member's data for 30 days before permanent deletion.
+              Their room assignments and performance data will be preserved for reporting.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteUser} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction 
+              onClick={handleDeleteUser}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               {loading ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -860,7 +1037,7 @@ export function HousekeepingStaffManagement() {
       {currentUserOrgSlug && (
         <TrainingAssignmentManager 
           organizationSlug={currentUserOrgSlug}
-          hotelFilter={currentUserHotel || undefined}
+          hotelFilter={currentUserHotel}
         />
       )}
     </div>
