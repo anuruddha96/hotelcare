@@ -42,7 +42,7 @@ export const TenantProvider: React.FC<{
       setLoading(true);
       setError(null);
 
-      // Fetch organization
+      // Try to fetch organization - may fail for managers due to RLS
       const { data: orgData, error: orgError } = await supabase
         .from('organizations')
         .select('*')
@@ -51,11 +51,16 @@ export const TenantProvider: React.FC<{
         .single();
 
       if (orgError) {
-        if (orgError.code === 'PGRST116') {
-          setError('Organization not found');
-        } else {
-          setError(orgError.message);
+        console.log('Could not fetch organization directly, using RPC function');
+        
+        // Use the secure RPC function to get hotels for user's organization
+        const { data: hotelsData, error: hotelsError } = await supabase
+          .rpc('get_user_organization_hotels');
+
+        if (!hotelsError && hotelsData) {
+          setHotels(hotelsData as HotelConfig[]);
         }
+        
         setLoading(false);
         return;
       }
