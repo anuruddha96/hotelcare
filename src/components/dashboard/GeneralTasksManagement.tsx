@@ -58,6 +58,7 @@ export function GeneralTasksManagement() {
     priority: 1,
     estimated_duration: 60,
   });
+  const [currentUserHotel, setCurrentUserHotel] = useState<string>('');
 
   useEffect(() => {
     fetchCurrentUser();
@@ -70,17 +71,54 @@ export function GeneralTasksManagement() {
     const { data } = await supabase.auth.getUser();
     if (data.user) {
       setCurrentUserId(data.user.id);
+      
+      // Also fetch user's assigned hotel
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('assigned_hotel')
+        .eq('id', data.user.id)
+        .single();
+      
+      if (profileData?.assigned_hotel) {
+        setCurrentUserHotel(profileData.assigned_hotel);
+      }
     }
   };
 
   const fetchHotels = async () => {
     try {
-      const { data, error } = await supabase
-        .from('hotels')
-        .select('*')
-        .order('name');
-      if (error) throw error;
-      setHotels(data || []);
+      // Get user's profile to filter hotels by organization
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('assigned_hotel, organization_slug')
+        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+
+      // Fetch hotel configurations filtered by user's organization
+      const { data: hotelConfigs, error: hotelError } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name, organization_id')
+        .eq('is_active', true);
+      
+      if (hotelError) throw hotelError;
+      
+      // Get organizations to map org_id to slug
+      const { data: orgsData } = await supabase
+        .from('organizations')
+        .select('id, slug')
+        .eq('is_active', true);
+      
+      const orgMap = new Map(orgsData?.map(org => [org.id, org.slug]) || []);
+      
+      // Filter hotels by user's organization
+      let filteredHotels = (hotelConfigs || [])
+        .filter(hotel => {
+          const hotelOrgSlug = hotel.organization_id ? orgMap.get(hotel.organization_id) : null;
+          return hotelOrgSlug === userProfile?.organization_slug;
+        })
+        .map(h => ({ id: h.hotel_id, name: h.hotel_name }));
+      
+      setHotels(filteredHotels);
     } catch (error) {
       console.error('Error fetching hotels:', error);
     }
@@ -108,7 +146,28 @@ export function GeneralTasksManagement() {
   const fetchTasks = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // Get user's profile to filter tasks by hotel
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('assigned_hotel, organization_slug')
+        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+
+      // Get hotel name from hotel_id if needed
+      let hotelNameToFilter = userProfile?.assigned_hotel;
+      if (hotelNameToFilter) {
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name')
+          .eq('hotel_id', hotelNameToFilter)
+          .single();
+        
+        if (hotelConfig?.hotel_name) {
+          hotelNameToFilter = hotelConfig.hotel_name;
+        }
+      }
+
+      let query = supabase
         .from('general_tasks')
         .select(`
           *,
@@ -119,6 +178,13 @@ export function GeneralTasksManagement() {
         `)
         .order('assigned_date', { ascending: false })
         .order('priority', { ascending: true });
+
+      // Filter by user's hotel if they have one assigned
+      if (hotelNameToFilter) {
+        query = query.eq('hotel', hotelNameToFilter);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setTasks((data as any) || []);

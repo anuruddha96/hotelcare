@@ -15,6 +15,7 @@ import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { TrainingAssignmentManager } from '@/components/training';
+import { useTenant } from '@/contexts/TenantContext';
 
 interface HousekeepingStaff {
   id: string;
@@ -42,6 +43,9 @@ export function HousekeepingStaffManagement() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [currentUserOrgSlug, setCurrentUserOrgSlug] = useState<string>('');
   const [currentUserHotel, setCurrentUserHotel] = useState<string>('');
+  
+  // Use TenantContext for managers to get hotels (bypasses RLS on organizations)
+  const { hotels: tenantHotels } = useTenant();
   const [newStaffData, setNewStaffData] = useState({
     full_name: '',
     phone_number: '',
@@ -165,21 +169,36 @@ export function HousekeepingStaffManagement() {
 
   // Filter hotels based on organization for new staff form
   useEffect(() => {
-    if (hotelsLoading) return;
-    
     const isManager = !isSuperAdmin && currentUserRole !== 'admin';
-    const orgToUse = isManager ? currentUserOrgSlug : newStaffData.organization_slug;
     
-    if (orgToUse && allHotels.length > 0) {
-      const filteredHotels = allHotels.filter((hotel: any) => 
-        hotel.organization_slug === orgToUse
-      );
-      setHotels(filteredHotels);
-    } else if (!orgToUse && allHotels.length > 0) {
-      // No org selected yet - show empty for admins, or filtered for managers
-      setHotels([]);
+    // For managers: use hotels from TenantContext (already filtered by organization, bypasses RLS)
+    if (isManager && tenantHotels.length > 0 && currentUserOrgSlug) {
+      const mappedHotels = tenantHotels.map(h => ({
+        hotel_id: h.hotel_id,
+        hotel_name: h.hotel_name,
+        organization_slug: currentUserOrgSlug
+      }));
+      setHotels(mappedHotels);
+      setHotelsLoading(false);
+      return;
     }
-  }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole, hotelsLoading]);
+    
+    // For admins/super-admins: use the existing allHotels filtering logic
+    if (!isManager) {
+      if (hotelsLoading) return;
+      
+      const orgToUse = newStaffData.organization_slug;
+      
+      if (orgToUse && allHotels.length > 0) {
+        const filteredHotels = allHotels.filter((hotel: any) => 
+          hotel.organization_slug === orgToUse
+        );
+        setHotels(filteredHotels);
+      } else {
+        setHotels([]);
+      }
+    }
+  }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole, hotelsLoading, tenantHotels]);
 
   // Check username availability when full_name changes
   const checkUsernameAvailability = useCallback(async (fullName: string, orgSlug: string) => {
