@@ -15,6 +15,7 @@ import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { TrainingAssignmentManager } from '@/components/training';
+import { useTenant } from '@/contexts/TenantContext';
 
 interface HousekeepingStaff {
   id: string;
@@ -43,6 +44,8 @@ export function HousekeepingStaffManagement() {
   const [currentUserOrgSlug, setCurrentUserOrgSlug] = useState<string>('');
   const [currentUserHotel, setCurrentUserHotel] = useState<string>('');
   
+  // Use TenantContext for managers to get hotels (bypasses RLS on organizations)
+  const { hotels: tenantHotels } = useTenant();
   const [newStaffData, setNewStaffData] = useState({
     full_name: '',
     phone_number: '',
@@ -142,11 +145,12 @@ export function HousekeepingStaffManagement() {
 
       if (hotelsError) throw hotelsError;
 
-      // Try to get organizations - may fail for managers due to RLS
-      const { data: orgsData } = await supabase
+      const { data: orgsData, error: orgsError } = await supabase
         .from('organizations')
         .select('id, slug')
         .eq('is_active', true);
+
+      if (orgsError) throw orgsError;
 
       const orgMap = new Map(orgsData?.map(org => [org.id, org.slug]) || []);
 
@@ -163,38 +167,18 @@ export function HousekeepingStaffManagement() {
     }
   };
 
-  // Fetch hotels for managers using the secure RPC function
-  const fetchHotelsForManager = useCallback(async (orgSlug: string) => {
-    if (!orgSlug) return;
-    
-    try {
-      // Use the new RPC function to get hotels for user's organization
-      const { data: hotelsData, error: hotelsError } = await supabase
-        .rpc('get_user_organization_hotels');
-
-      if (hotelsError) {
-        console.error('Error fetching hotels via RPC:', hotelsError);
-        return;
-      }
-
-      const mappedHotels = (hotelsData || []).map((h: any) => ({
-        hotel_id: h.hotel_id,
-        hotel_name: h.hotel_name,
-        organization_slug: orgSlug
-      }));
-      setHotels(mappedHotels);
-    } catch (error) {
-      console.error('Error fetching hotels for manager:', error);
-    }
-  }, []);
-
   // Filter hotels based on organization for new staff form
   useEffect(() => {
     const isManager = !isSuperAdmin && currentUserRole !== 'admin';
     
-    // For managers: fetch hotels using the secure RPC function
-    if (isManager && currentUserOrgSlug) {
-      fetchHotelsForManager(currentUserOrgSlug);
+    // For managers: use hotels from TenantContext (already filtered by organization, bypasses RLS)
+    if (isManager && tenantHotels.length > 0 && currentUserOrgSlug) {
+      const mappedHotels = tenantHotels.map(h => ({
+        hotel_id: h.hotel_id,
+        hotel_name: h.hotel_name,
+        organization_slug: currentUserOrgSlug
+      }));
+      setHotels(mappedHotels);
       setHotelsLoading(false);
       return;
     }
@@ -214,7 +198,7 @@ export function HousekeepingStaffManagement() {
         setHotels([]);
       }
     }
-  }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole, hotelsLoading, fetchHotelsForManager]);
+  }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole, hotelsLoading, tenantHotels]);
 
   // Check username availability when full_name changes
   const checkUsernameAvailability = useCallback(async (fullName: string, orgSlug: string) => {
