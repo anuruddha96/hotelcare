@@ -170,6 +170,9 @@ export function MinibarTrackingView() {
       const startDate = startOfDay(selectedDate);
       const endDate = endOfDay(selectedDate);
 
+      // Get user's hotel for filtering
+      const userHotel = profile?.assigned_hotel;
+
       const { data, error } = await supabase
         .from('room_minibar_usage')
         .select(`
@@ -198,8 +201,25 @@ export function MinibarTrackingView() {
 
       if (error) throw error;
 
+      // Filter by user's assigned hotel
+      let filteredData = data || [];
+      if (userHotel && filteredData.length > 0) {
+        // Get hotel name from ID if needed
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name')
+          .eq('hotel_id', userHotel)
+          .single();
+        
+        const hotelNameToFilter = hotelConfig?.hotel_name || userHotel;
+        filteredData = filteredData.filter((record: any) => 
+          record.rooms?.hotel === userHotel || 
+          record.rooms?.hotel === hotelNameToFilter
+        );
+      }
+
       // Transform data
-      const records: MinibarUsageRecord[] = (data || []).map((record: any) => ({
+      const records: MinibarUsageRecord[] = filteredData.map((record: any) => ({
         id: record.id,
         room_number: record.rooms?.room_number || 'N/A',
         hotel: record.rooms?.hotel || 'N/A',
