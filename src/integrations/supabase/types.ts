@@ -2093,15 +2093,28 @@ export type Database = {
         Returns: Json
       }
       generate_ticket_number: { Args: never; Returns: string }
-      get_assignable_staff: {
-        Args: { requesting_user_role: Database["public"]["Enums"]["user_role"] }
-        Returns: {
-          email: string
-          full_name: string
-          id: string
-          role: Database["public"]["Enums"]["user_role"]
-        }[]
-      }
+      get_assignable_staff:
+        | {
+            Args: { hotel_filter?: string }
+            Returns: {
+              assigned_hotel: string
+              email: string
+              full_name: string
+              id: string
+              role: string
+            }[]
+          }
+        | {
+            Args: {
+              requesting_user_role: Database["public"]["Enums"]["user_role"]
+            }
+            Returns: {
+              email: string
+              full_name: string
+              id: string
+              role: Database["public"]["Enums"]["user_role"]
+            }[]
+          }
       get_assignable_staff_secure: {
         Args: { requesting_user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
@@ -2251,6 +2264,7 @@ export type Database = {
         Returns: boolean
       }
       is_super_admin: { Args: { user_id: string }; Returns: boolean }
+      normalize_hotel_name: { Args: { input_hotel: string }; Returns: string }
       organization_has_custom_branding: {
         Args: { org_slug: string }
         Returns: boolean

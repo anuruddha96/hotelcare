@@ -131,11 +131,15 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
   const fetchMaintenanceStaff = async () => {
     try {
-      // Use secure function - no parameters needed as it checks role internally
-      const { data, error } = await supabase.rpc('get_assignable_staff');
+      // Use secure function with hotel filter from ticket
+      const { data, error } = await supabase.rpc('get_assignable_staff', {
+        hotel_filter: ticket.hotel || null
+      });
 
       if (error) throw error;
-      setMaintenanceStaff(data || []);
+      // Filter to only maintenance staff for this ticket dialog
+      const maintenanceOnly = (data || []).filter((s: any) => s.role === 'maintenance');
+      setMaintenanceStaff(maintenanceOnly);
     } catch (error: any) {
       toast({
         title: 'Error',
