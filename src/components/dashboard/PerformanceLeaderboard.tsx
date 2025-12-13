@@ -96,24 +96,50 @@ export function PerformanceLeaderboard() {
     try {
       const dateFrom = new Date(Date.now() - parseInt(timeframe) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      // Get current user profile to check assigned hotel
+      // Get current user profile to check assigned hotel and organization
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('assigned_hotel')
+        .select('assigned_hotel, organization_slug')
         .eq('id', user.id)
         .single();
 
-      // Fetch housekeepers - filter by hotel if assigned
-      let housekeeperQuery = supabase
-        .from('profiles')
-        .select('id, full_name')
-        .eq('role', 'housekeeping');
-
+      // Get hotel name variations for matching
+      let hotelNames: string[] = [];
       if (profileData?.assigned_hotel) {
-        housekeeperQuery = housekeeperQuery.eq('assigned_hotel', profileData.assigned_hotel);
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name, hotel_id')
+          .or(`hotel_id.eq.${profileData.assigned_hotel},hotel_name.ilike.%${profileData.assigned_hotel}%`)
+          .limit(1)
+          .maybeSingle();
+
+        if (hotelConfig) {
+          hotelNames = [hotelConfig.hotel_name, hotelConfig.hotel_id, profileData.assigned_hotel];
+        } else {
+          hotelNames = [profileData.assigned_hotel];
+        }
       }
 
-      const { data: housekeepers } = await housekeeperQuery;
+      // Fetch all housekeepers in the same organization
+      const { data: allHousekeepers } = await supabase
+        .from('profiles')
+        .select('id, full_name, assigned_hotel')
+        .eq('role', 'housekeeping')
+        .eq('organization_slug', profileData?.organization_slug || '');
+
+      // Filter housekeepers by hotel using case-insensitive matching
+      let housekeepers = allHousekeepers || [];
+      if (hotelNames.length > 0) {
+        housekeepers = housekeepers.filter(hk => {
+          if (!hk.assigned_hotel) return false;
+          const hkHotel = hk.assigned_hotel.toLowerCase();
+          return hotelNames.some(h => 
+            hkHotel === h.toLowerCase() || 
+            hkHotel.includes(h.toLowerCase()) || 
+            h.toLowerCase().includes(hkHotel)
+          );
+        });
+      }
 
       if (!housekeepers || housekeepers.length === 0) {
         setLeaderboard([]);

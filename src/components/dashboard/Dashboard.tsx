@@ -119,6 +119,7 @@ export function Dashboard() {
       let query = supabase
         .from('tickets')
         .select(selectColumns as any)
+        .neq('status', 'completed')
         .order('created_at', { ascending: false });
 
       // Filter by assigned hotel if user has one selected
@@ -157,6 +158,15 @@ export function Dashboard() {
           full_name: d.assigned_to_profile.full_name,
         } : undefined,
       })) as Ticket[];
+      
+      // Sort by priority: urgent > high > medium > low, then by created_at
+      const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
+      parsed.sort((a, b) => {
+        const priorityDiff = (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4);
+        if (priorityDiff !== 0) return priorityDiff;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      
       setTickets(parsed);
     } catch (error: any) {
       toast({
