@@ -1799,6 +1799,7 @@ export type Database = {
           category: string | null
           closed_at: string | null
           closed_by: string | null
+          completion_photos: string[] | null
           created_at: string | null
           created_by: string
           department: string | null
@@ -1806,6 +1807,7 @@ export type Database = {
           hotel: string | null
           id: string
           organization_slug: string | null
+          pending_supervisor_approval: boolean | null
           photo_url: string | null
           priority: Database["public"]["Enums"]["ticket_priority"]
           resolution_text: string | null
@@ -1815,6 +1817,9 @@ export type Database = {
           status: Database["public"]["Enums"]["ticket_status"]
           sub_category: string | null
           sub_sub_category: string | null
+          supervisor_approved: boolean | null
+          supervisor_approved_at: string | null
+          supervisor_approved_by: string | null
           ticket_number: string
           title: string
           updated_at: string | null
@@ -1825,6 +1830,7 @@ export type Database = {
           category?: string | null
           closed_at?: string | null
           closed_by?: string | null
+          completion_photos?: string[] | null
           created_at?: string | null
           created_by: string
           department?: string | null
@@ -1832,6 +1838,7 @@ export type Database = {
           hotel?: string | null
           id?: string
           organization_slug?: string | null
+          pending_supervisor_approval?: boolean | null
           photo_url?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
           resolution_text?: string | null
@@ -1841,6 +1848,9 @@ export type Database = {
           status?: Database["public"]["Enums"]["ticket_status"]
           sub_category?: string | null
           sub_sub_category?: string | null
+          supervisor_approved?: boolean | null
+          supervisor_approved_at?: string | null
+          supervisor_approved_by?: string | null
           ticket_number: string
           title: string
           updated_at?: string | null
@@ -1851,6 +1861,7 @@ export type Database = {
           category?: string | null
           closed_at?: string | null
           closed_by?: string | null
+          completion_photos?: string[] | null
           created_at?: string | null
           created_by?: string
           department?: string | null
@@ -1858,6 +1869,7 @@ export type Database = {
           hotel?: string | null
           id?: string
           organization_slug?: string | null
+          pending_supervisor_approval?: boolean | null
           photo_url?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
           resolution_text?: string | null
@@ -1867,6 +1879,9 @@ export type Database = {
           status?: Database["public"]["Enums"]["ticket_status"]
           sub_category?: string | null
           sub_sub_category?: string | null
+          supervisor_approved?: boolean | null
+          supervisor_approved_at?: string | null
+          supervisor_approved_by?: string | null
           ticket_number?: string
           title?: string
           updated_at?: string | null
@@ -1889,6 +1904,13 @@ export type Database = {
           {
             foreignKeyName: "tickets_created_by_fkey"
             columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_supervisor_approved_by_fkey"
+            columns: ["supervisor_approved_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]

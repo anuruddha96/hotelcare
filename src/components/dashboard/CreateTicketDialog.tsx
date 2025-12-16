@@ -163,14 +163,23 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
   const [searchTerm, setSearchTerm] = useState('');
   const [maintenanceStaff, setMaintenanceStaff] = useState<{ id: string; full_name: string }[]>([]);
   const [selectedMaintenancePerson, setSelectedMaintenancePerson] = useState('');
+  const [rooms, setRooms] = useState<{ room_number: string; hotel: string }[]>([]);
+  const [showRoomSuggestions, setShowRoomSuggestions] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     room_number: '',
     priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
     department: '',
-    hotel: profile?.assigned_hotel || '',
+    hotel: '',
   });
+
+  // Set hotel from profile when dialog opens
+  useEffect(() => {
+    if (open && profile?.assigned_hotel) {
+      setFormData(prev => ({ ...prev, hotel: profile.assigned_hotel || '' }));
+    }
+  }, [open, profile?.assigned_hotel]);
 
   // Fetch maintenance staff when department is maintenance
   useEffect(() => {
@@ -196,6 +205,31 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
     fetchMaintenanceStaff();
   }, [formData.department, formData.hotel]);
+
+  // Fetch rooms for autocomplete
+  useEffect(() => {
+    const fetchRooms = async () => {
+      if (!formData.hotel) {
+        setRooms([]);
+        return;
+      }
+      
+      try {
+        const { data, error } = await supabase
+          .from('rooms')
+          .select('room_number, hotel')
+          .or(`hotel.eq.${formData.hotel},hotel.ilike.%${formData.hotel}%`)
+          .order('room_number');
+        
+        if (error) throw error;
+        setRooms(data || []);
+      } catch (error) {
+        console.error('Error fetching rooms:', error);
+      }
+    };
+
+    fetchRooms();
+  }, [formData.hotel]);
 
   // Check ticket creation permission
   useEffect(() => {
@@ -422,16 +456,44 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   <Label htmlFor="room_number">Room Number</Label>
                   <Input
                     id="room_number"
                     value={formData.room_number}
-                    onChange={(e) => setFormData({ ...formData, room_number: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, room_number: e.target.value });
+                      setShowRoomSuggestions(e.target.value.length > 0);
+                    }}
+                    onFocus={() => formData.room_number && setShowRoomSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowRoomSuggestions(false), 200)}
                     placeholder="e.g. 101, Lobby, Kitchen"
                     required
                     className="transition-all duration-200 focus:ring-2 focus:ring-primary/20"
                   />
+                  {/* Room suggestions dropdown */}
+                  {showRoomSuggestions && rooms.length > 0 && (
+                    <Card className="absolute top-full left-0 right-0 z-50 mt-1 shadow-lg border max-h-48 overflow-y-auto">
+                      <CardContent className="p-2">
+                        {rooms
+                          .filter(r => r.room_number.toLowerCase().includes(formData.room_number.toLowerCase()))
+                          .slice(0, 10)
+                          .map((room) => (
+                            <button
+                              key={room.room_number}
+                              type="button"
+                              onClick={() => {
+                                setFormData({ ...formData, room_number: room.room_number });
+                                setShowRoomSuggestions(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm rounded hover:bg-accent hover:text-accent-foreground"
+                            >
+                              Room {room.room_number}
+                            </button>
+                          ))}
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -449,11 +511,8 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                       {Object.entries(priorityConfig).map(([key, config]) => (
                         <SelectItem key={key} value={key}>
                           <div className="flex items-center gap-2">
-                            <div className={`w-3 h-3 rounded-full ${config.color}`} />
-                            <div>
-                              <div className="font-medium">{config.label}</div>
-                              <div className="text-xs text-muted-foreground">{config.description}</div>
-                            </div>
+                            <div className={`w-3 h-3 rounded-full shrink-0 ${config.color}`} />
+                            <span className="font-medium">{config.label}</span>
                           </div>
                         </SelectItem>
                       ))}

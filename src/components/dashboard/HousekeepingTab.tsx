@@ -57,7 +57,7 @@ export function HousekeepingTab() {
   const [userRole, setUserRole] = useState<string>('');
   const [activeTab, setActiveTab] = useState('assignments');
   const [orderedTabs, setOrderedTabs] = useState<string[]>([]);
-  const pendingCount = usePendingApprovals();
+  const { totalCount: pendingCount } = usePendingApprovals();
 
   useEffect(() => {
     const fetchUserRole = async () => {
