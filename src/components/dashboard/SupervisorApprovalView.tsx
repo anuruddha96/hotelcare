@@ -65,9 +65,11 @@ export function SupervisorApprovalView() {
   const { t } = useTranslation();
   const { showNotification } = useNotifications();
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
+  const [pendingMaintenanceTickets, setPendingMaintenanceTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [maintenanceStaff, setMaintenanceStaff] = useState<{ id: string; full_name: string; role: string }[]>([]);
   const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null);
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
@@ -76,6 +78,7 @@ export function SupervisorApprovalView() {
   useEffect(() => {
     fetchPendingAssignments();
     fetchStaff();
+    fetchPendingMaintenanceTickets();
     
     // Set up real-time subscription
     const channel = supabase
@@ -109,7 +112,7 @@ export function SupervisorApprovalView() {
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, assigned_hotel')
         .eq('id', currentUser.user.id)
         .single();
 
@@ -121,8 +124,102 @@ export function SupervisorApprovalView() {
 
       if (error) throw error;
       setStaff(data || []);
+
+      // Fetch maintenance staff for ticket reassignment
+      const { data: maintStaff, error: maintError } = await supabase.rpc('get_assignable_staff', {
+        hotel_filter: profile?.assigned_hotel
+      });
+
+      if (!maintError) {
+        const maintenanceOnly = (maintStaff || []).filter((s: any) => s.role === 'maintenance');
+        setMaintenanceStaff(maintenanceOnly);
+      }
     } catch (error) {
       console.error('Error fetching staff:', error);
+    }
+  };
+
+  const fetchPendingMaintenanceTickets = async () => {
+    try {
+      const { data: currentUser } = await supabase.auth.getUser();
+      if (!currentUser.user) return;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('organization_slug, assigned_hotel')
+        .eq('id', currentUser.user.id)
+        .single();
+
+      if (!profile?.organization_slug) return;
+
+      let query = supabase
+        .from('tickets')
+        .select(`
+          *,
+          created_by_profile:profiles!tickets_created_by_fkey(full_name, nickname),
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, nickname)
+        `)
+        .eq('pending_supervisor_approval', true)
+        .eq('department', 'maintenance')
+        .eq('organization_slug', profile.organization_slug)
+        .order('priority', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (profile.assigned_hotel) {
+        query = query.or(`hotel.eq.${profile.assigned_hotel},hotel.ilike.%${profile.assigned_hotel}%`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setPendingMaintenanceTickets(data || []);
+    } catch (error) {
+      console.error('Error fetching maintenance tickets:', error);
+    }
+  };
+
+  const handleApproveTicket = async (ticketId: string) => {
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({
+          status: 'completed',
+          pending_supervisor_approval: false,
+          supervisor_approved: true,
+          supervisor_approved_at: new Date().toISOString(),
+          supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
+          closed_at: new Date().toISOString(),
+          closed_by: (await supabase.auth.getUser()).data.user?.id
+        })
+        .eq('id', ticketId);
+
+      if (error) throw error;
+
+      toast.success('Maintenance ticket approved');
+      fetchPendingMaintenanceTickets();
+    } catch (error) {
+      console.error('Error approving ticket:', error);
+      toast.error('Failed to approve ticket');
+    }
+  };
+
+  const handleReassignTicket = async (ticketId: string, newAssigneeId: string) => {
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({
+          assigned_to: newAssigneeId,
+          pending_supervisor_approval: false,
+          status: 'in_progress'
+        })
+        .eq('id', ticketId);
+
+      if (error) throw error;
+
+      toast.success('Ticket reassigned successfully');
+      fetchPendingMaintenanceTickets();
+    } catch (error) {
+      console.error('Error reassigning ticket:', error);
+      toast.error('Failed to reassign ticket');
     }
   };
 

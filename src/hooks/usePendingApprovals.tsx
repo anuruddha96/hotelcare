@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 export function usePendingApprovals() {
   const [pendingCount, setPendingCount] = useState(0);
+  const [maintenanceTicketCount, setMaintenanceTicketCount] = useState(0);
 
   useEffect(() => {
     const fetchPendingCount = async () => {
@@ -13,6 +14,7 @@ export function usePendingApprovals() {
         const { data: currentUser } = await supabase.auth.getUser();
         if (!currentUser.user) {
           setPendingCount(0);
+          setMaintenanceTicketCount(0);
           return;
         }
 
@@ -30,10 +32,11 @@ export function usePendingApprovals() {
         
         if (!userOrgSlug) {
           setPendingCount(0);
+          setMaintenanceTicketCount(0);
           return;
         }
 
-        // Build query for pending approvals
+        // Build query for pending room assignments approvals
         let query = supabase
           .from('room_assignments')
           .select('id, rooms!inner(hotel)')
@@ -53,9 +56,28 @@ export function usePendingApprovals() {
         if (error) throw error;
 
         setPendingCount((data || []).length);
+
+        // Fetch pending maintenance ticket approvals
+        let ticketQuery = supabase
+          .from('tickets')
+          .select('id, hotel')
+          .eq('pending_supervisor_approval', true)
+          .eq('department', 'maintenance')
+          .eq('organization_slug', userOrgSlug);
+
+        if (userHotel && !['admin', 'top_management'].includes(userRole || '')) {
+          ticketQuery = ticketQuery.or(`hotel.eq.${userHotel},hotel.ilike.%${userHotel}%`);
+        }
+
+        const { data: ticketData, error: ticketError } = await ticketQuery;
+
+        if (!ticketError) {
+          setMaintenanceTicketCount((ticketData || []).length);
+        }
       } catch (error) {
         console.error('Error fetching pending count:', error);
         setPendingCount(0);
+        setMaintenanceTicketCount(0);
       }
     };
 
@@ -74,6 +96,15 @@ export function usePendingApprovals() {
         },
         () => fetchPendingCount()
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tickets'
+        },
+        () => fetchPendingCount()
+      )
       .subscribe();
 
     return () => {
@@ -81,5 +112,5 @@ export function usePendingApprovals() {
     };
   }, []);
 
-  return pendingCount;
+  return { pendingCount, maintenanceTicketCount, totalCount: pendingCount + maintenanceTicketCount };
 }

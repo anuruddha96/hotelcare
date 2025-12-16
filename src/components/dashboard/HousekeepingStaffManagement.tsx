@@ -52,6 +52,7 @@ export function HousekeepingStaffManagement() {
     organization_slug: '',
     use_custom_password: false,
     custom_password: '',
+    role: 'housekeeping' as 'housekeeping' | 'maintenance' | 'manager',
   });
   
   // Username validation state
@@ -279,7 +280,7 @@ export function HousekeepingStaffManagement() {
       let query = supabase
         .from('profiles')
         .select('id, email, full_name, phone_number, role, created_at, assigned_hotel, nickname, organization_slug')
-        .in('role', ['housekeeping']);
+        .in('role', ['housekeeping', 'maintenance', 'manager', 'housekeeping_manager']);
 
       // Filter by organization
       if (profileData?.organization_slug) {
@@ -355,7 +356,7 @@ export function HousekeepingStaffManagement() {
       const { data, error } = await supabase.functions.invoke('create-housekeeper', {
         body: {
           full_name: newStaffData.full_name,
-          role: 'housekeeping',
+          role: newStaffData.role || 'housekeeping',
           email: newStaffData.email || null,
           phone_number: newStaffData.phone_number || null,
           assigned_hotel: newStaffData.assigned_hotel,
@@ -391,9 +392,11 @@ export function HousekeepingStaffManagement() {
         });
       }
 
+      const roleLabel = newStaffData.role === 'maintenance' ? 'Maintenance' : 
+                       newStaffData.role === 'manager' ? 'Manager' : 'Housekeeping';
       toast({
         title: 'Success',
-        description: 'Housekeeping staff member created successfully',
+        description: `${roleLabel} staff member created successfully`,
       });
 
       setNewStaffData({
@@ -405,6 +408,7 @@ export function HousekeepingStaffManagement() {
         organization_slug: isSuperAdmin ? '' : currentUserOrgSlug,
         use_custom_password: false,
         custom_password: '',
+        role: 'housekeeping',
       });
       setUsernameStatus('idle');
       setPreviewUsername('');
@@ -606,15 +610,15 @@ export function HousekeepingStaffManagement() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 sm:h-5 sm:w-5" />
-          <h3 className="text-base sm:text-lg sm:text-xl font-semibold">{t('staff.housekeepingStaff')}</h3>
+          <h3 className="text-base sm:text-lg sm:text-xl font-semibold">{t('staff.staffManagement')}</h3>
         </div>
         <Button 
           onClick={() => setShowCreateForm(!showCreateForm)}
           className="w-full sm:w-auto text-sm"
         >
           <UserPlus className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-          <span className="sm:hidden">{t('staff.addNewHousekeeper')}</span>
-          <span className="hidden sm:inline">{t('staff.addHousekeeper')}</span>
+          <span className="sm:hidden">{t('staff.addStaff')}</span>
+          <span className="hidden sm:inline">{t('staff.addNewStaff')}</span>
         </Button>
       </div>
 
@@ -623,7 +627,7 @@ export function HousekeepingStaffManagement() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserPlus className="h-5 w-5" />
-              Add New Housekeeper
+              Add New Staff Member
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -696,6 +700,31 @@ export function HousekeepingStaffManagement() {
                       </span>
                     )}
                   </div>
+                </div>
+
+                {/* Role Selector */}
+                <div className="space-y-2">
+                  <Label htmlFor="staff_role">Role *</Label>
+                  <Select 
+                    value={newStaffData.role} 
+                    onValueChange={(value: 'housekeeping' | 'maintenance' | 'manager') => 
+                      setNewStaffData({ ...newStaffData, role: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="housekeeping">Housekeeper</SelectItem>
+                      <SelectItem value="maintenance">Maintenance</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {newStaffData.role === 'housekeeping' && 'Housekeepers can clean rooms and mark tasks complete'}
+                    {newStaffData.role === 'maintenance' && 'Maintenance staff can handle repair tickets'}
+                    {newStaffData.role === 'manager' && 'Managers can oversee staff and approve work'}
+                  </p>
                 </div>
                 
                 <div className="space-y-2">
@@ -791,7 +820,7 @@ export function HousekeepingStaffManagement() {
               
               <div className="flex gap-2 pt-4">
                 <Button type="submit" disabled={loading}>
-                  {loading ? 'Creating...' : 'Create Housekeeper'}
+                  {loading ? 'Creating...' : `Create ${newStaffData.role === 'maintenance' ? 'Maintenance Staff' : newStaffData.role === 'manager' ? 'Manager' : 'Housekeeper'}`}
                 </Button>
                 <Button 
                   type="button" 
