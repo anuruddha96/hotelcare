@@ -5,6 +5,12 @@
 
 export const additionalTranslations = {
   en: {
+    // Staff Management
+    'staff.staffManagement': 'Staff Management',
+    'staff.addNewStaff': 'Add New Staff',
+    'staff.addStaff': 'Add Staff',
+    'staff.createStaff': 'Create Staff Member',
+    
     // Housekeeping Tabs
     'housekeeping.tabs.staffManagement': 'Staff Management',
     'housekeeping.tabs.pendingApprovals': 'Pending Approvals',
