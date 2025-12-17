@@ -90,6 +90,15 @@ export const handler = async (req: Request): Promise<Response> => {
     
     console.log('✅ Permission check passed, using org:', finalOrgSlug);
 
+    // Helper function to sanitize strings for email (remove accents and special chars)
+    const sanitizeForEmail = (text: string): string => {
+      return text
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove diacritics/accents
+        .replace(/[^a-zA-Z0-9_.-]/g, '')  // Keep only email-safe chars
+        .toLowerCase();
+    };
+
     // 2) Get the next sequence number for this organization
     console.log('🔢 Getting next sequence number for org:', finalOrgSlug);
     
@@ -116,9 +125,13 @@ export const handler = async (req: Request): Promise<Response> => {
       ? String(password).trim()
       : `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`);
 
+    // Sanitize username and org slug for email to avoid invalid characters
+    const sanitizedUsername = sanitizeForEmail(generatedUsername);
+    const sanitizedOrgSlug = sanitizeForEmail(finalOrgSlug);
+    
     let finalEmail = email && String(email).trim().length
       ? String(email).trim()
-      : `${generatedUsername.toLowerCase()}@${finalOrgSlug}.local`;
+      : `${sanitizedUsername}@${sanitizedOrgSlug}.local`;
 
     console.log('🔑 Generated credentials:', { username: generatedUsername, email: finalEmail });
 

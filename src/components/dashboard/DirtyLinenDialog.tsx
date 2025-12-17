@@ -42,21 +42,11 @@ interface LinenRecord {
   work_date: string;
 }
 
-// Mapping of linen item names to translation keys
-const linenItemTranslations: { [key: string]: string } = {
-  'bath_mat': 'linen.bathMat',
-  'bed_sheets_queen_size': 'linen.bedSheetsQueenSize',
-  'bed_sheets_twin_size': 'linen.bedSheetsTwinSize',
-  'big_pillow': 'linen.bigPillow',
-  'big_towel': 'linen.bigTowel',
-  'duvet_covers': 'linen.duvetCovers',
-  'small_towel': 'linen.smallTowel',
-};
-
-// Helper function to translate linen item names
-const translateLinenItem = (name: string, t: (key: string) => string): string => {
-  const translationKey = linenItemTranslations[name];
-  return translationKey ? t(translationKey) : name;
+// Helper function to get display name - prioritize display_name from database
+const getLinenDisplayName = (name: string, displayName?: string): string => {
+  if (displayName) return displayName;
+  // Fallback: convert snake_case to Title Case
+  return name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 };
 
 export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assignmentId }: DirtyLinenDialogProps) {
@@ -416,7 +406,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                           <div className="flex items-center gap-3">
                             <div className="flex items-center gap-2">
                               <Shirt className="h-5 w-5 text-primary" />
-                              <span className="font-semibold text-base">{translateLinenItem(record.linen_item_name, t)}</span>
+                              <span className="font-semibold text-base">{getLinenDisplayName(record.linen_item_name, record.display_name)}</span>
                             </div>
                             <Badge variant="outline" className="text-base font-bold px-3 py-1 bg-blue-50">
                               × {record.count}
@@ -438,7 +428,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                             <AlertDialogHeader>
                               <AlertDialogTitle>Remove from Cart?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to remove <strong>{translateLinenItem(record.linen_item_name, t)}</strong> ({record.count} items) from Room {record.room_number}? 
+                                Are you sure you want to remove <strong>{getLinenDisplayName(record.linen_item_name, record.display_name)}</strong> ({record.count} items) from Room {record.room_number}? 
                                 This will permanently delete this record.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
@@ -494,7 +484,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <Shirt className="h-4 w-4 text-primary flex-shrink-0" />
                       <Label className="text-sm font-medium truncate">
-                        {translateLinenItem(item.name, t)}
+                        {getLinenDisplayName(item.name, item.display_name)}
                       </Label>
                     </div>
                     

@@ -12,6 +12,7 @@ import { DateRange } from 'react-day-picker';
 
 interface LinenItemTotal {
   item_name: string;
+  display_name: string;
   total_count: number;
 }
 
@@ -20,28 +21,6 @@ interface HousekeeperData {
   items: { [key: string]: number };
   total: number;
 }
-
-// Mapping of linen item names (from database) to translation keys
-const linenItemTranslations: { [key: string]: string } = {
-  'bath_mat': 'linen.bathMat',
-  'bed_sheets_queen_size': 'linen.bedSheetsQueenSize',
-  'bed_sheets_twin_size': 'linen.bedSheetsTwinSize',
-  'big_pillow': 'linen.bigPillow',
-  'big_towel': 'linen.bigTowel',
-  'duvet_covers': 'linen.duvetCovers',
-  'small_towel': 'linen.smallTowel',
-};
-
-// Custom display order for linen items (matches database field names)
-const linenItemDisplayOrder = [
-  'bed_sheets_queen_size',
-  'bed_sheets_twin_size',
-  'duvet_covers',
-  'big_pillow',
-  'small_towel',
-  'big_towel',
-  'bath_mat',
-];
 
 export function SimplifiedDirtyLinenManagement() {
   const { profile } = useAuth();
@@ -53,11 +32,11 @@ export function SimplifiedDirtyLinenManagement() {
   const [itemTotals, setItemTotals] = useState<LinenItemTotal[]>([]);
   const [housekeeperData, setHousekeeperData] = useState<HousekeeperData[]>([]);
   const [grandTotal, setGrandTotal] = useState(0);
+  const [linenDisplayNames, setLinenDisplayNames] = useState<Map<string, string>>(new Map());
 
-  // Get translated linen item name
-  const getTranslatedLinenName = (itemName: string): string => {
-    const translationKey = linenItemTranslations[itemName];
-    return translationKey ? t(translationKey) : itemName;
+  // Get display name - prioritize database display_name
+  const getLinenDisplayName = (itemName: string): string => {
+    return linenDisplayNames.get(itemName) || itemName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
   const fetchData = async () => {
@@ -136,8 +115,14 @@ export function SimplifiedDirtyLinenManagement() {
         housekeepersData?.map(h => [h.id, h.nickname || h.full_name]) || []
       );
       const linenItemsMap = new Map(
-        linenItemsData?.map(l => [l.id, l.name]) || []
+        linenItemsData?.map(l => [l.id, { name: l.name, display_name: l.display_name }]) || []
       );
+      
+      // Store display names for later use
+      const displayNamesMap = new Map(
+        linenItemsData?.map(l => [l.name, l.display_name]) || []
+      );
+      setLinenDisplayNames(displayNamesMap);
       
       // Create a set of valid housekeeper IDs (filtered by hotel)
       const validHousekeeperIds = new Set(housekeepersData?.map(h => h.id) || []);
@@ -152,7 +137,8 @@ export function SimplifiedDirtyLinenManagement() {
         if (!validHousekeeperIds.has(record.housekeeper_id)) {
           return;
         }
-        const itemName = linenItemsMap.get(record.linen_item_id) || 'Unknown';
+        const linenItem = linenItemsMap.get(record.linen_item_id);
+        const itemName = linenItem?.name || 'Unknown';
         const housekeeperName = housekeepersMap.get(record.housekeeper_id) || 'Unknown';
         const count = record.count;
 
@@ -170,21 +156,14 @@ export function SimplifiedDirtyLinenManagement() {
         total += count;
       });
 
-      // Convert to arrays with custom sort order
+      // Convert to arrays - sort by display name alphabetically
       const itemsArray = Array.from(itemMap.entries())
         .map(([item_name, total_count]) => ({
           item_name,
+          display_name: displayNamesMap.get(item_name) || item_name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
           total_count
         }))
-        .sort((a, b) => {
-          const indexA = linenItemDisplayOrder.indexOf(a.item_name);
-          const indexB = linenItemDisplayOrder.indexOf(b.item_name);
-          // If item is in the order list, use that order; otherwise, put it at the end
-          if (indexA === -1 && indexB === -1) return a.item_name.localeCompare(b.item_name);
-          if (indexA === -1) return 1;
-          if (indexB === -1) return -1;
-          return indexA - indexB;
-        });
+        .sort((a, b) => a.display_name.localeCompare(b.display_name));
 
       const housekeepersArray = Array.from(housekeeperMap.entries())
         .map(([housekeeper_name, data]) => ({
@@ -215,8 +194,8 @@ export function SimplifiedDirtyLinenManagement() {
     const startDate = dateRange.from.toISOString().split('T')[0];
     const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
     
-    // Header row with translated names
-    let csv = t('linen.housekeepers') + ',' + itemTotals.map(i => getTranslatedLinenName(i.item_name)).join(',') + ',' + t('linen.total') + '\n';
+    // Header row with display names from database
+    let csv = t('linen.housekeepers') + ',' + itemTotals.map(i => i.display_name).join(',') + ',' + t('linen.total') + '\n';
     
     housekeeperData.forEach(hk => {
       const row = [
@@ -281,7 +260,7 @@ export function SimplifiedDirtyLinenManagement() {
                 <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
                 {itemTotals.map((item) => (
                   <th key={item.item_name} className="border p-3 text-center font-bold min-w-[120px] whitespace-nowrap">
-                    {getTranslatedLinenName(item.item_name)}
+                    {item.display_name}
                   </th>
                 ))}
                 <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">{t('linen.total').toUpperCase()}</th>

@@ -13,6 +13,7 @@ import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
 import { CompanySettings } from './CompanySettings';
 import { HousekeepingTab } from './HousekeepingTab';
+import { MaintenanceStaffView } from './MaintenanceStaffView';
 import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
@@ -262,7 +263,7 @@ export function Dashboard() {
       case 'housekeeping_manager':
         return "housekeeping";
       case 'maintenance':
-        return "tickets";
+        return "maintenance-tasks";
       case 'reception':
       case 'front_office':
         return "rooms";
@@ -356,7 +357,11 @@ export function Dashboard() {
                 </TabsTrigger>
               </TabsList>
             ) : profile?.role === 'maintenance' ? (
-              <TabsList className="grid w-full min-w-[240px] max-w-md grid-cols-2 h-10 sm:h-12">
+              <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12">
+                <TabsTrigger value="maintenance-tasks" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>{t('dashboard.myTasks')}</span>
+                </TabsTrigger>
                 <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.tickets')}</span>
@@ -409,6 +414,11 @@ export function Dashboard() {
             )}
           </div>
         </div>
+
+          {/* Maintenance Staff Tasks Tab */}
+          <TabsContent value="maintenance-tasks" className="space-y-6">
+            <MaintenanceStaffView />
+          </TabsContent>
 
           <TabsContent value="tickets" className="space-y-6">
             <div className="flex flex-col gap-3 sm:gap-4 justify-between items-start">
