@@ -152,7 +152,8 @@ export const handler = async (req: Request): Promise<Response> => {
     if (authResult.error?.message?.includes('already been registered')) {
       console.log('⚠️ Email already exists, trying with unique email...');
       const timestamp = Date.now().toString().slice(-4);
-      finalEmail = `${generatedUsername.toLowerCase()}.${timestamp}@${finalOrgSlug}.local`;
+      // Use sanitized values for email to avoid invalid characters
+      finalEmail = `${sanitizedUsername}.${timestamp}@${sanitizedOrgSlug}.local`;
       authResult = await admin.auth.admin.createUser({
         email: finalEmail,
         password: generatedPassword,
