@@ -40,7 +40,19 @@ export interface AssignmentPreview {
 
 // Calculate estimated time for a room in minutes
 export function calculateRoomTime(room: RoomForAssignment): number {
-  return room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
+  let baseTime = room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
+  
+  // Add extra time for larger rooms
+  const size = room.room_size_sqm || 20;
+  if (size >= 40) {
+    baseTime += 15; // XXL rooms need more time
+  } else if (size >= 28) {
+    baseTime += 10; // Large rooms
+  } else if (size >= 22) {
+    baseTime += 5; // Medium-large rooms
+  }
+  
+  return baseTime;
 }
 
 // Calculate time estimation for a preview
@@ -67,29 +79,29 @@ export function formatMinutesToTime(minutes: number): string {
   return `${hours}h ${mins}m`;
 }
 
-// Weight calculation based on room characteristics
+// Weight calculation based on room characteristics - considers room size
 export function calculateRoomWeight(room: RoomForAssignment): number {
   // Base weight: checkout rooms require more work
   let weight = room.is_checkout_room ? 1.5 : 1.0;
   
-  // Size factor based on room_size_sqm
+  // Size factor based on room_size_sqm - MORE SIGNIFICANT IMPACT
   const size = room.room_size_sqm || 20; // default 20 sqm if unknown
   
   if (size >= 40) {
-    weight += 0.5; // XXL rooms (quadruple)
+    weight += 1.0; // XXL rooms (quadruple) - significant extra weight
   } else if (size >= 28) {
-    weight += 0.3; // Large rooms (30+ sqm)
+    weight += 0.6; // Large rooms (30+ sqm)
   } else if (size >= 22) {
-    weight += 0.15; // Medium-large rooms (22-28 sqm)
+    weight += 0.3; // Medium-large rooms (22-28 sqm)
   }
   // Standard rooms (16-22 sqm) get no bonus
   
   // Capacity factor for triple/quad rooms
   const capacity = room.room_capacity || 2;
   if (capacity >= 4) {
-    weight += 0.2;
+    weight += 0.3;
   } else if (capacity >= 3) {
-    weight += 0.1;
+    weight += 0.15;
   }
   
   return weight;
@@ -117,7 +129,7 @@ function groupRoomsByFloor(rooms: RoomForAssignment[]): Map<number, RoomForAssig
   return floorMap;
 }
 
-// Main auto-assignment algorithm
+// Main auto-assignment algorithm with FAIR checkout distribution
 export function autoAssignRooms(
   rooms: RoomForAssignment[],
   staff: StaffForAssignment[]
@@ -137,16 +149,9 @@ export function autoAssignRooms(
     }));
   }
 
-  // Calculate weights for all rooms
-  const weightedRooms = rooms.map(room => ({
-    ...room,
-    weight: calculateRoomWeight(room),
-    floor: room.floor_number ?? getFloorFromRoomNumber(room.room_number)
-  }));
-
-  // Calculate total weight and target weight per housekeeper
-  const totalWeight = weightedRooms.reduce((sum, r) => sum + r.weight, 0);
-  const targetWeight = totalWeight / staff.length;
+  // STEP 1: Separate checkout rooms from daily rooms
+  const checkoutRooms = rooms.filter(r => r.is_checkout_room);
+  const dailyRooms = rooms.filter(r => !r.is_checkout_room);
 
   // Initialize assignments for each staff member
   const assignments: Map<string, (RoomForAssignment & { weight: number; floor: number })[]> = new Map();
@@ -157,40 +162,72 @@ export function autoAssignRooms(
     staffWeights.set(s.id, 0);
   });
 
-  // Group rooms by floor
-  const roomsByFloor = groupRoomsByFloor(weightedRooms as RoomForAssignment[]);
+  // STEP 2: Distribute checkout rooms FIRST using round-robin for fairness
+  // Sort checkout rooms by weight (heavier rooms first for better distribution)
+  const weightedCheckouts = checkoutRooms
+    .map(room => ({
+      ...room,
+      weight: calculateRoomWeight(room),
+      floor: room.floor_number ?? getFloorFromRoomNumber(room.room_number)
+    }))
+    .sort((a, b) => b.weight - a.weight); // Heaviest first
   
-  // Sort floors by total room count (largest first for better distribution)
-  const sortedFloors = Array.from(roomsByFloor.entries())
-    .sort((a, b) => b[1].length - a[1].length);
-
-  // First pass: Assign entire floors to housekeepers when possible
-  // This keeps housekeepers working on the same floor
-  for (const [floor, floorRooms] of sortedFloors) {
-    const floorWeight = floorRooms.reduce((sum, r) => sum + calculateRoomWeight(r), 0);
+  // Round-robin assignment of checkout rooms
+  weightedCheckouts.forEach((room, index) => {
+    // Find the staff member with the lowest current weight
+    const sortedStaff = Array.from(staffWeights.entries())
+      .sort((a, b) => a[1] - b[1]);
+    const [staffId, currentWeight] = sortedStaff[0];
     
-    // Find the housekeeper with the lowest current weight
+    assignments.get(staffId)!.push(room);
+    staffWeights.set(staffId, currentWeight + room.weight);
+  });
+
+  // STEP 3: Now distribute daily rooms, prioritizing keeping floors together
+  const dailyWeightedRooms = dailyRooms.map(room => ({
+    ...room,
+    weight: calculateRoomWeight(room),
+    floor: room.floor_number ?? getFloorFromRoomNumber(room.room_number)
+  }));
+
+  // Group daily rooms by floor
+  const dailyByFloor = groupRoomsByFloor(dailyWeightedRooms as RoomForAssignment[]);
+  
+  // Sort floors by total weight (heaviest first for better distribution)
+  const sortedFloors = Array.from(dailyByFloor.entries())
+    .map(([floor, floorRooms]) => ({
+      floor,
+      rooms: floorRooms,
+      totalWeight: floorRooms.reduce((sum, r) => sum + calculateRoomWeight(r), 0)
+    }))
+    .sort((a, b) => b.totalWeight - a.totalWeight);
+
+  // Assign floors to housekeepers based on current weight balance
+  for (const { floor, rooms: floorRooms, totalWeight } of sortedFloors) {
+    const roomsWithWeight = floorRooms.map(r => ({
+      ...r,
+      weight: calculateRoomWeight(r),
+      floor
+    }));
+
+    // Calculate average weight target
+    const totalCurrentWeight = Array.from(staffWeights.values()).reduce((a, b) => a + b, 0);
+    const avgTarget = (totalCurrentWeight + totalWeight) / staff.length;
+    
+    // Find staff with lowest current weight
     const sortedStaff = Array.from(staffWeights.entries())
       .sort((a, b) => a[1] - b[1]);
     
-    const [bestStaffId, currentWeight] = sortedStaff[0];
-    
-    // If assigning this entire floor would make this housekeeper have too much,
+    // If assigning entire floor to one person would exceed 30% above average,
     // split the floor among multiple housekeepers
-    if (floorRooms.length > Math.ceil(rooms.length / staff.length) + 2) {
-      // Split floor - add rooms one by one to balance
-      const sortedFloorRooms = floorRooms
-        .map(r => ({ ...r, weight: calculateRoomWeight(r), floor }))
-        .sort((a, b) => {
-          // Checkout rooms first, then by room number
-          if (a.is_checkout_room !== b.is_checkout_room) {
-            return a.is_checkout_room ? -1 : 1;
-          }
-          return parseInt(a.room_number) - parseInt(b.room_number);
-        });
+    const [lightestId, lightestWeight] = sortedStaff[0];
+    const wouldBe = lightestWeight + totalWeight;
+    
+    if (wouldBe > avgTarget * 1.3 && floorRooms.length > 2) {
+      // Split floor - distribute rooms one by one to balance weights
+      roomsWithWeight.sort((a, b) => b.weight - a.weight); // Heaviest first
       
-      for (const room of sortedFloorRooms) {
-        // Find staff with lowest weight
+      for (const room of roomsWithWeight) {
         const minStaff = Array.from(staffWeights.entries())
           .sort((a, b) => a[1] - b[1])[0];
         
@@ -199,27 +236,19 @@ export function autoAssignRooms(
       }
     } else {
       // Assign entire floor to one housekeeper
-      const floorRoomsWithWeight = floorRooms
-        .map(r => ({ ...r, weight: calculateRoomWeight(r), floor }))
-        .sort((a, b) => {
-          if (a.is_checkout_room !== b.is_checkout_room) {
-            return a.is_checkout_room ? -1 : 1;
-          }
-          return parseInt(a.room_number) - parseInt(b.room_number);
-        });
-      
-      assignments.get(bestStaffId)!.push(...floorRoomsWithWeight);
-      staffWeights.set(bestStaffId, currentWeight + floorWeight);
+      assignments.get(lightestId)!.push(...roomsWithWeight);
+      staffWeights.set(lightestId, lightestWeight + totalWeight);
     }
   }
 
-  // Rebalancing pass: If any housekeeper has >25% more weight than average, redistribute
+  // STEP 4: Rebalancing pass - if any housekeeper has >20% more weight than average, redistribute
+  const totalWeight = Array.from(staffWeights.values()).reduce((a, b) => a + b, 0);
   const avgWeight = totalWeight / staff.length;
-  const threshold = avgWeight * 0.25;
+  const threshold = avgWeight * 0.20;
   
   let rebalanced = true;
   let iterations = 0;
-  const maxIterations = 20;
+  const maxIterations = 30;
   
   while (rebalanced && iterations < maxIterations) {
     rebalanced = false;
@@ -235,13 +264,17 @@ export function autoAssignRooms(
     if (heaviestWeight - lightestWeight > threshold) {
       const heaviestRooms = assignments.get(heaviestId)!;
       
-      // Find the best room to move (smallest weight that helps balance)
+      // Find the best daily room to move (prefer daily over checkout for balance)
+      // Don't move checkout rooms to preserve fair checkout distribution
       const targetDiff = (heaviestWeight - lightestWeight) / 2;
       
       let bestRoomToMove: typeof heaviestRooms[0] | null = null;
       let bestDiff = Infinity;
       
       for (const room of heaviestRooms) {
+        // Prefer moving daily rooms over checkout rooms
+        if (room.is_checkout_room) continue;
+        
         const diff = Math.abs(room.weight - targetDiff);
         if (diff < bestDiff && room.weight <= targetDiff + 0.5) {
           bestDiff = diff;
@@ -263,16 +296,16 @@ export function autoAssignRooms(
     }
   }
 
-  // Build final preview with sorted rooms (checkout first, then by room number)
+  // Build final preview with sorted rooms (checkout first, then by floor and room number)
   return staff.map(s => {
     const staffRooms = assignments.get(s.id) || [];
     const sortedRooms = staffRooms.sort((a, b) => {
-      // Sort by floor first
-      if (a.floor !== b.floor) return a.floor - b.floor;
-      // Then checkout rooms first
+      // Checkout rooms first (so housekeepers can start with them)
       if (a.is_checkout_room !== b.is_checkout_room) {
         return a.is_checkout_room ? -1 : 1;
       }
+      // Then by floor
+      if (a.floor !== b.floor) return a.floor - b.floor;
       // Then by room number
       return parseInt(a.room_number) - parseInt(b.room_number);
     });
@@ -333,10 +366,10 @@ export function moveRoom(
   toPreview.rooms.sort((a, b) => {
     const floorA = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
     const floorB = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
-    if (floorA !== floorB) return floorA - floorB;
     if (a.is_checkout_room !== b.is_checkout_room) {
       return a.is_checkout_room ? -1 : 1;
     }
+    if (floorA !== floorB) return floorA - floorB;
     return parseInt(a.room_number) - parseInt(b.room_number);
   });
   

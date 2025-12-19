@@ -195,23 +195,48 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
   // Fetch maintenance staff when department is maintenance
   useEffect(() => {
     const fetchMaintenanceStaff = async () => {
-      if (formData.department !== 'maintenance' || !formData.hotel) {
+      if (formData.department !== 'maintenance') {
         setMaintenanceStaff([]);
         return;
       }
       
       try {
         console.log('Fetching maintenance staff for hotel:', formData.hotel);
-        const { data, error } = await supabase.rpc('get_assignable_staff', {
-          hotel_filter: formData.hotel
+        
+        // Try RPC first
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_assignable_staff', {
+          hotel_filter: formData.hotel || null
         });
         
-        if (error) throw error;
-        console.log('Staff data received:', data);
-        // Filter to only maintenance staff
-        const maintenanceOnly = (data || []).filter((s: any) => s.role === 'maintenance');
-        console.log('Maintenance staff filtered:', maintenanceOnly);
-        setMaintenanceStaff(maintenanceOnly);
+        if (!rpcError && rpcData) {
+          const maintenanceOnly = (rpcData || []).filter((s: any) => s.role === 'maintenance');
+          console.log('RPC maintenance staff:', maintenanceOnly);
+          if (maintenanceOnly.length > 0) {
+            setMaintenanceStaff(maintenanceOnly);
+            return;
+          }
+        }
+        
+        // Fallback: Direct query to profiles
+        console.log('Using fallback query for maintenance staff');
+        let query = supabase
+          .from('profiles')
+          .select('id, full_name, role, assigned_hotel')
+          .eq('role', 'maintenance');
+        
+        if (formData.hotel) {
+          query = query.or(`assigned_hotel.eq.${formData.hotel},assigned_hotel.ilike.%${formData.hotel}%`);
+        }
+        
+        const { data: profilesData, error: profilesError } = await query;
+        
+        if (profilesError) {
+          console.error('Fallback query error:', profilesError);
+          return;
+        }
+        
+        console.log('Fallback maintenance staff:', profilesData);
+        setMaintenanceStaff(profilesData || []);
       } catch (error) {
         console.error('Error fetching maintenance staff:', error);
       }
