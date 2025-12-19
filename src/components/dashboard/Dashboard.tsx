@@ -358,13 +358,13 @@ export function Dashboard() {
               </TabsList>
             ) : profile?.role === 'maintenance' ? (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12">
-                <TabsTrigger value="maintenance-tasks" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.myTasks')}</span>
-                </TabsTrigger>
                 <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.tickets')}</span>
+                </TabsTrigger>
+                <TabsTrigger value="maintenance-tasks" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>{t('dashboard.myTasks')}</span>
                 </TabsTrigger>
                 <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Clock className="h-3 w-3 sm:h-4 sm:w-4" />

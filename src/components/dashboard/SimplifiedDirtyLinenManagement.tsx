@@ -10,10 +10,11 @@ import { DateRangeFilter } from './DateRangeFilter';
 import { toast } from 'sonner';
 import { DateRange } from 'react-day-picker';
 
-interface LinenItemTotal {
-  item_name: string;
+interface LinenItem {
+  id: string;
+  name: string;
   display_name: string;
-  total_count: number;
+  sort_order: number;
 }
 
 interface HousekeeperData {
@@ -29,38 +30,48 @@ export function SimplifiedDirtyLinenManagement() {
     from: new Date(),
     to: new Date()
   });
-  const [itemTotals, setItemTotals] = useState<LinenItemTotal[]>([]);
+  const [allLinenItems, setAllLinenItems] = useState<LinenItem[]>([]);
+  const [itemTotals, setItemTotals] = useState<Map<string, number>>(new Map());
   const [housekeeperData, setHousekeeperData] = useState<HousekeeperData[]>([]);
   const [grandTotal, setGrandTotal] = useState(0);
-  const [linenDisplayNames, setLinenDisplayNames] = useState<Map<string, string>>(new Map());
 
-  // Get display name - prioritize database display_name
-  const getLinenDisplayName = (itemName: string): string => {
-    return linenDisplayNames.get(itemName) || itemName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  };
+  // Fetch ALL active linen items first (regardless of records)
+  useEffect(() => {
+    const fetchLinenItems = async () => {
+      const { data, error } = await supabase
+        .from('dirty_linen_items')
+        .select('id, name, display_name, sort_order')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching linen items:', error);
+        return;
+      }
+
+      setAllLinenItems(data || []);
+    };
+
+    fetchLinenItems();
+  }, []);
 
   const fetchData = async () => {
-    if (!dateRange?.from) return;
+    if (!dateRange?.from || allLinenItems.length === 0) return;
     
-    // If 'to' is not set, use 'from' for single date selection
     const startDate = dateRange.from.toISOString().split('T')[0];
     const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
     
     try {
       // Get current user's hotel filter
-      const { data: currentProfile, error: profileError } = await supabase
+      const { data: currentProfile } = await supabase
         .from('profiles')
         .select('assigned_hotel')
         .eq('id', profile?.id)
         .single();
 
-      if (profileError) {
-        console.error('Error fetching profile:', profileError);
-      }
-
       const userHotel = currentProfile?.assigned_hotel;
       
-      // Step 1: Fetch dirty linen counts without joins
+      // Fetch dirty linen counts
       const { data: countsData, error: countsError } = await supabase
         .from('dirty_linen_counts')
         .select('id, housekeeper_id, linen_item_id, count, work_date')
@@ -74,71 +85,51 @@ export function SimplifiedDirtyLinenManagement() {
         return;
       }
 
+      // Initialize totals with 0 for ALL items
+      const itemMap = new Map<string, number>();
+      allLinenItems.forEach(item => {
+        itemMap.set(item.name, 0);
+      });
+
       if (!countsData || countsData.length === 0) {
-        setItemTotals([]);
+        setItemTotals(itemMap);
         setHousekeeperData([]);
         setGrandTotal(0);
         return;
       }
 
-      // Step 2: Fetch housekeeper profiles separately and filter by hotel
+      // Fetch housekeeper profiles
       const housekeeperIds = Array.from(new Set(countsData.map(c => c.housekeeper_id)));
       let housekeepersQuery = supabase
         .from('profiles')
         .select('id, full_name, nickname, assigned_hotel')
         .in('id', housekeeperIds);
       
-      // Filter by hotel if user has one assigned
       if (userHotel) {
         housekeepersQuery = housekeepersQuery.eq('assigned_hotel', userHotel);
       }
       
-      const { data: housekeepersData, error: housekeepersError } = await housekeepersQuery;
+      const { data: housekeepersData } = await housekeepersQuery;
 
-      if (housekeepersError) {
-        console.error('Error fetching housekeepers:', housekeepersError);
-      }
-
-      // Step 3: Fetch linen items separately
-      const linenItemIds = Array.from(new Set(countsData.map(c => c.linen_item_id)));
-      const { data: linenItemsData, error: linenItemsError } = await supabase
-        .from('dirty_linen_items')
-        .select('id, name, display_name')
-        .in('id', linenItemIds);
-
-      if (linenItemsError) {
-        console.error('Error fetching linen items:', linenItemsError);
-      }
-
-      // Step 4: Create lookup maps
+      // Create lookup maps
       const housekeepersMap = new Map(
         housekeepersData?.map(h => [h.id, h.nickname || h.full_name]) || []
       );
+      
       const linenItemsMap = new Map(
-        linenItemsData?.map(l => [l.id, { name: l.name, display_name: l.display_name }]) || []
+        allLinenItems.map(l => [l.id, l.name])
       );
       
-      // Store display names for later use
-      const displayNamesMap = new Map(
-        linenItemsData?.map(l => [l.name, l.display_name]) || []
-      );
-      setLinenDisplayNames(displayNamesMap);
-      
-      // Create a set of valid housekeeper IDs (filtered by hotel)
       const validHousekeeperIds = new Set(housekeepersData?.map(h => h.id) || []);
 
-      // Step 5: Calculate totals by item type and housekeeper (only for housekeepers in selected hotel)
-      const itemMap = new Map<string, number>();
+      // Calculate totals
       const housekeeperMap = new Map<string, { items: Map<string, number>, total: number }>();
       let total = 0;
 
       countsData.forEach((record) => {
-        // Skip counts from housekeepers not in the current hotel
-        if (!validHousekeeperIds.has(record.housekeeper_id)) {
-          return;
-        }
-        const linenItem = linenItemsMap.get(record.linen_item_id);
-        const itemName = linenItem?.name || 'Unknown';
+        if (!validHousekeeperIds.has(record.housekeeper_id)) return;
+        
+        const itemName = linenItemsMap.get(record.linen_item_id) || 'Unknown';
         const housekeeperName = housekeepersMap.get(record.housekeeper_id) || 'Unknown';
         const count = record.count;
 
@@ -156,15 +147,7 @@ export function SimplifiedDirtyLinenManagement() {
         total += count;
       });
 
-      // Convert to arrays - sort by display name alphabetically
-      const itemsArray = Array.from(itemMap.entries())
-        .map(([item_name, total_count]) => ({
-          item_name,
-          display_name: displayNamesMap.get(item_name) || item_name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-          total_count
-        }))
-        .sort((a, b) => a.display_name.localeCompare(b.display_name));
-
+      // Convert to arrays - sorted by housekeeper name
       const housekeepersArray = Array.from(housekeeperMap.entries())
         .map(([housekeeper_name, data]) => ({
           housekeeper_name,
@@ -173,7 +156,7 @@ export function SimplifiedDirtyLinenManagement() {
         }))
         .sort((a, b) => a.housekeeper_name.localeCompare(b.housekeeper_name));
 
-      setItemTotals(itemsArray);
+      setItemTotals(itemMap);
       setHousekeeperData(housekeepersArray);
       setGrandTotal(total);
     } catch (error) {
@@ -183,10 +166,10 @@ export function SimplifiedDirtyLinenManagement() {
   };
 
   useEffect(() => {
-    if (dateRange?.from) {
+    if (dateRange?.from && allLinenItems.length > 0) {
       fetchData();
     }
-  }, [dateRange]); // Watch for date range changes
+  }, [dateRange, allLinenItems]);
 
   const exportToCSV = () => {
     if (!dateRange?.from) return;
@@ -194,20 +177,19 @@ export function SimplifiedDirtyLinenManagement() {
     const startDate = dateRange.from.toISOString().split('T')[0];
     const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
     
-    // Header row with display names from database
-    let csv = t('linen.housekeepers') + ',' + itemTotals.map(i => i.display_name).join(',') + ',' + t('linen.total') + '\n';
+    // Header row with display names in sort order
+    let csv = t('linen.housekeepers') + ',' + allLinenItems.map(i => i.display_name).join(',') + ',' + t('linen.total') + '\n';
     
     housekeeperData.forEach(hk => {
       const row = [
         hk.housekeeper_name,
-        ...itemTotals.map(item => hk.items[item.item_name] || 0),
+        ...allLinenItems.map(item => hk.items[item.name] || 0),
         hk.total
       ];
       csv += row.join(',') + '\n';
     });
     
-    csv += '\n' + t('linen.total').toUpperCase() + ',' + itemTotals.map(i => i.total_count).join(',') + ',' + grandTotal + '\n';
-
+    csv += '\n' + t('linen.total').toUpperCase() + ',' + allLinenItems.map(i => itemTotals.get(i.name) || 0).join(',') + ',' + grandTotal + '\n';
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -252,14 +234,14 @@ export function SimplifiedDirtyLinenManagement() {
           </div>
         </div>
 
-        {/* Main Table */}
+        {/* Main Table - Always show all items in sort_order */}
         <div className="overflow-x-auto">
           <table className="w-full border-collapse border">
             <thead>
               <tr className="bg-muted">
                 <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
-                {itemTotals.map((item) => (
-                  <th key={item.item_name} className="border p-3 text-center font-bold min-w-[120px] whitespace-nowrap">
+                {allLinenItems.map((item) => (
+                  <th key={item.id} className="border p-3 text-center font-bold min-w-[120px] whitespace-nowrap">
                     {item.display_name}
                   </th>
                 ))}
@@ -269,7 +251,7 @@ export function SimplifiedDirtyLinenManagement() {
             <tbody>
               {housekeeperData.length === 0 ? (
                 <tr>
-                  <td colSpan={itemTotals.length + 2} className="border p-8 text-center text-muted-foreground">
+                  <td colSpan={allLinenItems.length + 2} className="border p-8 text-center text-muted-foreground">
                     No data available for the selected date range
                   </td>
                 </tr>
@@ -278,9 +260,9 @@ export function SimplifiedDirtyLinenManagement() {
                   {housekeeperData.map((hk, index) => (
                     <tr key={index} className="hover:bg-accent/30 transition">
                       <td className="border p-3 font-medium">{hk.housekeeper_name}</td>
-                      {itemTotals.map((item) => (
-                        <td key={item.item_name} className="border p-3 text-center">
-                          {hk.items[item.item_name] || '-'}
+                      {allLinenItems.map((item) => (
+                        <td key={item.id} className="border p-3 text-center">
+                          {hk.items[item.name] || 0}
                         </td>
                       ))}
                       <td className="border p-3 text-center font-bold bg-primary/5">
@@ -290,9 +272,9 @@ export function SimplifiedDirtyLinenManagement() {
                   ))}
                   <tr className="bg-accent font-bold">
                     <td className="border p-3">{t('linen.total').toUpperCase()}</td>
-                    {itemTotals.map((item) => (
-                      <td key={item.item_name} className="border p-3 text-center">
-                        {item.total_count}
+                    {allLinenItems.map((item) => (
+                      <td key={item.id} className="border p-3 text-center">
+                        {itemTotals.get(item.name) || 0}
                       </td>
                     ))}
                     <td className="border p-3 text-center bg-primary/10 text-lg">
