@@ -20,6 +20,7 @@ import { AttachmentUpload } from './AttachmentUpload';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Lightbulb, Star, Zap, AlertTriangle, Wrench, Droplet, Thermometer, Bed, Wifi, Utensils } from 'lucide-react';
+import { hungarianCommonIssues } from '@/lib/maintenance-translations';
 
 interface CreateTicketDialogProps {
   open: boolean;
@@ -27,8 +28,8 @@ interface CreateTicketDialogProps {
   onTicketCreated: () => void;
 }
 
-// Common hotel issues with icons and categories - expanded list
-const commonIssues = [
+// Common hotel issues with icons and categories - English
+const commonIssuesEn = [
   { category: 'Room Issues', icon: Bed, issues: [
     'Air conditioning not working',
     'TV not functioning', 
@@ -139,17 +140,28 @@ const commonIssues = [
   ]}
 ];
 
+// Map icon names to components for Hungarian issues
+const iconMap: { [key: string]: any } = {
+  'Bed': Bed,
+  'Droplet': Droplet,
+  'Zap': Zap,
+  'Thermometer': Thermometer,
+  'Wrench': Wrench,
+  'Utensils': Utensils,
+  'AlertTriangle': AlertTriangle,
+};
+
 const priorityConfig = {
-  low: { color: 'bg-green-500', label: 'Low', description: 'Non-urgent, can wait' },
-  medium: { color: 'bg-yellow-500', label: 'Medium', description: 'Standard priority' },
-  high: { color: 'bg-orange-500', label: 'High', description: 'Needs attention soon' },
-  urgent: { color: 'bg-red-500', label: 'Urgent', description: 'Immediate attention required' }
+  low: { color: 'bg-green-500', label: 'Low', labelHu: 'Alacsony', description: 'Non-urgent, can wait' },
+  medium: { color: 'bg-yellow-500', label: 'Medium', labelHu: 'Közepes', description: 'Standard priority' },
+  high: { color: 'bg-orange-500', label: 'High', labelHu: 'Magas', description: 'Needs attention soon' },
+  urgent: { color: 'bg-red-500', label: 'Urgent', labelHu: 'Sürgős', description: 'Immediate attention required' }
 };
 
 export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: CreateTicketDialogProps) {
   const { profile } = useAuth();
   const { hotels: tenantHotels } = useTenant();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   
   // Build hotels list from tenant context
   const hotels = tenantHotels.map(h => ({ 
@@ -173,6 +185,59 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     department: '',
     hotel: '',
   });
+
+  // Get language-specific common issues
+  const getCommonIssues = () => {
+    if (language === 'hu') {
+      return hungarianCommonIssues.map(cat => ({
+        ...cat,
+        icon: iconMap[cat.icon] || Wrench
+      }));
+    }
+    return commonIssuesEn;
+  };
+  
+  const commonIssues = getCommonIssues();
+
+  // Get translated labels
+  const getTranslatedLabels = () => ({
+    title: language === 'hu' ? 'Cím' : 'Title',
+    roomNumber: language === 'hu' ? 'Szobaszám' : 'Room Number',
+    priority: language === 'hu' ? 'Prioritási szint' : 'Priority Level',
+    department: language === 'hu' ? 'Részleg' : 'Department',
+    hotel: language === 'hu' ? 'Hotel' : 'Hotel',
+    description: language === 'hu' ? 'Leírás' : 'Description',
+    cancel: language === 'hu' ? 'Mégse' : 'Cancel',
+    create: language === 'hu' ? 'Jegy létrehozása' : 'Create Ticket',
+    creating: language === 'hu' ? 'Létrehozás...' : 'Creating...',
+    selectDepartment: language === 'hu' ? 'Részleg kiválasztása' : 'Select Department',
+    selectHotel: language === 'hu' ? 'Hotel kiválasztása' : 'Select Hotel',
+    assignTo: language === 'hu' ? 'Hozzárendelés karbantartóhoz' : 'Assign to Maintenance Person',
+    optional: language === 'hu' ? 'Opcionális' : 'Optional',
+    selectMaintenance: language === 'hu' ? 'Karbantartó kiválasztása...' : 'Select maintenance person...',
+    noMaintenanceStaff: language === 'hu' ? 'Nincs elérhető karbantartó' : 'No maintenance staff available',
+    commonIssues: language === 'hu' ? 'Gyakori problémák - Kattintson a kiválasztáshoz' : 'Common Issues - Click to Select',
+    smartSuggestions: language === 'hu' ? 'Kezdje el gépelni a javaslatok megtekintéséhez...' : 'Start typing to see suggestions...',
+    noPermission: language === 'hu' ? 'Nincs jogosultsága jegyek létrehozásához.' : 'You do not have permission to create tickets.',
+    createNewTicket: language === 'hu' ? 'Új jegy létrehozása' : 'Create New Ticket',
+    submitRequest: language === 'hu' ? 'Küldjön be új karbantartási kérést a szálloda személyzete számára.' : 'Submit a new maintenance request for hotel staff to review and address.',
+  });
+
+  const labels = getTranslatedLabels();
+
+  // Get translated departments
+  const getDepartments = () => [
+    { value: 'maintenance', label: language === 'hu' ? 'Karbantartás' : 'Maintenance' },
+    { value: 'housekeeping', label: language === 'hu' ? 'Takarítás' : 'Housekeeping' },
+    { value: 'reception', label: language === 'hu' ? 'Recepció' : 'Reception' },
+    { value: 'marketing', label: language === 'hu' ? 'Marketing' : 'Marketing' },
+    { value: 'back_office', label: language === 'hu' ? 'Back Office' : 'Back Office' },
+    { value: 'control', label: language === 'hu' ? 'Ellenőrzés' : 'Control' },
+    { value: 'finance', label: language === 'hu' ? 'Pénzügy' : 'Finance' },
+    { value: 'top_management', label: language === 'hu' ? 'Vezetőség' : 'Top Management' },
+  ];
+
+  const departments = getDepartments();
 
   // Set hotel from profile when dialog opens - wait for hotels to load
   useEffect(() => {
@@ -203,40 +268,38 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
       try {
         console.log('Fetching maintenance staff for hotel:', formData.hotel);
         
-        // Try RPC first
-        const { data: rpcData, error: rpcError } = await supabase.rpc('get_assignable_staff', {
-          hotel_filter: formData.hotel || null
-        });
-        
-        if (!rpcError && rpcData) {
-          const maintenanceOnly = (rpcData || []).filter((s: any) => s.role === 'maintenance');
-          console.log('RPC maintenance staff:', maintenanceOnly);
-          if (maintenanceOnly.length > 0) {
-            setMaintenanceStaff(maintenanceOnly);
-            return;
-          }
-        }
-        
-        // Fallback: Direct query to profiles
-        console.log('Using fallback query for maintenance staff');
+        // Direct query to profiles - more reliable
         let query = supabase
           .from('profiles')
           .select('id, full_name, role, assigned_hotel')
           .eq('role', 'maintenance');
         
+        // Add hotel filter if hotel is selected
         if (formData.hotel) {
+          // Match hotel name variations
           query = query.or(`assigned_hotel.eq.${formData.hotel},assigned_hotel.ilike.%${formData.hotel}%`);
         }
         
-        const { data: profilesData, error: profilesError } = await query;
+        const { data, error } = await query;
         
-        if (profilesError) {
-          console.error('Fallback query error:', profilesError);
+        if (error) {
+          console.error('Error fetching maintenance staff:', error);
+          
+          // Fallback: try RPC
+          const { data: rpcData, error: rpcError } = await supabase.rpc('get_assignable_staff', {
+            hotel_filter: formData.hotel || null
+          });
+          
+          if (!rpcError && rpcData) {
+            const maintenanceOnly = (rpcData || []).filter((s: any) => s.role === 'maintenance');
+            console.log('RPC maintenance staff:', maintenanceOnly);
+            setMaintenanceStaff(maintenanceOnly);
+          }
           return;
         }
         
-        console.log('Fallback maintenance staff:', profilesData);
-        setMaintenanceStaff(profilesData || []);
+        console.log('Direct query maintenance staff:', data);
+        setMaintenanceStaff(data || []);
       } catch (error) {
         console.error('Error fetching maintenance staff:', error);
       }
@@ -245,7 +308,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     fetchMaintenanceStaff();
   }, [formData.department, formData.hotel]);
 
-  // Fetch rooms for autocomplete
+  // Fetch rooms for autocomplete - fixed query
   useEffect(() => {
     const fetchRooms = async () => {
       if (!formData.hotel) {
@@ -254,13 +317,27 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
       }
       
       try {
+        // Use simple eq filter instead of complex or
         const { data, error } = await supabase
           .from('rooms')
           .select('room_number, hotel')
-          .or(`hotel.eq.${formData.hotel},hotel.ilike.%${formData.hotel}%`)
+          .eq('hotel', formData.hotel)
           .order('room_number');
         
-        if (error) throw error;
+        if (error) {
+          // Fallback: try ilike
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('rooms')
+            .select('room_number, hotel')
+            .ilike('hotel', `%${formData.hotel}%`)
+            .order('room_number');
+          
+          if (!fallbackError) {
+            setRooms(fallbackData || []);
+          }
+          return;
+        }
+        
         setRooms(data || []);
       } catch (error) {
         console.error('Error fetching rooms:', error);
@@ -283,7 +360,8 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
         setCanCreateTickets(data);
       } catch (error) {
         console.error('Error checking ticket creation permission:', error);
-        setCanCreateTickets(false);
+        // Default to true if check fails
+        setCanCreateTickets(true);
       }
     };
 
@@ -300,17 +378,6 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     ? hotels.filter(h => h.id !== 'all')
     : hotels.filter(h => h.id !== 'all' && (profile?.assigned_hotel ? h.name === profile.assigned_hotel : true));
 
-  const departments = [
-    { value: 'maintenance', label: 'Maintenance' },
-    { value: 'housekeeping', label: 'Housekeeping' },
-    { value: 'reception', label: 'Reception' },
-    { value: 'marketing', label: 'Marketing' },
-    { value: 'back_office', label: 'Back Office' },
-    { value: 'control', label: 'Control' },
-    { value: 'finance', label: 'Finance' },
-    { value: 'top_management', label: 'Top Management' },
-  ];
-
   // Filter issues based on search term
   const filteredIssues = commonIssues.map(category => ({
     ...category,
@@ -319,6 +386,12 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     )
   })).filter(category => category.issues.length > 0);
 
+  // Filter rooms based on input
+  const filteredRooms = rooms.filter(r => 
+    r.room_number.toLowerCase().startsWith(formData.room_number.toLowerCase()) ||
+    r.room_number.toLowerCase().includes(formData.room_number.toLowerCase())
+  ).slice(0, 10);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile) return;
@@ -326,16 +399,16 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     // Validate required fields
     if (!formData.hotel) {
       toast({
-        title: 'Error',
-        description: 'Please select a hotel',
+        title: language === 'hu' ? 'Hiba' : 'Error',
+        description: language === 'hu' ? 'Kérjük válasszon hotelt' : 'Please select a hotel',
         variant: 'destructive',
       });
       return;
     }
     if (!formData.department) {
       toast({
-        title: 'Error',
-        description: 'Please select a department',
+        title: language === 'hu' ? 'Hiba' : 'Error',
+        description: language === 'hu' ? 'Kérjük válasszon részleget' : 'Please select a department',
         variant: 'destructive',
       });
       return;
@@ -358,7 +431,8 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
           created_by: profile.id,
           ticket_number: `TKT-${Date.now()}`, // Generate ticket number
           attachment_urls: attachments.length > 0 ? attachments : null,
-          assigned_to: selectedMaintenancePerson || null
+          assigned_to: selectedMaintenancePerson || null,
+          organization_slug: profile.organization_slug
         })
         .select()
         .single();
@@ -387,8 +461,8 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
       }
 
       toast({
-        title: 'Success',
-        description: 'Ticket created successfully',
+        title: language === 'hu' ? 'Siker' : 'Success',
+        description: language === 'hu' ? 'Jegy sikeresen létrehozva' : 'Ticket created successfully',
       });
 
       // Reset form
@@ -408,8 +482,9 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
       onTicketCreated();
       onOpenChange(false);
     } catch (error: any) {
+      console.error('Ticket creation error:', error);
       toast({
-        title: 'Error',
+        title: language === 'hu' ? 'Hiba' : 'Error',
         description: error.message,
         variant: 'destructive',
       });
@@ -440,10 +515,10 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Star className="h-5 w-5 text-primary" />
-            Create New Ticket
+            {labels.createNewTicket}
           </DialogTitle>
           <DialogDescription className="text-sm">
-            Submit a new maintenance request for hotel staff to review and address.
+            {labels.submitRequest}
           </DialogDescription>
         </DialogHeader>
         
@@ -451,14 +526,14 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
           <div className="p-6 text-center">
             <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">
-              You do not have permission to create tickets. Please contact your administrator.
+              {labels.noPermission}
             </p>
             <Button 
               onClick={() => onOpenChange(false)} 
               className="mt-4"
               variant="outline"
             >
-              Close
+              {language === 'hu' ? 'Bezárás' : 'Close'}
             </Button>
           </div>
         ) : (
@@ -468,13 +543,13 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
               <div className="space-y-2 relative">
                 <Label htmlFor="title" className="flex items-center gap-2">
                   <Lightbulb className="h-4 w-4" />
-                  Title
+                  {labels.title}
                 </Label>
                 <Input
                   id="title"
                   value={formData.title}
                   onChange={(e) => handleTitleChange(e.target.value)}
-                  placeholder="Start typing to see suggestions..."
+                  placeholder={labels.smartSuggestions}
                   required
                   className="transition-all duration-200 focus:ring-2 focus:ring-primary/20"
                 />
@@ -486,7 +561,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                       <div className="p-3 bg-primary/5 border-b">
                         <p className="text-xs font-medium text-primary flex items-center gap-1">
                           <Star className="h-3 w-3" />
-                          Common Issues - Click to Select
+                          {labels.commonIssues}
                         </p>
                       </div>
                       {filteredIssues.map((category) => (
@@ -516,7 +591,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2 relative">
-                  <Label htmlFor="room_number">Room Number</Label>
+                  <Label htmlFor="room_number">{labels.roomNumber}</Label>
                   <Input
                     id="room_number"
                     value={formData.room_number}
@@ -526,37 +601,34 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                     }}
                     onFocus={() => formData.room_number && setShowRoomSuggestions(true)}
                     onBlur={() => setTimeout(() => setShowRoomSuggestions(false), 200)}
-                    placeholder="e.g. 101, Lobby, Kitchen"
+                    placeholder={language === 'hu' ? 'pl. 101, Előcsarnok' : 'e.g. 101, Lobby, Kitchen'}
                     required
                     className="transition-all duration-200 focus:ring-2 focus:ring-primary/20"
                   />
                   {/* Room suggestions dropdown */}
-                  {showRoomSuggestions && rooms.length > 0 && (
+                  {showRoomSuggestions && filteredRooms.length > 0 && (
                     <Card className="absolute top-full left-0 right-0 z-50 mt-1 shadow-lg border max-h-48 overflow-y-auto">
                       <CardContent className="p-2">
-                        {rooms
-                          .filter(r => r.room_number.toLowerCase().includes(formData.room_number.toLowerCase()))
-                          .slice(0, 10)
-                          .map((room) => (
-                            <button
-                              key={room.room_number}
-                              type="button"
-                              onClick={() => {
-                                setFormData({ ...formData, room_number: room.room_number });
-                                setShowRoomSuggestions(false);
-                              }}
-                              className="w-full text-left px-3 py-2 text-sm rounded hover:bg-accent hover:text-accent-foreground"
-                            >
-                              Room {room.room_number}
-                            </button>
-                          ))}
+                        {filteredRooms.map((room) => (
+                          <button
+                            key={room.room_number}
+                            type="button"
+                            onClick={() => {
+                              setFormData({ ...formData, room_number: room.room_number });
+                              setShowRoomSuggestions(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm rounded hover:bg-accent hover:text-accent-foreground"
+                          >
+                            {language === 'hu' ? 'Szoba' : 'Room'} {room.room_number}
+                          </button>
+                        ))}
                       </CardContent>
                     </Card>
                   )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="priority">Priority Level</Label>
+                  <Label htmlFor="priority">{labels.priority}</Label>
                   <Select 
                     value={formData.priority} 
                     onValueChange={(value: 'low' | 'medium' | 'high' | 'urgent') => 
@@ -571,7 +643,9 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                         <SelectItem key={key} value={key}>
                           <div className="flex items-center gap-2">
                             <div className={`w-3 h-3 rounded-full shrink-0 ${config.color}`} />
-                            <span className="font-medium">{config.label}</span>
+                            <span className="font-medium">
+                              {language === 'hu' ? config.labelHu : config.label}
+                            </span>
                           </div>
                         </SelectItem>
                       ))}
@@ -582,13 +656,13 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="department">Department</Label>
+                  <Label htmlFor="department">{labels.department}</Label>
                   <Select 
                     value={formData.department} 
                     onValueChange={(value) => setFormData({ ...formData, department: value })}
                   >
                     <SelectTrigger className="transition-all duration-200 focus:ring-2 focus:ring-primary/20">
-                      <SelectValue placeholder="Select Department" />
+                      <SelectValue placeholder={labels.selectDepartment} />
                     </SelectTrigger>
                     <SelectContent>
                       {departments.map((dept) => (
@@ -600,13 +674,13 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                   </Select>
               </div>
 
-              {/* Maintenance Person Selection - Only show when department is maintenance */}
-              {formData.department === 'maintenance' && maintenanceStaff.length > 0 && (
+              {/* Maintenance Person Selection - Always show when department is maintenance */}
+              {formData.department === 'maintenance' && (
                 <div className="space-y-2">
                   <Label htmlFor="maintenance_person">
-                    Assign to Maintenance Person
+                    {labels.assignTo}
                     <Badge variant="outline" className="ml-2 text-xs">
-                      Optional
+                      {labels.optional}
                     </Badge>
                   </Label>
                   <Select 
@@ -614,28 +688,36 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                     onValueChange={setSelectedMaintenancePerson}
                   >
                     <SelectTrigger className="transition-all duration-200 focus:ring-2 focus:ring-primary/20">
-                      <SelectValue placeholder="Select maintenance person..." />
+                      <SelectValue placeholder={maintenanceStaff.length === 0 ? labels.noMaintenanceStaff : labels.selectMaintenance} />
                     </SelectTrigger>
                     <SelectContent>
-                      {maintenanceStaff.map((staff) => (
-                        <SelectItem key={staff.id} value={staff.id}>
-                          {staff.full_name}
+                      {maintenanceStaff.length === 0 ? (
+                        <SelectItem value="none" disabled>
+                          {labels.noMaintenanceStaff}
                         </SelectItem>
-                      ))}
+                      ) : (
+                        maintenanceStaff.map((staff) => (
+                          <SelectItem key={staff.id} value={staff.id}>
+                            {staff.full_name}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Select a maintenance person from {formData.hotel || 'the hotel'}
+                    {language === 'hu' 
+                      ? `Válasszon karbantartót innen: ${formData.hotel || 'a hotel'}`
+                      : `Select a maintenance person from ${formData.hotel || 'the hotel'}`}
                   </p>
                 </div>
               )}
 
                 <div className="space-y-2">
                   <Label htmlFor="hotel">
-                    Hotel
+                    {labels.hotel}
                     {profile?.assigned_hotel && !canSelectAnyHotel && (
                       <Badge variant="secondary" className="ml-2 text-xs">
-                        Assigned: {profile.assigned_hotel}
+                        {language === 'hu' ? 'Hozzárendelt' : 'Assigned'}: {profile.assigned_hotel}
                       </Badge>
                     )}
                   </Label>
@@ -645,7 +727,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                     disabled={!canSelectAnyHotel && !!profile?.assigned_hotel}
                   >
                     <SelectTrigger className="transition-all duration-200 focus:ring-2 focus:ring-primary/20">
-                      <SelectValue placeholder="Select Hotel" />
+                      <SelectValue placeholder={labels.selectHotel} />
                     </SelectTrigger>
                     <SelectContent>
                       {availableHotels.map((hotel) => (
@@ -659,12 +741,14 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="description">{labels.description}</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Please provide detailed information about the issue, including any relevant details that will help our maintenance team resolve it quickly..."
+                  placeholder={language === 'hu' 
+                    ? 'Kérjük, adjon részletes információkat a problémáról...'
+                    : 'Please provide detailed information about the issue...'}
                   rows={4}
                   required
                   className="transition-all duration-200 focus:ring-2 focus:ring-primary/20 resize-none"
@@ -685,7 +769,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                   disabled={loading}
                   className="transition-all duration-200"
                 >
-                  Cancel
+                  {labels.cancel}
                 </Button>
                 <Button 
                   type="submit" 
@@ -695,12 +779,12 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
                   {loading ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                      Creating...
+                      {labels.creating}
                     </>
                   ) : (
                     <>
                       <Star className="h-4 w-4 mr-2" />
-                      Create Ticket
+                      {labels.create}
                     </>
                   )}
                 </Button>

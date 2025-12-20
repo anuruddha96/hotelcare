@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,9 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Wrench, Clock, CheckCircle, Play, MessageSquare, Camera, AlertTriangle, Calendar } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Wrench, Clock, CheckCircle, Play, MessageSquare, Camera, AlertTriangle, Calendar as CalendarIcon, Pause, Timer, Image } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, differenceInHours, differenceInMinutes, isBefore, addHours } from 'date-fns';
 
 interface MaintenanceTicket {
   id: string;
@@ -22,6 +25,7 @@ interface MaintenanceTicket {
   created_at: string;
   updated_at: string;
   hotel?: string;
+  sla_due_date?: string;
   created_by_profile?: {
     full_name: string;
     role: string;
@@ -30,16 +34,87 @@ interface MaintenanceTicket {
   resolution_text?: string;
 }
 
+// SLA hours by priority
+const SLA_HOURS: { [key: string]: number } = {
+  urgent: 4,
+  high: 24,
+  medium: 72,
+  low: 168
+};
+
+// Hold reasons
+const HOLD_REASONS = [
+  { value: 'parts_pending', labelEn: 'New parts pending', labelHu: 'Új alkatrészekre vár' },
+  { value: 'purchase_in_progress', labelEn: 'Purchase in progress', labelHu: 'Beszerzés folyamatban' },
+  { value: 'need_additional_parts', labelEn: 'Need additional parts', labelHu: 'További alkatrészek szükségesek' },
+  { value: 'waiting_for_approval', labelEn: 'Waiting for approval', labelHu: 'Jóváhagyásra vár' },
+  { value: 'other', labelEn: 'Other reason', labelHu: 'Egyéb ok' },
+];
+
 export function MaintenanceStaffView() {
   const { user, profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
+  const [completedTickets, setCompletedTickets] = useState<MaintenanceTicket[]>([]);
+  const [datesWithJobs, setDatesWithJobs] = useState<Date[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTicket, setSelectedTicket] = useState<MaintenanceTicket | null>(null);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
+  const [holdDialogOpen, setHoldDialogOpen] = useState(false);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [note, setNote] = useState('');
   const [resolution, setResolution] = useState('');
+  const [holdReason, setHoldReason] = useState('');
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // Translations
+  const getText = (key: string) => {
+    const translations: { [key: string]: { en: string; hu: string } } = {
+      myTasks: { en: 'My Maintenance Tasks', hu: 'Karbantartási feladataim' },
+      tasksAssigned: { en: 'Tasks assigned to you', hu: 'Önhöz rendelt feladatok' },
+      allDone: { en: 'All Done!', hu: 'Minden kész!' },
+      noTasks: { en: 'No maintenance tasks assigned to you', hu: 'Nincs Önhöz rendelt karbantartási feladat' },
+      total: { en: 'Total', hu: 'Összes' },
+      open: { en: 'Open', hu: 'Nyitott' },
+      inProgress: { en: 'In Progress', hu: 'Folyamatban' },
+      startWork: { en: 'Start Work', hu: 'Munka indítása' },
+      addNote: { en: 'Add Note', hu: 'Jegyzet hozzáadása' },
+      markComplete: { en: 'Mark Complete', hu: 'Befejezés' },
+      completeTask: { en: 'Complete Task', hu: 'Feladat befejezése' },
+      resolution: { en: 'Resolution Description', hu: 'Megoldás leírása' },
+      resolutionPlaceholder: { en: 'Describe what was done to resolve the issue...', hu: 'Írja le, hogyan oldotta meg a problémát...' },
+      submitApproval: { en: 'Submit for Approval', hu: 'Beküldés jóváhagyásra' },
+      awaitingApproval: { en: 'This will send the task for supervisor approval.', hu: 'Ez a feladat felügyelői jóváhagyásra kerül küldésre.' },
+      reportedBy: { en: 'Reported by', hu: 'Jelentette' },
+      slaDue: { en: 'SLA Due', hu: 'SLA határidő' },
+      slaOverdue: { en: 'OVERDUE', hu: 'LEJÁRT' },
+      completionPhoto: { en: 'Completion Photo', hu: 'Befejezési fotó' },
+      photoRequired: { en: 'Photo required before completion', hu: 'Fotó szükséges a befejezés előtt' },
+      takePhoto: { en: 'Take Photo', hu: 'Fotó készítése' },
+      retakePhoto: { en: 'Retake', hu: 'Újra' },
+      viewHistory: { en: 'View History', hu: 'Előzmények' },
+      putOnHold: { en: 'Put on Hold', hu: 'Várakoztatás' },
+      holdReason: { en: 'Hold Reason', hu: 'Várakoztatás oka' },
+      selectReason: { en: 'Select a reason...', hu: 'Válasszon okot...' },
+      confirmHold: { en: 'Confirm Hold', hu: 'Várakoztatás megerősítése' },
+      ticketOnHold: { en: 'Ticket put on hold', hu: 'Jegy várakoztatva' },
+      workStarted: { en: 'Work started on ticket', hu: 'Munka elkezdve' },
+      noteAdded: { en: 'Note added successfully', hu: 'Jegyzet sikeresen hozzáadva' },
+      taskCompleted: { en: 'Task completed! Awaiting supervisor approval.', hu: 'Feladat befejezve! Jóváhagyásra vár.' },
+      cancel: { en: 'Cancel', hu: 'Mégse' },
+      saveNote: { en: 'Save Note', hu: 'Jegyzet mentése' },
+      room: { en: 'Room', hu: 'Szoba' },
+      history: { en: 'Completed Jobs History', hu: 'Befejezett munkák előzményei' },
+      noJobsOnDate: { en: 'No completed jobs on this date', hu: 'Nincs befejezett munka ezen a napon' },
+      capturing: { en: 'Capturing...', hu: 'Rögzítés...' },
+    };
+    return translations[key]?.[language === 'hu' ? 'hu' : 'en'] || key;
+  };
 
   const fetchAssignedTickets = async () => {
     if (!user?.id) return;
@@ -71,6 +146,7 @@ export function MaintenanceStaffView() {
         created_at: d.created_at,
         updated_at: d.updated_at,
         hotel: d.hotel,
+        sla_due_date: d.sla_due_date,
         created_by_profile: d.created_by_profile,
         completion_photos: d.completion_photos,
         resolution_text: d.resolution_text,
@@ -89,8 +165,60 @@ export function MaintenanceStaffView() {
     }
   };
 
+  const fetchCompletedTickets = async (date: Date) => {
+    if (!user?.id) return;
+    
+    try {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      const nextDay = format(new Date(date.getTime() + 86400000), 'yyyy-MM-dd');
+      
+      const { data, error } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
+        `)
+        .eq('assigned_to', user.id)
+        .eq('department', 'maintenance')
+        .gte('closed_at', dateStr)
+        .lt('closed_at', nextDay)
+        .order('closed_at', { ascending: false });
+
+      if (error) throw error;
+      setCompletedTickets(data || []);
+    } catch (error) {
+      console.error('Error fetching completed tickets:', error);
+    }
+  };
+
+  const fetchDatesWithJobs = async () => {
+    if (!user?.id) return;
+    
+    try {
+      // Get the last 60 days of completed tickets
+      const sixtyDaysAgo = new Date();
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+      
+      const { data, error } = await supabase
+        .from('tickets')
+        .select('closed_at')
+        .eq('assigned_to', user.id)
+        .eq('department', 'maintenance')
+        .gte('closed_at', sixtyDaysAgo.toISOString())
+        .not('closed_at', 'is', null);
+
+      if (error) throw error;
+      
+      const dates = (data || []).map(d => new Date(d.closed_at));
+      setDatesWithJobs(dates);
+    } catch (error) {
+      console.error('Error fetching dates with jobs:', error);
+    }
+  };
+
   useEffect(() => {
     fetchAssignedTickets();
+    fetchDatesWithJobs();
     
     // Set up real-time subscription
     const channel = supabase
@@ -114,6 +242,12 @@ export function MaintenanceStaffView() {
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    if (historyDialogOpen) {
+      fetchCompletedTickets(selectedDate);
+    }
+  }, [selectedDate, historyDialogOpen]);
+
   const handleStartWork = async (ticket: MaintenanceTicket) => {
     try {
       const { error } = await supabase
@@ -122,7 +256,7 @@ export function MaintenanceStaffView() {
         .eq('id', ticket.id);
 
       if (error) throw error;
-      toast.success('Work started on ticket');
+      toast.success(getText('workStarted'));
       fetchAssignedTickets();
     } catch (error) {
       console.error('Error starting work:', error);
@@ -134,7 +268,6 @@ export function MaintenanceStaffView() {
     if (!selectedTicket || !note.trim()) return;
     
     try {
-      // Add comment to ticket
       const { error } = await supabase
         .from('comments')
         .insert({
@@ -144,7 +277,7 @@ export function MaintenanceStaffView() {
         });
 
       if (error) throw error;
-      toast.success('Note added successfully');
+      toast.success(getText('noteAdded'));
       setNote('');
       setNoteDialogOpen(false);
     } catch (error) {
@@ -153,26 +286,120 @@ export function MaintenanceStaffView() {
     }
   };
 
-  const handleCompleteTicket = async () => {
-    if (!selectedTicket || !resolution.trim()) {
-      toast.error('Please provide a resolution description');
+  const handlePutOnHold = async () => {
+    if (!selectedTicket || !holdReason) {
+      toast.error(language === 'hu' ? 'Kérjük, válasszon okot' : 'Please select a reason');
       return;
     }
     
     try {
+      const reasonLabel = HOLD_REASONS.find(r => r.value === holdReason)?.[language === 'hu' ? 'labelHu' : 'labelEn'] || holdReason;
+      
+      // Add a comment with the hold reason
+      await supabase
+        .from('comments')
+        .insert({
+          ticket_id: selectedTicket.id,
+          user_id: user?.id,
+          content: `Ticket put on hold: ${reasonLabel}`,
+        });
+
+      toast.success(getText('ticketOnHold'));
+      setHoldReason('');
+      setHoldDialogOpen(false);
+      fetchAssignedTickets();
+    } catch (error) {
+      console.error('Error putting ticket on hold:', error);
+      toast.error('Failed to put ticket on hold');
+    }
+  };
+
+  const startCamera = async () => {
+    try {
+      setIsCapturing(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      toast.error('Failed to access camera');
+      setIsCapturing(false);
+    }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      setCapturedPhoto(dataUrl);
+      stopCamera();
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsCapturing(false);
+  };
+
+  const handleCompleteTicket = async () => {
+    if (!selectedTicket || !resolution.trim()) {
+      toast.error(language === 'hu' ? 'Kérjük, adja meg a megoldás leírását' : 'Please provide a resolution description');
+      return;
+    }
+    
+    if (!capturedPhoto) {
+      toast.error(language === 'hu' ? 'Kérjük, készítsen fotót a befejezett munkáról' : 'Please take a photo of the completed work');
+      return;
+    }
+    
+    try {
+      // Upload the photo
+      const photoBlob = await fetch(capturedPhoto).then(r => r.blob());
+      const fileName = `maintenance-completion/${selectedTicket.id}-${Date.now()}.jpg`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('ticket-attachments')
+        .upload(fileName, photoBlob);
+      
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        // Continue without photo if upload fails
+      }
+      
+      const { data: urlData } = supabase.storage
+        .from('ticket-attachments')
+        .getPublicUrl(fileName);
+      
+      const photoUrl = urlData?.publicUrl;
+      
       const { error } = await supabase
         .from('tickets')
         .update({
-          status: 'in_progress', // Keep in progress until supervisor approves
+          status: 'in_progress',
           resolution_text: resolution,
           pending_supervisor_approval: true,
+          completion_photos: photoUrl ? [photoUrl] : null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedTicket.id);
 
       if (error) throw error;
-      toast.success('Task completed! Awaiting supervisor approval.');
+      toast.success(getText('taskCompleted'));
       setResolution('');
+      setCapturedPhoto(null);
       setCompleteDialogOpen(false);
       fetchAssignedTickets();
     } catch (error) {
@@ -200,10 +427,31 @@ export function MaintenanceStaffView() {
     }
   };
 
+  const getSlaInfo = (ticket: MaintenanceTicket) => {
+    const createdAt = new Date(ticket.created_at);
+    const slaHours = SLA_HOURS[ticket.priority] || 72;
+    const dueDate = addHours(createdAt, slaHours);
+    const now = new Date();
+    const isOverdue = isBefore(dueDate, now);
+    const hoursRemaining = differenceInHours(dueDate, now);
+    const minutesRemaining = differenceInMinutes(dueDate, now) % 60;
+    
+    return { dueDate, isOverdue, hoursRemaining, minutesRemaining };
+  };
+
   const summary = {
     total: tickets.length,
     open: tickets.filter(t => t.status === 'open').length,
     inProgress: tickets.filter(t => t.status === 'in_progress').length,
+  };
+
+  // Check if a date has jobs
+  const hasJobsOnDate = (date: Date) => {
+    return datesWithJobs.some(d => 
+      d.getFullYear() === date.getFullYear() &&
+      d.getMonth() === date.getMonth() &&
+      d.getDate() === date.getDate()
+    );
   };
 
   if (loading) {
@@ -216,12 +464,18 @@ export function MaintenanceStaffView() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold flex items-center gap-2">
-          <Wrench className="h-6 w-6" />
-          My Maintenance Tasks
-        </h2>
-        <p className="text-muted-foreground">Tasks assigned to you</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Wrench className="h-6 w-6" />
+            {getText('myTasks')}
+          </h2>
+          <p className="text-muted-foreground">{getText('tasksAssigned')}</p>
+        </div>
+        <Button variant="outline" onClick={() => setHistoryDialogOpen(true)}>
+          <CalendarIcon className="h-4 w-4 mr-2" />
+          {getText('viewHistory')}
+        </Button>
       </div>
 
       {/* Summary Cards */}
@@ -229,19 +483,19 @@ export function MaintenanceStaffView() {
         <Card className="bg-primary/5">
           <CardContent className="p-4 text-center">
             <p className="text-2xl font-bold">{summary.total}</p>
-            <p className="text-sm text-muted-foreground">Total</p>
+            <p className="text-sm text-muted-foreground">{getText('total')}</p>
           </CardContent>
         </Card>
         <Card className="bg-blue-50">
           <CardContent className="p-4 text-center">
             <p className="text-2xl font-bold text-blue-600">{summary.open}</p>
-            <p className="text-sm text-muted-foreground">Open</p>
+            <p className="text-sm text-muted-foreground">{getText('open')}</p>
           </CardContent>
         </Card>
         <Card className="bg-amber-50">
           <CardContent className="p-4 text-center">
             <p className="text-2xl font-bold text-amber-600">{summary.inProgress}</p>
-            <p className="text-sm text-muted-foreground">In Progress</p>
+            <p className="text-sm text-muted-foreground">{getText('inProgress')}</p>
           </CardContent>
         </Card>
       </div>
@@ -250,90 +504,122 @@ export function MaintenanceStaffView() {
       {tickets.length === 0 ? (
         <Card className="p-8 text-center">
           <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-          <h3 className="text-lg font-semibold">All Done!</h3>
-          <p className="text-muted-foreground">No maintenance tasks assigned to you</p>
+          <h3 className="text-lg font-semibold">{getText('allDone')}</h3>
+          <p className="text-muted-foreground">{getText('noTasks')}</p>
         </Card>
       ) : (
         <div className="space-y-4">
-          {tickets.map((ticket) => (
-            <Card key={ticket.id} className="overflow-hidden border-l-4" style={{ borderLeftColor: ticket.priority === 'urgent' ? '#ef4444' : ticket.priority === 'high' ? '#f97316' : ticket.priority === 'medium' ? '#eab308' : '#22c55e' }}>
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant="outline" className="font-mono">
-                        Room {ticket.room_number}
-                      </Badge>
-                      <Badge className={getPriorityColor(ticket.priority)}>
-                        {ticket.priority.toUpperCase()}
-                      </Badge>
-                      <Badge className={getStatusColor(ticket.status)}>
-                        {ticket.status === 'in_progress' ? 'In Progress' : ticket.status}
-                      </Badge>
+          {tickets.map((ticket) => {
+            const slaInfo = getSlaInfo(ticket);
+            
+            return (
+              <Card key={ticket.id} className="overflow-hidden border-l-4" style={{ borderLeftColor: ticket.priority === 'urgent' ? '#ef4444' : ticket.priority === 'high' ? '#f97316' : ticket.priority === 'medium' ? '#eab308' : '#22c55e' }}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className="font-mono">
+                          {getText('room')} {ticket.room_number}
+                        </Badge>
+                        <Badge className={getPriorityColor(ticket.priority)}>
+                          {ticket.priority.toUpperCase()}
+                        </Badge>
+                        <Badge className={getStatusColor(ticket.status)}>
+                          {ticket.status === 'in_progress' ? getText('inProgress') : ticket.status}
+                        </Badge>
+                      </div>
+                      <CardTitle className="text-lg">{ticket.title}</CardTitle>
                     </div>
-                    <CardTitle className="text-lg">{ticket.title}</CardTitle>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      #{ticket.ticket_number}
+                    </span>
                   </div>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    #{ticket.ticket_number}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">{ticket.description}</p>
-                
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {format(new Date(ticket.created_at), 'MMM d, yyyy HH:mm')}
-                  </span>
-                  {ticket.created_by_profile && (
-                    <span>Reported by: {ticket.created_by_profile.full_name}</span>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {ticket.status === 'open' && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleStartWork(ticket)}
-                      className="flex items-center gap-1"
-                    >
-                      <Play className="h-4 w-4" />
-                      Start Work
-                    </Button>
-                  )}
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">{ticket.description}</p>
                   
-                  {ticket.status === 'in_progress' && (
-                    <>
+                  {/* SLA Info */}
+                  <div className={`p-3 rounded-lg flex items-center gap-3 ${slaInfo.isOverdue ? 'bg-red-100 border border-red-300' : 'bg-blue-50 border border-blue-200'}`}>
+                    <Timer className={`h-5 w-5 ${slaInfo.isOverdue ? 'text-red-600' : 'text-blue-600'}`} />
+                    <div>
+                      <p className={`text-sm font-medium ${slaInfo.isOverdue ? 'text-red-700' : 'text-blue-700'}`}>
+                        {slaInfo.isOverdue ? getText('slaOverdue') : getText('slaDue')}
+                      </p>
+                      <p className={`text-xs ${slaInfo.isOverdue ? 'text-red-600' : 'text-blue-600'}`}>
+                        {slaInfo.isOverdue 
+                          ? `${Math.abs(slaInfo.hoursRemaining)}h ${Math.abs(slaInfo.minutesRemaining)}m ago`
+                          : `${slaInfo.hoursRemaining}h ${slaInfo.minutesRemaining}m remaining`
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <CalendarIcon className="h-3 w-3" />
+                      {format(new Date(ticket.created_at), 'MMM d, yyyy HH:mm')}
+                    </span>
+                    {ticket.created_by_profile && (
+                      <span>{getText('reportedBy')}: {ticket.created_by_profile.full_name}</span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {ticket.status === 'open' && (
                       <Button
                         size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedTicket(ticket);
-                          setNoteDialogOpen(true);
-                        }}
+                        onClick={() => handleStartWork(ticket)}
                         className="flex items-center gap-1"
                       >
-                        <MessageSquare className="h-4 w-4" />
-                        Add Note
+                        <Play className="h-4 w-4" />
+                        {getText('startWork')}
                       </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setSelectedTicket(ticket);
-                          setCompleteDialogOpen(true);
-                        }}
-                        className="flex items-center gap-1 bg-green-600 hover:bg-green-700"
-                      >
-                        <CheckCircle className="h-4 w-4" />
-                        Mark Complete
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                    )}
+                    
+                    {ticket.status === 'in_progress' && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedTicket(ticket);
+                            setNoteDialogOpen(true);
+                          }}
+                          className="flex items-center gap-1"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                          {getText('addNote')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedTicket(ticket);
+                            setHoldDialogOpen(true);
+                          }}
+                          className="flex items-center gap-1"
+                        >
+                          <Pause className="h-4 w-4" />
+                          {getText('putOnHold')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setSelectedTicket(ticket);
+                            setCompleteDialogOpen(true);
+                          }}
+                          className="flex items-center gap-1 bg-green-600 hover:bg-green-700"
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          {getText('markComplete')}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -341,53 +627,198 @@ export function MaintenanceStaffView() {
       <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Note - {selectedTicket?.title}</DialogTitle>
+            <DialogTitle>{getText('addNote')} - {selectedTicket?.title}</DialogTitle>
           </DialogHeader>
           <Textarea
-            placeholder="Enter your note or update..."
+            placeholder={language === 'hu' ? 'Adja meg a jegyzetét...' : 'Enter your note or update...'}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={4}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
-              Cancel
+              {getText('cancel')}
             </Button>
             <Button onClick={handleAddNote} disabled={!note.trim()}>
-              Save Note
+              {getText('saveNote')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hold Dialog */}
+      <Dialog open={holdDialogOpen} onOpenChange={setHoldDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{getText('putOnHold')} - {selectedTicket?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">{getText('holdReason')}</label>
+              <Select value={holdReason} onValueChange={setHoldReason}>
+                <SelectTrigger>
+                  <SelectValue placeholder={getText('selectReason')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {HOLD_REASONS.map((reason) => (
+                    <SelectItem key={reason.value} value={reason.value}>
+                      {language === 'hu' ? reason.labelHu : reason.labelEn}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHoldDialogOpen(false)}>
+              {getText('cancel')}
+            </Button>
+            <Button onClick={handlePutOnHold} disabled={!holdReason}>
+              {getText('confirmHold')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Complete Dialog */}
-      <Dialog open={completeDialogOpen} onOpenChange={setCompleteDialogOpen}>
-        <DialogContent>
+      <Dialog open={completeDialogOpen} onOpenChange={(open) => {
+        if (!open) stopCamera();
+        setCompleteDialogOpen(open);
+      }}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Complete Task - {selectedTicket?.title}</DialogTitle>
+            <DialogTitle>{getText('completeTask')} - {selectedTicket?.title}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Photo Capture */}
             <div>
-              <label className="text-sm font-medium">Resolution Description *</label>
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Camera className="h-4 w-4" />
+                {getText('completionPhoto')} *
+              </label>
+              <p className="text-xs text-muted-foreground mb-2">{getText('photoRequired')}</p>
+              
+              {isCapturing ? (
+                <div className="space-y-2">
+                  <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline 
+                    className="w-full rounded-lg bg-black"
+                  />
+                  <div className="flex gap-2">
+                    <Button onClick={capturePhoto} className="flex-1">
+                      <Camera className="h-4 w-4 mr-2" />
+                      {getText('capturing')}
+                    </Button>
+                    <Button variant="outline" onClick={stopCamera}>
+                      {getText('cancel')}
+                    </Button>
+                  </div>
+                </div>
+              ) : capturedPhoto ? (
+                <div className="space-y-2">
+                  <img src={capturedPhoto} alt="Completion" className="w-full rounded-lg" />
+                  <Button variant="outline" onClick={() => {
+                    setCapturedPhoto(null);
+                    startCamera();
+                  }} className="w-full">
+                    {getText('retakePhoto')}
+                  </Button>
+                </div>
+              ) : (
+                <Button onClick={startCamera} variant="outline" className="w-full">
+                  <Camera className="h-4 w-4 mr-2" />
+                  {getText('takePhoto')}
+                </Button>
+              )}
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium">{getText('resolution')} *</label>
               <Textarea
-                placeholder="Describe what was done to resolve the issue..."
+                placeholder={getText('resolutionPlaceholder')}
                 value={resolution}
                 onChange={(e) => setResolution(e.target.value)}
                 rows={4}
               />
             </div>
             <p className="text-sm text-muted-foreground">
-              This will send the task for supervisor approval.
+              {getText('awaitingApproval')}
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCompleteDialogOpen(false)}>
-              Cancel
+              {getText('cancel')}
             </Button>
-            <Button onClick={handleCompleteTicket} disabled={!resolution.trim()} className="bg-green-600 hover:bg-green-700">
-              Submit for Approval
+            <Button 
+              onClick={handleCompleteTicket} 
+              disabled={!resolution.trim() || !capturedPhoto} 
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {getText('submitApproval')}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* History Dialog */}
+      <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{getText('history')}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={(date) => date && setSelectedDate(date)}
+                modifiers={{
+                  hasJobs: (date) => hasJobsOnDate(date)
+                }}
+                modifiersStyles={{
+                  hasJobs: { 
+                    fontWeight: 'bold',
+                    position: 'relative',
+                  }
+                }}
+                components={{
+                  DayContent: ({ date }) => (
+                    <div className="relative">
+                      {date.getDate()}
+                      {hasJobsOnDate(date) && (
+                        <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary" />
+                      )}
+                    </div>
+                  )
+                }}
+              />
+            </div>
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              <h4 className="font-medium">{format(selectedDate, 'PPP')}</h4>
+              {completedTickets.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{getText('noJobsOnDate')}</p>
+              ) : (
+                completedTickets.map((ticket) => (
+                  <Card key={ticket.id} className="p-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium text-sm">{ticket.title}</p>
+                        <p className="text-xs text-muted-foreground">{getText('room')} {ticket.room_number}</p>
+                      </div>
+                      <Badge className={getPriorityColor(ticket.priority)} variant="outline">
+                        {ticket.priority}
+                      </Badge>
+                    </div>
+                    {ticket.resolution_text && (
+                      <p className="text-xs mt-2 text-muted-foreground">{ticket.resolution_text}</p>
+                    )}
+                  </Card>
+                ))
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
