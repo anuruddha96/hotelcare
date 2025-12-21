@@ -14,7 +14,10 @@ import {
   User,
   MapPin,
   AlertTriangle,
-  History
+  History,
+  Wrench,
+  Camera,
+  FileText
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -166,7 +169,7 @@ export function SupervisorApprovalView() {
         .order('created_at', { ascending: false });
 
       if (profile.assigned_hotel) {
-        query = query.or(`hotel.eq.${profile.assigned_hotel},hotel.ilike.%${profile.assigned_hotel}%`);
+        query = query.eq('hotel', profile.assigned_hotel);
       }
 
       const { data, error } = await query;
@@ -906,6 +909,173 @@ export function SupervisorApprovalView() {
                </CardContent>
              </Card>
             ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Maintenance Ticket Approvals */}
+          {pendingMaintenanceTickets.length > 0 && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                  <Wrench className="h-5 w-5 text-blue-600" />
+                  {t('supervisor.maintenanceApprovals') || 'Maintenance Ticket Approvals'}
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {t('supervisor.reviewMaintenanceTasks') || 'Review completed maintenance tasks'}
+                </p>
+              </div>
+              
+              <div className="grid gap-4">
+                {pendingMaintenanceTickets.map((ticket) => (
+                  <Card key={ticket.id} className="border border-border shadow-sm hover:shadow-md transition-all duration-200 border-l-4 border-l-blue-500">
+                    <CardHeader>
+                      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                        <div className="flex items-center gap-3">
+                          <CardTitle className="text-xl font-bold text-foreground">
+                            {ticket.title}
+                          </CardTitle>
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            {t('maintenance.pendingApproval') || 'Pending Approval'}
+                          </Badge>
+                        </div>
+                        <Badge 
+                          variant="outline" 
+                          className={
+                            ticket.priority === 'urgent' ? 'bg-red-100 text-red-800 border-red-300' :
+                            ticket.priority === 'high' ? 'bg-orange-100 text-orange-800 border-orange-300' :
+                            ticket.priority === 'medium' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                            'bg-green-100 text-green-800 border-green-300'
+                          }
+                        >
+                          {ticket.priority?.toUpperCase()}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                          <MapPin className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground">
+                              {t('tickets.roomNumber') || 'Room'}
+                            </p>
+                            <p className="text-lg font-semibold text-foreground">
+                              {ticket.room_number}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                          <User className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground">
+                              {t('tickets.reportedBy') || 'Reported By'}
+                            </p>
+                            <p className="text-lg font-semibold text-foreground">
+                              {ticket.created_by_profile?.full_name || 'Unknown'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                          <Wrench className="h-5 w-5 text-blue-600" />
+                          <div>
+                            <p className="text-sm font-medium text-blue-700">
+                              {t('tickets.fixedBy') || 'Fixed By'}
+                            </p>
+                            <p className="text-lg font-semibold text-blue-800">
+                              {ticket.assigned_to_profile?.full_name || 'Unknown'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                          <Clock className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground">
+                              {t('tickets.hotel') || 'Hotel'}
+                            </p>
+                            <p className="text-lg font-semibold text-foreground">
+                              {ticket.hotel || 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Issue Description */}
+                      <div className="p-4 bg-muted/30 rounded-lg">
+                        <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          {t('tickets.description') || 'Issue Description'}
+                        </h4>
+                        <p className="text-sm text-muted-foreground">{ticket.description}</p>
+                      </div>
+
+                      {/* Resolution Text */}
+                      {ticket.resolution_text && (
+                        <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                          <h4 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4" />
+                            {t('maintenance.resolution') || 'Resolution'}
+                          </h4>
+                          <p className="text-sm text-green-700">{ticket.resolution_text}</p>
+                        </div>
+                      )}
+
+                      {/* Completion Photos */}
+                      {ticket.completion_photos && ticket.completion_photos.length > 0 && (
+                        <div className="space-y-2">
+                          <h4 className="font-semibold text-foreground flex items-center gap-2">
+                            <Camera className="h-4 w-4" />
+                            {t('maintenance.completionPhotos') || 'Completion Photos'}
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {ticket.completion_photos.map((photo: string, idx: number) => (
+                              <a 
+                                key={idx} 
+                                href={photo} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="block"
+                              >
+                                <img 
+                                  src={photo} 
+                                  alt={`Completion ${idx + 1}`}
+                                  className="w-24 h-24 object-cover rounded-lg border hover:opacity-80 transition-opacity"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <Button
+                          onClick={() => handleApproveTicket(ticket.id)}
+                          className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          {t('supervisor.approveTask') || 'Approve'}
+                        </Button>
+                        
+                        <Select onValueChange={(value) => handleReassignTicket(ticket.id, value)}>
+                          <SelectTrigger className="w-full sm:w-auto">
+                            <SelectValue placeholder={t('supervisor.reassignTo') || 'Reassign to...'} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {maintenanceStaff.map((person) => (
+                              <SelectItem key={person.id} value={person.id}>
+                                {person.full_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
             </div>
           )}
