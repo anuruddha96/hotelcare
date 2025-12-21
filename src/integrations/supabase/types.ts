@@ -1804,8 +1804,10 @@ export type Database = {
           created_by: string
           department: string | null
           description: string
+          hold_reason: string | null
           hotel: string | null
           id: string
+          on_hold: boolean | null
           organization_slug: string | null
           pending_supervisor_approval: boolean | null
           photo_url: string | null
@@ -1835,8 +1837,10 @@ export type Database = {
           created_by: string
           department?: string | null
           description: string
+          hold_reason?: string | null
           hotel?: string | null
           id?: string
+          on_hold?: boolean | null
           organization_slug?: string | null
           pending_supervisor_approval?: boolean | null
           photo_url?: string | null
@@ -1866,8 +1870,10 @@ export type Database = {
           created_by?: string
           department?: string | null
           description?: string
+          hold_reason?: string | null
           hotel?: string | null
           id?: string
+          on_hold?: boolean | null
           organization_slug?: string | null
           pending_supervisor_approval?: boolean | null
           photo_url?: string | null

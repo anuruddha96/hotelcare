@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Wrench, Clock, CheckCircle, Play, MessageSquare, Camera, AlertTriangle, Calendar as CalendarIcon, Pause, Timer, Image } from 'lucide-react';
+import { Wrench, Clock, CheckCircle, Play, MessageSquare, Camera, AlertTriangle, Calendar as CalendarIcon, Pause, Timer, RotateCcw, Hourglass, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, differenceInHours, differenceInMinutes, isBefore, addHours } from 'date-fns';
 
@@ -26,6 +26,9 @@ interface MaintenanceTicket {
   updated_at: string;
   hotel?: string;
   sla_due_date?: string;
+  on_hold?: boolean;
+  hold_reason?: string;
+  pending_supervisor_approval?: boolean;
   created_by_profile?: {
     full_name: string;
     role: string;
@@ -54,7 +57,8 @@ const HOLD_REASONS = [
 export function MaintenanceStaffView() {
   const { user, profile } = useAuth();
   const { t, language } = useTranslation();
-  const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
+  const [activeTickets, setActiveTickets] = useState<MaintenanceTicket[]>([]);
+  const [pendingApprovalTickets, setPendingApprovalTickets] = useState<MaintenanceTicket[]>([]);
   const [completedTickets, setCompletedTickets] = useState<MaintenanceTicket[]>([]);
   const [datesWithJobs, setDatesWithJobs] = useState<Date[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,6 +86,8 @@ export function MaintenanceStaffView() {
       total: { en: 'Total', hu: 'Összes' },
       open: { en: 'Open', hu: 'Nyitott' },
       inProgress: { en: 'In Progress', hu: 'Folyamatban' },
+      onHold: { en: 'On Hold', hu: 'Várakozik' },
+      pendingApproval: { en: 'Pending Approval', hu: 'Jóváhagyásra vár' },
       startWork: { en: 'Start Work', hu: 'Munka indítása' },
       addNote: { en: 'Add Note', hu: 'Jegyzet hozzáadása' },
       markComplete: { en: 'Mark Complete', hu: 'Befejezés' },
@@ -99,10 +105,12 @@ export function MaintenanceStaffView() {
       retakePhoto: { en: 'Retake', hu: 'Újra' },
       viewHistory: { en: 'View History', hu: 'Előzmények' },
       putOnHold: { en: 'Put on Hold', hu: 'Várakoztatás' },
+      removeHold: { en: 'Remove Hold', hu: 'Várakoztatás megszüntetése' },
       holdReason: { en: 'Hold Reason', hu: 'Várakoztatás oka' },
       selectReason: { en: 'Select a reason...', hu: 'Válasszon okot...' },
       confirmHold: { en: 'Confirm Hold', hu: 'Várakoztatás megerősítése' },
       ticketOnHold: { en: 'Ticket put on hold', hu: 'Jegy várakoztatva' },
+      holdRemoved: { en: 'Hold removed, work can continue', hu: 'Várakoztatás megszüntetve, folytathatja a munkát' },
       workStarted: { en: 'Work started on ticket', hu: 'Munka elkezdve' },
       noteAdded: { en: 'Note added successfully', hu: 'Jegyzet sikeresen hozzáadva' },
       taskCompleted: { en: 'Task completed! Awaiting supervisor approval.', hu: 'Feladat befejezve! Jóváhagyásra vár.' },
@@ -111,9 +119,18 @@ export function MaintenanceStaffView() {
       room: { en: 'Room', hu: 'Szoba' },
       history: { en: 'Completed Jobs History', hu: 'Befejezett munkák előzményei' },
       noJobsOnDate: { en: 'No completed jobs on this date', hu: 'Nincs befejezett munka ezen a napon' },
-      capturing: { en: 'Capturing...', hu: 'Rögzítés...' },
+      capturing: { en: 'Capture', hu: 'Rögzítés' },
+      reopenCase: { en: 'Reopen Case', hu: 'Újranyitás' },
+      caseReopened: { en: 'Case reopened for further work', hu: 'Ügy újranyitva további munkára' },
+      awaitingManagerReview: { en: 'Awaiting manager review', hu: 'Vezetői felülvizsgálatra vár' },
+      viewDetails: { en: 'View Details', hu: 'Részletek' },
     };
     return translations[key]?.[language === 'hu' ? 'hu' : 'en'] || key;
+  };
+
+  const getHoldReasonLabel = (value: string) => {
+    const reason = HOLD_REASONS.find(r => r.value === value);
+    return reason ? (language === 'hu' ? reason.labelHu : reason.labelEn) : value;
   };
 
   const fetchAssignedTickets = async () => {
@@ -121,7 +138,8 @@ export function MaintenanceStaffView() {
     
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // Fetch active tickets (not completed, not pending approval)
+      const { data: activeData, error: activeError } = await supabase
         .from('tickets')
         .select(`
           *,
@@ -130,12 +148,27 @@ export function MaintenanceStaffView() {
         .eq('assigned_to', user.id)
         .eq('department', 'maintenance')
         .neq('status', 'completed')
+        .eq('pending_supervisor_approval', false)
         .order('priority', { ascending: false })
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (activeError) throw activeError;
       
-      const parsed = (data || []).map((d: any) => ({
+      // Fetch pending approval tickets
+      const { data: pendingData, error: pendingError } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
+        `)
+        .eq('assigned_to', user.id)
+        .eq('department', 'maintenance')
+        .eq('pending_supervisor_approval', true)
+        .order('updated_at', { ascending: false });
+
+      if (pendingError) throw pendingError;
+      
+      const parseTickets = (data: any[]) => (data || []).map((d: any) => ({
         id: d.id,
         ticket_number: d.ticket_number,
         title: d.title,
@@ -147,6 +180,9 @@ export function MaintenanceStaffView() {
         updated_at: d.updated_at,
         hotel: d.hotel,
         sla_due_date: d.sla_due_date,
+        on_hold: d.on_hold,
+        hold_reason: d.hold_reason,
+        pending_supervisor_approval: d.pending_supervisor_approval,
         created_by_profile: d.created_by_profile,
         completion_photos: d.completion_photos,
         resolution_text: d.resolution_text,
@@ -154,9 +190,11 @@ export function MaintenanceStaffView() {
       
       // Sort by priority
       const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
-      parsed.sort((a, b) => (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4));
+      const active = parseTickets(activeData);
+      active.sort((a, b) => (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4));
       
-      setTickets(parsed);
+      setActiveTickets(active);
+      setPendingApprovalTickets(parseTickets(pendingData));
     } catch (error) {
       console.error('Error fetching tickets:', error);
       toast.error('Failed to load maintenance tasks');
@@ -180,6 +218,7 @@ export function MaintenanceStaffView() {
         `)
         .eq('assigned_to', user.id)
         .eq('department', 'maintenance')
+        .eq('status', 'completed')
         .gte('closed_at', dateStr)
         .lt('closed_at', nextDay)
         .order('closed_at', { ascending: false });
@@ -204,6 +243,7 @@ export function MaintenanceStaffView() {
         .select('closed_at')
         .eq('assigned_to', user.id)
         .eq('department', 'maintenance')
+        .eq('status', 'completed')
         .gte('closed_at', sixtyDaysAgo.toISOString())
         .not('closed_at', 'is', null);
 
@@ -252,7 +292,12 @@ export function MaintenanceStaffView() {
     try {
       const { error } = await supabase
         .from('tickets')
-        .update({ status: 'in_progress', updated_at: new Date().toISOString() })
+        .update({ 
+          status: 'in_progress', 
+          on_hold: false,
+          hold_reason: null,
+          updated_at: new Date().toISOString() 
+        })
         .eq('id', ticket.id);
 
       if (error) throw error;
@@ -295,13 +340,25 @@ export function MaintenanceStaffView() {
     try {
       const reasonLabel = HOLD_REASONS.find(r => r.value === holdReason)?.[language === 'hu' ? 'labelHu' : 'labelEn'] || holdReason;
       
+      // Update ticket with hold status
+      const { error: updateError } = await supabase
+        .from('tickets')
+        .update({
+          on_hold: true,
+          hold_reason: holdReason,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedTicket.id);
+
+      if (updateError) throw updateError;
+
       // Add a comment with the hold reason
       await supabase
         .from('comments')
         .insert({
           ticket_id: selectedTicket.id,
           user_id: user?.id,
-          content: `Ticket put on hold: ${reasonLabel}`,
+          content: `🔒 ${getText('putOnHold')}: ${reasonLabel}`,
         });
 
       toast.success(getText('ticketOnHold'));
@@ -311,6 +368,66 @@ export function MaintenanceStaffView() {
     } catch (error) {
       console.error('Error putting ticket on hold:', error);
       toast.error('Failed to put ticket on hold');
+    }
+  };
+
+  const handleRemoveHold = async (ticket: MaintenanceTicket) => {
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({
+          on_hold: false,
+          hold_reason: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', ticket.id);
+
+      if (error) throw error;
+
+      // Add a comment
+      await supabase
+        .from('comments')
+        .insert({
+          ticket_id: ticket.id,
+          user_id: user?.id,
+          content: `🔓 ${getText('removeHold')}`,
+        });
+
+      toast.success(getText('holdRemoved'));
+      fetchAssignedTickets();
+    } catch (error) {
+      console.error('Error removing hold:', error);
+      toast.error('Failed to remove hold');
+    }
+  };
+
+  const handleReopenCase = async (ticket: MaintenanceTicket) => {
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({
+          pending_supervisor_approval: false,
+          status: 'in_progress',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', ticket.id);
+
+      if (error) throw error;
+
+      // Add a comment
+      await supabase
+        .from('comments')
+        .insert({
+          ticket_id: ticket.id,
+          user_id: user?.id,
+          content: `🔄 ${getText('reopenCase')}`,
+        });
+
+      toast.success(getText('caseReopened'));
+      fetchAssignedTickets();
+    } catch (error) {
+      console.error('Error reopening case:', error);
+      toast.error('Failed to reopen case');
     }
   };
 
@@ -385,12 +502,15 @@ export function MaintenanceStaffView() {
       
       const photoUrl = urlData?.publicUrl;
       
+      // Update ticket - set pending_supervisor_approval to true
       const { error } = await supabase
         .from('tickets')
         .update({
           status: 'in_progress',
           resolution_text: resolution,
           pending_supervisor_approval: true,
+          on_hold: false,
+          hold_reason: null,
           completion_photos: photoUrl ? [photoUrl] : null,
           updated_at: new Date().toISOString(),
         })
@@ -440,9 +560,11 @@ export function MaintenanceStaffView() {
   };
 
   const summary = {
-    total: tickets.length,
-    open: tickets.filter(t => t.status === 'open').length,
-    inProgress: tickets.filter(t => t.status === 'in_progress').length,
+    total: activeTickets.length + pendingApprovalTickets.length,
+    open: activeTickets.filter(t => t.status === 'open').length,
+    inProgress: activeTickets.filter(t => t.status === 'in_progress' && !t.on_hold).length,
+    onHold: activeTickets.filter(t => t.on_hold).length,
+    pendingApproval: pendingApprovalTickets.length,
   };
 
   // Check if a date has jobs
@@ -479,147 +601,276 @@ export function MaintenanceStaffView() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Card className="bg-primary/5">
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold">{summary.total}</p>
-            <p className="text-sm text-muted-foreground">{getText('total')}</p>
+          <CardContent className="p-3 text-center">
+            <p className="text-xl font-bold">{summary.total}</p>
+            <p className="text-xs text-muted-foreground">{getText('total')}</p>
           </CardContent>
         </Card>
         <Card className="bg-blue-50">
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-blue-600">{summary.open}</p>
-            <p className="text-sm text-muted-foreground">{getText('open')}</p>
+          <CardContent className="p-3 text-center">
+            <p className="text-xl font-bold text-blue-600">{summary.open}</p>
+            <p className="text-xs text-muted-foreground">{getText('open')}</p>
           </CardContent>
         </Card>
         <Card className="bg-amber-50">
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-amber-600">{summary.inProgress}</p>
-            <p className="text-sm text-muted-foreground">{getText('inProgress')}</p>
+          <CardContent className="p-3 text-center">
+            <p className="text-xl font-bold text-amber-600">{summary.inProgress}</p>
+            <p className="text-xs text-muted-foreground">{getText('inProgress')}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-orange-50">
+          <CardContent className="p-3 text-center">
+            <p className="text-xl font-bold text-orange-600">{summary.onHold}</p>
+            <p className="text-xs text-muted-foreground">{getText('onHold')}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-purple-50">
+          <CardContent className="p-3 text-center">
+            <p className="text-xl font-bold text-purple-600">{summary.pendingApproval}</p>
+            <p className="text-xs text-muted-foreground">{getText('pendingApproval')}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Task List */}
-      {tickets.length === 0 ? (
+      {/* Active Tasks */}
+      {activeTickets.length === 0 && pendingApprovalTickets.length === 0 ? (
         <Card className="p-8 text-center">
           <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
           <h3 className="text-lg font-semibold">{getText('allDone')}</h3>
           <p className="text-muted-foreground">{getText('noTasks')}</p>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {tickets.map((ticket) => {
-            const slaInfo = getSlaInfo(ticket);
-            
-            return (
-              <Card key={ticket.id} className="overflow-hidden border-l-4" style={{ borderLeftColor: ticket.priority === 'urgent' ? '#ef4444' : ticket.priority === 'high' ? '#f97316' : ticket.priority === 'medium' ? '#eab308' : '#22c55e' }}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="outline" className="font-mono">
-                          {getText('room')} {ticket.room_number}
-                        </Badge>
-                        <Badge className={getPriorityColor(ticket.priority)}>
-                          {ticket.priority.toUpperCase()}
-                        </Badge>
-                        <Badge className={getStatusColor(ticket.status)}>
-                          {ticket.status === 'in_progress' ? getText('inProgress') : ticket.status}
-                        </Badge>
+        <div className="space-y-6">
+          {/* Active Tickets Section */}
+          {activeTickets.length > 0 && (
+            <div className="space-y-4">
+              {activeTickets.map((ticket) => {
+                const slaInfo = getSlaInfo(ticket);
+                const isOnHold = ticket.on_hold;
+                
+                return (
+                  <Card 
+                    key={ticket.id} 
+                    className={`overflow-hidden border-l-4 ${isOnHold ? 'bg-orange-50/50 border-l-orange-500' : ''}`}
+                    style={{ borderLeftColor: isOnHold ? undefined : (ticket.priority === 'urgent' ? '#ef4444' : ticket.priority === 'high' ? '#f97316' : ticket.priority === 'medium' ? '#eab308' : '#22c55e') }}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge variant="outline" className="font-mono">
+                              {getText('room')} {ticket.room_number}
+                            </Badge>
+                            <Badge className={getPriorityColor(ticket.priority)}>
+                              {ticket.priority.toUpperCase()}
+                            </Badge>
+                            {isOnHold ? (
+                              <Badge className="bg-orange-500 text-white">
+                                <Pause className="h-3 w-3 mr-1" />
+                                {getText('onHold')}
+                              </Badge>
+                            ) : (
+                              <Badge className={getStatusColor(ticket.status)}>
+                                {ticket.status === 'in_progress' ? getText('inProgress') : getText(ticket.status)}
+                              </Badge>
+                            )}
+                          </div>
+                          <CardTitle className="text-lg">{ticket.title}</CardTitle>
+                        </div>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          #{ticket.ticket_number}
+                        </span>
                       </div>
-                      <CardTitle className="text-lg">{ticket.title}</CardTitle>
-                    </div>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      #{ticket.ticket_number}
-                    </span>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">{ticket.description}</p>
-                  
-                  {/* SLA Info */}
-                  <div className={`p-3 rounded-lg flex items-center gap-3 ${slaInfo.isOverdue ? 'bg-red-100 border border-red-300' : 'bg-blue-50 border border-blue-200'}`}>
-                    <Timer className={`h-5 w-5 ${slaInfo.isOverdue ? 'text-red-600' : 'text-blue-600'}`} />
-                    <div>
-                      <p className={`text-sm font-medium ${slaInfo.isOverdue ? 'text-red-700' : 'text-blue-700'}`}>
-                        {slaInfo.isOverdue ? getText('slaOverdue') : getText('slaDue')}
-                      </p>
-                      <p className={`text-xs ${slaInfo.isOverdue ? 'text-red-600' : 'text-blue-600'}`}>
-                        {slaInfo.isOverdue 
-                          ? `${Math.abs(slaInfo.hoursRemaining)}h ${Math.abs(slaInfo.minutesRemaining)}m ago`
-                          : `${slaInfo.hoursRemaining}h ${slaInfo.minutesRemaining}m remaining`
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <CalendarIcon className="h-3 w-3" />
-                      {format(new Date(ticket.created_at), 'MMM d, yyyy HH:mm')}
-                    </span>
-                    {ticket.created_by_profile && (
-                      <span>{getText('reportedBy')}: {ticket.created_by_profile.full_name}</span>
-                    )}
-                  </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <p className="text-sm text-muted-foreground">{ticket.description}</p>
+                      
+                      {/* Hold Reason Display */}
+                      {isOnHold && ticket.hold_reason && (
+                        <div className="p-3 rounded-lg bg-orange-100 border border-orange-300 flex items-start gap-3">
+                          <Pause className="h-5 w-5 text-orange-600 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium text-orange-800">{getText('holdReason')}:</p>
+                            <p className="text-sm text-orange-700">{getHoldReasonLabel(ticket.hold_reason)}</p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* SLA Info */}
+                      {!isOnHold && (
+                        <div className={`p-3 rounded-lg flex items-center gap-3 ${slaInfo.isOverdue ? 'bg-red-100 border border-red-300' : 'bg-blue-50 border border-blue-200'}`}>
+                          <Timer className={`h-5 w-5 ${slaInfo.isOverdue ? 'text-red-600' : 'text-blue-600'}`} />
+                          <div>
+                            <p className={`text-sm font-medium ${slaInfo.isOverdue ? 'text-red-700' : 'text-blue-700'}`}>
+                              {slaInfo.isOverdue ? getText('slaOverdue') : getText('slaDue')}
+                            </p>
+                            <p className={`text-xs ${slaInfo.isOverdue ? 'text-red-600' : 'text-blue-600'}`}>
+                              {slaInfo.isOverdue 
+                                ? `${Math.abs(slaInfo.hoursRemaining)}h ${Math.abs(slaInfo.minutesRemaining)}m ago`
+                                : `${slaInfo.hoursRemaining}h ${slaInfo.minutesRemaining}m remaining`
+                              }
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <CalendarIcon className="h-3 w-3" />
+                          {format(new Date(ticket.created_at), 'MMM d, yyyy HH:mm')}
+                        </span>
+                        {ticket.created_by_profile && (
+                          <span>{getText('reportedBy')}: {ticket.created_by_profile.full_name}</span>
+                        )}
+                      </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {ticket.status === 'open' && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleStartWork(ticket)}
-                        className="flex items-center gap-1"
-                      >
-                        <Play className="h-4 w-4" />
-                        {getText('startWork')}
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        {/* Show Remove Hold button if on hold */}
+                        {isOnHold && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleRemoveHold(ticket)}
+                            className="flex items-center gap-1 bg-orange-600 hover:bg-orange-700"
+                          >
+                            <Play className="h-4 w-4" />
+                            {getText('removeHold')}
+                          </Button>
+                        )}
+                        
+                        {ticket.status === 'open' && !isOnHold && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleStartWork(ticket)}
+                            className="flex items-center gap-1"
+                          >
+                            <Play className="h-4 w-4" />
+                            {getText('startWork')}
+                          </Button>
+                        )}
+                        
+                        {ticket.status === 'in_progress' && !isOnHold && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedTicket(ticket);
+                                setNoteDialogOpen(true);
+                              }}
+                              className="flex items-center gap-1"
+                            >
+                              <MessageSquare className="h-4 w-4" />
+                              {getText('addNote')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedTicket(ticket);
+                                setHoldDialogOpen(true);
+                              }}
+                              className="flex items-center gap-1"
+                            >
+                              <Pause className="h-4 w-4" />
+                              {getText('putOnHold')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                setSelectedTicket(ticket);
+                                setCompleteDialogOpen(true);
+                              }}
+                              className="flex items-center gap-1 bg-green-600 hover:bg-green-700"
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                              {getText('markComplete')}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pending Approval Section */}
+          {pendingApprovalTickets.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Hourglass className="h-5 w-5 text-purple-600" />
+                <h3 className="text-lg font-semibold">{getText('pendingApproval')}</h3>
+                <Badge className="bg-purple-100 text-purple-800">{pendingApprovalTickets.length}</Badge>
+              </div>
+              
+              {pendingApprovalTickets.map((ticket) => (
+                <Card key={ticket.id} className="overflow-hidden border-l-4 border-l-purple-500 bg-purple-50/30">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="font-mono">
+                            {getText('room')} {ticket.room_number}
+                          </Badge>
+                          <Badge className={getPriorityColor(ticket.priority)}>
+                            {ticket.priority.toUpperCase()}
+                          </Badge>
+                          <Badge className="bg-purple-500 text-white">
+                            <Hourglass className="h-3 w-3 mr-1" />
+                            {getText('pendingApproval')}
+                          </Badge>
+                        </div>
+                        <CardTitle className="text-lg">{ticket.title}</CardTitle>
+                      </div>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        #{ticket.ticket_number}
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="p-3 rounded-lg bg-purple-100 border border-purple-300 flex items-start gap-3">
+                      <Hourglass className="h-5 w-5 text-purple-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-purple-800">{getText('awaitingManagerReview')}</p>
+                        {ticket.resolution_text && (
+                          <p className="text-sm text-purple-700 mt-1">{getText('resolution')}: {ticket.resolution_text}</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Show completion photo if exists */}
+                    {ticket.completion_photos && ticket.completion_photos.length > 0 && (
+                      <div className="flex gap-2">
+                        {ticket.completion_photos.map((photo, idx) => (
+                          <img 
+                            key={idx} 
+                            src={photo} 
+                            alt="Completion" 
+                            className="w-20 h-20 object-cover rounded-lg border"
+                          />
+                        ))}
+                      </div>
                     )}
                     
-                    {ticket.status === 'in_progress' && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedTicket(ticket);
-                            setNoteDialogOpen(true);
-                          }}
-                          className="flex items-center gap-1"
-                        >
-                          <MessageSquare className="h-4 w-4" />
-                          {getText('addNote')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedTicket(ticket);
-                            setHoldDialogOpen(true);
-                          }}
-                          className="flex items-center gap-1"
-                        >
-                          <Pause className="h-4 w-4" />
-                          {getText('putOnHold')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            setSelectedTicket(ticket);
-                            setCompleteDialogOpen(true);
-                          }}
-                          className="flex items-center gap-1 bg-green-600 hover:bg-green-700"
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                          {getText('markComplete')}
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleReopenCase(ticket)}
+                        className="flex items-center gap-1"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        {getText('reopenCase')}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
