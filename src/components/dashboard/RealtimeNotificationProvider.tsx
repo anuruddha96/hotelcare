@@ -75,7 +75,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
           .subscribe()
       ] : []),
 
-      // Supervisor approvals (filtered by hotel)
+      // Supervisor approvals for room assignments (filtered by hotel)
       ...(profile?.role && ['manager', 'housekeeping_manager', 'admin'].includes(profile.role) ? [
         supabase
           .channel('supervisor-approvals-notifications')
@@ -89,7 +89,6 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
             },
             async (payload) => {
               if (payload.new.status === 'completed' && payload.old.status !== 'completed') {
-                // Fetch room details to check hotel
                 const { data: roomData } = await supabase
                   .from('rooms')
                   .select('hotel')
@@ -97,7 +96,6 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
                   .single();
 
                 if (roomData) {
-                  // Get manager's assigned hotel
                   const { data: profileData } = await supabase
                     .from('profiles')
                     .select('assigned_hotel')
@@ -107,7 +105,6 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
                   const userHotelId = profileData?.assigned_hotel;
                   let userHotelName = userHotelId;
 
-                  // Get hotel name from hotel_id if needed
                   if (userHotelId) {
                     const { data: hotelName } = await supabase
                       .rpc('get_hotel_name_from_id', { hotel_id: userHotelId });
@@ -116,7 +113,6 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
                     }
                   }
 
-                  // Only notify if the room belongs to the manager's hotel
                   if (roomData.hotel === userHotelName || roomData.hotel === userHotelId) {
                     showNotification(
                       `Room completed and ready for approval`,
@@ -125,6 +121,30 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
                     );
                   }
                 }
+              }
+            }
+          )
+          .subscribe(),
+          
+        // Maintenance ticket pending approvals for managers
+        supabase
+          .channel('maintenance-pending-approvals')
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'tickets'
+            },
+            (payload: any) => {
+              if (payload.new.pending_supervisor_approval === true && 
+                  payload.old.pending_supervisor_approval !== true &&
+                  payload.new.department === 'maintenance') {
+                showNotification(
+                  'Maintenance task ready for review',
+                  'info',
+                  'Maintenance Approval'
+                );
               }
             }
           )

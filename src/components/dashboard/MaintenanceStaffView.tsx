@@ -73,6 +73,8 @@ export function MaintenanceStaffView() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
+  const [showSignInPrompt, setShowSignInPrompt] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -256,9 +258,35 @@ export function MaintenanceStaffView() {
     }
   };
 
+  // Check if user is signed in
+  const checkSignInStatus = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const { data, error } = await supabase
+        .from('staff_attendance')
+        .select('id, status')
+        .eq('user_id', user.id)
+        .eq('work_date', today)
+        .single();
+      
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error checking sign-in status:', error);
+      }
+      
+      // User is signed in if they have a record and haven't checked out
+      setIsSignedIn(data && data.status !== 'checked_out');
+    } catch (error) {
+      console.error('Error checking sign-in status:', error);
+      setIsSignedIn(false);
+    }
+  };
+
   useEffect(() => {
     fetchAssignedTickets();
     fetchDatesWithJobs();
+    checkSignInStatus();
     
     // Set up real-time subscription
     const channel = supabase
@@ -276,9 +304,27 @@ export function MaintenanceStaffView() {
         }
       )
       .subscribe();
+      
+    // Real-time attendance status
+    const attendanceChannel = supabase
+      .channel('attendance-status')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'staff_attendance',
+          filter: `user_id=eq.${user?.id}`,
+        },
+        () => {
+          checkSignInStatus();
+        }
+      )
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(attendanceChannel);
     };
   }, [user?.id]);
 
@@ -289,6 +335,13 @@ export function MaintenanceStaffView() {
   }, [selectedDate, historyDialogOpen]);
 
   const handleStartWork = async (ticket: MaintenanceTicket) => {
+    // Check if user is signed in first
+    if (!isSignedIn) {
+      toast.error(t('attendance.checkInRequired'));
+      setShowSignInPrompt(true);
+      return;
+    }
+    
     try {
       const { error } = await supabase
         .from('tickets')
@@ -485,7 +538,7 @@ export function MaintenanceStaffView() {
     try {
       // Upload the photo
       const photoBlob = await fetch(capturedPhoto).then(r => r.blob());
-      const fileName = `maintenance-completion/${selectedTicket.id}-${Date.now()}.jpg`;
+      const fileName = `${selectedTicket.id}/completion-${Date.now()}.jpg`;
       
       const { error: uploadError } = await supabase.storage
         .from('ticket-attachments')

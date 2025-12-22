@@ -138,6 +138,20 @@ export const additionalTranslations = {
     'supervisor.completedAt': 'Completed At',
     'supervisor.duration': 'Duration',
     'supervisor.totalTimeTaken': 'Total time taken to clean the room',
+    'supervisor.maintenanceApprovals': 'Maintenance Ticket Approvals',
+    'supervisor.reviewMaintenanceTasks': 'Review completed maintenance tasks',
+    'supervisor.reassignTo': 'Reassign to...',
+    
+    // Ticket translations
+    'tickets.reportedBy': 'Reported By',
+    'tickets.fixedBy': 'Fixed By',
+    
+    // Maintenance approval translations
+    'maintenance.completionPhotos': 'Completion Photos',
+    'maintenance.approvedTickets': 'Approved Maintenance Tickets',
+    'maintenance.noApprovedTickets': 'No approved maintenance tickets for this date',
+    'maintenance.ticketRoomNumber': 'Room Number',
+    'maintenance.ticketResolution': 'Resolution',
 
     // Attendance - complete
     'attendance.title': 'Attendance Management',
@@ -1718,6 +1732,20 @@ export const additionalTranslations = {
     'supervisor.startedAt': 'Kezdés időpontja',
     'supervisor.completedAt': 'Befejezés időpontja',
     'supervisor.duration': 'Időtartam',
+    'supervisor.maintenanceApprovals': 'Karbantartási jegyek jóváhagyása',
+    'supervisor.reviewMaintenanceTasks': 'Befejezett karbantartási feladatok felülvizsgálata',
+    'supervisor.reassignTo': 'Átirányítás...',
+    
+    // Ticket translations
+    'tickets.reportedBy': 'Jelentette',
+    'tickets.fixedBy': 'Javította',
+    
+    // Maintenance approval translations
+    'maintenance.completionPhotos': 'Befejezési fotók',
+    'maintenance.approvedTickets': 'Jóváhagyott karbantartási jegyek',
+    'maintenance.noApprovedTickets': 'Nincs jóváhagyott karbantartási jegy ezen a napon',
+    'maintenance.ticketRoomNumber': 'Szobaszám',
+    'maintenance.ticketResolution': 'Megoldás',
     'supervisor.totalTimeTaken': 'A szoba takarításához szükséges teljes idő',
 
     // Attendance
