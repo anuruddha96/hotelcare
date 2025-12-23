@@ -75,8 +75,10 @@ export function MaintenanceStaffView() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
   const [showSignInPrompt, setShowSignInPrompt] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'open' | 'inProgress' | 'onHold' | 'pending'>('all');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // Translations
   const getText = (key: string) => {
@@ -288,13 +290,27 @@ export function MaintenanceStaffView() {
     fetchDatesWithJobs();
     checkSignInStatus();
     
-    // Set up real-time subscription
+    // Set up real-time subscription for INSERT events
     const channel = supabase
-      .channel('maintenance-tickets')
+      .channel('maintenance-tickets-insert')
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
+          schema: 'public',
+          table: 'tickets',
+        },
+        (payload) => {
+          // Check if ticket is assigned to current user
+          if ((payload.new as any).assigned_to === user?.id) {
+            fetchAssignedTickets();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
           schema: 'public',
           table: 'tickets',
           filter: `assigned_to=eq.${user?.id}`,
@@ -322,9 +338,38 @@ export function MaintenanceStaffView() {
       )
       .subscribe();
 
+    // Polling fallback every 15 seconds when tab is visible
+    const startPolling = () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      pollingRef.current = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          fetchAssignedTickets();
+        }
+      }, 15000);
+    };
+
+    startPolling();
+
+    // Refresh on focus
+    const handleFocus = () => {
+      fetchAssignedTickets();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchAssignedTickets();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(attendanceChannel);
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user?.id]);
 
@@ -620,6 +665,25 @@ export function MaintenanceStaffView() {
     pendingApproval: pendingApprovalTickets.length,
   };
 
+  // Filter tickets based on active filter
+  const getFilteredTickets = () => {
+    switch (activeFilter) {
+      case 'open':
+        return activeTickets.filter(t => t.status === 'open');
+      case 'inProgress':
+        return activeTickets.filter(t => t.status === 'in_progress' && !t.on_hold);
+      case 'onHold':
+        return activeTickets.filter(t => t.on_hold);
+      case 'pending':
+        return [];
+      default:
+        return activeTickets;
+    }
+  };
+
+  const filteredTickets = getFilteredTickets();
+  const showPendingSection = activeFilter === 'all' || activeFilter === 'pending';
+
   // Check if a date has jobs
   const hasJobsOnDate = (date: Date) => {
     return datesWithJobs.some(d => 
@@ -638,68 +702,83 @@ export function MaintenanceStaffView() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-start">
+    <div className="space-y-4 px-2 sm:px-0">
+      <div className="flex flex-col sm:flex-row justify-between items-start gap-2">
         <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Wrench className="h-6 w-6" />
+          <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+            <Wrench className="h-5 w-5 sm:h-6 sm:w-6" />
             {getText('myTasks')}
           </h2>
-          <p className="text-muted-foreground">{getText('tasksAssigned')}</p>
+          <p className="text-sm text-muted-foreground">{getText('tasksAssigned')}</p>
         </div>
-        <Button variant="outline" onClick={() => setHistoryDialogOpen(true)}>
-          <CalendarIcon className="h-4 w-4 mr-2" />
+        <Button variant="outline" size="sm" onClick={() => setHistoryDialogOpen(true)}>
+          <CalendarIcon className="h-4 w-4 mr-1" />
           {getText('viewHistory')}
         </Button>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Card className="bg-primary/5">
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold">{summary.total}</p>
-            <p className="text-xs text-muted-foreground">{getText('total')}</p>
+      {/* Summary Cards - Clickable filters */}
+      <div className="grid grid-cols-5 gap-1.5 sm:gap-3">
+        <Card 
+          className={`cursor-pointer transition-all ${activeFilter === 'all' ? 'ring-2 ring-primary' : ''} bg-primary/5`}
+          onClick={() => setActiveFilter('all')}
+        >
+          <CardContent className="p-2 sm:p-3 text-center">
+            <p className="text-lg sm:text-xl font-bold">{summary.total}</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">{getText('total')}</p>
           </CardContent>
         </Card>
-        <Card className="bg-blue-50">
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold text-blue-600">{summary.open}</p>
-            <p className="text-xs text-muted-foreground">{getText('open')}</p>
+        <Card 
+          className={`cursor-pointer transition-all ${activeFilter === 'open' ? 'ring-2 ring-blue-500' : ''} bg-blue-50`}
+          onClick={() => setActiveFilter('open')}
+        >
+          <CardContent className="p-2 sm:p-3 text-center">
+            <p className="text-lg sm:text-xl font-bold text-blue-600">{summary.open}</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">{getText('open')}</p>
           </CardContent>
         </Card>
-        <Card className="bg-amber-50">
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold text-amber-600">{summary.inProgress}</p>
-            <p className="text-xs text-muted-foreground">{getText('inProgress')}</p>
+        <Card 
+          className={`cursor-pointer transition-all ${activeFilter === 'inProgress' ? 'ring-2 ring-amber-500' : ''} bg-amber-50`}
+          onClick={() => setActiveFilter('inProgress')}
+        >
+          <CardContent className="p-2 sm:p-3 text-center">
+            <p className="text-lg sm:text-xl font-bold text-amber-600">{summary.inProgress}</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground truncate">{getText('inProgress')}</p>
           </CardContent>
         </Card>
-        <Card className="bg-orange-50">
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold text-orange-600">{summary.onHold}</p>
-            <p className="text-xs text-muted-foreground">{getText('onHold')}</p>
+        <Card 
+          className={`cursor-pointer transition-all ${activeFilter === 'onHold' ? 'ring-2 ring-orange-500' : ''} bg-orange-50`}
+          onClick={() => setActiveFilter('onHold')}
+        >
+          <CardContent className="p-2 sm:p-3 text-center">
+            <p className="text-lg sm:text-xl font-bold text-orange-600">{summary.onHold}</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">{getText('onHold')}</p>
           </CardContent>
         </Card>
-        <Card className="bg-purple-50">
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold text-purple-600">{summary.pendingApproval}</p>
-            <p className="text-xs text-muted-foreground">{getText('pendingApproval')}</p>
+        <Card 
+          className={`cursor-pointer transition-all ${activeFilter === 'pending' ? 'ring-2 ring-purple-500' : ''} bg-purple-50`}
+          onClick={() => setActiveFilter('pending')}
+        >
+          <CardContent className="p-2 sm:p-3 text-center">
+            <p className="text-lg sm:text-xl font-bold text-purple-600">{summary.pendingApproval}</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground truncate">{getText('pendingApproval')}</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Active Tasks */}
       {activeTickets.length === 0 && pendingApprovalTickets.length === 0 ? (
-        <Card className="p-8 text-center">
-          <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-          <h3 className="text-lg font-semibold">{getText('allDone')}</h3>
-          <p className="text-muted-foreground">{getText('noTasks')}</p>
+        <Card className="p-6 text-center">
+          <CheckCircle className="h-10 w-10 mx-auto text-green-500 mb-3" />
+          <h3 className="text-base font-semibold">{getText('allDone')}</h3>
+          <p className="text-sm text-muted-foreground">{getText('noTasks')}</p>
         </Card>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Active Tickets Section */}
-          {activeTickets.length > 0 && (
-            <div className="space-y-4">
-              {activeTickets.map((ticket) => {
+          {filteredTickets.length > 0 && activeFilter !== 'pending' && (
+            <div className="space-y-3">
+              {filteredTickets.map((ticket) => {
                 const slaInfo = getSlaInfo(ticket);
                 const isOnHold = ticket.on_hold;
                 
@@ -851,8 +930,8 @@ export function MaintenanceStaffView() {
           )}
 
           {/* Pending Approval Section */}
-          {pendingApprovalTickets.length > 0 && (
-            <div className="space-y-4">
+          {pendingApprovalTickets.length > 0 && showPendingSection && (
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Hourglass className="h-5 w-5 text-purple-600" />
                 <h3 className="text-lg font-semibold">{getText('pendingApproval')}</h3>

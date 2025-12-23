@@ -235,8 +235,8 @@ export function useNotifications() {
           requireInteraction: true
         } as any);
 
-        // Auto-close after 8 seconds
-        setTimeout(() => notification.close(), 8000);
+        // Auto-close after 5 seconds
+        setTimeout(() => notification.close(), 5000);
         
         return notification;
       }
@@ -255,14 +255,15 @@ export function useNotifications() {
     
     // Show toast notification
     toast[type](message, {
-      duration: 8000,
-      position: 'top-right',
+      duration: 5000,
+      position: 'top-center',
       style: {
         background: type === 'warning' ? '#FED7AA' : type === 'success' ? '#D1FAE5' : '#DBEAFE',
         color: type === 'warning' ? '#9A3412' : type === 'success' ? '#065F46' : '#1E40AF',
         border: `2px solid ${type === 'warning' ? '#FB923C' : type === 'success' ? '#10B981' : '#3B82F6'}`,
-        fontSize: '14px',
-        fontWeight: '500'
+        fontSize: '13px',
+        fontWeight: '500',
+        maxWidth: '90vw'
       }
     });
 
@@ -300,8 +301,8 @@ export function useNotifications() {
             requireInteraction: true,
             silent: false
           });
-          setTimeout(() => notification.close(), 8000);
-        }
+        setTimeout(() => notification.close(), 5000);
+      }
       } catch (error) {
         console.log('Failed to request notification permission:', error);
       }
