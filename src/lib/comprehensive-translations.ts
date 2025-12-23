@@ -152,6 +152,11 @@ export const additionalTranslations = {
     'maintenance.noApprovedTickets': 'No approved maintenance tickets for this date',
     'maintenance.ticketRoomNumber': 'Room Number',
     'maintenance.ticketResolution': 'Resolution',
+    'maintenance.pendingApproval': 'Pending Approval',
+    
+    // Approval History tabs
+    'approvalHistory.housekeepingTab': 'Housekeeping',
+    'approvalHistory.maintenanceTab': 'Maintenance',
 
     // Attendance - complete
     'attendance.title': 'Attendance Management',
@@ -1746,6 +1751,11 @@ export const additionalTranslations = {
     'maintenance.noApprovedTickets': 'Nincs jóváhagyott karbantartási jegy ezen a napon',
     'maintenance.ticketRoomNumber': 'Szobaszám',
     'maintenance.ticketResolution': 'Megoldás',
+    'maintenance.pendingApproval': 'Jóváhagyásra vár',
+    
+    // Approval History tabs
+    'approvalHistory.housekeepingTab': 'Takarítás',
+    'approvalHistory.maintenanceTab': 'Karbantartás',
     'supervisor.totalTimeTaken': 'A szoba takarításához szükséges teljes idő',
 
     // Attendance

@@ -302,11 +302,11 @@ export function ApprovalHistoryView() {
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="housekeeping" className="flex items-center gap-2">
             <Home className="h-4 w-4" />
-            {t('housekeeping.tabs.pendingApprovals')} ({approvedAssignments.length})
+            {t('approvalHistory.housekeepingTab') || 'Housekeeping'} ({approvedAssignments.length})
           </TabsTrigger>
           <TabsTrigger value="maintenance" className="flex items-center gap-2">
             <Wrench className="h-4 w-4" />
-            {t('housekeeping.tabs.maintenance')} ({approvedMaintenanceTickets.length})
+            {t('approvalHistory.maintenanceTab') || 'Maintenance'} ({approvedMaintenanceTickets.length})
           </TabsTrigger>
         </TabsList>
 
