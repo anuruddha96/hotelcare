@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -76,6 +77,7 @@ export function MaintenanceStaffView() {
   const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
   const [showSignInPrompt, setShowSignInPrompt] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'open' | 'inProgress' | 'onHold' | 'pending'>('all');
+  const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -198,13 +200,33 @@ export function MaintenanceStaffView() {
       active.sort((a, b) => (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4));
       
       setActiveTickets(active);
-      setPendingApprovalTickets(parseTickets(pendingData));
+      const pending = parseTickets(pendingData);
+      setPendingApprovalTickets(pending);
+      
+      // Load signed URLs for pending approval tickets that have photos
+      loadSignedUrlsForTickets(pending);
     } catch (error) {
       console.error('Error fetching tickets:', error);
       toast.error('Failed to load maintenance tasks');
     } finally {
       setLoading(false);
     }
+  };
+  
+  // Load signed URLs for tickets with completion photos
+  const loadSignedUrlsForTickets = async (tickets: MaintenanceTicket[]) => {
+    const urlsMap: { [ticketId: string]: string[] } = {};
+    
+    for (const ticket of tickets) {
+      if (ticket.completion_photos && ticket.completion_photos.length > 0) {
+        const signedUrls = await getSignedPhotoUrls(ticket.completion_photos, 'ticket-attachments');
+        if (signedUrls.length > 0) {
+          urlsMap[ticket.id] = signedUrls;
+        }
+      }
+    }
+    
+    setSignedPhotoUrls(prev => ({ ...prev, ...urlsMap }));
   };
 
   const fetchCompletedTickets = async (date: Date) => {
@@ -591,14 +613,12 @@ export function MaintenanceStaffView() {
       
       if (uploadError) {
         console.error('Upload error:', uploadError);
-        // Continue without photo if upload fails
+        toast.error('Failed to upload photo');
+        return;
       }
       
-      const { data: urlData } = supabase.storage
-        .from('ticket-attachments')
-        .getPublicUrl(fileName);
-      
-      const photoUrl = urlData?.publicUrl;
+      // Store only the path, NOT the public URL (bucket is private)
+      // The path will be used to generate signed URLs when displaying
       
       // Update ticket - set pending_supervisor_approval to true
       const { error } = await supabase
@@ -609,7 +629,7 @@ export function MaintenanceStaffView() {
           pending_supervisor_approval: true,
           on_hold: false,
           hold_reason: null,
-          completion_photos: photoUrl ? [photoUrl] : null,
+          completion_photos: [fileName], // Store path only, not URL
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedTicket.id);
@@ -973,13 +993,13 @@ export function MaintenanceStaffView() {
                       </div>
                     </div>
                     
-                    {/* Show completion photo if exists */}
-                    {ticket.completion_photos && ticket.completion_photos.length > 0 && (
+                    {/* Show completion photo if exists - use signed URLs */}
+                    {signedPhotoUrls[ticket.id] && signedPhotoUrls[ticket.id].length > 0 && (
                       <div className="flex gap-2">
-                        {ticket.completion_photos.map((photo, idx) => (
+                        {signedPhotoUrls[ticket.id].map((photoUrl, idx) => (
                           <img 
                             key={idx} 
-                            src={photo} 
+                            src={photoUrl} 
                             alt="Completion" 
                             className="w-20 h-20 object-cover rounded-lg border"
                           />

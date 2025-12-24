@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -75,6 +76,7 @@ export function ApprovalHistoryView() {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState('housekeeping');
+  const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
 
   useEffect(() => {
     fetchApprovedAssignments();
@@ -215,9 +217,28 @@ export function ApprovalHistoryView() {
       }
       
       setApprovedMaintenanceTickets(tickets);
+      
+      // Load signed URLs for tickets with completion photos
+      loadSignedUrlsForTickets(tickets);
     } catch (error) {
       console.error('Error fetching approved maintenance tickets:', error);
     }
+  };
+
+  // Load signed URLs for maintenance tickets
+  const loadSignedUrlsForTickets = async (tickets: ApprovedMaintenanceTicket[]) => {
+    const urlsMap: { [ticketId: string]: string[] } = {};
+    
+    for (const ticket of tickets) {
+      if (ticket.completion_photos && ticket.completion_photos.length > 0) {
+        const signedUrls = await getSignedPhotoUrls(ticket.completion_photos, 'ticket-attachments');
+        if (signedUrls.length > 0) {
+          urlsMap[ticket.id] = signedUrls;
+        }
+      }
+    }
+    
+    setSignedPhotoUrls(prev => ({ ...prev, ...urlsMap }));
   };
 
   const calculateDuration = (startTime: string, endTime: string) => {
@@ -545,20 +566,21 @@ export function ApprovalHistoryView() {
                       </div>
                     )}
 
-                    {ticket.completion_photos && ticket.completion_photos.length > 0 && (
+                    {/* Completion Photos - use signed URLs */}
+                    {signedPhotoUrls[ticket.id] && signedPhotoUrls[ticket.id].length > 0 && (
                       <div className="space-y-2">
                         <h4 className="font-semibold text-foreground">{t('maintenance.completionPhotos')}</h4>
                         <div className="flex flex-wrap gap-2">
-                          {ticket.completion_photos.map((photo, index) => (
+                          {signedPhotoUrls[ticket.id].map((photoUrl, index) => (
                             <a
                               key={index}
-                              href={photo}
+                              href={photoUrl}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="block"
                             >
                               <img
-                                src={photo}
+                                src={photoUrl}
                                 alt={`Completion ${index + 1}`}
                                 className="h-20 w-20 object-cover rounded-lg border border-border hover:opacity-80 transition-opacity"
                               />
