@@ -27,7 +27,9 @@ export interface AttachmentFile {
 
 export interface AttachmentUploadRef {
   uploadAttachments: () => Promise<string[]>;
+  uploadWithTicketId: (ticketId: string) => Promise<string[]>;
   getAttachments: () => AttachmentFile[];
+  hasAttachments: () => boolean;
 }
 
 export const AttachmentUpload = forwardRef<AttachmentUploadRef, AttachmentUploadProps>(({ 
@@ -44,9 +46,14 @@ export const AttachmentUpload = forwardRef<AttachmentUploadRef, AttachmentUpload
   useImperativeHandle(ref, () => ({
     uploadAttachments: async () => {
       if (!ticketId || attachments.length === 0) return [];
-      return await uploadAttachments();
+      return await uploadAttachmentsInternal(ticketId);
     },
-    getAttachments: () => attachments
+    uploadWithTicketId: async (id: string) => {
+      if (!id || attachments.length === 0) return [];
+      return await uploadAttachmentsInternal(id);
+    },
+    getAttachments: () => attachments,
+    hasAttachments: () => attachments.length > 0
   }));
 
   const handleFileSelect = (files: FileList | null) => {
@@ -98,11 +105,11 @@ export const AttachmentUpload = forwardRef<AttachmentUploadRef, AttachmentUpload
     }
   };
 
-  const uploadAttachments = async (): Promise<string[]> => {
-    if (!ticketId || attachments.length === 0) return [];
+  const uploadAttachmentsInternal = async (targetTicketId: string): Promise<string[]> => {
+    if (!targetTicketId || attachments.length === 0) return [];
 
     setUploading(true);
-    const uploadedUrls: string[] = [];
+    const uploadedPaths: string[] = [];
 
     try {
       for (let i = 0; i < attachments.length; i++) {
@@ -115,7 +122,7 @@ export const AttachmentUpload = forwardRef<AttachmentUploadRef, AttachmentUpload
         ));
 
         const fileExt = attachment.file.name.split('.').pop();
-        const fileName = `${ticketId}/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const fileName = `${targetTicketId}/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
 
         const { data, error } = await supabase.storage
           .from('ticket-attachments')
@@ -134,23 +141,26 @@ export const AttachmentUpload = forwardRef<AttachmentUploadRef, AttachmentUpload
           continue;
         }
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('ticket-attachments')
-          .getPublicUrl(data.path);
-
-        uploadedUrls.push(publicUrl);
+        // Store path only (not public URL) since bucket is private
+        uploadedPaths.push(data.path);
 
         // Update attachment state to show uploaded
         setAttachments(prev => prev.map((att, idx) => 
-          idx === i ? { ...att, uploading: false, uploaded: true, url: publicUrl } : att
+          idx === i ? { ...att, uploading: false, uploaded: true, url: data.path } : att
         ));
       }
 
-      onAttachmentsChange(uploadedUrls);
-      return uploadedUrls;
+      onAttachmentsChange(uploadedPaths);
+      return uploadedPaths;
     } finally {
       setUploading(false);
     }
+  };
+
+  // Legacy method for backward compatibility
+  const uploadAttachments = async (): Promise<string[]> => {
+    if (!ticketId || attachments.length === 0) return [];
+    return await uploadAttachmentsInternal(ticketId);
   };
 
   const removeAttachment = (index: number) => {
