@@ -553,17 +553,46 @@ export function MaintenanceStaffView() {
 
   const startCamera = async () => {
     try {
+      // Stop any existing stream first
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      
       setIsCapturing(true);
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
-      });
+      
+      // Request camera with fallback
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment' } 
+        });
+      } catch (err) {
+        // Fallback to any camera
+        console.log('Environment camera not available, trying default camera');
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: true 
+        });
+      }
+      
       streamRef.current = stream;
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // Wait for video to be ready
+        await new Promise<void>((resolve) => {
+          if (videoRef.current) {
+            videoRef.current.onloadedmetadata = () => {
+              videoRef.current?.play().then(() => resolve()).catch(() => resolve());
+            };
+          } else {
+            resolve();
+          }
+        });
       }
     } catch (error) {
       console.error('Error accessing camera:', error);
-      toast.error('Failed to access camera');
+      toast.error(language === 'hu' ? 'Nem sikerült elérni a kamerát' : 'Failed to access camera');
       setIsCapturing(false);
     }
   };
@@ -1088,11 +1117,11 @@ export function MaintenanceStaffView() {
         if (!open) stopCamera();
         setCompleteDialogOpen(open);
       }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90dvh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>{getText('completeTask')} - {selectedTicket?.title}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto space-y-4 px-1">
             {/* Photo Capture */}
             <div>
               <label className="text-sm font-medium flex items-center gap-2">
@@ -1107,7 +1136,7 @@ export function MaintenanceStaffView() {
                     ref={videoRef} 
                     autoPlay 
                     playsInline 
-                    className="w-full rounded-lg bg-black"
+                    className="w-full max-h-[40dvh] rounded-lg bg-black object-cover"
                   />
                   <div className="flex gap-2">
                     <Button onClick={capturePhoto} className="flex-1">
@@ -1121,7 +1150,7 @@ export function MaintenanceStaffView() {
                 </div>
               ) : capturedPhoto ? (
                 <div className="space-y-2">
-                  <img src={capturedPhoto} alt="Completion" className="w-full rounded-lg" />
+                  <img src={capturedPhoto} alt="Completion" className="w-full max-h-[45dvh] rounded-lg object-contain" />
                   <Button variant="outline" onClick={() => {
                     setCapturedPhoto(null);
                     startCamera();
@@ -1143,14 +1172,14 @@ export function MaintenanceStaffView() {
                 placeholder={getText('resolutionPlaceholder')}
                 value={resolution}
                 onChange={(e) => setResolution(e.target.value)}
-                rows={4}
+                rows={3}
               />
             </div>
             <p className="text-sm text-muted-foreground">
               {getText('awaitingApproval')}
             </p>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 border-t pt-4 mt-2">
             <Button variant="outline" onClick={() => setCompleteDialogOpen(false)}>
               {getText('cancel')}
             </Button>

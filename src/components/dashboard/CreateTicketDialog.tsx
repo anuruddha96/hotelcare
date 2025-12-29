@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { AttachmentUpload } from './AttachmentUpload';
+import { AttachmentUpload, AttachmentUploadRef } from './AttachmentUpload';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Lightbulb, Star, Zap, AlertTriangle, Wrench, Droplet, Thermometer, Bed, Wifi, Utensils } from 'lucide-react';
@@ -177,6 +177,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
   const [selectedMaintenancePerson, setSelectedMaintenancePerson] = useState('');
   const [rooms, setRooms] = useState<{ room_number: string; hotel: string }[]>([]);
   const [showRoomSuggestions, setShowRoomSuggestions] = useState(false);
+  const attachmentRef = useRef<AttachmentUploadRef>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -418,7 +419,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     try {
       console.log('Creating ticket with data:', { ...formData, assigned_to: selectedMaintenancePerson });
       
-      // First, create the ticket
+      // First, create the ticket (without attachments initially)
       const { data: ticketData, error: ticketError } = await supabase
         .from('tickets')
         .insert({
@@ -429,8 +430,8 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
           department: formData.department,
           hotel: formData.hotel,
           created_by: profile.id,
-          ticket_number: `TKT-${Date.now()}`, // Generate ticket number
-          attachment_urls: attachments.length > 0 ? attachments : null,
+          ticket_number: `TKT-${Date.now()}`,
+          attachment_urls: null, // Will update after upload
           assigned_to: selectedMaintenancePerson || null,
           organization_slug: profile.organization_slug
         })
@@ -438,6 +439,22 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
         .single();
 
       if (ticketError) throw ticketError;
+
+      // Upload attachments with the new ticket ID
+      if (attachmentRef.current?.hasAttachments()) {
+        try {
+          const uploadedPaths = await attachmentRef.current.uploadWithTicketId(ticketData.id);
+          if (uploadedPaths.length > 0) {
+            await supabase
+              .from('tickets')
+              .update({ attachment_urls: uploadedPaths })
+              .eq('id', ticketData.id);
+          }
+        } catch (uploadError) {
+          console.error('Attachment upload error:', uploadError);
+          // Don't fail ticket creation if attachment upload fails
+        }
+      }
 
       // Send notification to assigned maintenance person if selected
       if (selectedMaintenancePerson) {
@@ -757,6 +774,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
 
               {/* Attachment Upload */}
               <AttachmentUpload
+                ref={attachmentRef}
                 onAttachmentsChange={handleAttachmentsChange}
                 maxFiles={5}
               />
