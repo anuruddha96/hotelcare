@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
-import { UserPlus, Users, Edit, Key, Trash2, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { UserPlus, Users, Edit, Key, Trash2, CheckCircle2, XCircle, Loader2, Wrench } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -28,6 +28,13 @@ interface HousekeepingStaff {
   organization_slug?: string;
 }
 
+interface MaintenanceStats {
+  open: number;
+  inProgress: number;
+  onHold: number;
+  pendingApproval: number;
+}
+
 export function HousekeepingStaffManagement() {
   const [staff, setStaff] = useState<HousekeepingStaff[]>([]);
   const { t } = useTranslation();
@@ -42,6 +49,7 @@ export function HousekeepingStaffManagement() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [currentUserOrgSlug, setCurrentUserOrgSlug] = useState<string>('');
   const [currentUserHotel, setCurrentUserHotel] = useState<string>('');
+  const [maintenanceStats, setMaintenanceStats] = useState<Map<string, MaintenanceStats>>(new Map());
   
   const [newStaffData, setNewStaffData] = useState({
     full_name: '',
@@ -90,6 +98,54 @@ export function HousekeepingStaffManagement() {
     fetchOrganizations();
     fetchAllHotels();
   }, []);
+
+  // Fetch maintenance stats when staff list changes
+  useEffect(() => {
+    const maintenanceStaffIds = staff.filter(s => s.role === 'maintenance').map(s => s.id);
+    if (maintenanceStaffIds.length > 0) {
+      fetchMaintenanceStats(maintenanceStaffIds);
+    }
+  }, [staff]);
+
+  const fetchMaintenanceStats = async (staffIds: string[]) => {
+    try {
+      const { data: tickets, error } = await supabase
+        .from('tickets')
+        .select('id, status, assigned_to, pending_supervisor_approval, on_hold')
+        .in('assigned_to', staffIds)
+        .neq('status', 'completed');
+
+      if (error) throw error;
+
+      const statsMap = new Map<string, MaintenanceStats>();
+      
+      // Initialize stats for all maintenance staff
+      staffIds.forEach(id => {
+        statsMap.set(id, { open: 0, inProgress: 0, onHold: 0, pendingApproval: 0 });
+      });
+
+      // Count tickets for each staff member
+      (tickets || []).forEach(ticket => {
+        if (!ticket.assigned_to) return;
+        const stats = statsMap.get(ticket.assigned_to);
+        if (!stats) return;
+
+        if (ticket.on_hold) {
+          stats.onHold++;
+        } else if (ticket.pending_supervisor_approval) {
+          stats.pendingApproval++;
+        } else if (ticket.status === 'in_progress') {
+          stats.inProgress++;
+        } else if (ticket.status === 'open') {
+          stats.open++;
+        }
+      });
+
+      setMaintenanceStats(statsMap);
+    } catch (error) {
+      console.error('Error fetching maintenance stats:', error);
+    }
+  };
 
   const fetchCurrentUserRole = async () => {
     try {
@@ -888,75 +944,235 @@ export function HousekeepingStaffManagement() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="grid gap-3 sm:gap-4">
-          {staff.map((member) => (
-            <Card key={member.id}>
-              <CardContent className="p-4">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-start gap-3 sm:gap-4">
-                    <Avatar className="w-10 h-10 sm:w-12 sm:h-12">
-                      <AvatarFallback className="text-sm sm:text-base">
-                        {member.full_name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-sm sm:text-base truncate">{member.full_name}</h4>
-                      {member.nickname && (
-                        <p className="text-xs font-medium text-primary">@{member.nickname}</p>
-                      )}
-                      <p className="text-xs sm:text-sm text-muted-foreground truncate">
-                        {member.email || t('staff.noEmailProvided')}
-                      </p>
-                      {member.phone_number && (
-                        <p className="text-xs text-muted-foreground">{member.phone_number}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2 items-start sm:items-end">
-                    <div className="flex flex-wrap gap-1">
-                      <Badge variant="secondary" className="text-xs">
-                        {member.role}
-                      </Badge>
-                      {member.assigned_hotel && (
-                        <Badge variant="outline" className="text-xs">
-                          {member.assigned_hotel}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {t('staff.joined')}: {format(new Date(member.created_at), 'PP')}
-                    </p>
-                    <div className="flex gap-1">
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        onClick={() => openEdit(member)}
-                        className="h-7 px-2"
-                      >
-                        <Edit className="h-3 w-3" />
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        onClick={() => openResetPassword(member)}
-                        className="h-7 px-2"
-                      >
-                        <Key className="h-3 w-3" />
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        onClick={() => openDeleteConfirm(member)}
-                        className="h-7 px-2 text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-6">
+          {/* Housekeeping Staff Section */}
+          {staff.filter(s => s.role === 'housekeeping').length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground border-b pb-2">
+                <Users className="h-4 w-4" />
+                Housekeeping Team ({staff.filter(s => s.role === 'housekeeping').length})
+              </div>
+              <div className="grid gap-3 sm:gap-4">
+                {staff.filter(s => s.role === 'housekeeping').map((member) => (
+                  <Card key={member.id}>
+                    <CardContent className="p-4">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3 sm:gap-4">
+                          <Avatar className="w-10 h-10 sm:w-12 sm:h-12">
+                            <AvatarFallback className="text-sm sm:text-base bg-primary/10 text-primary">
+                              {member.full_name.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-sm sm:text-base truncate">{member.full_name}</h4>
+                            {member.nickname && (
+                              <p className="text-xs font-medium text-primary">@{member.nickname}</p>
+                            )}
+                            <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                              {member.email || t('staff.noEmailProvided')}
+                            </p>
+                            {member.phone_number && (
+                              <p className="text-xs text-muted-foreground">{member.phone_number}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2 items-start sm:items-end">
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="text-xs">
+                              {member.role}
+                            </Badge>
+                            {member.assigned_hotel && (
+                              <Badge variant="outline" className="text-xs">
+                                {member.assigned_hotel}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {t('staff.joined')}: {format(new Date(member.created_at), 'PP')}
+                          </p>
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => openEdit(member)} className="h-7 px-2">
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => openResetPassword(member)} className="h-7 px-2">
+                              <Key className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => openDeleteConfirm(member)} className="h-7 px-2 text-destructive hover:text-destructive">
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Maintenance Staff Section */}
+          {staff.filter(s => s.role === 'maintenance').length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground border-b pb-2">
+                <Wrench className="h-4 w-4" />
+                Maintenance Team ({staff.filter(s => s.role === 'maintenance').length})
+              </div>
+              <div className="grid gap-3 sm:gap-4">
+                {staff.filter(s => s.role === 'maintenance').map((member) => {
+                  const stats = maintenanceStats.get(member.id);
+                  return (
+                    <Card key={member.id} className="border-l-4 border-l-blue-500">
+                      <CardContent className="p-4">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-start gap-3 sm:gap-4">
+                            <Avatar className="w-10 h-10 sm:w-12 sm:h-12">
+                              <AvatarFallback className="text-sm sm:text-base bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                                {member.full_name.charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-sm sm:text-base truncate">{member.full_name}</h4>
+                              {member.nickname && (
+                                <p className="text-xs font-medium text-blue-600 dark:text-blue-400">@{member.nickname}</p>
+                              )}
+                              <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                                {member.email || t('staff.noEmailProvided')}
+                              </p>
+                              {member.phone_number && (
+                                <p className="text-xs text-muted-foreground">{member.phone_number}</p>
+                              )}
+                              {/* Maintenance Stats Badges */}
+                              {stats && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {stats.open > 0 && (
+                                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                                      Open: {stats.open}
+                                    </Badge>
+                                  )}
+                                  {stats.inProgress > 0 && (
+                                    <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-300 dark:border-yellow-800">
+                                      In Progress: {stats.inProgress}
+                                    </Badge>
+                                  )}
+                                  {stats.onHold > 0 && (
+                                    <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-300 dark:border-orange-800">
+                                      On Hold: {stats.onHold}
+                                    </Badge>
+                                  )}
+                                  {stats.pendingApproval > 0 && (
+                                    <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800">
+                                      Pending: {stats.pendingApproval}
+                                    </Badge>
+                                  )}
+                                  {stats.open === 0 && stats.inProgress === 0 && stats.onHold === 0 && stats.pendingApproval === 0 && (
+                                    <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">
+                                      No active tickets
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-2 items-start sm:items-end">
+                            <div className="flex flex-wrap gap-1">
+                              <Badge className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                {member.role}
+                              </Badge>
+                              {member.assigned_hotel && (
+                                <Badge variant="outline" className="text-xs">
+                                  {member.assigned_hotel}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {t('staff.joined')}: {format(new Date(member.created_at), 'PP')}
+                            </p>
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => openEdit(member)} className="h-7 px-2">
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => openResetPassword(member)} className="h-7 px-2">
+                                <Key className="h-3 w-3" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => openDeleteConfirm(member)} className="h-7 px-2 text-destructive hover:text-destructive">
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Managers Section */}
+          {staff.filter(s => s.role === 'manager' || s.role === 'housekeeping_manager').length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground border-b pb-2">
+                <Users className="h-4 w-4" />
+                Managers ({staff.filter(s => s.role === 'manager' || s.role === 'housekeeping_manager').length})
+              </div>
+              <div className="grid gap-3 sm:gap-4">
+                {staff.filter(s => s.role === 'manager' || s.role === 'housekeeping_manager').map((member) => (
+                  <Card key={member.id} className="border-l-4 border-l-amber-500">
+                    <CardContent className="p-4">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3 sm:gap-4">
+                          <Avatar className="w-10 h-10 sm:w-12 sm:h-12">
+                            <AvatarFallback className="text-sm sm:text-base bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                              {member.full_name.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-sm sm:text-base truncate">{member.full_name}</h4>
+                            {member.nickname && (
+                              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">@{member.nickname}</p>
+                            )}
+                            <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                              {member.email || t('staff.noEmailProvided')}
+                            </p>
+                            {member.phone_number && (
+                              <p className="text-xs text-muted-foreground">{member.phone_number}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2 items-start sm:items-end">
+                          <div className="flex flex-wrap gap-1">
+                            <Badge className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                              {member.role}
+                            </Badge>
+                            {member.assigned_hotel && (
+                              <Badge variant="outline" className="text-xs">
+                                {member.assigned_hotel}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {t('staff.joined')}: {format(new Date(member.created_at), 'PP')}
+                          </p>
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => openEdit(member)} className="h-7 px-2">
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => openResetPassword(member)} className="h-7 px-2">
+                              <Key className="h-3 w-3" />
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => openDeleteConfirm(member)} className="h-7 px-2 text-destructive hover:text-destructive">
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
           {staff.length === 0 && (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">

@@ -1117,11 +1117,11 @@ export function MaintenanceStaffView() {
         if (!open) stopCamera();
         setCompleteDialogOpen(open);
       }}>
-        <DialogContent className="max-w-lg max-h-[90dvh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-lg max-h-[85dvh] overflow-hidden flex flex-col">
           <DialogHeader className="flex-shrink-0">
-            <DialogTitle>{getText('completeTask')} - {selectedTicket?.title}</DialogTitle>
+            <DialogTitle className="text-base">{getText('completeTask')} - {selectedTicket?.title}</DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto space-y-4 px-1">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 px-1 pb-4">
             {/* Photo Capture */}
             <div>
               <label className="text-sm font-medium flex items-center gap-2">
@@ -1136,7 +1136,7 @@ export function MaintenanceStaffView() {
                     ref={videoRef} 
                     autoPlay 
                     playsInline 
-                    className="w-full max-h-[40dvh] rounded-lg bg-black object-cover"
+                    className="w-full max-h-[35dvh] rounded-lg bg-black object-cover"
                   />
                   <div className="flex gap-2">
                     <Button onClick={capturePhoto} className="flex-1">
@@ -1150,11 +1150,11 @@ export function MaintenanceStaffView() {
                 </div>
               ) : capturedPhoto ? (
                 <div className="space-y-2">
-                  <img src={capturedPhoto} alt="Completion" className="w-full max-h-[45dvh] rounded-lg object-contain" />
+                  <img src={capturedPhoto} alt="Completion" className="w-full max-h-[30dvh] rounded-lg object-contain" />
                   <Button variant="outline" onClick={() => {
                     setCapturedPhoto(null);
                     startCamera();
-                  }} className="w-full">
+                  }} className="w-full" size="sm">
                     {getText('retakePhoto')}
                   </Button>
                 </div>
@@ -1172,21 +1172,23 @@ export function MaintenanceStaffView() {
                 placeholder={getText('resolutionPlaceholder')}
                 value={resolution}
                 onChange={(e) => setResolution(e.target.value)}
-                rows={3}
+                rows={2}
+                className="resize-none"
               />
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {getText('awaitingApproval')}
             </p>
           </div>
-          <DialogFooter className="flex-shrink-0 border-t pt-4 mt-2">
-            <Button variant="outline" onClick={() => setCompleteDialogOpen(false)}>
+          <DialogFooter className="flex-shrink-0 border-t pt-3 gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCompleteDialogOpen(false)}>
               {getText('cancel')}
             </Button>
             <Button 
               onClick={handleCompleteTicket} 
               disabled={!resolution.trim() || !capturedPhoto} 
               className="bg-green-600 hover:bg-green-700"
+              size="sm"
             >
               {getText('submitApproval')}
             </Button>
