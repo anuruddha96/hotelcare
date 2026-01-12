@@ -557,36 +557,38 @@ export function HousekeepingManagerView() {
                 Auto Assign
               </Button>
               
-              <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button className="flex items-center gap-2">
-                    <Plus className="h-4 w-4" />
-                    {t('team.assignRoom')}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>{t('team.createAssignment')}</DialogTitle>
-                  </DialogHeader>
-                  <RoomAssignmentDialog 
-                    onAssignmentCreated={handleAssignmentCreated}
-                    selectedDate={selectedDate}
-                  />
-                </DialogContent>
-              </Dialog>
-
-              <AutoRoomAssignment
-                open={autoAssignDialogOpen}
-                onOpenChange={setAutoAssignDialogOpen}
-                selectedDate={selectedDate}
-                onAssignmentCreated={handleAssignmentCreated}
-              />
+              <Button 
+                className="flex items-center gap-2"
+                onClick={() => setAssignmentDialogOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+                {t('team.assignRoom')}
+              </Button>
             </>
           )}
         </div>
       </div>
 
-      {/* Team Overview Cards */}
+      {/* Assignment Dialogs - placed outside flex container to avoid layout issues */}
+      <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('team.createAssignment')}</DialogTitle>
+          </DialogHeader>
+          <RoomAssignmentDialog 
+            onAssignmentCreated={handleAssignmentCreated}
+            selectedDate={selectedDate}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <AutoRoomAssignment
+        open={autoAssignDialogOpen}
+        onOpenChange={setAutoAssignDialogOpen}
+        selectedDate={selectedDate}
+        onAssignmentCreated={handleAssignmentCreated}
+      />
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {housekeepingStaff.map((staff) => {
           const assignment = teamAssignments.find(a => a.staff_id === staff.id);
