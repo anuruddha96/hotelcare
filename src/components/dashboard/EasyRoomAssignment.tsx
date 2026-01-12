@@ -27,7 +27,7 @@ interface EasyRoomAssignmentProps {
 }
 
 export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentProps) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -37,24 +37,33 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
   const [selectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (profile?.assigned_hotel) {
+      fetchData();
+    }
+  }, [profile?.assigned_hotel]);
 
   const fetchData = async () => {
+    if (!profile?.assigned_hotel || !profile?.organization_slug) {
+      console.log('Missing hotel or organization info for filtering');
+      return;
+    }
+
     try {
-      // Fetch dirty rooms
+      // Fetch dirty rooms filtered by manager's assigned hotel
       const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
         .select('id, room_number, status, hotel')
         .eq('status', 'dirty')
-        .order('hotel')
+        .eq('hotel', profile.assigned_hotel)
         .order('room_number');
 
-      // Fetch housekeeping staff
+      // Fetch housekeeping staff filtered by same hotel and organization
       const { data: staffData, error: staffError } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
         .eq('role', 'housekeeping')
+        .eq('assigned_hotel', profile.assigned_hotel)
+        .eq('organization_slug', profile.organization_slug)
         .order('full_name');
 
       if (roomsError || staffError) {

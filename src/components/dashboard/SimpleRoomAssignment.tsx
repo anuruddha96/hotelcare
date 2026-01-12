@@ -27,7 +27,7 @@ interface SimpleRoomAssignmentProps {
 }
 
 export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignmentProps) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string>('');
@@ -37,17 +37,24 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
   const [selectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (profile?.assigned_hotel) {
+      fetchData();
+    }
+  }, [profile?.assigned_hotel]);
 
   const fetchData = async () => {
+    if (!profile?.assigned_hotel || !profile?.organization_slug) {
+      console.log('Missing hotel or organization info for filtering');
+      return;
+    }
+
     try {
-      // Fetch dirty rooms that need cleaning
+      // Fetch dirty rooms that need cleaning - filtered by manager's hotel
       const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
         .select('id, room_number, status, hotel')
         .eq('status', 'dirty')
-        .order('hotel')
+        .eq('hotel', profile.assigned_hotel)
         .order('room_number');
 
       if (roomsError) throw roomsError;
@@ -65,11 +72,13 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
       const activeAssignedRoomIds = new Set(activeAssignments?.map(a => a.room_id) || []);
       const availableRooms = (roomsData || []).filter(room => !activeAssignedRoomIds.has(room.id));
 
-      // Fetch housekeeping staff
+      // Fetch housekeeping staff - filtered by same hotel and organization
       const { data: staffData, error: staffError } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
         .eq('role', 'housekeeping')
+        .eq('assigned_hotel', profile.assigned_hotel)
+        .eq('organization_slug', profile.organization_slug)
         .order('full_name');
 
       if (staffError) throw staffError;
