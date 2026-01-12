@@ -547,9 +547,7 @@ export function HousekeepingManagerView() {
                   {t('team.unassignSelected')} ({selectedAssignments.length})
                 </Button>
               )}
-            </>
-          )}
-          
+
               <Button
                 variant="secondary"
                 onClick={() => setAutoAssignDialogOpen(true)}
@@ -583,6 +581,8 @@ export function HousekeepingManagerView() {
                 selectedDate={selectedDate}
                 onAssignmentCreated={handleAssignmentCreated}
               />
+            </>
+          )}
         </div>
       </div>
 
