@@ -58,6 +58,7 @@ interface AssignedRoomCardProps {
     supervisor_approved?: boolean;
     supervisor_approved_by?: string | null;
     supervisor_approved_at?: string | null;
+    ready_to_clean?: boolean;
     rooms: {
       room_number: string;
       hotel: string;
@@ -67,6 +68,7 @@ interface AssignedRoomCardProps {
       guest_nights_stayed?: number;
       towel_change_required?: boolean;
       linen_change_required?: boolean;
+      checkout_time?: string | null;
     } | null;
   };
   onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => void;
@@ -94,13 +96,17 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
   // Priority and styling - static glow for high priority
   const isHighPriority = assignment.priority >= 3;
-  const showPriorityGlow = isHighPriority && status !== 'completed' && status !== 'in_progress';
+  const showPriorityGlow = isHighPriority && assignment.status !== 'completed' && assignment.status !== 'in_progress';
+  
+  // Check if this is a checkout room waiting for guest to leave
+  const isCheckoutWaiting = assignment.assignment_type === 'checkout_cleaning' && !assignment.ready_to_clean;
   
   const cardClassName = [
     "group bg-card border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl w-full",
     showPriorityGlow && "border-red-500 shadow-lg shadow-red-500/50",
-    status === 'in_progress' && "ring-2 ring-blue-500 ring-offset-2",
-    status === 'completed' && "opacity-75 bg-green-50 dark:bg-green-950"
+    assignment.status === 'in_progress' && "ring-2 ring-blue-500 ring-offset-2",
+    assignment.status === 'completed' && "opacity-75 bg-green-50 dark:bg-green-950",
+    isCheckoutWaiting && "border-l-4 border-l-orange-400 bg-orange-50/50 dark:bg-orange-950/20"
   ].filter(Boolean).join(" ");
 
   useEffect(() => {
@@ -562,6 +568,23 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   return (
     <Card className={cardClassName}>
       <CardHeader className="pb-4">
+        {/* Checkout Waiting Banner */}
+        {isCheckoutWaiting && (
+          <div className="mb-4 p-3 bg-gradient-to-r from-orange-100 to-amber-100 dark:from-orange-900/40 dark:to-amber-900/40 rounded-lg border border-orange-300 dark:border-orange-700">
+            <div className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400 animate-pulse" />
+              <div>
+                <p className="font-semibold text-orange-800 dark:text-orange-200 text-sm">
+                  {t('housekeeping.waitingForCheckout') || 'Waiting for guest checkout'}
+                </p>
+                <p className="text-xs text-orange-600 dark:text-orange-400">
+                  {t('housekeeping.checkoutNotReady') || 'Guest is still in room - cannot start cleaning yet'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <CardTitle className="text-xl sm:text-2xl font-bold text-foreground truncate">
@@ -570,7 +593,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <Badge 
               className={`${getStatusColor(assignment.status)} font-semibold px-3 py-1 text-xs uppercase tracking-wide rounded-full shadow-sm flex-shrink-0`}
             >
-              {assignment.status === 'in_progress' 
+              {isCheckoutWaiting
+                ? (t('housekeeping.guestInRoom') || 'Guest in room')
+                : assignment.status === 'in_progress' 
                 ? t('housekeeping.inProgress')
                 : assignment.status === 'completed'
                 ? t('housekeeping.completed')
@@ -581,6 +606,15 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </Badge>
           </div>
           <div className="flex flex-wrap gap-2">
+            {/* Checkout Room Indicator */}
+            {isCheckoutWaiting && (
+              <Badge 
+                variant="default" 
+                className="bg-orange-500 text-white font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 animate-pulse"
+              >
+                🚪 {t('housekeeping.assignmentType.checkoutClean') || 'Checkout'}
+              </Badge>
+            )}
             {/* Special Requirements Badges */}
             {assignment.rooms?.towel_change_required && (
               <Badge 
@@ -623,12 +657,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 🔥 {t('housekeeping.inProgress')}
               </Badge>
             )}
-            <Badge 
-              variant="outline" 
-              className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full hover:bg-muted/80 transition-colors flex-shrink-0"
-            >
-              {getAssignmentTypeLabel(assignment.assignment_type)}
-            </Badge>
+            {!isCheckoutWaiting && (
+              <Badge 
+                variant="outline" 
+                className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full hover:bg-muted/80 transition-colors flex-shrink-0"
+              >
+                {getAssignmentTypeLabel(assignment.assignment_type)}
+              </Badge>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -707,7 +743,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         <div className="space-y-4">
           {/* Primary Action Buttons - Only Start button before Required Actions */}
           <div className="flex flex-col sm:flex-row gap-3">
-          {assignment.status === 'assigned' && (
+          {assignment.status === 'assigned' && !isCheckoutWaiting && (
               <HoldButton
                 size="lg"
                 holdDuration={2000}
@@ -729,6 +765,15 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <Play className="h-5 w-5" />
                 {t('housekeeping.start')}
               </HoldButton>
+            )}
+
+            {/* Show disabled message for checkout rooms waiting */}
+            {assignment.status === 'assigned' && isCheckoutWaiting && (
+              <div className="w-full p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg border border-orange-300 dark:border-orange-700 text-center">
+                <p className="text-sm text-orange-700 dark:text-orange-300 font-medium">
+                  ⏳ {t('housekeeping.cannotStartYet') || 'Cannot start - waiting for guest checkout'}
+                </p>
+              </div>
             )}
 
             {/* Change to Checkout Button - Only for managers/admins with daily cleaning */}

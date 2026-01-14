@@ -283,8 +283,11 @@ export function PendingRoomsDialog({
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 text-orange-600">
-                          <AlertCircle className="h-4 w-4" />
+                          <AlertCircle className="h-4 w-4 animate-pulse" />
                           <span className="text-sm font-medium">{t('manager.waitingCheckout')}</span>
+                          <span className="text-xs text-orange-500 ml-1">
+                            ({t('manager.checkPMSReminder') || 'Check PMS for checkout status'})
+                          </span>
                         </div>
                       )}
                     </div>
@@ -292,8 +295,9 @@ export function PendingRoomsDialog({
                     {!assignment.ready_to_clean && (
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant="default"
                         onClick={() => markAsReadyToClean(assignment.id)}
+                        className="bg-green-600 hover:bg-green-700"
                       >
                         <CheckCircle className="h-3 w-3 mr-1" />
                         {t('manager.markReady')}

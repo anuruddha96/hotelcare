@@ -119,6 +119,13 @@ export const additionalTranslations = {
       low: 'Low Priority'
     },
     
+    // Checkout waiting translations
+    'housekeeping.waitingForCheckout': 'Waiting for guest checkout',
+    'housekeeping.checkoutNotReady': 'Guest is still in room - cannot start cleaning yet',
+    'housekeeping.guestInRoom': 'Guest in room',
+    'housekeeping.cannotStartYet': 'Cannot start - waiting for guest checkout',
+    'manager.checkPMSReminder': 'Check PMS for checkout status',
+    
     'housekeeping.tabs.teamView': 'Team View',
     'housekeeping.tabs.performance': 'Performance',
     'housekeeping.tabs.pmsUpload': 'PMS Upload',
@@ -594,6 +601,13 @@ export const additionalTranslations = {
       low: 'Prioridad Baja'
     },
     
+    // Checkout waiting translations
+    'housekeeping.waitingForCheckout': 'Esperando el checkout del huésped',
+    'housekeeping.checkoutNotReady': 'El huésped todavía está en la habitación - no se puede empezar la limpieza',
+    'housekeeping.guestInRoom': 'Huésped en habitación',
+    'housekeeping.cannotStartYet': 'No se puede empezar - esperando checkout',
+    'manager.checkPMSReminder': 'Verificar estado de checkout en PMS',
+    
     'housekeeping.tabs.teamView': 'Vista de Equipo',
     'housekeeping.tabs.performance': 'Rendimiento',
     'housekeeping.tabs.pmsUpload': 'Cargar PMS',
@@ -1001,6 +1015,13 @@ export const additionalTranslations = {
       low: 'Ưu Tiên Thấp'
     },
     
+    // Checkout waiting translations
+    'housekeeping.waitingForCheckout': 'Đang chờ khách trả phòng',
+    'housekeeping.checkoutNotReady': 'Khách vẫn còn trong phòng - chưa thể bắt đầu dọn',
+    'housekeeping.guestInRoom': 'Khách trong phòng',
+    'housekeeping.cannotStartYet': 'Chưa thể bắt đầu - đang chờ trả phòng',
+    'manager.checkPMSReminder': 'Kiểm tra trạng thái trả phòng trong PMS',
+    
     'housekeeping.tabs.teamView': 'Xem Nhóm',
     'housekeeping.tabs.performance': 'Hiệu suất',
     'housekeeping.tabs.pmsUpload': 'Tải lên PMS',
@@ -1347,6 +1368,13 @@ export const additionalTranslations = {
       medium: 'Дунд Ач Холбогдол',
       low: 'Бага Ач Холбогдол'
     },
+    
+    // Checkout waiting translations
+    'housekeeping.waitingForCheckout': 'Зочны гарахыг хүлээж байна',
+    'housekeeping.checkoutNotReady': 'Зочин өрөөнд байгаа - цэвэрлэгээ эхлэх боломжгүй',
+    'housekeeping.guestInRoom': 'Зочин өрөөнд',
+    'housekeeping.cannotStartYet': 'Эхлэх боломжгүй - зочны гарахыг хүлээж байна',
+    'manager.checkPMSReminder': 'PMS дээр гарах төлөвийг шалгана уу',
     
     'housekeeping.tabs.teamView': 'Багийн харагдац',
     'housekeeping.tabs.performance': 'Гүйцэтгэл',
@@ -1718,6 +1746,13 @@ export const additionalTranslations = {
       medium: 'Közepes Prioritás',
       low: 'Alacsony Prioritás'
     },
+    
+    // Checkout waiting translations
+    'housekeeping.waitingForCheckout': 'Vendég kijelentkezésére vár',
+    'housekeeping.checkoutNotReady': 'A vendég még a szobában van - nem lehet elkezdeni a takarítást',
+    'housekeeping.guestInRoom': 'Vendég a szobában',
+    'housekeeping.cannotStartYet': 'Nem kezdhető el - vendég kijelentkezésre vár',
+    'manager.checkPMSReminder': 'Ellenőrizze a kijelentkezés állapotát a PMS-ben',
     
     'housekeeping.tabs.teamView': 'Csapat nézet',
     'housekeeping.tabs.performance': 'Teljesítmény',
