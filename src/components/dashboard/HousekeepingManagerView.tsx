@@ -105,7 +105,7 @@ interface RoomAssignment {
 }
 
 export function HousekeepingManagerView() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
@@ -524,7 +524,7 @@ export function HousekeepingManagerView() {
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
-          {user && (user.role === 'admin' || user.role === 'manager' || user.role === 'housekeeping_manager') && (
+          {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
             <>
               <Button
                 variant={bulkUnassignMode ? "destructive" : "outline"}

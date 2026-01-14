@@ -26,29 +26,36 @@ export function NotificationPermissionBanner() {
     // Ensure audio can play on iOS (must be inside user gesture)
     try { ensureAudioUnlocked(); } catch {}
 
+    // Play a test sound to confirm audio works
+    try { playNotificationSound(); } catch {}
+
     // Detect iOS Safari context
     const isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
     const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true;
 
-    // If running in Safari (not installed PWA), enable loud in-app alerts and show guidance
+    // If running in Safari (not installed PWA), show iOS guidance
     if (isIOSSafari && !isStandalone) {
-      try { playNotificationSound(); } catch {}
       setShowIOSInstructions(true);
-      setIsVisible(false);
+      // Don't hide the banner - keep showing instructions
       return;
     }
 
-    // Otherwise, request browser permission (PWA or non‑iOS browsers)
-    const granted = await requestNotificationPermission();
-    if (granted) {
-      setIsVisible(false);
-      return;
+    // Request browser permission (PWA or non‑iOS browsers)
+    try {
+      const granted = await requestNotificationPermission();
+      if (granted) {
+        setIsVisible(false);
+        return;
+      }
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
     }
 
-    // If denied or unavailable, surface guidance
-    const current = typeof Notification !== 'undefined' ? Notification.permission : notificationPermission;
+    // Check current permission status and show appropriate message
+    const current = typeof Notification !== 'undefined' ? Notification.permission : 'default';
     if (current === 'denied') {
-      alert(t('notifications.enableInBrowserSettings'));
+      // Show in-app alert with instructions
+      setShowIOSInstructions(true);
     }
   };
   if (!isVisible || notificationPermission === 'granted') {
