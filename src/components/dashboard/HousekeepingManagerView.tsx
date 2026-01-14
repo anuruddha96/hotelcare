@@ -523,7 +523,7 @@ export function HousekeepingManagerView() {
           />
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
           {user && (user.role === 'admin' || user.role === 'manager' || user.role === 'housekeeping_manager') && (
             <>
               <Button
@@ -532,7 +532,7 @@ export function HousekeepingManagerView() {
                   setBulkUnassignMode(!bulkUnassignMode);
                   setSelectedAssignments([]);
                 }}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
               >
                 <Trash2 className="h-4 w-4" />
                 {bulkUnassignMode ? t('common.cancel') : t('team.bulkUnassign')}
@@ -542,7 +542,7 @@ export function HousekeepingManagerView() {
                 <Button
                   variant="destructive"
                   onClick={() => setUnassignDialogOpen(true)}
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                 >
                   {t('team.unassignSelected')} ({selectedAssignments.length})
                 </Button>
@@ -551,14 +551,14 @@ export function HousekeepingManagerView() {
               <Button
                 variant="secondary"
                 onClick={() => setAutoAssignDialogOpen(true)}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
               >
                 <Wand2 className="h-4 w-4" />
                 Auto Assign
               </Button>
               
               <Button 
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                 onClick={() => setAssignmentDialogOpen(true)}
               >
                 <Plus className="h-4 w-4" />
@@ -569,25 +569,29 @@ export function HousekeepingManagerView() {
         </div>
       </div>
 
-      {/* Assignment Dialogs - placed outside flex container to avoid layout issues */}
-      <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{t('team.createAssignment')}</DialogTitle>
-          </DialogHeader>
-          <RoomAssignmentDialog 
-            onAssignmentCreated={handleAssignmentCreated}
-            selectedDate={selectedDate}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Assignment Dialogs - conditionally mounted to prevent invisible overlays */}
+      {assignmentDialogOpen && (
+        <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
+          <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{t('team.createAssignment')}</DialogTitle>
+            </DialogHeader>
+            <RoomAssignmentDialog 
+              onAssignmentCreated={handleAssignmentCreated}
+              selectedDate={selectedDate}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
 
-      <AutoRoomAssignment
-        open={autoAssignDialogOpen}
-        onOpenChange={setAutoAssignDialogOpen}
-        selectedDate={selectedDate}
-        onAssignmentCreated={handleAssignmentCreated}
-      />
+      {autoAssignDialogOpen && (
+        <AutoRoomAssignment
+          open={autoAssignDialogOpen}
+          onOpenChange={setAutoAssignDialogOpen}
+          selectedDate={selectedDate}
+          onAssignmentCreated={handleAssignmentCreated}
+        />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {housekeepingStaff.map((staff) => {
