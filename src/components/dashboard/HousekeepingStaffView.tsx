@@ -162,14 +162,8 @@ export function HousekeepingStaffView() {
         }
       }
 
-      // Filter out checkout rooms that are not ready to clean
-      assignmentsData = assignmentsData.filter((assignment: any) => {
-        // Only show checkout rooms if they are marked as ready to clean
-        if (assignment.assignment_type === 'checkout_cleaning') {
-          return assignment.ready_to_clean === true;
-        }
-        return true; // Show all non-checkout assignments
-      });
+      // Show ALL assignments including checkout rooms not ready
+      // Checkout rooms will display a "waiting for checkout" indicator
 
       // Sort with smart prioritization: in_progress > manual priority > checkout (by floor) > daily (by floor)
       assignmentsData.sort((a, b) => {
