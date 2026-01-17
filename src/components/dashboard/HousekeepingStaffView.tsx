@@ -380,11 +380,26 @@ export function HousekeepingStaffView() {
         {assignments.length === 0 ? (
           <Card className="text-center py-8">
             <CardContent>
-              <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-              <p className="text-lg font-medium text-foreground mb-2">{t('housekeeping.allDone')}</p>
-              <p className="text-sm text-muted-foreground">
-                {t('housekeeping.noTasksFor')} {format(new Date(selectedDate), 'MMMM dd, yyyy')}
-              </p>
+              {summary.total_assigned === 0 ? (
+                <>
+                  <AlertCircle className="h-12 w-12 mx-auto text-amber-500 mb-4" />
+                  <p className="text-lg font-medium text-foreground mb-2">{t('housekeeping.noAssignments')}</p>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    {t('housekeeping.noAssignmentsFor')} {format(new Date(selectedDate), 'MMMM dd, yyyy')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('housekeeping.contactManager')}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
+                  <p className="text-lg font-medium text-foreground mb-2">{t('housekeeping.allDone')}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {t('housekeeping.noTasksFor')} {format(new Date(selectedDate), 'MMMM dd, yyyy')}
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
         ) : (

@@ -256,7 +256,8 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           priority: 2,
           estimated_duration: estimatedDuration,
           notes: notes.trim() || null,
-          ready_to_clean: false,
+          // Daily rooms are ready immediately, checkout rooms need manager approval
+          ready_to_clean: assignmentType !== 'checkout_cleaning',
           organization_slug: profileData.organization_slug
         };
       });
