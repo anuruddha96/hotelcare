@@ -1,13 +1,14 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from './useAuth';
 import { useTranslation } from './useTranslation';
 import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
 
-// Add CSS for flash animation
-if (typeof document !== 'undefined') {
+// Add CSS for flash animation (only once)
+if (typeof document !== 'undefined' && !document.getElementById('notification-flash-style')) {
   const style = document.createElement('style');
+  style.id = 'notification-flash-style';
   style.textContent = `
     @keyframes flash {
       0% { background-color: transparent; }
@@ -21,23 +22,33 @@ if (typeof document !== 'undefined') {
 // Shared AudioContext to unlock and reuse on iOS Safari
 let sharedAudioContext: (AudioContext & { close?: () => Promise<void> }) | null = null;
 
+// Track if service worker has been registered (singleton)
+let serviceWorkerRegistered = false;
+
 export function useNotifications() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const initRef = useRef(false);
 
-  // Initialize notification permission status and service worker
+  // Initialize notification permission status and service worker (once)
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
 
-    // Register service worker for persistent notifications
-    serviceWorkerManager.register().then((registration) => {
-      if (registration) {
-        console.log('Service Worker registered for notifications');
-      }
-    });
+    // Register service worker only once across all hook instances
+    if (!serviceWorkerRegistered) {
+      serviceWorkerRegistered = true;
+      serviceWorkerManager.register().then((registration) => {
+        if (registration) {
+          console.log('Service Worker registered for notifications');
+        }
+      });
+    }
   }, []);
 
   // Request notification permission with iOS Safari compatibility
@@ -351,8 +362,9 @@ export function useNotifications() {
           const oldRecord = payload.old as any;
           
           // Notify managers/supervisors when a task is completed (new pending approval)
+          // Use profile.role instead of user.role (roles are stored on profile)
           if (oldRecord.status !== 'completed' && newRecord.status === 'completed' && 
-              (user.role === 'manager' || user.role === 'housekeeping_manager' || user.role === 'admin')) {
+              (profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'admin')) {
             showNotification(
               t('notifications.newPendingApproval'),
               'warning',
@@ -406,7 +418,7 @@ export function useNotifications() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, user?.role, showNotification, t]);
+  }, [user?.id, profile?.role, showNotification, t]);
 
   return {
     playNotificationSound,

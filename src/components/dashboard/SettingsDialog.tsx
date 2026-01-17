@@ -8,8 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Lock, Shield, User, Mail } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Lock, Shield, User, Mail, Bell, Volume2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -18,7 +22,11 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
+  const { requestNotificationPermission, notificationPermission, playNotificationSound, ensureAudioUnlocked } = useNotifications();
+  const { preferences, updatePreferences, clearBannerDismissal } = useNotificationPreferences();
   const [isLoading, setIsLoading] = useState(false);
+  const [isTogglingNotifications, setIsTogglingNotifications] = useState(false);
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -116,6 +124,60 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   };
 
+  const handleToggleBrowserNotifications = async (enabled: boolean) => {
+    setIsTogglingNotifications(true);
+    try {
+      // Unlock audio on iOS
+      ensureAudioUnlocked();
+
+      if (enabled) {
+        // Request permission first
+        const granted = await requestNotificationPermission();
+        if (granted) {
+          await updatePreferences({ browser_notifications_enabled: true });
+          clearBannerDismissal(); // Clear any previous dismissal
+          toast.success(t('notifications.enabled'));
+        } else {
+          toast.error(t('notifications.permissionDenied'));
+        }
+      } else {
+        await updatePreferences({ browser_notifications_enabled: false });
+        toast.info(t('notifications.disabled'));
+      }
+    } catch (error) {
+      console.error('Error toggling notifications:', error);
+      toast.error('Failed to update notification settings');
+    } finally {
+      setIsTogglingNotifications(false);
+    }
+  };
+
+  const handleToggleSoundNotifications = async (enabled: boolean) => {
+    await updatePreferences({ sound_notifications_enabled: enabled });
+    if (enabled) {
+      playNotificationSound();
+    }
+  };
+
+  const handleTestNotification = () => {
+    playNotificationSound();
+    toast.success(t('notifications.testSuccess'), {
+      duration: 3000
+    });
+
+    // Also try browser notification if enabled
+    if (notificationPermission === 'granted' && preferences.browser_notifications_enabled) {
+      try {
+        new Notification(t('notifications.testTitle'), {
+          body: t('notifications.testBody'),
+          icon: '/favicon.ico'
+        });
+      } catch (error) {
+        console.log('Browser notification test failed:', error);
+      }
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
@@ -124,8 +186,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </DialogHeader>
         
         <Tabs defaultValue="account" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="account">Account Info</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="account">Account</TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
           </TabsList>
           
@@ -189,6 +252,70 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   <p className="text-xs text-muted-foreground">
                     Last login: {profile?.last_login ? new Date(profile.last_login).toLocaleString() : 'Never'}
                   </p>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="notifications" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Bell className="h-5 w-5" />
+                  {t('notifications.settings')}
+                </CardTitle>
+                <CardDescription>
+                  {t('notifications.settingsDescription')}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Browser Notifications Toggle */}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-medium">{t('notifications.browserNotifications')}</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t('notifications.browserNotificationsDesc')}
+                    </p>
+                    {notificationPermission === 'denied' && (
+                      <p className="text-xs text-destructive">
+                        {t('notifications.permissionBlocked')}
+                      </p>
+                    )}
+                  </div>
+                  <Switch
+                    checked={preferences.browser_notifications_enabled && notificationPermission === 'granted'}
+                    onCheckedChange={handleToggleBrowserNotifications}
+                    disabled={isTogglingNotifications || notificationPermission === 'denied'}
+                  />
+                </div>
+
+                {/* Sound & Vibration Toggle */}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-medium flex items-center gap-2">
+                      <Volume2 className="h-4 w-4" />
+                      {t('notifications.soundVibration')}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t('notifications.soundVibrationDesc')}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={preferences.sound_notifications_enabled}
+                    onCheckedChange={handleToggleSoundNotifications}
+                  />
+                </div>
+
+                {/* Test Notification Button */}
+                <div className="pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={handleTestNotification}
+                    className="w-full"
+                  >
+                    <Bell className="h-4 w-4 mr-2" />
+                    {t('notifications.sendTest')}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
