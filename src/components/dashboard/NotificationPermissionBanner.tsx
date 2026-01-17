@@ -1,64 +1,74 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Bell, BellOff, Smartphone } from 'lucide-react';
+import { Bell, BellOff, Smartphone, X } from 'lucide-react';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAuth } from '@/hooks/useAuth';
 
 export function NotificationPermissionBanner() {
   const { requestNotificationPermission, notificationPermission, ensureAudioUnlocked, playNotificationSound } = useNotifications();
+  const { preferences, preferencesLoaded, updatePreferences, bannerDismissed, dismissBanner } = useNotificationPreferences();
   const { t } = useTranslation();
-  const [isVisible, setIsVisible] = useState(false);
+  const { user } = useAuth();
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
+  const [isRequesting, setIsRequesting] = useState(false);
 
-  useEffect(() => {
-    // Show banner if notifications are not granted
-    if (notificationPermission === 'default' || notificationPermission === 'denied') {
-      setIsVisible(true);
-    }
-    
-  // Check if user is on iOS Safari
-  const isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    setShowIOSInstructions(isIOSSafari);
-  }, [notificationPermission]);
+  // Detect iOS Safari (not standalone)
+  const isIOSSafari = typeof navigator !== 'undefined' && 
+    /iPad|iPhone|iPod/.test(navigator.userAgent) && 
+    !(window as any).MSStream;
+  const isStandalone = typeof window !== 'undefined' && 
+    ((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || 
+    (navigator as any).standalone === true);
+  const isIOSNonStandalone = isIOSSafari && !isStandalone;
+
+  // Determine if we should show the banner
+  const shouldShowBanner = 
+    user?.id && // User must be logged in
+    preferencesLoaded && // Preferences must be loaded
+    !bannerDismissed && // User hasn't dismissed the banner
+    !preferences.browser_notifications_enabled && // User hasn't enabled notifications
+    notificationPermission !== 'granted'; // Browser hasn't granted permission
 
   const handleEnableNotifications = async () => {
+    setIsRequesting(true);
+
     // Ensure audio can play on iOS (must be inside user gesture)
     try { ensureAudioUnlocked(); } catch {}
 
-    // Play a test sound to confirm audio works
-    try { playNotificationSound(); } catch {}
-
-    // Detect iOS Safari context
-    const isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true;
-
-    // If running in Safari (not installed PWA), show iOS guidance
-    if (isIOSSafari && !isStandalone) {
+    // If iOS non-standalone, show instructions instead of trying to request
+    if (isIOSNonStandalone) {
       setShowIOSInstructions(true);
-      // Don't hide the banner - keep showing instructions
+      setIsRequesting(false);
       return;
     }
 
-    // Request browser permission (PWA or non‑iOS browsers)
+    // Request browser permission
     try {
       const granted = await requestNotificationPermission();
       if (granted) {
-        setIsVisible(false);
-        return;
+        // Save preference to database
+        await updatePreferences({ browser_notifications_enabled: true });
+        // Play a test sound to confirm
+        try { playNotificationSound(); } catch {}
+      } else if (notificationPermission === 'denied') {
+        // Show instructions for denied state
+        setShowIOSInstructions(true);
       }
     } catch (error) {
       console.error('Error requesting notification permission:', error);
-    }
-
-    // Check current permission status and show appropriate message
-    const current = typeof Notification !== 'undefined' ? Notification.permission : 'default';
-    if (current === 'denied') {
-      // Show in-app alert with instructions
-      setShowIOSInstructions(true);
+    } finally {
+      setIsRequesting(false);
     }
   };
-  if (!isVisible || notificationPermission === 'granted') {
+
+  const handleDismiss = () => {
+    dismissBanner();
+  };
+
+  if (!shouldShowBanner) {
     return null;
   }
 
@@ -82,37 +92,62 @@ export function NotificationPermissionBanner() {
               {t('notifications.enableDescription')}
             </p>
             
-            {showIOSInstructions && (
+            {/* iOS instructions or denied state instructions */}
+            {(showIOSInstructions || isIOSNonStandalone) && (
               <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
                 <div className="flex items-center gap-2">
                   <Smartphone className="h-4 w-4 text-blue-600" />
                   <span className="text-xs font-medium text-blue-800 dark:text-blue-200">
-                    {t('notifications.iosInstructions')}
+                    {isIOSNonStandalone 
+                      ? t('notifications.iosInstructions')
+                      : t('notifications.deniedInstructions')}
                   </span>
                 </div>
                 <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                  {t('notifications.iosSteps')}
+                  {isIOSNonStandalone 
+                    ? t('notifications.iosSteps')
+                    : t('notifications.deniedSteps')}
+                </p>
+              </div>
+            )}
+
+            {notificationPermission === 'denied' && !isIOSNonStandalone && (
+              <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800">
+                <p className="text-xs text-red-700 dark:text-red-300">
+                  {t('notifications.deniedInstructions')}
                 </p>
               </div>
             )}
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-shrink-0">
             <Button
               size="sm"
-              variant="outline"
-              onClick={() => setIsVisible(false)}
-              className="text-xs"
+              variant="ghost"
+              onClick={handleDismiss}
+              className="text-xs h-8 w-8 p-0"
+              title={t('common.dismiss')}
             >
-              {t('common.dismiss')}
+              <X className="h-4 w-4" />
             </Button>
-            {notificationPermission !== 'denied' && (
+            {notificationPermission !== 'denied' && !isIOSNonStandalone && (
               <Button
                 size="sm"
                 onClick={handleEnableNotifications}
+                disabled={isRequesting}
                 className="text-xs bg-orange-600 hover:bg-orange-700 text-white"
               >
-                {t('notifications.enable')}
+                {isRequesting ? '...' : t('notifications.enable')}
+              </Button>
+            )}
+            {isIOSNonStandalone && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDismiss}
+                className="text-xs"
+              >
+                {t('common.gotIt')}
               </Button>
             )}
           </div>
