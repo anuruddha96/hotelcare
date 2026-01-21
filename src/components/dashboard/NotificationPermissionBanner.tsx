@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Bell, BellOff, Smartphone, X } from 'lucide-react';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
@@ -14,6 +15,7 @@ export function NotificationPermissionBanner() {
   const { user } = useAuth();
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   // Detect iOS Safari (not standalone)
   const isIOSSafari = typeof navigator !== 'undefined' && 
@@ -29,6 +31,7 @@ export function NotificationPermissionBanner() {
     user?.id && // User must be logged in
     preferencesLoaded && // Preferences must be loaded
     !bannerDismissed && // User hasn't dismissed the banner
+    !preferences.banner_permanently_hidden && // User hasn't permanently hidden
     !preferences.browser_notifications_enabled && // User hasn't enabled notifications
     notificationPermission !== 'granted'; // Browser hasn't granted permission
 
@@ -49,8 +52,13 @@ export function NotificationPermissionBanner() {
     try {
       const granted = await requestNotificationPermission();
       if (granted) {
-        // Save preference to database
-        await updatePreferences({ browser_notifications_enabled: true });
+        // Save preference to database - this permanently hides banner
+        await updatePreferences({ 
+          browser_notifications_enabled: true,
+          banner_permanently_hidden: true 
+        });
+        // Dismiss banner locally too
+        dismissBanner();
         // Play a test sound to confirm
         try { playNotificationSound(); } catch {}
       } else if (notificationPermission === 'denied') {
@@ -64,7 +72,11 @@ export function NotificationPermissionBanner() {
     }
   };
 
-  const handleDismiss = () => {
+  const handleDismiss = async () => {
+    // If checkbox is checked, save to database permanently
+    if (dontShowAgain) {
+      await updatePreferences({ banner_permanently_hidden: true });
+    }
     dismissBanner();
   };
 
@@ -118,6 +130,21 @@ export function NotificationPermissionBanner() {
                 </p>
               </div>
             )}
+
+            {/* Don't show again checkbox */}
+            <div className="flex items-center gap-2 mt-3">
+              <Checkbox 
+                id="dont-show-notifications"
+                checked={dontShowAgain}
+                onCheckedChange={(checked) => setDontShowAgain(checked === true)}
+              />
+              <label 
+                htmlFor="dont-show-notifications" 
+                className="text-xs text-muted-foreground cursor-pointer"
+              >
+                {t('notifications.dontShowAgain')}
+              </label>
+            </div>
           </div>
           
           <div className="flex gap-2 flex-shrink-0">
