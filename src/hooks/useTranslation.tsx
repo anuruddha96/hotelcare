@@ -353,6 +353,7 @@ const translations = {
     'notifications.breakRequestTitle': 'Break Request Update',
     'notifications.newPendingApproval': 'New task pending approval',
     'notifications.newPendingApprovalTitle': 'Task Completed',
+    'notifications.dontShowAgain': "Don't show this again",
     'pms.title': 'PMS Data Upload',
     'pms.subtitle': 'Upload Excel file from your PMS system to automatically update room statuses and create cleaning assignments',
     'pms.dragDrop': 'Drag & drop your PMS export file here, or click to browse',
@@ -1012,6 +1013,7 @@ const translations = {
     'notifications.breakRequestTitle': 'Szünetkérés frissítés',
     'notifications.newPendingApproval': 'Új feladat vár jóváhagyásra',
     'notifications.newPendingApprovalTitle': 'Feladat befejezve',
+    'notifications.dontShowAgain': 'Ne mutasd újra',
     
     'pms.title': 'PMS adat feltöltés',
     'pms.subtitle': 'Töltsön fel Excel fájlt a PMS rendszeréből a szoba állapotok automatikus frissítéséhez és takarítási feladatok létrehozásához',

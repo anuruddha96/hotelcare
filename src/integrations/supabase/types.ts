@@ -954,6 +954,7 @@ export type Database = {
       }
       notification_preferences: {
         Row: {
+          banner_permanently_hidden: boolean | null
           browser_notifications_enabled: boolean | null
           created_at: string
           id: string
@@ -962,6 +963,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          banner_permanently_hidden?: boolean | null
           browser_notifications_enabled?: boolean | null
           created_at?: string
           id?: string
@@ -970,6 +972,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          banner_permanently_hidden?: boolean | null
           browser_notifications_enabled?: boolean | null
           created_at?: string
           id?: string

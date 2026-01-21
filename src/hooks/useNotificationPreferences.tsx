@@ -5,6 +5,7 @@ import { useAuth } from './useAuth';
 interface NotificationPreferences {
   browser_notifications_enabled: boolean;
   sound_notifications_enabled: boolean;
+  banner_permanently_hidden: boolean;
 }
 
 const DISMISSED_KEY_PREFIX = 'rdhotels.notifications.bannerDismissed:';
@@ -13,7 +14,8 @@ export function useNotificationPreferences() {
   const { user } = useAuth();
   const [preferences, setPreferences] = useState<NotificationPreferences>({
     browser_notifications_enabled: false,
-    sound_notifications_enabled: true
+    sound_notifications_enabled: true,
+    banner_permanently_hidden: false
   });
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -37,7 +39,7 @@ export function useNotificationPreferences() {
       try {
         const { data, error } = await supabase
           .from('notification_preferences')
-          .select('browser_notifications_enabled, sound_notifications_enabled')
+          .select('browser_notifications_enabled, sound_notifications_enabled, banner_permanently_hidden')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -50,8 +52,14 @@ export function useNotificationPreferences() {
         if (data) {
           setPreferences({
             browser_notifications_enabled: data.browser_notifications_enabled ?? false,
-            sound_notifications_enabled: data.sound_notifications_enabled ?? true
+            sound_notifications_enabled: data.sound_notifications_enabled ?? true,
+            banner_permanently_hidden: data.banner_permanently_hidden ?? false
           });
+          // Also sync localStorage if banner is permanently hidden in DB
+          if (data.banner_permanently_hidden) {
+            localStorage.setItem(`${DISMISSED_KEY_PREFIX}${user.id}`, 'true');
+            setBannerDismissed(true);
+          }
         }
         setPreferencesLoaded(true);
       } catch (error) {
