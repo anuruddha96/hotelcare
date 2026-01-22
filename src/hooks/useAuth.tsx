@@ -49,10 +49,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(profileData as any);
         return profileData;
       } else {
-        console.warn('Profile not available, creating default profile...', profileError);
-        const { data: upserted, error: upsertErr } = await supabase
+        // CRITICAL: Use INSERT instead of UPSERT to prevent overwriting existing profiles
+        // This fixes the bug where manager roles were being reset to housekeeping
+        console.warn('Profile not available, attempting to create default profile...', {
+          userId,
+          profileError,
+          timestamp: new Date().toISOString()
+        });
+        
+        const { data: inserted, error: insertErr } = await supabase
           .from('profiles')
-          .upsert({
+          .insert({
             id: userId,
             email: userEmail || '',
             full_name: userMetadata?.full_name || userEmail?.split('@')[0] || 'New User',
@@ -65,15 +72,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .select()
           .maybeSingle();
 
-        if (!upsertErr && upserted) {
-          console.log('Default profile created:', upserted);
-          setProfile(upserted as any);
-          return upserted;
-        } else {
-          console.error('Failed to create default profile:', upsertErr);
+        // If insert failed due to conflict (profile already exists), retry fetch
+        if (insertErr && insertErr.code === '23505') {
+          console.log('Profile already exists (conflict), retrying fetch...');
+          const { data: retryData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .maybeSingle();
+          
+          if (retryData) {
+            console.log('Profile fetched on retry:', retryData);
+            setProfile(retryData as any);
+            return retryData;
+          }
+        }
+
+        if (!insertErr && inserted) {
+          console.log('Default profile created for new user:', inserted);
+          setProfile(inserted as any);
+          return inserted;
+        } else if (insertErr && insertErr.code !== '23505') {
+          console.error('Failed to create default profile:', insertErr);
           setProfile(null);
           return null;
         }
+        
+        setProfile(null);
+        return null;
       }
     } catch (error) {
       console.error('Profile fetch error:', error);
