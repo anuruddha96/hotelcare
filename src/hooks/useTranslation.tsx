@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
+import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
 
 const translations = {
   en: {
@@ -1687,6 +1688,13 @@ const translations = {
     'dashboard.title': 'Зочид Буудлын Удирдлагын Самбар',
     'dashboard.subtitle': 'RD Hotels-ийн бүх үйлчилгээний хүсэлтийг удирдах',
     'dashboard.myTasks': 'Миний Даалгаврууд',
+    'dashboard.tickets': 'Тасалбар',
+    'dashboard.rooms': 'Өрөөнүүд',
+    'dashboard.housekeeping': 'Цэвэрлэгээ',
+    'dashboard.reports': 'Тайлан',
+    'dashboard.workStatus': 'Ирц',
+    'dashboard.manageUsers': 'Хэрэглэгч удирдах',
+    'dashboard.newTicket': 'Шинэ Тасалбар',
     
     // Room Details
     'room.roomName': 'Өрөөний Нэр',
@@ -1921,6 +1929,13 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     const expandedTranslation = expandedTranslations[language]?.[key];
     if (expandedTranslation) return expandedTranslation;
     
+    // Check notification and dashboard translations
+    const notificationTranslation = notificationTranslations[language as keyof typeof notificationTranslations]?.[key as keyof typeof notificationTranslations.en];
+    if (notificationTranslation) return notificationTranslation;
+    
+    const dashboardTranslation = dashboardTranslations[language as keyof typeof dashboardTranslations]?.[key as keyof typeof dashboardTranslations.en];
+    if (dashboardTranslation) return dashboardTranslation;
+    
     // Only fall back to English if not found in current language
     const enMain = translations.en[key];
     if (enMain) return enMain;
@@ -1930,6 +1945,13 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     
     const enExpanded = expandedTranslations.en[key];
     if (enExpanded) return enExpanded;
+    
+    // Check English notification and dashboard translations
+    const enNotification = notificationTranslations.en[key as keyof typeof notificationTranslations.en];
+    if (enNotification) return enNotification;
+    
+    const enDashboard = dashboardTranslations.en[key as keyof typeof dashboardTranslations.en];
+    if (enDashboard) return enDashboard;
     
     return key;
   };
