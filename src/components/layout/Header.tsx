@@ -63,8 +63,8 @@ export function Header() {
   };
 
   return (
-    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm">
-      <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between">
+    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
+      <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between overflow-hidden max-w-full">
         {/* Logo Section - More space on mobile */}
         <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
           <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
@@ -84,7 +84,7 @@ export function Header() {
         </div>
         
         {/* Right Section with Horizontal Scroll */}
-        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-hide max-w-[60%] sm:max-w-none">
+        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-hide flex-1 min-w-0 justify-end">
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <div className="shrink-0">
               <DirtyLinenCartBadge />
