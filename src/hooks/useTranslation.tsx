@@ -670,6 +670,14 @@ const translations = {
     'staff.updated': 'Updated',
     'staff.staffMemberUpdated': 'Staff member updated successfully',
     'staff.accessRestricted': 'Access restricted to managers and administrators',
+    'staff.joined': 'Joined',
+    'staff.staffManagement': 'Staff Management',
+    'staff.addStaff': 'Add Staff',
+    'staff.addNewStaff': 'Add New Staff',
+    'staff.housekeepingTeam': 'Housekeeping Team',
+    'staff.maintenanceTeam': 'Maintenance Team',
+    'staff.managers': 'Managers',
+    'staff.noActiveTickets': 'No active tickets',
     
     // Minibar Tracking
     'minibar.items': 'Minibar Items',
@@ -798,29 +806,60 @@ const translations = {
     'tickets.create.error': 'Jegy létrehozása nem sikerült',
     
     // Room Management
-    'rooms.title': 'Room Management',
-    'rooms.subtitle': 'Monitor and manage hotel room status',
-    'rooms.search': 'Search by room number or hotel...',
-    'rooms.addRoom': 'Add Room',
-    'rooms.minibarSettings': 'Minibar Settings',
-    'rooms.allHotels': 'All Hotels',
-    'rooms.allStatus': 'All Status',
-    'rooms.clean': 'Clean',
-    'rooms.dirty': 'Dirty',
-    'rooms.maintenance': 'Maintenance',
-    'rooms.outOfOrder': 'Out Of Order',
-    'rooms.statusOverview': 'Room Status Overview',
-    'rooms.roomsCount': 'rooms',
-    'rooms.status.clean.subtitle': 'Ready to use',
-    'rooms.status.dirty.subtitle': 'Need cleaning',
-    'rooms.status.maintenance.subtitle': 'Under repair',
-    'rooms.status.outOfOrder.subtitle': 'Not available',
+    'rooms.title': 'Szobakezelés',
+    'rooms.subtitle': 'Szobák állapotának figyelése és kezelése',
+    'rooms.search': 'Keresés szobaszám vagy szálloda alapján...',
+    'rooms.addRoom': 'Szoba Hozzáadása',
+    'rooms.minibarSettings': 'Minibár Beállítások',
+    'rooms.allHotels': 'Minden Szálloda',
+    'rooms.allStatus': 'Minden Állapot',
+    'rooms.clean': 'Tiszta',
+    'rooms.dirty': 'Piszkos',
+    'rooms.maintenance': 'Karbantartás',
+    'rooms.outOfOrder': 'Nem Elérhető',
+    'rooms.statusOverview': 'Szoba Állapot Áttekintés',
+    'rooms.roomsCount': 'szoba',
+    'rooms.status.clean.subtitle': 'Használatra kész',
+    'rooms.status.dirty.subtitle': 'Takarítás szükséges',
+    'rooms.status.maintenance.subtitle': 'Javítás alatt',
+    'rooms.status.outOfOrder.subtitle': 'Nem elérhető',
     
     // Room Status
-    'room.status.clean': 'Clean',
-    'room.status.dirty': 'Dirty',
-    'room.status.maintenance': 'Maintenance',
-    'room.status.out_of_order': 'Out of Order',
+    'room.status.clean': 'Tiszta',
+    'room.status.dirty': 'Piszkos',
+    'room.status.maintenance': 'Karbantartás',
+    'room.status.out_of_order': 'Nem Elérhető',
+    
+    // Staff Management
+    'staff.joined': 'Csatlakozott',
+    'staff.staffManagement': 'Személyzet Kezelése',
+    'staff.addStaff': 'Személyzet Hozzáadása',
+    'staff.addNewStaff': 'Új Személyzet Hozzáadása',
+    'staff.housekeepingTeam': 'Takarító Csapat',
+    'staff.maintenanceTeam': 'Karbantartó Csapat',
+    'staff.managers': 'Menedzserek',
+    'staff.noActiveTickets': 'Nincs aktív jegy',
+    
+    // PMS Upload
+    'pms.viewHistory': 'Előzmények megtekintése',
+    'pms.hotelFilterActive': 'Hotel Szűrő Aktív',
+    'pms.currentlyOperating': 'Jelenleg működik:',
+    'pms.onlyRoomsAffected': 'Csak az ebben a hotelben lévő szobák lesznek érintettek a PMS feltöltéskor.',
+    'pms.dataResetWarning': 'Adatvisszaállítási Figyelmeztetés',
+    'pms.uploadingWillReset': 'A PMS fájl feltöltése visszaállítja az összes szobahozzárendelést és adatot.',
+    'pms.forCurrentDay': 'az aktuális napra',
+    
+    // Break Types Management
+    'breakTypes.title': 'Szünettípusok Kezelése',
+    'breakTypes.addNew': 'Új Szünettípus Hozzáadása',
+    'breakTypes.editBreakType': 'Szünettípus Szerkesztése',
+    'breakTypes.internalName': 'Belső Név',
+    'breakTypes.displayName': 'Megjelenítési Név',
+    'breakTypes.durationMinutes': 'Időtartam (perc)',
+    'breakTypes.icon': 'Ikon',
+    'breakTypes.active': 'Aktív',
+    'breakTypes.create': 'Létrehozás',
+    'breakTypes.existingBreakTypes': 'Meglévő Szünettípusok',
     
     // Room Details
     'room.roomName': 'Szoba Név',
@@ -1486,6 +1525,18 @@ const translations = {
     'linen.smallTowel': 'Toalla Pequeña',
     'linen.bigTowel': 'Toalla Grande',
     'linen.bathMat': 'Alfombra de Baño',
+    
+    // Staff
+    'staff.joined': 'Se unió',
+    'staff.staffManagement': 'Gestión de Personal',
+    'staff.addStaff': 'Agregar Personal',
+    'staff.housekeepingTeam': 'Equipo de Limpieza',
+    'staff.maintenanceTeam': 'Equipo de Mantenimiento',
+    'staff.managers': 'Gerentes',
+    'staff.noActiveTickets': 'No hay tickets activos',
+    
+    // Common extras
+    'common.gotIt': 'Entendido',
   },
   
   vi: {
@@ -1681,6 +1732,15 @@ const translations = {
     'linen.smallTowel': 'Khăn Nhỏ',
     'linen.bigTowel': 'Khăn Lớn',
     'linen.bathMat': 'Thảm Phòng Tắm',
+    
+    // Staff
+    'staff.joined': 'Đã tham gia',
+    'staff.staffManagement': 'Quản Lý Nhân Viên',
+    'staff.addStaff': 'Thêm Nhân Viên',
+    'staff.housekeepingTeam': 'Đội Dọn Phòng',
+    'staff.maintenanceTeam': 'Đội Bảo Trì',
+    'staff.managers': 'Quản Lý',
+    'staff.noActiveTickets': 'Không có vé đang hoạt động',
   },
   
   mn: {
@@ -1884,6 +1944,24 @@ const translations = {
     'linen.smallTowel': 'Жижиг Алчуур',
     'linen.bigTowel': 'Том Алчуур',
     'linen.bathMat': 'Угаалгын Өрөөний Хивс',
+    
+    // Staff
+    'staff.joined': 'Нэгдсэн',
+    'staff.staffManagement': 'Ажилтны Удирдлага',
+    'staff.addStaff': 'Ажилтан Нэмэх',
+    'staff.housekeepingTeam': 'Цэвэрлэгээний Баг',
+    'staff.maintenanceTeam': 'Засварын Баг',
+    'staff.managers': 'Менежерүүд',
+    'staff.noActiveTickets': 'Идэвхтэй тасалбар байхгүй',
+    
+    // Common extras
+    'common.profile': 'Профайл',
+    'common.settings': 'Тохиргоо',
+    'common.logout': 'Гарах',
+    'common.error': 'Алдаа',
+    'common.success': 'Амжилттай',
+    'common.dismiss': 'Хаах',
+    'common.gotIt': 'Ойлголоо',
   }
 };
 
