@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { DateRangeFilter } from './DateRangeFilter';
 import { toast } from 'sonner';
 import { DateRange } from 'react-day-picker';
+import { getLocalDateString } from '@/lib/utils';
 
 interface LinenItem {
   id: string;
@@ -58,8 +59,9 @@ export function SimplifiedDirtyLinenManagement() {
   const fetchData = async () => {
     if (!dateRange?.from || allLinenItems.length === 0) return;
     
-    const startDate = dateRange.from.toISOString().split('T')[0];
-    const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
+    // Use local timezone date formatting to avoid UTC conversion issues
+    const startDate = getLocalDateString(dateRange.from);
+    const endDate = getLocalDateString(dateRange.to || dateRange.from);
     
     try {
       // Get current user's hotel filter
@@ -174,8 +176,9 @@ export function SimplifiedDirtyLinenManagement() {
   const exportToCSV = () => {
     if (!dateRange?.from) return;
     
-    const startDate = dateRange.from.toISOString().split('T')[0];
-    const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
+    // Use local timezone date formatting for CSV export
+    const startDate = getLocalDateString(dateRange.from);
+    const endDate = getLocalDateString(dateRange.to || dateRange.from);
     
     // Header row with display names in sort order
     let csv = t('linen.housekeepers') + ',' + allLinenItems.map(i => i.display_name).join(',') + ',' + t('linen.total') + '\n';

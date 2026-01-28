@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ShoppingCart, Trash2, Shirt } from 'lucide-react';
 import { toast } from 'sonner';
+import { getLocalDateString } from '@/lib/utils';
 
 interface LinenRecord {
   id: string;
@@ -51,7 +52,8 @@ export function DirtyLinenCartBadge() {
   const fetchCartData = async () => {
     if (!userId) return;
 
-    const today = new Date().toISOString().split('T')[0];
+    // Use local timezone date to avoid UTC conversion issues
+    const today = getLocalDateString(new Date());
 
     try {
       // Step 1: Fetch dirty linen counts

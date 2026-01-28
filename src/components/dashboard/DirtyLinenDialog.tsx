@@ -11,6 +11,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
 import { Shirt, Plus, CheckCircle, Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { getLocalDateString } from '@/lib/utils';
 
 interface DirtyLinenDialogProps {
   open: boolean;
@@ -81,7 +82,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     if (!user?.id) return;
     
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // Use local timezone date to avoid UTC conversion issues
+      const today = getLocalDateString(new Date());
       const { data, error } = await supabase
         .from('dirty_linen_counts')
         .select('linen_item_id, count')
@@ -100,7 +102,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     if (!user?.id) return;
     
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // Use local timezone date to avoid UTC conversion issues
+      const today = getLocalDateString(new Date());
       
       // Fetch dirty linen counts
       const { data: countsData, error: countsError } = await supabase
@@ -204,7 +207,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     if (!user?.id || autoSaving) return;
     
     setAutoSaving(true);
-    const today = new Date().toISOString().split('T')[0];
+    // Use local timezone date to avoid UTC conversion issues
+    const today = getLocalDateString(new Date());
     
     try {
       // Handle each count individually
