@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, MapPin, Calendar, Coffee, LogOut, LogIn, Utensils, Timer } from 'lucide-react';
+import { Clock, MapPin, Calendar, Coffee, LogOut, LogIn, Utensils, Timer, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { BreakTimer } from './BreakTimer';
 import { BreakTypesManagement } from './BreakTypesManagement';
@@ -63,6 +64,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: any} | null>(null);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
   const [pendingRooms, setPendingRooms] = useState<PendingRoom[]>([]);
+  const [lateSignoutDialogOpen, setLateSignoutDialogOpen] = useState(false);
   
   const isAdminOrHR = profile?.role && ['admin', 'hr', 'manager'].includes(profile.role);
 
@@ -299,6 +301,53 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       }
     }
 
+    // Check if it's after 6 PM - ask if they forgot to sign out
+    const currentHour = new Date().getHours();
+    if (currentHour >= 18) {
+      setLateSignoutDialogOpen(true);
+      setIsLoading(false);
+      return;
+    }
+
+    await performCheckOut();
+  };
+
+  const handleForgotSignout = async () => {
+    if (!currentRecord || !location) return;
+    setLateSignoutDialogOpen(false);
+    setIsLoading(true);
+
+    // Sign out at 4:30 PM of the work date
+    const workDate = currentRecord.work_date;
+    const checkoutTime = new Date(`${workDate}T16:30:00`);
+    const checkInTime = new Date(currentRecord.check_in_time);
+    const hoursWorked = (checkoutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
+    const breakHours = (currentRecord.break_duration || 0) / 60;
+    const totalHours = Math.max(0, hoursWorked - breakHours);
+
+    const { error } = await supabase
+      .from('staff_attendance')
+      .update({
+        check_out_time: checkoutTime.toISOString(),
+        check_out_location: location,
+        status: 'forgot_signout',
+        total_hours: parseFloat(totalHours.toFixed(2)),
+        notes: notes || 'Forgot to sign out'
+      })
+      .eq('id', currentRecord.id);
+
+    if (error) {
+      toast({ title: "Error", description: "Failed to check out.", variant: "destructive" });
+    } else {
+      toast({ title: "Signed Out", description: "Checked out at 4:30 PM (forgot sign out)" });
+      fetchTodaysAttendance();
+    }
+    setIsLoading(false);
+  };
+
+  const handleWorkedLate = async () => {
+    setLateSignoutDialogOpen(false);
+    setIsLoading(true);
     await performCheckOut();
   };
 
@@ -428,6 +477,10 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         return <Badge className="bg-gray-500 text-white text-xs sm:text-sm">{t('attendance.checkedOut')}</Badge>;
       case 'pending_early_signout':
         return <Badge className="bg-orange-500 text-white text-xs sm:text-sm animate-pulse">Pending Early Sign-Out Approval</Badge>;
+      case 'auto_signout':
+        return <Badge className="bg-orange-600 text-white text-xs sm:text-sm">Auto Signed Out</Badge>;
+      case 'forgot_signout':
+        return <Badge className="bg-amber-500 text-white text-xs sm:text-sm">Forgot Sign Out</Badge>;
       default:
         return <Badge variant="outline" className="text-xs sm:text-sm">Unknown</Badge>;
     }
@@ -720,6 +773,29 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         onApprovalRequested={handleApprovalRequested}
       />
     )}
+
+    {/* Late Sign-Out Dialog */}
+    <Dialog open={lateSignoutDialogOpen} onOpenChange={setLateSignoutDialogOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            Late Sign Out
+          </DialogTitle>
+          <DialogDescription>
+            It's past 6 PM. Did you forget to sign out earlier, or did you work until now?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex flex-col sm:flex-row gap-2">
+          <Button variant="outline" onClick={handleForgotSignout} className="flex-1">
+            Forgot Sign Out
+          </Button>
+          <Button onClick={handleWorkedLate} className="flex-1">
+            I Worked Until Now
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </div>
   );
 };
