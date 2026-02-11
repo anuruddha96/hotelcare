@@ -356,6 +356,51 @@ export function AutoRoomAssignment({
               </div>
             ) : step === 'preview' ? (
               <div className="space-y-4">
+                {/* Fairness Summary Card */}
+                {(() => {
+                  const activePreviews = assignmentPreviews.filter(p => p.rooms.length > 0);
+                  const avgW = activePreviews.length > 0 
+                    ? activePreviews.reduce((s, p) => s + p.totalWeight, 0) / activePreviews.length 
+                    : 0;
+                  const maxDev = activePreviews.length > 0
+                    ? Math.max(...activePreviews.map(p => Math.abs(p.totalWeight - avgW)))
+                    : 0;
+                  const devPercent = avgW > 0 ? Math.round((maxDev / avgW) * 100) : 0;
+                  const coValues = activePreviews.map(p => p.checkoutCount);
+                  const minCO = Math.min(...coValues, 0);
+                  const maxCO = Math.max(...coValues, 0);
+                  const coLabel = minCO === maxCO ? `${minCO} CO each` : `${minCO}-${maxCO} CO range`;
+
+                  return (
+                    <Card className="border-primary/30 bg-primary/5">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-sm font-semibold">⚖️ Fairness Summary</span>
+                          <Badge variant={devPercent <= 10 ? 'default' : devPercent <= 20 ? 'secondary' : 'destructive'} className="text-[10px]">
+                            {devPercent <= 10 ? '✓ Very Fair' : devPercent <= 20 ? '~ Fair' : '⚠ Uneven'}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                          <div>
+                            <p className="font-bold text-base">{avgW.toFixed(1)}</p>
+                            <p className="text-muted-foreground">Avg Weight</p>
+                          </div>
+                          <div>
+                            <p className={`font-bold text-base ${devPercent <= 10 ? 'text-green-600' : devPercent <= 20 ? 'text-amber-600' : 'text-red-600'}`}>
+                              ±{devPercent}%
+                            </p>
+                            <p className="text-muted-foreground">Deviation</p>
+                          </div>
+                          <div>
+                            <p className="font-bold text-base">{coLabel}</p>
+                            <p className="text-muted-foreground">Checkout Split</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
                 {/* Summary */}
                 <div className="p-3 bg-muted rounded-lg text-sm">
                   <p>
@@ -428,6 +473,26 @@ export function AutoRoomAssignment({
                               </Badge>
                             )}
                           </div>
+
+                          {/* Per-staff justification */}
+                          {preview.rooms.length > 0 && (
+                            <div className="mt-2 text-xs text-muted-foreground space-y-0.5 border-t pt-1.5">
+                              <p>
+                                📋 {preview.checkoutCount} checkout ({CHECKOUT_MINUTES}min ea.) + {preview.dailyCount} daily ({DAILY_MINUTES}min ea.)
+                              </p>
+                              {(() => {
+                                const floors = [...new Set(preview.rooms.map(r => r.floor_number ?? Math.floor(parseInt(r.room_number) / 100)))].sort((a, b) => a - b);
+                                return <p>🏢 Floor grouping: {floors.length <= 3 ? `Floors ${floors.join(', ')}` : `${floors.length} floors`} — minimizes walking</p>;
+                              })()}
+                              <p className={avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.1 ? 'text-green-600' : avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.2 ? 'text-amber-600' : 'text-red-600'}>
+                                ⚖️ Weight: {preview.totalWeight.toFixed(1)} (avg: {avgWeight.toFixed(1)}) — {
+                                  avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.1 ? 'Fair' 
+                                  : avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.2 ? 'Acceptable' 
+                                  : 'Heavy'
+                                }
+                              </p>
+                            </div>
+                          )}
                         </CardHeader>
                         <CardContent className="py-3">
                           {preview.rooms.length === 0 ? (

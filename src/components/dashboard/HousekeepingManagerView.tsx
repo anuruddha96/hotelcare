@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Users, Plus, Calendar, CheckCircle, Trash2, Clock, Wand2 } from 'lucide-react';
+import { Users, Plus, Calendar, CheckCircle, Trash2, Clock, Wand2, MapPin } from 'lucide-react';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
 import { CompactRoomCard } from './CompactRoomCard';
 import { RoomAssignmentDialog } from './RoomAssignmentDialog';
@@ -18,6 +18,8 @@ import { PendingRoomsDialog } from './PendingRoomsDialog';
 import { DoneRoomsDialog } from './DoneRoomsDialog';
 import { EarlySignoutApprovalView } from './EarlySignoutApprovalView';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
+import { HotelRoomOverview } from './HotelRoomOverview';
+import { PublicAreaAssignment } from './PublicAreaAssignment';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -113,6 +115,7 @@ export function HousekeepingManagerView() {
   const [loading, setLoading] = useState(true);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
   const [autoAssignDialogOpen, setAutoAssignDialogOpen] = useState(false);
+  const [publicAreaDialogOpen, setPublicAreaDialogOpen] = useState(false);
   const [bulkUnassignMode, setBulkUnassignMode] = useState(false);
   const [selectedAssignments, setSelectedAssignments] = useState<string[]>([]);
   const [roomAssignments, setRoomAssignments] = useState<RoomAssignment[]>([]);
@@ -122,12 +125,14 @@ export function HousekeepingManagerView() {
   const [doneRoomsDialogOpen, setDoneRoomsDialogOpen] = useState(false);
   const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
+  const [managerHotelName, setManagerHotelName] = useState<string>('');
 
   useEffect(() => {
     fetchHousekeepingStaff();
     fetchTeamAssignments();
     fetchRoomAssignments();
     fetchStaffAttendance();
+    fetchManagerHotelName();
   }, [selectedDate]);
 
   // Real-time subscriptions for live updates
@@ -456,6 +461,17 @@ export function HousekeepingManagerView() {
     }
   };
 
+  const fetchManagerHotelName = async () => {
+    if (!profile?.assigned_hotel) return;
+    const { data: hotelConfig } = await supabase
+      .from('hotel_configurations')
+      .select('hotel_name')
+      .eq('hotel_id', profile.assigned_hotel)
+      .maybeSingle();
+    setManagerHotelName(hotelConfig?.hotel_name || profile.assigned_hotel);
+  };
+
+
 
   const handleAssignmentCreated = () => {
     fetchTeamAssignments();
@@ -555,19 +571,28 @@ export function HousekeepingManagerView() {
               >
                 <Wand2 className="h-4 w-4" />
                 Auto Assign
-              </Button>
-              
-              <Button 
-                className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
-                onClick={() => setAssignmentDialogOpen(true)}
-              >
-                <Plus className="h-4 w-4" />
-                {t('team.assignRoom')}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
+               </Button>
+
+               <Button
+                 variant="outline"
+                 onClick={() => setPublicAreaDialogOpen(true)}
+                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
+               >
+                 <MapPin className="h-4 w-4" />
+                 Public Areas
+               </Button>
+               
+               <Button 
+                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
+                 onClick={() => setAssignmentDialogOpen(true)}
+               >
+                 <Plus className="h-4 w-4" />
+                 {t('team.assignRoom')}
+               </Button>
+             </>
+           )}
+         </div>
+       </div>
 
       {/* Assignment Dialogs - conditionally mounted to prevent invisible overlays */}
       {assignmentDialogOpen && (
@@ -590,6 +615,27 @@ export function HousekeepingManagerView() {
           onOpenChange={setAutoAssignDialogOpen}
           selectedDate={selectedDate}
           onAssignmentCreated={handleAssignmentCreated}
+        />
+      )}
+
+      {publicAreaDialogOpen && (
+        <PublicAreaAssignment
+          open={publicAreaDialogOpen}
+          onOpenChange={setPublicAreaDialogOpen}
+          staff={housekeepingStaff}
+          hotelName={managerHotelName}
+          onAssigned={() => {
+            fetchTeamAssignments();
+          }}
+        />
+      )}
+
+      {/* Hotel Room Overview */}
+      {managerHotelName && (
+        <HotelRoomOverview
+          selectedDate={selectedDate}
+          hotelName={managerHotelName}
+          staffMap={Object.fromEntries(housekeepingStaff.map(s => [s.id, s.full_name]))}
         />
       )}
 
