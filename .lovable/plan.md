@@ -1,189 +1,159 @@
 
-## Plan: Fix All Dirty Linen Management Date Issues
 
-### Root Cause Analysis
+## Plan: Enhance Team View with Room Overview, Auto-Assign Justification, and Public Area Assignments
 
-I found **three critical bugs** in the Dirty Linen Management feature that cause incorrect data display:
-
-#### Bug 1: Timezone Mismatch in Date Filtering (SimplifiedDirtyLinenManagement.tsx)
-
-**Problem:** When the user selects a date in the calendar, the code uses `toISOString()` which converts to UTC:
-
-```typescript
-// Line 61-62 in SimplifiedDirtyLinenManagement.tsx
-const startDate = dateRange.from.toISOString().split('T')[0];
-const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
-```
-
-**Impact:** If a user is in Central Europe (UTC+1) and selects "Jan 28" at 12:30 AM local time:
-- Local time: Jan 28, 00:30
-- UTC conversion: Jan 27, 23:30
-- The query uses `2026-01-27` instead of `2026-01-28`
-
-This explains why selecting Jan 28 sometimes shows Jan 27 data, and why data appears inconsistent depending on when the user checks.
-
-#### Bug 2: Same Issue in Date Saving (DirtyLinenDialog.tsx)
-
-**Problem:** When housekeepers save dirty linen data, the same UTC conversion issue occurs:
-
-```typescript
-// Line 84, 103, 207, 240 in DirtyLinenDialog.tsx
-const today = new Date().toISOString().split('T')[0];
-```
-
-This causes records to potentially be saved with the wrong date if a housekeeper works early in the morning.
-
-#### Bug 3: Same Issue in Cart Badge (DirtyLinenCartBadge.tsx)
-
-**Problem:** The cart badge also uses the same incorrect date conversion:
-
-```typescript
-// Line 54 in DirtyLinenCartBadge.tsx
-const today = new Date().toISOString().split('T')[0];
-```
+This is a significant feature enhancement with 3 major parts. Here is the breakdown:
 
 ---
 
-### Database Verification
+### Part 1: Room Status Overview in Team View
 
-The database shows Natali's data IS correctly stored for Jan 27:
+Add a visual "Hotel Room Overview" section at the top of the Team View tab that shows all hotel rooms as small compact icons, split into **Checkout** and **Daily** sections.
 
-| Work Date | Housekeeper | Total Items |
-|-----------|-------------|-------------|
-| 2026-01-27 | nam_023 | 59 |
-| 2026-01-27 | Natali_050 | 46 |
-| 2026-01-27 | Quang | 62 |
-| 2026-01-26 | nam_023 | 73 |
-| 2026-01-26 | Quang | 46 |
+**What supervisors will see:**
+- All rooms displayed as small colored badges/chips grouped by floor
+- Rooms split into two sections: "Checkout Rooms" and "Daily Rooms"  
+- Each room chip shows the room number and is color-coded by status:
+  - Green = Clean, Orange = Dirty, Blue = In Progress, Red = Out of Order
+  - Purple border = DND (Do Not Disturb)
+  - Gray with strikethrough = No Show
+- Hovering/tapping a room chip shows the assigned housekeeper's name
+- Rooms with active assignments show the housekeeper's name/initials beneath
+- Desktop: rooms flow horizontally in a grid; Mobile: compact scrollable view
 
-So the data exists - the bug is in how the frontend queries it.
+**New Component:** `HotelRoomOverview.tsx`
+- Fetches all rooms for the manager's hotel
+- Fetches today's assignments to map rooms to housekeepers
+- Groups rooms by floor, then splits by checkout vs daily
+- Shows DND rooms with a special indicator
+
+---
+
+### Part 2: Auto-Assign Justification Display
+
+Enhance the existing Auto-Assign preview (Step 2) to explain **why** each housekeeper got their specific assignment. This does NOT change the algorithm -- it adds transparency.
+
+**What supervisors will see in the preview step:**
+- A "Fairness Summary" card showing:
+  - Average workload weight per housekeeper
+  - Weight deviation percentage (how balanced the distribution is)
+  - Checkout room distribution (e.g., "3 CO each" or "3-4 CO range")
+- Per-housekeeper justification text, e.g.:
+  - "3 checkout rooms (45 min each) + 4 daily rooms (15-25 min each)"
+  - "Floor grouping: Floors 2, 3 -- minimizes walking distance"
+  - "Workload: 5.2 weight (avg: 5.0) -- within fair range"
+  - Time estimate with color indicator
+
+**Changes to:** `AutoRoomAssignment.tsx` -- add fairness summary card and per-staff justification text in the preview step. No algorithm changes.
 
 ---
 
-### Solution: Use Local Date Formatting
+### Part 3: Public Area Assignments
 
-Create a helper function that formats dates in local timezone (not UTC):
+Allow managers/admins to assign public area cleaning tasks to housekeepers through the auto-assign flow and a standalone option.
 
-```typescript
-// Helper function to get local date as YYYY-MM-DD
-const getLocalDateString = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-```
+**Database:** Use the existing `general_tasks` table which already has:
+- `task_name`, `task_description`, `task_type`, `assigned_to`, `assigned_by`
+- `hotel`, `status`, `priority`, `estimated_duration`
+- Proper RLS policies for managers to create and staff to view
+
+**Predefined public area types:**
+- Lobby, Reception, Back Office, Kitchen
+- Guest Toilets (Men), Guest Toilets (Women)  
+- Hotel Common Areas, Stairways, Corridors
+- Breakfast Room, Dining Area
+
+**Manager UI (in Team View):**
+- New "Public Areas" button next to Auto Assign
+- Opens a dialog where managers can:
+  1. Select a housekeeper from dropdown
+  2. Pick one or more public areas from a checklist
+  3. Add optional notes/instructions
+  4. Set priority
+- Saves as `general_tasks` with `task_type` = the area type (e.g., `lobby_cleaning`)
+
+**Housekeeper UI:**
+- New section in both desktop (`HousekeepingStaffView`) and mobile (`MobileHousekeepingView`) views
+- Shows "Public Area Tasks" below room assignments
+- Each task card shows: area name, description, status, priority
+- Housekeepers can start/complete tasks similar to room assignments
+
+**Team View integration:**
+- When supervisor clicks on a housekeeper card, also show their public area tasks
+- The Room Overview section remains focused on rooms only
 
 ---
+
+### Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/components/dashboard/HotelRoomOverview.tsx` | Room status overview grid component |
+| `src/components/dashboard/PublicAreaAssignment.tsx` | Dialog for assigning public area tasks |
+| `src/components/dashboard/PublicAreaTaskCard.tsx` | Task card for housekeeper view |
 
 ### Files to Modify
 
-#### 1. `src/components/dashboard/SimplifiedDirtyLinenManagement.tsx`
+| File | Changes |
+|------|---------|
+| `src/components/dashboard/HousekeepingManagerView.tsx` | Add Room Overview section, Public Areas button, show public tasks in staff detail |
+| `src/components/dashboard/AutoRoomAssignment.tsx` | Add fairness summary and per-staff justification in preview step |
+| `src/components/dashboard/HousekeepingStaffView.tsx` | Add Public Area Tasks section below room assignments |
+| `src/components/dashboard/MobileHousekeepingView.tsx` | Add Public Area Tasks section for mobile |
 
-**Lines 61-62:** Fix date range conversion:
+### No Changes To
 
-```typescript
-// BEFORE (buggy):
-const startDate = dateRange.from.toISOString().split('T')[0];
-const endDate = (dateRange.to || dateRange.from).toISOString().split('T')[0];
-
-// AFTER (fixed):
-const getLocalDateString = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-const startDate = getLocalDateString(dateRange.from);
-const endDate = getLocalDateString(dateRange.to || dateRange.from);
-```
-
-**Lines 177-178:** Fix CSV export date conversion using the same helper.
-
-#### 2. `src/components/dashboard/DirtyLinenDialog.tsx`
-
-**Lines 84, 103, 207, 240:** Fix all occurrences of `new Date().toISOString().split('T')[0]`:
-
-```typescript
-// BEFORE (buggy):
-const today = new Date().toISOString().split('T')[0];
-
-// AFTER (fixed):
-const getLocalDateString = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-const today = getLocalDateString(new Date());
-```
-
-#### 3. `src/components/dashboard/DirtyLinenCartBadge.tsx`
-
-**Line 54:** Fix date conversion:
-
-```typescript
-// BEFORE (buggy):
-const today = new Date().toISOString().split('T')[0];
-
-// AFTER (fixed):
-const getLocalDateString = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-const today = getLocalDateString(new Date());
-```
-
-#### 4. `src/components/dashboard/DirtyLinenManagement.tsx`
-
-**Line 241:** Also uses `format(new Date(), 'yyyy-MM-dd')` from date-fns which should be timezone-aware, but we should verify consistency:
-
-```typescript
-// Line 241 - already uses date-fns format() which is locale-aware
-if (recordToDelete.work_date !== format(new Date(), 'yyyy-MM-dd')) {
-```
-
-This is correct because `date-fns format()` uses local time. But we should make the other file consistent by potentially using `date-fns`.
+| File | Reason |
+|------|--------|
+| `src/lib/roomAssignmentAlgorithm.ts` | Algorithm is working correctly -- we only add display justification |
+| `src/components/dashboard/RoomAssignmentDialog.tsx` | Manual assignment stays exactly as-is |
+| `src/components/dashboard/AssignedRoomCard.tsx` | Existing room cards unchanged |
+| Database schema | Using existing `general_tasks` table for public areas |
 
 ---
 
-### Optional Improvement: Create a Shared Utility
+### Technical Details
 
-To prevent future bugs, we could create a shared utility in `src/lib/utils.ts`:
-
-```typescript
-/**
- * Get a date as YYYY-MM-DD string in local timezone
- * Use this instead of toISOString().split('T')[0] which converts to UTC
- */
-export const getLocalDateString = (date: Date = new Date()): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+**HotelRoomOverview component structure:**
+```text
++------------------------------------------+
+| Hotel Room Overview                       |
++------------------------------------------+
+| Checkout Rooms (8)                        |
+| [F1] 102 103 104  [F2] 201 202 204      |
+|      Ana  Ana  -       Nat  Nat  Qua    |
+| [F3] 304 305                              |
+|      Qua  -                               |
++------------------------------------------+
+| Daily Rooms (13)        DND: 105, 402... |
+| [F1] 101 105(DND)  [F2] 203 205         |
+|      Ana  -             Nat  Nat         |
+| ...                                       |
++------------------------------------------+
 ```
 
-Then import and use it across all components.
+**Fairness justification in auto-assign preview:**
+```text
++------------------------------------------+
+| Fairness Summary                          |
+| Avg workload: 5.2 | Deviation: +/-3%     |
+| Checkout split: 3-3-2 (even)             |
++------------------------------------------+
+| Ana (8 rooms)                             |
+| 3 CO + 5 Daily | Floors: 1, 2            |
+| Work: 4h 15m + 30m break = 4h 45m        |
+| Weight: 5.3 (avg: 5.2) -- Fair           |
++------------------------------------------+
+```
 
----
+**Public area task flow:**
+```text
+Manager assigns --> general_tasks row created
+                    --> task_type = 'lobby_cleaning'
+                    --> status = 'assigned'
+Housekeeper views --> sees in Public Area section
+Housekeeper starts --> status = 'in_progress'  
+Housekeeper completes --> status = 'completed'
+Supervisor sees --> in team view staff detail
+```
 
-### Summary of Changes
-
-| File | Lines | Fix |
-|------|-------|-----|
-| `SimplifiedDirtyLinenManagement.tsx` | 61-62, 177-178 | Replace `toISOString().split('T')[0]` with local date formatting |
-| `DirtyLinenDialog.tsx` | 84, 103, 207, 240 | Replace `toISOString().split('T')[0]` with local date formatting |
-| `DirtyLinenCartBadge.tsx` | 54 | Replace `toISOString().split('T')[0]` with local date formatting |
-| `src/lib/utils.ts` | (new function) | Add `getLocalDateString()` helper |
-
----
-
-### Expected Results After Fix
-
-1. Selecting Jan 27 will show all 3 housekeepers (nam_023, Natali_050, Quang) with their correct totals
-2. Selecting Jan 28 will show today's data (currently shows 3 housekeepers with 167 total)
-3. Data will be consistent regardless of when the manager views it
-4. Housekeepers saving linen data early in the morning will have correct work_date
