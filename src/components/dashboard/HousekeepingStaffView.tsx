@@ -4,15 +4,17 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, MapPin } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { MobileHousekeepingView } from './MobileHousekeepingView';
+import { PublicAreaTaskCard } from './PublicAreaTaskCard';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useNotifications } from '@/hooks/useNotifications';
 import { PerformanceRaceGame } from './PerformanceRaceGame';
+import { getLocalDateString } from '@/lib/utils';
 
 interface Assignment {
   id: string;
@@ -52,6 +54,7 @@ export function HousekeepingStaffView() {
 
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [publicTasks, setPublicTasks] = useState<any[]>([]);
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -61,6 +64,7 @@ export function HousekeepingStaffView() {
     if (user?.id) {
       fetchAssignments();
       fetchSummary();
+      fetchPublicTasks();
     }
   }, [user?.id, selectedDate, statusFilter]);
 
@@ -415,6 +419,41 @@ export function HousekeepingStaffView() {
           </div>
         )}
       </div>
+
+      {/* Public Area Tasks */}
+      {publicTasks.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-primary" />
+            <h3 className="text-lg font-semibold">Public Area Tasks</h3>
+            <Badge variant="outline" className="text-xs">{publicTasks.length}</Badge>
+          </div>
+          <div className="space-y-2">
+            {publicTasks.map(task => (
+              <PublicAreaTaskCard
+                key={task.id}
+                task={task}
+                onStatusUpdate={(id, status) => {
+                  setPublicTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
+
+  function fetchPublicTasks() {
+    if (!user?.id) return;
+    const today = getLocalDateString(new Date(selectedDate));
+    supabase
+      .from('general_tasks')
+      .select('*')
+      .eq('assigned_to', user.id)
+      .eq('assigned_date', today)
+      .then(({ data, error }) => {
+        if (!error) setPublicTasks(data || []);
+      });
+  }
 }
