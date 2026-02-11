@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
   autoAssignRooms, 
@@ -23,6 +24,20 @@ import {
   DAILY_MINUTES,
   BREAK_TIME_MINUTES
 } from '@/lib/roomAssignmentAlgorithm';
+import { getLocalDateString } from '@/lib/utils';
+
+const PUBLIC_AREAS = [
+  { key: 'lobby_cleaning', name: 'Lobby', icon: '🏨' },
+  { key: 'reception_cleaning', name: 'Reception', icon: '🛎️' },
+  { key: 'back_office_cleaning', name: 'Back Office', icon: '🏢' },
+  { key: 'kitchen_cleaning', name: 'Kitchen', icon: '🍳' },
+  { key: 'guest_toilets_men', name: 'Guest Toilets (Men)', icon: '🚹' },
+  { key: 'guest_toilets_women', name: 'Guest Toilets (Women)', icon: '🚺' },
+  { key: 'common_areas_cleaning', name: 'Common Areas', icon: '🏠' },
+  { key: 'stairways_cleaning', name: 'Stairways & Corridors', icon: '🚶' },
+  { key: 'breakfast_room_cleaning', name: 'Breakfast Room', icon: '🍽️' },
+  { key: 'dining_area_cleaning', name: 'Dining Area', icon: '🍴' },
+];
 
 interface AutoRoomAssignmentProps {
   open: boolean;
@@ -31,7 +46,7 @@ interface AutoRoomAssignmentProps {
   onAssignmentCreated: () => void;
 }
 
-type Step = 'select-staff' | 'preview' | 'confirm';
+type Step = 'select-staff' | 'preview' | 'confirm' | 'public-areas';
 
 export function AutoRoomAssignment({
   open,
@@ -60,6 +75,9 @@ export function AutoRoomAssignment({
   const [showOverAllocationDialog, setShowOverAllocationDialog] = useState(false);
   const [overAllocatedStaff, setOverAllocatedStaff] = useState<AssignmentPreview[]>([]);
 
+  // Public area assignments (post-room assignment step)
+  const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map()); // areaKey -> staffId
+
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
@@ -68,6 +86,7 @@ export function AutoRoomAssignment({
       setAssignmentPreviews([]);
       setSelectedRoomForMove(null);
       setShowOverAllocationDialog(false);
+      setPublicAreaAssignments(new Map());
       fetchData();
     }
   }, [open]);
@@ -231,7 +250,9 @@ export function AutoRoomAssignment({
       
       toast.success(`Assigned ${totalRooms} rooms to ${staffCount} housekeepers`);
       onAssignmentCreated();
-      onOpenChange(false);
+      
+      // Move to public areas step instead of closing
+      setStep('public-areas');
 
     } catch (error) {
       console.error('Error creating assignments:', error);
@@ -239,6 +260,57 @@ export function AutoRoomAssignment({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleAssignPublicAreas = async () => {
+    if (publicAreaAssignments.size === 0 || !user) {
+      onOpenChange(false);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const today = getLocalDateString();
+      const hotelName = await getManagerHotel();
+      
+      const tasks = Array.from(publicAreaAssignments.entries()).map(([areaKey, staffId]) => {
+        const area = PUBLIC_AREAS.find(a => a.key === areaKey)!;
+        return {
+          task_name: area.name,
+          task_description: area.name,
+          task_type: areaKey,
+          assigned_to: staffId,
+          assigned_by: user.id,
+          assigned_date: today,
+          hotel: hotelName || '',
+          priority: 1,
+          status: 'assigned',
+          organization_slug: profile?.organization_slug || '',
+        };
+      });
+
+      const { error } = await supabase.from('general_tasks').insert(tasks);
+      if (error) throw error;
+
+      toast.success(`Assigned ${tasks.length} public area(s)`);
+      onAssignmentCreated();
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Error assigning public areas:', error);
+      toast.error('Failed to assign public areas');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const togglePublicAreaAssignment = (areaKey: string, staffId: string) => {
+    const newMap = new Map(publicAreaAssignments);
+    if (newMap.get(areaKey) === staffId) {
+      newMap.delete(areaKey);
+    } else {
+      newMap.set(areaKey, staffId);
+    }
+    setPublicAreaAssignments(newMap);
   };
 
   const getWeightColor = (weight: number, avgWeight: number) => {
@@ -264,12 +336,14 @@ export function AutoRoomAssignment({
           </DialogHeader>
 
           {/* Step Indicator */}
-          <div className="flex items-center justify-center gap-2 py-2">
-            <Badge variant={step === 'select-staff' ? 'default' : 'secondary'}>1. Select Staff</Badge>
-            <ArrowRight className="h-4 w-4 text-muted-foreground" />
-            <Badge variant={step === 'preview' ? 'default' : 'secondary'}>2. Preview</Badge>
-            <ArrowRight className="h-4 w-4 text-muted-foreground" />
-            <Badge variant={step === 'confirm' ? 'default' : 'secondary'}>3. Confirm</Badge>
+          <div className="flex items-center justify-center gap-1.5 py-2 flex-wrap">
+            <Badge variant={step === 'select-staff' ? 'default' : 'secondary'} className="text-xs">1. Staff</Badge>
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <Badge variant={step === 'preview' ? 'default' : 'secondary'} className="text-xs">2. Preview</Badge>
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <Badge variant={step === 'confirm' ? 'default' : 'secondary'} className="text-xs">3. Confirm</Badge>
+            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <Badge variant={step === 'public-areas' ? 'default' : 'secondary'} className="text-xs">4. Public Areas</Badge>
           </div>
 
           <ScrollArea className="flex-1 min-h-0 px-1">
@@ -545,7 +619,7 @@ export function AutoRoomAssignment({
                   })}
                 </div>
               </div>
-            ) : (
+            ) : step === 'confirm' ? (
               <div className="space-y-4 text-center py-8">
                 <Check className="h-16 w-16 mx-auto text-green-600" />
                 <h3 className="text-xl font-semibold">Ready to Assign</h3>
@@ -570,7 +644,57 @@ export function AutoRoomAssignment({
                   </div>
                 </div>
               </div>
-            )}
+            ) : step === 'public-areas' ? (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <Check className="h-12 w-12 mx-auto text-green-600 mb-2" />
+                  <h3 className="text-lg font-semibold">Rooms Assigned Successfully!</h3>
+                  <p className="text-sm text-muted-foreground">Now optionally assign public areas to your team.</p>
+                </div>
+
+                <div className="space-y-2">
+                  {PUBLIC_AREAS.map(area => {
+                    const assignedStaffId = publicAreaAssignments.get(area.key);
+                    return (
+                      <div key={area.key} className="flex items-center gap-3 p-3 border rounded-lg">
+                        <span className="text-lg">{area.icon}</span>
+                        <span className="text-sm font-medium flex-1 min-w-0">{area.name}</span>
+                        <Select
+                          value={assignedStaffId || ''}
+                          onValueChange={(val) => {
+                            const newMap = new Map(publicAreaAssignments);
+                            if (val === 'none') {
+                              newMap.delete(area.key);
+                            } else {
+                              newMap.set(area.key, val);
+                            }
+                            setPublicAreaAssignments(newMap);
+                          }}
+                        >
+                          <SelectTrigger className="w-[160px]">
+                            <SelectValue placeholder="Not assigned" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Not assigned</SelectItem>
+                            {allStaff.filter(s => selectedStaffIds.has(s.id)).map(s => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.full_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {publicAreaAssignments.size > 0 && (
+                  <div className="p-3 bg-primary/5 rounded-lg text-sm">
+                    <p className="font-medium">{publicAreaAssignments.size} area(s) will be assigned</p>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </ScrollArea>
 
           <DialogFooter className="flex-shrink-0 gap-2">
@@ -626,6 +750,30 @@ export function AutoRoomAssignment({
                     <>
                       <Check className="h-4 w-4 mr-2" />
                       Confirm & Assign
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
+
+            {step === 'public-areas' && (
+              <>
+                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                  Skip & Close
+                </Button>
+                <Button
+                  onClick={handleAssignPublicAreas}
+                  disabled={submitting || publicAreaAssignments.size === 0}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Assigning...
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="h-4 w-4 mr-2" />
+                      Assign {publicAreaAssignments.size} Area(s)
                     </>
                   )}
                 </Button>
