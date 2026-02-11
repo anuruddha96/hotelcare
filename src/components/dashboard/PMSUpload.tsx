@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, RefreshCw, Users, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -37,7 +37,11 @@ interface PMSData {
   Status: string;
 }
 
-export function PMSUpload() {
+interface PMSUploadProps {
+  onNavigateToTeamView?: () => void;
+}
+
+export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   const { t } = useTranslation();
   const { user, profile } = useAuth();
   const userRole = profile?.role;
@@ -970,17 +974,29 @@ export function PMSUpload() {
               </div>
             )}
 
-            <Button 
-              onClick={() => {
-                setResults(null);
-                setCheckoutRooms([]);
-                setDailyCleaningRooms([]);
-              }}
-              variant="outline" 
-              className="w-full"
-            >
-              {t('pms.uploadAnother')}
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button 
+                onClick={() => {
+                  setResults(null);
+                  setCheckoutRooms([]);
+                  setDailyCleaningRooms([]);
+                }}
+                variant="outline" 
+                className="flex-1"
+              >
+                {t('pms.uploadAnother')}
+              </Button>
+              {onNavigateToTeamView && (
+                <Button 
+                  onClick={onNavigateToTeamView}
+                  className="flex-1"
+                >
+                  <Users className="h-4 w-4 mr-1" />
+                  Go to Team View
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
