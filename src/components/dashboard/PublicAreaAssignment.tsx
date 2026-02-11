@@ -101,7 +101,7 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
           </DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 px-1">
+        <ScrollArea className="flex-1 min-h-0 px-1">
           <div className="space-y-4">
             {/* Select Housekeeper */}
             <div className="space-y-2">
@@ -174,11 +174,12 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
           </div>
         </ScrollArea>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Cancel</Button>
           <Button
             onClick={handleAssign}
             disabled={!selectedStaffId || selectedAreas.size === 0 || submitting}
+            className="w-full sm:w-auto"
           >
             {submitting ? (
               <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Assigning...</>

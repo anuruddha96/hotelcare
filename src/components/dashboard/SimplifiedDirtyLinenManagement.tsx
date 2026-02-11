@@ -10,6 +10,7 @@ import { DateRangeFilter } from './DateRangeFilter';
 import { toast } from 'sonner';
 import { DateRange } from 'react-day-picker';
 import { getLocalDateString } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface LinenItem {
   id: string;
@@ -27,6 +28,7 @@ interface HousekeeperData {
 export function SimplifiedDirtyLinenManagement() {
   const { profile } = useAuth();
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date(),
     to: new Date()
@@ -59,12 +61,10 @@ export function SimplifiedDirtyLinenManagement() {
   const fetchData = async () => {
     if (!dateRange?.from || allLinenItems.length === 0) return;
     
-    // Use local timezone date formatting to avoid UTC conversion issues
     const startDate = getLocalDateString(dateRange.from);
     const endDate = getLocalDateString(dateRange.to || dateRange.from);
     
     try {
-      // Get current user's hotel filter
       const { data: currentProfile } = await supabase
         .from('profiles')
         .select('assigned_hotel')
@@ -73,7 +73,6 @@ export function SimplifiedDirtyLinenManagement() {
 
       const userHotel = currentProfile?.assigned_hotel;
       
-      // Fetch dirty linen counts
       const { data: countsData, error: countsError } = await supabase
         .from('dirty_linen_counts')
         .select('id, housekeeper_id, linen_item_id, count, work_date')
@@ -87,7 +86,6 @@ export function SimplifiedDirtyLinenManagement() {
         return;
       }
 
-      // Initialize totals with 0 for ALL items
       const itemMap = new Map<string, number>();
       allLinenItems.forEach(item => {
         itemMap.set(item.name, 0);
@@ -100,7 +98,6 @@ export function SimplifiedDirtyLinenManagement() {
         return;
       }
 
-      // Fetch housekeeper profiles
       const housekeeperIds = Array.from(new Set(countsData.map(c => c.housekeeper_id)));
       let housekeepersQuery = supabase
         .from('profiles')
@@ -113,7 +110,6 @@ export function SimplifiedDirtyLinenManagement() {
       
       const { data: housekeepersData } = await housekeepersQuery;
 
-      // Create lookup maps
       const housekeepersMap = new Map(
         housekeepersData?.map(h => [h.id, h.nickname || h.full_name]) || []
       );
@@ -124,7 +120,6 @@ export function SimplifiedDirtyLinenManagement() {
       
       const validHousekeeperIds = new Set(housekeepersData?.map(h => h.id) || []);
 
-      // Calculate totals
       const housekeeperMap = new Map<string, { items: Map<string, number>, total: number }>();
       let total = 0;
 
@@ -135,10 +130,8 @@ export function SimplifiedDirtyLinenManagement() {
         const housekeeperName = housekeepersMap.get(record.housekeeper_id) || 'Unknown';
         const count = record.count;
 
-        // Item totals
         itemMap.set(itemName, (itemMap.get(itemName) || 0) + count);
 
-        // Housekeeper data
         if (!housekeeperMap.has(housekeeperName)) {
           housekeeperMap.set(housekeeperName, { items: new Map(), total: 0 });
         }
@@ -149,7 +142,6 @@ export function SimplifiedDirtyLinenManagement() {
         total += count;
       });
 
-      // Convert to arrays - sorted by housekeeper name
       const housekeepersArray = Array.from(housekeeperMap.entries())
         .map(([housekeeper_name, data]) => ({
           housekeeper_name,
@@ -176,11 +168,9 @@ export function SimplifiedDirtyLinenManagement() {
   const exportToCSV = () => {
     if (!dateRange?.from) return;
     
-    // Use local timezone date formatting for CSV export
     const startDate = getLocalDateString(dateRange.from);
     const endDate = getLocalDateString(dateRange.to || dateRange.from);
     
-    // Header row with display names in sort order
     let csv = t('linen.housekeepers') + ',' + allLinenItems.map(i => i.display_name).join(',') + ',' + t('linen.total') + '\n';
     
     housekeeperData.forEach(hk => {
@@ -201,6 +191,111 @@ export function SimplifiedDirtyLinenManagement() {
     a.download = `dirty-linen-${startDate}-to-${endDate}.csv`;
     a.click();
   };
+
+  const renderMobileCards = () => (
+    <div className="space-y-3">
+      {housekeeperData.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground">
+          No data available for the selected date range
+        </div>
+      ) : (
+        <>
+          {housekeeperData.map((hk, index) => (
+            <Card key={index} className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-sm">{hk.housekeeper_name}</h4>
+                <Badge variant="default" className="text-xs">{hk.total} total</Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {allLinenItems.map((item) => {
+                  const count = hk.items[item.name] || 0;
+                  return (
+                    <div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded text-sm">
+                      <span className="text-muted-foreground truncate mr-2">{item.display_name}</span>
+                      <span className={`font-semibold ${count > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          ))}
+
+          {/* Totals Card */}
+          <Card className="p-4 border-primary/30 bg-primary/5">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-bold text-sm">{t('linen.total').toUpperCase()}</h4>
+              <Badge variant="default" className="text-xs bg-primary">{grandTotal}</Badge>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {allLinenItems.map((item) => {
+                const count = itemTotals.get(item.name) || 0;
+                return (
+                  <div key={item.id} className="flex items-center justify-between p-2 bg-primary/10 rounded text-sm">
+                    <span className="text-muted-foreground truncate mr-2">{item.display_name}</span>
+                    <span className="font-bold">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+
+  const renderDesktopTable = () => (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse border">
+        <thead>
+          <tr className="bg-muted">
+            <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
+            {allLinenItems.map((item) => (
+              <th key={item.id} className="border p-3 text-center font-bold min-w-[120px] whitespace-nowrap">
+                {item.display_name}
+              </th>
+            ))}
+            <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">{t('linen.total').toUpperCase()}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {housekeeperData.length === 0 ? (
+            <tr>
+              <td colSpan={allLinenItems.length + 2} className="border p-8 text-center text-muted-foreground">
+                No data available for the selected date range
+              </td>
+            </tr>
+          ) : (
+            <>
+              {housekeeperData.map((hk, index) => (
+                <tr key={index} className="hover:bg-accent/30 transition">
+                  <td className="border p-3 font-medium">{hk.housekeeper_name}</td>
+                  {allLinenItems.map((item) => (
+                    <td key={item.id} className="border p-3 text-center">
+                      {hk.items[item.name] || 0}
+                    </td>
+                  ))}
+                  <td className="border p-3 text-center font-bold bg-primary/5">
+                    {hk.total}
+                  </td>
+                </tr>
+              ))}
+              <tr className="bg-accent font-bold">
+                <td className="border p-3">{t('linen.total').toUpperCase()}</td>
+                {allLinenItems.map((item) => (
+                  <td key={item.id} className="border p-3 text-center">
+                    {itemTotals.get(item.name) || 0}
+                  </td>
+                ))}
+                <td className="border p-3 text-center bg-primary/10 text-lg">
+                  {grandTotal}
+                </td>
+              </tr>
+            </>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -237,58 +332,7 @@ export function SimplifiedDirtyLinenManagement() {
           </div>
         </div>
 
-        {/* Main Table - Always show all items in sort_order */}
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse border">
-            <thead>
-              <tr className="bg-muted">
-                <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
-                {allLinenItems.map((item) => (
-                  <th key={item.id} className="border p-3 text-center font-bold min-w-[120px] whitespace-nowrap">
-                    {item.display_name}
-                  </th>
-                ))}
-                <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">{t('linen.total').toUpperCase()}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {housekeeperData.length === 0 ? (
-                <tr>
-                  <td colSpan={allLinenItems.length + 2} className="border p-8 text-center text-muted-foreground">
-                    No data available for the selected date range
-                  </td>
-                </tr>
-              ) : (
-                <>
-                  {housekeeperData.map((hk, index) => (
-                    <tr key={index} className="hover:bg-accent/30 transition">
-                      <td className="border p-3 font-medium">{hk.housekeeper_name}</td>
-                      {allLinenItems.map((item) => (
-                        <td key={item.id} className="border p-3 text-center">
-                          {hk.items[item.name] || 0}
-                        </td>
-                      ))}
-                      <td className="border p-3 text-center font-bold bg-primary/5">
-                        {hk.total}
-                      </td>
-                    </tr>
-                  ))}
-                  <tr className="bg-accent font-bold">
-                    <td className="border p-3">{t('linen.total').toUpperCase()}</td>
-                    {allLinenItems.map((item) => (
-                      <td key={item.id} className="border p-3 text-center">
-                        {itemTotals.get(item.name) || 0}
-                      </td>
-                    ))}
-                    <td className="border p-3 text-center bg-primary/10 text-lg">
-                      {grandTotal}
-                    </td>
-                  </tr>
-                </>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {isMobile ? renderMobileCards() : renderDesktopTable()}
       </Card>
     </div>
   );

@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Hotel, BedDouble, Ban, EyeOff } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin } from 'lucide-react';
 import { getLocalDateString } from '@/lib/utils';
 
 interface RoomData {
@@ -23,8 +22,16 @@ interface AssignmentData {
   assignment_type: string;
 }
 
+interface PublicAreaTask {
+  id: string;
+  task_name: string;
+  task_type: string;
+  assigned_to: string;
+  status: string;
+}
+
 interface StaffMap {
-  [id: string]: string; // id -> name
+  [id: string]: string;
 }
 
 interface HotelRoomOverviewProps {
@@ -41,11 +48,18 @@ const STATUS_COLORS: Record<string, string> = {
   inspected: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700',
 };
 
+const TASK_STATUS_COLORS: Record<string, string> = {
+  assigned: 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-700',
+  in_progress: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700',
+  completed: 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700',
+};
+
 const DEFAULT_COLOR = 'bg-muted text-muted-foreground border-border';
 
 export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRoomOverviewProps) {
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
+  const [publicAreaTasks, setPublicAreaTasks] = useState<PublicAreaTask[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -55,7 +69,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [roomsRes, assignmentsRes] = await Promise.all([
+      const [roomsRes, assignmentsRes, tasksRes] = await Promise.all([
         supabase
           .from('rooms')
           .select('id, room_number, floor_number, status, is_checkout_room, is_dnd')
@@ -64,14 +78,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
         supabase
           .from('room_assignments')
           .select('room_id, assigned_to, status, assignment_type')
-          .eq('assignment_date', selectedDate)
+          .eq('assignment_date', selectedDate),
+        supabase
+          .from('general_tasks')
+          .select('id, task_name, task_type, assigned_to, status')
+          .eq('hotel', hotelName)
+          .eq('assigned_date', selectedDate)
       ]);
 
       setRooms(roomsRes.data || []);
       
-      // Filter assignments to only rooms in this hotel
       const roomIds = new Set((roomsRes.data || []).map(r => r.id));
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
+      setPublicAreaTasks(tasksRes.data || []);
     } catch (error) {
       console.error('Error fetching room overview:', error);
     } finally {
@@ -82,7 +101,6 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const assignmentMap = new Map<string, AssignmentData>();
   assignments.forEach(a => assignmentMap.set(a.room_id, a));
 
-  // Determine room type from assignment or is_checkout_room flag
   const checkoutRooms = rooms.filter(r => {
     const assignment = assignmentMap.get(r.id);
     return r.is_checkout_room || assignment?.assignment_type === 'checkout_cleaning';
@@ -92,7 +110,6 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
     return !r.is_checkout_room && assignment?.assignment_type !== 'checkout_cleaning';
   });
 
-  // Check for no-show: room is dirty but not checkout and has no assignment
   const isNoShow = (room: RoomData) => {
     return room.status === 'dirty' && !assignmentMap.has(room.id) && !room.is_checkout_room;
   };
@@ -112,7 +129,6 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
     if (!assignment) return null;
     const name = staffMap[assignment.assigned_to];
     if (!name) return null;
-    // Return short name (first name or nickname)
     const parts = name.split(' ');
     return parts[0].length <= 8 ? parts[0] : parts[0].substring(0, 7) + '.';
   };
@@ -207,6 +223,53 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
     );
   };
 
+  const renderPublicAreas = () => {
+    if (publicAreaTasks.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <MapPin className="h-3.5 w-3.5 text-emerald-600" />
+          <span className="text-sm font-semibold">Public Areas</span>
+          <Badge variant="secondary" className="text-xs">{publicAreaTasks.length}</Badge>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {publicAreaTasks.map(task => {
+            const colorClass = TASK_STATUS_COLORS[task.status] || DEFAULT_COLOR;
+            const staffName = staffMap[task.assigned_to];
+            const shortName = staffName ? (staffName.split(' ')[0].length <= 8 ? staffName.split(' ')[0] : staffName.split(' ')[0].substring(0, 7) + '.') : null;
+
+            return (
+              <TooltipProvider key={task.id} delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div className={`px-2 py-1 rounded text-xs font-semibold border ${colorClass} min-w-[40px] text-center`}>
+                        {task.task_name}
+                      </div>
+                      {shortName && (
+                        <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[60px]">
+                          {shortName}
+                        </span>
+                      )}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    <div className="space-y-1">
+                      <p className="font-semibold">{task.task_name}</p>
+                      <p>Status: {task.status}</p>
+                      {staffName && <p>Assigned: {staffName}</p>}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <Card>
@@ -248,6 +311,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
         {renderSection('Checkout Rooms', checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />)}
         <div className="border-t border-border/50" />
         {renderSection('Daily Rooms', dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />)}
+        {publicAreaTasks.length > 0 && (
+          <>
+            <div className="border-t border-border/50" />
+            {renderPublicAreas()}
+          </>
+        )}
       </CardContent>
     </Card>
   );
