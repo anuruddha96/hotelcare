@@ -1,159 +1,106 @@
 
 
-## Plan: Enhance Team View with Room Overview, Auto-Assign Justification, and Public Area Assignments
+## Plan: Fix Auto-Assign Scroll Issue and Improve Room Distribution Fairness
 
-This is a significant feature enhancement with 3 major parts. Here is the breakdown:
+### Issue 1: Preview Section Not Scrollable
 
----
+**Root Cause:** The `ScrollArea` component on line 275 of `AutoRoomAssignment.tsx` is used but doesn't have a proper height constraint. While the dialog has `max-h-[90vh] flex flex-col`, the ScrollArea just has `className="flex-1 px-1"` which doesn't reliably constrain its height for Radix ScrollArea to activate scrolling.
 
-### Part 1: Room Status Overview in Team View
+**Fix:** Add `overflow-y-auto` styling and ensure the ScrollArea has a constrained height by setting `max-h` or using `min-h-0` on the flex child (the standard flex overflow fix).
 
-Add a visual "Hotel Room Overview" section at the top of the Team View tab that shows all hotel rooms as small compact icons, split into **Checkout** and **Daily** sections.
-
-**What supervisors will see:**
-- All rooms displayed as small colored badges/chips grouped by floor
-- Rooms split into two sections: "Checkout Rooms" and "Daily Rooms"  
-- Each room chip shows the room number and is color-coded by status:
-  - Green = Clean, Orange = Dirty, Blue = In Progress, Red = Out of Order
-  - Purple border = DND (Do Not Disturb)
-  - Gray with strikethrough = No Show
-- Hovering/tapping a room chip shows the assigned housekeeper's name
-- Rooms with active assignments show the housekeeper's name/initials beneath
-- Desktop: rooms flow horizontally in a grid; Mobile: compact scrollable view
-
-**New Component:** `HotelRoomOverview.tsx`
-- Fetches all rooms for the manager's hotel
-- Fetches today's assignments to map rooms to housekeepers
-- Groups rooms by floor, then splits by checkout vs daily
-- Shows DND rooms with a special indicator
+**File:** `src/components/dashboard/AutoRoomAssignment.tsx`
+- Line 275: Change `<ScrollArea className="flex-1 px-1">` to `<ScrollArea className="flex-1 min-h-0 px-1">`
+- This is the standard CSS fix: a flex child with `flex-1` needs `min-h-0` to allow shrinking below its content size, which then lets ScrollArea's internal overflow kick in.
 
 ---
 
-### Part 2: Auto-Assign Justification Display
+### Issue 2: Unfair Room Count Distribution (16 vs 13 rooms)
 
-Enhance the existing Auto-Assign preview (Step 2) to explain **why** each housekeeper got their specific assignment. This does NOT change the algorithm -- it adds transparency.
+**Root Cause:** The algorithm balances by **weight** but not by **room count**. From the screenshot:
+- Anujin: 16 rooms (6 CO + 10 Daily), Weight 19.0
+- Frank: 13 rooms (6 CO + 7 Daily)
+- Others: 14 rooms each
 
-**What supervisors will see in the preview step:**
-- A "Fairness Summary" card showing:
-  - Average workload weight per housekeeper
-  - Weight deviation percentage (how balanced the distribution is)
-  - Checkout room distribution (e.g., "3 CO each" or "3-4 CO range")
-- Per-housekeeper justification text, e.g.:
-  - "3 checkout rooms (45 min each) + 4 daily rooms (15-25 min each)"
-  - "Floor grouping: Floors 2, 3 -- minimizes walking distance"
-  - "Workload: 5.2 weight (avg: 5.0) -- within fair range"
-  - Time estimate with color indicator
+The weight-based rebalancing pass (Step 4, line 244-297) has two problems:
 
-**Changes to:** `AutoRoomAssignment.tsx` -- add fairness summary card and per-staff justification text in the preview step. No algorithm changes.
+1. **Too restrictive move condition** (line 279): `room.weight <= targetDiff + 0.5` prevents moving rooms when the weight gap is small but room count gap is large. Standard daily rooms have weight 1.0, but if `targetDiff` is small (e.g., 0.4), no room qualifies.
+
+2. **No room count balancing**: The algorithm only looks at weight deviation. A housekeeper can end up with significantly more rooms if those rooms happen to be lighter (smaller size).
+
+**Fix in `src/lib/roomAssignmentAlgorithm.ts`:**
+
+1. **Relax the move condition** in the existing rebalancing loop: Remove the overly restrictive `room.weight <= targetDiff + 0.5` constraint. Instead, only verify that the move would actually reduce the imbalance (new difference < old difference).
+
+2. **Add a room count rebalancing pass** after the weight rebalancing: If the max room count difference between any two staff exceeds 2, move a daily room from the staff with the most rooms to the staff with the fewest -- but only if it doesn't create a weight imbalance worse than 25%.
+
+Here's the specific logic change:
+
+**Step 4 fix (weight rebalancing, lines 244-297):**
+```typescript
+// Current (too restrictive):
+if (diff < bestDiff && room.weight <= targetDiff + 0.5) {
+
+// Fixed (verify move improves balance):
+const newHeaviest = heaviestWeight - room.weight;
+const newLightest = lightestWeight + room.weight;
+if (Math.abs(newHeaviest - newLightest) < (heaviestWeight - lightestWeight)) {
+  // This move improves balance
+```
+
+**New Step 5 (room count rebalancing):**
+```typescript
+// STEP 5: Room count rebalancing - ensure no housekeeper has >2 more rooms than another
+let countRebalanced = true;
+let countIterations = 0;
+while (countRebalanced && countIterations < 20) {
+  countRebalanced = false;
+  countIterations++;
+  
+  // Find staff with most and fewest rooms
+  const byCount = Array.from(assignments.entries())
+    .map(([id, rooms]) => ({ id, count: rooms.length, weight: staffWeights.get(id)! }))
+    .sort((a, b) => b.count - a.count);
+  
+  const most = byCount[0];
+  const least = byCount[byCount.length - 1];
+  
+  if (most.count - least.count > 2) {
+    // Find a daily room to move that won't cause >25% weight imbalance
+    const mostRooms = assignments.get(most.id)!;
+    const dailyRooms = mostRooms.filter(r => !r.is_checkout_room);
+    
+    // Pick lightest daily room
+    const sorted = [...dailyRooms].sort((a, b) => a.weight - b.weight);
+    if (sorted.length > 0) {
+      const room = sorted[0];
+      const newMostWeight = most.weight - room.weight;
+      const newLeastWeight = least.weight + room.weight;
+      const newAvg = totalWeight / staff.length;
+      
+      // Only move if it doesn't create excessive weight imbalance
+      if (Math.abs(newLeastWeight - newAvg) <= newAvg * 0.25) {
+        // Move room
+        // ... splice from most, push to least, update weights
+        countRebalanced = true;
+      }
+    }
+  }
+}
+```
 
 ---
 
-### Part 3: Public Area Assignments
+### Summary of Changes
 
-Allow managers/admins to assign public area cleaning tasks to housekeepers through the auto-assign flow and a standalone option.
-
-**Database:** Use the existing `general_tasks` table which already has:
-- `task_name`, `task_description`, `task_type`, `assigned_to`, `assigned_by`
-- `hotel`, `status`, `priority`, `estimated_duration`
-- Proper RLS policies for managers to create and staff to view
-
-**Predefined public area types:**
-- Lobby, Reception, Back Office, Kitchen
-- Guest Toilets (Men), Guest Toilets (Women)  
-- Hotel Common Areas, Stairways, Corridors
-- Breakfast Room, Dining Area
-
-**Manager UI (in Team View):**
-- New "Public Areas" button next to Auto Assign
-- Opens a dialog where managers can:
-  1. Select a housekeeper from dropdown
-  2. Pick one or more public areas from a checklist
-  3. Add optional notes/instructions
-  4. Set priority
-- Saves as `general_tasks` with `task_type` = the area type (e.g., `lobby_cleaning`)
-
-**Housekeeper UI:**
-- New section in both desktop (`HousekeepingStaffView`) and mobile (`MobileHousekeepingView`) views
-- Shows "Public Area Tasks" below room assignments
-- Each task card shows: area name, description, status, priority
-- Housekeepers can start/complete tasks similar to room assignments
-
-**Team View integration:**
-- When supervisor clicks on a housekeeper card, also show their public area tasks
-- The Room Overview section remains focused on rooms only
-
----
-
-### Files to Create
-
-| File | Purpose |
-|------|---------|
-| `src/components/dashboard/HotelRoomOverview.tsx` | Room status overview grid component |
-| `src/components/dashboard/PublicAreaAssignment.tsx` | Dialog for assigning public area tasks |
-| `src/components/dashboard/PublicAreaTaskCard.tsx` | Task card for housekeeper view |
-
-### Files to Modify
-
-| File | Changes |
-|------|---------|
-| `src/components/dashboard/HousekeepingManagerView.tsx` | Add Room Overview section, Public Areas button, show public tasks in staff detail |
-| `src/components/dashboard/AutoRoomAssignment.tsx` | Add fairness summary and per-staff justification in preview step |
-| `src/components/dashboard/HousekeepingStaffView.tsx` | Add Public Area Tasks section below room assignments |
-| `src/components/dashboard/MobileHousekeepingView.tsx` | Add Public Area Tasks section for mobile |
-
-### No Changes To
-
-| File | Reason |
+| File | Change |
 |------|--------|
-| `src/lib/roomAssignmentAlgorithm.ts` | Algorithm is working correctly -- we only add display justification |
-| `src/components/dashboard/RoomAssignmentDialog.tsx` | Manual assignment stays exactly as-is |
-| `src/components/dashboard/AssignedRoomCard.tsx` | Existing room cards unchanged |
-| Database schema | Using existing `general_tasks` table for public areas |
+| `src/components/dashboard/AutoRoomAssignment.tsx` (line 275) | Add `min-h-0` to ScrollArea to fix scroll |
+| `src/lib/roomAssignmentAlgorithm.ts` (lines 274-283) | Relax weight rebalancing move condition |
+| `src/lib/roomAssignmentAlgorithm.ts` (after line 297) | Add room count rebalancing pass (Step 5) |
 
----
+### Expected Results
 
-### Technical Details
-
-**HotelRoomOverview component structure:**
-```text
-+------------------------------------------+
-| Hotel Room Overview                       |
-+------------------------------------------+
-| Checkout Rooms (8)                        |
-| [F1] 102 103 104  [F2] 201 202 204      |
-|      Ana  Ana  -       Nat  Nat  Qua    |
-| [F3] 304 305                              |
-|      Qua  -                               |
-+------------------------------------------+
-| Daily Rooms (13)        DND: 105, 402... |
-| [F1] 101 105(DND)  [F2] 203 205         |
-|      Ana  -             Nat  Nat         |
-| ...                                       |
-+------------------------------------------+
-```
-
-**Fairness justification in auto-assign preview:**
-```text
-+------------------------------------------+
-| Fairness Summary                          |
-| Avg workload: 5.2 | Deviation: +/-3%     |
-| Checkout split: 3-3-2 (even)             |
-+------------------------------------------+
-| Ana (8 rooms)                             |
-| 3 CO + 5 Daily | Floors: 1, 2            |
-| Work: 4h 15m + 30m break = 4h 45m        |
-| Weight: 5.3 (avg: 5.2) -- Fair           |
-+------------------------------------------+
-```
-
-**Public area task flow:**
-```text
-Manager assigns --> general_tasks row created
-                    --> task_type = 'lobby_cleaning'
-                    --> status = 'assigned'
-Housekeeper views --> sees in Public Area section
-Housekeeper starts --> status = 'in_progress'  
-Housekeeper completes --> status = 'completed'
-Supervisor sees --> in team view staff detail
-```
+1. The preview section will be fully scrollable on both mobile and desktop
+2. With 71 rooms and 5 staff, the distribution should be closer to 14-15 rooms each (instead of 13-16)
+3. The existing manual assignment, fairness summary, and all other features remain unchanged
 
