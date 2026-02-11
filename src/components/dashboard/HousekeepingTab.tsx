@@ -260,7 +260,7 @@ export function HousekeepingTab() {
             </TabsContent>
 
             <TabsContent value="pms-upload" className="space-y-6">
-              <PMSUpload />
+              <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
             </TabsContent>
 
             <TabsContent value="supervisor" className="space-y-6">
