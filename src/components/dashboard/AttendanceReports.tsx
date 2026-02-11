@@ -207,6 +207,10 @@ export const AttendanceReports = () => {
         return <Badge className="bg-yellow-500 text-white">On Break</Badge>;
       case 'checked_out':
         return <Badge className="bg-gray-500 text-white">Completed</Badge>;
+      case 'auto_signout':
+        return <Badge className="bg-orange-600 text-white whitespace-nowrap text-xs">Auto Signed Out</Badge>;
+      case 'forgot_signout':
+        return <Badge className="bg-amber-500 text-white whitespace-nowrap text-xs">Forgot Sign Out</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }

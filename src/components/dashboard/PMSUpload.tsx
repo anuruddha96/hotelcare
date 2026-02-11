@@ -435,6 +435,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             guest_nights_stayed: guestNightsStayed,
             towel_change_required: towelChangeRequired,
             linen_change_required: linenChangeRequired,
+            is_dnd: false,
+            dnd_marked_at: null,
+            dnd_marked_by: null,
             updated_at: new Date().toISOString()
           };
 
