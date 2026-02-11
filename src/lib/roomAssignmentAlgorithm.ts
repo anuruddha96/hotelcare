@@ -275,9 +275,14 @@ export function autoAssignRooms(
         // Prefer moving daily rooms over checkout rooms
         if (room.is_checkout_room) continue;
         
-        const diff = Math.abs(room.weight - targetDiff);
-        if (diff < bestDiff && room.weight <= targetDiff + 0.5) {
-          bestDiff = diff;
+        // Check if moving this room would actually improve balance
+        const newHeaviest = heaviestWeight - room.weight;
+        const newLightest = lightestWeight + room.weight;
+        const newDiff = Math.abs(newHeaviest - newLightest);
+        const currentDiff = heaviestWeight - lightestWeight;
+        
+        if (newDiff < currentDiff && newDiff < bestDiff) {
+          bestDiff = newDiff;
           bestRoomToMove = room;
         }
       }
@@ -292,6 +297,46 @@ export function autoAssignRooms(
         staffWeights.set(lightestId, lightestWeight + bestRoomToMove.weight);
         
         rebalanced = true;
+      }
+    }
+  }
+
+  // STEP 5: Room count rebalancing - ensure no housekeeper has >2 more rooms than another
+  let countRebalanced = true;
+  let countIterations = 0;
+  while (countRebalanced && countIterations < 20) {
+    countRebalanced = false;
+    countIterations++;
+    
+    const byCount = Array.from(assignments.entries())
+      .map(([id, rooms]) => ({ id, count: rooms.length, weight: staffWeights.get(id)! }))
+      .sort((a, b) => b.count - a.count);
+    
+    const most = byCount[0];
+    const least = byCount[byCount.length - 1];
+    
+    if (most.count - least.count > 2) {
+      const mostRooms = assignments.get(most.id)!;
+      const dailyRooms = mostRooms.filter(r => !r.is_checkout_room);
+      
+      // Pick lightest daily room
+      const sorted = [...dailyRooms].sort((a, b) => a.weight - b.weight);
+      if (sorted.length > 0) {
+        const room = sorted[0];
+        const newLeastWeight = least.weight + room.weight;
+        const newAvg = totalWeight / staff.length;
+        
+        // Only move if it doesn't create excessive weight imbalance (25%)
+        if (Math.abs(newLeastWeight - newAvg) <= newAvg * 0.25) {
+          const idx = mostRooms.indexOf(room);
+          mostRooms.splice(idx, 1);
+          assignments.get(least.id)!.push(room);
+          
+          staffWeights.set(most.id, most.weight - room.weight);
+          staffWeights.set(least.id, newLeastWeight);
+          
+          countRebalanced = true;
+        }
       }
     }
   }
