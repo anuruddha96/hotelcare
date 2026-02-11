@@ -250,7 +250,7 @@ export function SimplifiedDirtyLinenManagement() {
           <tr className="bg-muted">
             <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
             {allLinenItems.map((item) => (
-              <th key={item.id} className="border p-3 text-center font-bold min-w-[120px] whitespace-nowrap">
+              <th key={item.id} className="border p-2 text-center font-bold text-xs sm:text-sm whitespace-nowrap">
                 {item.display_name}
               </th>
             ))}
@@ -332,7 +332,7 @@ export function SimplifiedDirtyLinenManagement() {
           </div>
         </div>
 
-        {isMobile ? renderMobileCards() : renderDesktopTable()}
+        {(isMobile || (typeof window !== 'undefined' && window.innerWidth < 1024 && allLinenItems.length >= 6)) ? renderMobileCards() : renderDesktopTable()}
       </Card>
     </div>
   );

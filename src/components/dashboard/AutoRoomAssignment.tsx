@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
@@ -346,7 +346,7 @@ export function AutoRoomAssignment({
             <Badge variant={step === 'public-areas' ? 'default' : 'secondary'} className="text-xs">4. Public Areas</Badge>
           </div>
 
-          <ScrollArea className="flex-1 min-h-0 px-1">
+          <div className="flex-1 min-h-0 overflow-y-auto px-1">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -695,7 +695,7 @@ export function AutoRoomAssignment({
                 )}
               </div>
             ) : null}
-          </ScrollArea>
+          </div>
 
           <DialogFooter className="flex-shrink-0 gap-2">
             {step === 'select-staff' && (

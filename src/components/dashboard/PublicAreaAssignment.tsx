@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { MapPin, Loader2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
@@ -101,7 +101,7 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
           </DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-0 px-1">
+        <div className="flex-1 min-h-0 overflow-y-auto px-1">
           <div className="space-y-4">
             {/* Select Housekeeper */}
             <div className="space-y-2">
@@ -172,7 +172,7 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
               />
             </div>
           </div>
-        </ScrollArea>
+        </div>
 
         <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Cancel</Button>
