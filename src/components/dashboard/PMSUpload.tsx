@@ -315,7 +315,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           // Find the room by extracted number with hotel filter
           let roomQuery = supabase
             .from('rooms')
-            .select('id, status, room_number, room_type, is_checkout_room, hotel')
+            .select('id, status, room_number, room_type, is_checkout_room, hotel, is_dnd')
             .eq('room_number', roomNumber);
 
           // Filter by selected hotel if available
@@ -465,6 +465,22 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
             if (!updateError) {
               processed.updated++;
+            }
+          } else if (room.is_dnd) {
+            // Status unchanged, but still clear DND from previous day
+            const { error: dndError } = await supabase
+              .from('rooms')
+              .update({
+                is_dnd: false,
+                dnd_marked_at: null,
+                dnd_marked_by: null,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', room.id);
+
+            if (!dndError) {
+              processed.updated++;
+              console.log(`Cleared stale DND for room ${room.room_number}`);
             }
           }
 
