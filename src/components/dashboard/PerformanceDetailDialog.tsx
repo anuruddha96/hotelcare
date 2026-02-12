@@ -12,7 +12,7 @@ interface PerformanceDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   housekeeperId: string;
   fullName: string;
-  metric: 'score' | 'checkout' | 'daily' | 'punctual' | 'breaks';
+  metric: 'score' | 'checkout' | 'daily' | 'punctual' | 'breaks' | 'hours';
   timeframe: string;
 }
 
@@ -40,7 +40,7 @@ export function PerformanceDetailDialog({
     try {
       const dateFrom = new Date(Date.now() - parseInt(timeframe) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      if (metric === 'punctual' || metric === 'breaks') {
+      if (metric === 'punctual' || metric === 'breaks' || metric === 'hours') {
         // Fetch attendance data
         const { data: attendanceData } = await supabase
           .from('staff_attendance')
@@ -54,7 +54,20 @@ export function PerformanceDetailDialog({
 
         setData(attendanceData || []);
 
-        if (metric === 'punctual') {
+        if (metric === 'hours') {
+          const validDays = attendanceData?.filter(a => a.total_hours != null) || [];
+          const totalHours = validDays.reduce((sum, a) => sum + (parseFloat(a.total_hours?.toString() || '0') || 0), 0);
+          const avgHours = validDays.length ? totalHours / validDays.length : 0;
+          const maxHours = validDays.length ? Math.max(...validDays.map(a => parseFloat(a.total_hours?.toString() || '0') || 0)) : 0;
+          const minHours = validDays.length ? Math.min(...validDays.map(a => parseFloat(a.total_hours?.toString() || '0') || 0)) : 0;
+          setSummary({
+            total: validDays.length,
+            avgHours: Math.round(avgHours * 10) / 10,
+            maxHours: Math.round(maxHours * 10) / 10,
+            minHours: Math.round(minHours * 10) / 10,
+            totalHours: Math.round(totalHours * 10) / 10
+          });
+        } else if (metric === 'punctual') {
           const punctualCount = attendanceData?.filter(a => 
             new Date(`1970-01-01T${new Date(a.check_in_time).toTimeString()}`).getTime() <= 
             new Date('1970-01-01T09:00:00').getTime()
@@ -118,6 +131,7 @@ export function PerformanceDetailDialog({
       case 'daily': return 'Daily Cleaning Performance';
       case 'punctual': return 'Punctuality Details';
       case 'breaks': return 'Break Management';
+      case 'hours': return 'Working Hours Details';
       default: return 'Performance Details';
     }
   };
@@ -129,11 +143,57 @@ export function PerformanceDetailDialog({
       case 'daily': return <Target className="h-5 w-5 text-blue-500" />;
       case 'punctual': return <CheckCircle className="h-5 w-5 text-purple-500" />;
       case 'breaks': return <TrendingUp className="h-5 w-5 text-orange-500" />;
+      case 'hours': return <Clock className="h-5 w-5 text-orange-500" />;
       default: return <Star className="h-5 w-5" />;
     }
   };
 
   const renderPerformanceData = () => {
+    if (metric === 'hours') {
+      return (
+        <div className="space-y-4">
+          {summary && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <div className="text-2xl font-bold text-orange-800">{summary.avgHours}h</div>
+                <div className="text-sm text-orange-600">Avg Hours/Day</div>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <div className="text-2xl font-bold text-green-800">{summary.maxHours}h</div>
+                <div className="text-sm text-green-600">Best Day</div>
+              </div>
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <div className="text-2xl font-bold text-blue-800">{summary.totalHours}h</div>
+                <div className="text-sm text-blue-600">Total Hours</div>
+              </div>
+              <div className="text-center p-3 bg-purple-50 rounded-lg">
+                <div className="text-2xl font-bold text-purple-800">{summary.total}</div>
+                <div className="text-sm text-purple-600">Days Worked</div>
+              </div>
+            </div>
+          )}
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {data.filter((a: any) => a.total_hours != null).map((attendance: any) => (
+              <Card key={attendance.id} className="p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">{format(new Date(attendance.work_date), 'MMM dd, yyyy')}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span>{format(new Date(attendance.check_in_time), 'HH:mm')} - {attendance.check_out_time ? format(new Date(attendance.check_out_time), 'HH:mm') : '-'}</span>
+                    <Badge className={parseFloat(attendance.total_hours?.toString() || '0') >= 7.5 ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}>
+                      {(parseFloat(attendance.total_hours?.toString() || '0') || 0).toFixed(1)}h
+                    </Badge>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     if (metric === 'punctual') {
       return (
         <div className="space-y-4">

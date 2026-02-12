@@ -743,6 +743,62 @@ export function HousekeepingManagerView() {
                     <p className="text-muted-foreground text-sm">{t('team.noAssignments')} {format(new Date(selectedDate), 'MMM dd')}</p>
                   </div>
                 )}
+                {/* Inline Bulk Unassign Checkboxes */}
+                {bulkUnassignMode && (
+                  <div className="mt-3 border-t pt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-destructive">{t('team.selectForUnassign')}</span>
+                      {(() => {
+                        const staffRooms = roomAssignments.filter(a => a.assigned_to === staff.id);
+                        const allSelected = staffRooms.length > 0 && staffRooms.every(a => selectedAssignments.includes(a.id));
+                        return staffRooms.length > 0 ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7"
+                            onClick={() => {
+                              if (allSelected) {
+                                setSelectedAssignments(prev => prev.filter(id => !staffRooms.find(a => a.id === id)));
+                              } else {
+                                setSelectedAssignments(prev => [...new Set([...prev, ...staffRooms.map(a => a.id)])]);
+                              }
+                            }}
+                          >
+                            {allSelected ? t('common.deselectAll') || 'Deselect All' : t('common.selectAll') || 'Select All'}
+                          </Button>
+                        ) : null;
+                      })()}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {roomAssignments
+                        .filter(a => a.assigned_to === staff.id)
+                        .map(assignment => (
+                          <div
+                            key={assignment.id}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-sm cursor-pointer transition-colors ${
+                              selectedAssignments.includes(assignment.id) 
+                                ? 'bg-destructive/10 border-destructive' 
+                                : 'bg-muted/50 border-border hover:bg-muted'
+                            }`}
+                            onClick={() => toggleAssignmentSelection(assignment.id)}
+                          >
+                            <Checkbox
+                              checked={selectedAssignments.includes(assignment.id)}
+                              onCheckedChange={() => toggleAssignmentSelection(assignment.id)}
+                              className="h-3.5 w-3.5"
+                            />
+                            <span className="font-medium">{assignment.room_number}</span>
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+                              {assignment.status}
+                            </Badge>
+                          </div>
+                        ))}
+                      {roomAssignments.filter(a => a.assigned_to === staff.id).length === 0 && (
+                        <p className="text-xs text-muted-foreground">{t('team.noAssignments')}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           );
@@ -778,40 +834,6 @@ export function HousekeepingManagerView() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Bulk Unassign View */}
-      {bulkUnassignMode && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('team.selectForUnassign')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {roomAssignments.map((assignment) => {
-                const staff = housekeepingStaff.find(s => s.id === assignment.assigned_to);
-                return (
-                  <div key={assignment.id} className="border rounded-lg p-4 flex items-center space-x-3">
-                    <Checkbox
-                      checked={selectedAssignments.includes(assignment.id)}
-                      onCheckedChange={() => toggleAssignmentSelection(assignment.id)}
-                    />
-                    <div className="flex-1">
-                      <p className="font-medium">{assignment.room_number}</p>
-                      <p className="text-sm text-muted-foreground">{assignment.hotel}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {staff?.full_name || 'Unknown Staff'}
-                      </p>
-                      <Badge variant={assignment.status === 'completed' ? 'default' : 'secondary'}>
-                        {assignment.status}
-                      </Badge>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Confirmation Dialog */}
       <AlertDialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
