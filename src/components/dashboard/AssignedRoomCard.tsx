@@ -311,19 +311,29 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       if (!freshAttendanceStatus || freshAttendanceStatus === 'checked_out') {
         console.log('❌ User not checked in - blocking start', { freshAttendanceStatus });
         showToast({
-          title: t('attendance.notCheckedIn'),
-          description: t('attendance.checkInRequired'),
+          title: "⚠️ " + t('attendance.notCheckedIn'),
+          description: "Please sign in first to start cleaning. Tap below to go to the attendance page.",
           variant: "destructive",
           action: (
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                // Redirect to attendance tab
-                const attendanceTab = document.querySelector('[data-value="attendance"]') as HTMLElement;
-                if (attendanceTab) {
-                  attendanceTab.click();
+                // Try multiple selectors for robust tab redirect
+                const selectors = [
+                  '[data-value="attendance"]',
+                  'button[value="attendance"]',
+                  '[role="tab"][value="attendance"]'
+                ];
+                for (const selector of selectors) {
+                  const tab = document.querySelector(selector) as HTMLElement;
+                  if (tab) {
+                    tab.click();
+                    return;
+                  }
                 }
+                // Fallback: scroll to top where tabs are
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
             >
               {t('attendance.goToCheckIn')}
