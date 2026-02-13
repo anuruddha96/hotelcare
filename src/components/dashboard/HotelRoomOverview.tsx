@@ -61,6 +61,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
   const [publicAreaTasks, setPublicAreaTasks] = useState<PublicAreaTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [averageCleanTime, setAverageCleanTime] = useState<number | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -69,7 +70,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [roomsRes, assignmentsRes, tasksRes] = await Promise.all([
+      const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
           .select('id, room_number, floor_number, status, is_checkout_room, is_dnd')
@@ -83,7 +84,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
           .from('general_tasks')
           .select('id, task_name, task_type, assigned_to, status')
           .eq('hotel', hotelName)
-          .eq('assigned_date', selectedDate)
+          .eq('assigned_date', selectedDate),
+        supabase
+          .from('room_assignments')
+          .select('started_at, completed_at, room_id')
+          .eq('assignment_date', selectedDate)
+          .eq('status', 'completed')
+          .not('started_at', 'is', null)
+          .not('completed_at', 'is', null)
       ]);
 
       setRooms(roomsRes.data || []);
@@ -91,6 +99,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
       const roomIds = new Set((roomsRes.data || []).map(r => r.id));
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
+
+      // Calculate ACT from completed assignments for this hotel's rooms
+      const completedForHotel = (completedRes.data || []).filter(a => roomIds.has(a.room_id));
+      if (completedForHotel.length > 0) {
+        const totalMinutes = completedForHotel.reduce((sum, a) => {
+          const start = new Date(a.started_at!).getTime();
+          const end = new Date(a.completed_at!).getTime();
+          return sum + (end - start) / 60000;
+        }, 0);
+        setAverageCleanTime(Math.round(totalMinutes / completedForHotel.length));
+      } else {
+        setAverageCleanTime(null);
+      }
     } catch (error) {
       console.error('Error fetching room overview:', error);
     } finally {
@@ -290,6 +311,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
           <Hotel className="h-4 w-4 text-primary" />
           Hotel Room Overview
           <Badge variant="secondary" className="text-xs ml-auto">{rooms.length} rooms</Badge>
+          <Badge variant="outline" className="text-xs font-semibold">
+            ACT: {averageCleanTime !== null ? `${averageCleanTime}m` : '--'}
+          </Badge>
         </CardTitle>
         {/* Legend */}
         <div className="flex flex-wrap gap-2 mt-1">
