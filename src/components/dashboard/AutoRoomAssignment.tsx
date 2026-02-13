@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -73,6 +74,10 @@ export function AutoRoomAssignment({
   
   // Drag and drop
   const [dragOverStaffId, setDragOverStaffId] = useState<string | null>(null);
+  const [draggingRoomId, setDraggingRoomId] = useState<string | null>(null);
+  const [justDroppedStaffId, setJustDroppedStaffId] = useState<string | null>(null);
+  const [justDroppedRoomId, setJustDroppedRoomId] = useState<string | null>(null);
+  const isMobile = useIsMobile();
   // Over-allocation confirmation
   const [showOverAllocationDialog, setShowOverAllocationDialog] = useState(false);
   const [overAllocatedStaff, setOverAllocatedStaff] = useState<AssignmentPreview[]>([]);
@@ -485,7 +490,9 @@ export function AutoRoomAssignment({
                   </p>
                   <p className="mt-1 text-muted-foreground flex items-center gap-1">
                     <Move className="h-4 w-4" />
-                    Drag rooms between housekeepers to reassign, or click to select & move.
+                    {isMobile 
+                      ? 'Tap a room, then tap a housekeeper to reassign' 
+                      : 'Drag rooms between housekeepers to reassign'}
                   </p>
                 </div>
 
@@ -503,11 +510,13 @@ export function AutoRoomAssignment({
                     return (
                       <Card 
                         key={preview.staffId} 
-                        className={`overflow-hidden transition-all ${
+                        className={`overflow-hidden transition-all duration-300 ${
                           isDropTarget 
                             ? 'ring-2 ring-primary ring-offset-2 cursor-pointer' 
                             : ''
-                        } ${isDragOver ? 'ring-2 ring-blue-500 ring-offset-2 border-dashed border-blue-400 bg-blue-50/50 dark:bg-blue-950/20' : ''}
+                        } ${isDragOver ? 'ring-2 ring-blue-500 ring-offset-2 border-dashed border-blue-400 bg-blue-50/50 dark:bg-blue-950/20 scale-[1.01]' : ''}
+                        ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500 bg-green-50/50 dark:bg-green-950/20' : ''}
+                        ${draggingRoomId && !isDragOver && selectedRoomForMove?.fromStaffId !== preview.staffId ? 'border-primary/30' : ''}
                         ${preview.exceedsShift && preview.rooms.length > 0 ? 'border-destructive' : ''}`}
                         onClick={() => isDropTarget && handleMoveRoom(preview.staffId)}
                         onDragOver={(e) => {
@@ -519,7 +528,6 @@ export function AutoRoomAssignment({
                           setDragOverStaffId(preview.staffId);
                         }}
                         onDragLeave={(e) => {
-                          // Only clear if leaving the card entirely
                           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                             setDragOverStaffId(null);
                           }
@@ -527,11 +535,15 @@ export function AutoRoomAssignment({
                         onDrop={(e) => {
                           e.preventDefault();
                           setDragOverStaffId(null);
+                          setDraggingRoomId(null);
                           const roomId = e.dataTransfer.getData('roomId');
                           const fromStaffId = e.dataTransfer.getData('fromStaffId');
                           if (roomId && fromStaffId && fromStaffId !== preview.staffId) {
                             const newPreviews = moveRoom(assignmentPreviews, roomId, fromStaffId, preview.staffId);
                             setAssignmentPreviews(newPreviews);
+                            setJustDroppedStaffId(preview.staffId);
+                            setJustDroppedRoomId(roomId);
+                            setTimeout(() => { setJustDroppedStaffId(null); setJustDroppedRoomId(null); }, 600);
                           }
                         }}
                       >
@@ -587,17 +599,43 @@ export function AutoRoomAssignment({
                                 return (
                                   <div
                                     key={room.id}
-                                    draggable
+                                    draggable={!isMobile}
                                     onDragStart={(e) => {
                                       e.dataTransfer.setData('roomId', room.id);
                                       e.dataTransfer.setData('fromStaffId', preview.staffId);
                                       e.dataTransfer.effectAllowed = 'move';
+                                      setDraggingRoomId(room.id);
+                                      
+                                      // Create custom drag ghost
+                                      const ghost = document.createElement('div');
+                                      ghost.textContent = room.room_number;
+                                      ghost.style.cssText = `
+                                        position: fixed; top: -100px; left: -100px;
+                                        padding: 6px 14px; border-radius: 8px;
+                                        font-size: 13px; font-weight: 700;
+                                        box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+                                        z-index: 9999;
+                                        background: ${room.is_checkout_room ? '#fef3c7' : '#dbeafe'};
+                                        color: ${room.is_checkout_room ? '#92400e' : '#1e40af'};
+                                        border: 2px solid ${room.is_checkout_room ? '#f59e0b' : '#3b82f6'};
+                                      `;
+                                      document.body.appendChild(ghost);
+                                      e.dataTransfer.setDragImage(ghost, 20, 15);
+                                      requestAnimationFrame(() => document.body.removeChild(ghost));
                                     }}
-                                    className={`relative flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium cursor-grab active:cursor-grabbing transition-all select-none ${
+                                    onDragEnd={() => {
+                                      setDraggingRoomId(null);
+                                      setDragOverStaffId(null);
+                                    }}
+                                    className={`relative flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 select-none ${
+                                      !isMobile ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+                                    } ${
                                       room.is_checkout_room 
                                         ? 'bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300' 
                                         : 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300'
-                                    } ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}`}
+                                    } ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}
+                                    ${draggingRoomId === room.id ? 'opacity-30 scale-95' : ''}
+                                    ${justDroppedRoomId === room.id ? 'animate-scale-in ring-2 ring-green-500' : ''}`}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       if (isSelected) {
