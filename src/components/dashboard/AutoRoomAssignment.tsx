@@ -71,6 +71,8 @@ export function AutoRoomAssignment({
   const [assignmentPreviews, setAssignmentPreviews] = useState<AssignmentPreview[]>([]);
   const [selectedRoomForMove, setSelectedRoomForMove] = useState<{roomId: string; fromStaffId: string} | null>(null);
   
+  // Drag and drop
+  const [dragOverStaffId, setDragOverStaffId] = useState<string | null>(null);
   // Over-allocation confirmation
   const [showOverAllocationDialog, setShowOverAllocationDialog] = useState(false);
   const [overAllocatedStaff, setOverAllocatedStaff] = useState<AssignmentPreview[]>([]);
@@ -481,20 +483,22 @@ export function AutoRoomAssignment({
                     <strong>{dirtyRooms.length}</strong> rooms distributed among{' '}
                     <strong>{assignmentPreviews.filter(p => p.rooms.length > 0).length}</strong> housekeepers.
                   </p>
-                  {selectedRoomForMove ? (
-                    <p className="mt-1 text-primary font-medium flex items-center gap-1">
-                      <Move className="h-4 w-4" />
-                      Click on a housekeeper card below to move the selected room, or click the room again to cancel.
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-muted-foreground">Click on a room to reassign it.</p>
-                  )}
+                  <p className="mt-1 text-muted-foreground flex items-center gap-1">
+                    <Move className="h-4 w-4" />
+                    Drag rooms between housekeepers to reassign, or click to select & move.
+                  </p>
                 </div>
 
                 {/* Assignment Preview Cards */}
                 <div className="space-y-4">
                   {assignmentPreviews.map(preview => {
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
+                    const isDragOver = dragOverStaffId === preview.staffId;
+                    const floors = [...new Set(preview.rooms.map(r => r.floor_number ?? Math.floor(parseInt(r.room_number) / 100)))].sort((a, b) => a - b);
+                    const floorsLabel = floors.length <= 3 ? `Fl. ${floors.join(',')}` : `${floors.length} floors`;
+                    const weightStatus = avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.1 ? 'Fair' 
+                      : avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.2 ? 'OK' : 'Heavy';
+                    const weightColor = weightStatus === 'Fair' ? 'text-green-600' : weightStatus === 'OK' ? 'text-amber-600' : 'text-red-600';
                     
                     return (
                       <Card 
@@ -503,90 +507,97 @@ export function AutoRoomAssignment({
                           isDropTarget 
                             ? 'ring-2 ring-primary ring-offset-2 cursor-pointer' 
                             : ''
-                        } ${preview.exceedsShift && preview.rooms.length > 0 ? 'border-destructive' : ''}`}
+                        } ${isDragOver ? 'ring-2 ring-blue-500 ring-offset-2 border-dashed border-blue-400 bg-blue-50/50 dark:bg-blue-950/20' : ''}
+                        ${preview.exceedsShift && preview.rooms.length > 0 ? 'border-destructive' : ''}`}
                         onClick={() => isDropTarget && handleMoveRoom(preview.staffId)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDragEnter={(e) => {
+                          e.preventDefault();
+                          setDragOverStaffId(preview.staffId);
+                        }}
+                        onDragLeave={(e) => {
+                          // Only clear if leaving the card entirely
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setDragOverStaffId(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDragOverStaffId(null);
+                          const roomId = e.dataTransfer.getData('roomId');
+                          const fromStaffId = e.dataTransfer.getData('fromStaffId');
+                          if (roomId && fromStaffId && fromStaffId !== preview.staffId) {
+                            const newPreviews = moveRoom(assignmentPreviews, roomId, fromStaffId, preview.staffId);
+                            setAssignmentPreviews(newPreviews);
+                          }
+                        }}
                       >
-                        <CardHeader className={`py-3 ${preview.exceedsShift && preview.rooms.length > 0 ? 'bg-destructive/10' : 'bg-muted/50'}`}>
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <CardTitle className="text-base flex items-center gap-2">
+                        <CardHeader className={`py-2.5 px-3 ${preview.exceedsShift && preview.rooms.length > 0 ? 'bg-destructive/10' : 'bg-muted/50'}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
                               {preview.staffName}
                               {preview.exceedsShift && preview.rooms.length > 0 && (
-                                <AlertTriangle className="h-4 w-4 text-destructive" />
+                                <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
                               )}
                             </CardTitle>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant="outline">
-                                {preview.rooms.length} rooms
-                              </Badge>
-                              <Badge variant="outline" className="text-amber-600">
-                                {preview.checkoutCount} CO
-                              </Badge>
-                              <Badge variant="outline" className="text-blue-600">
-                                {preview.dailyCount} Daily
-                              </Badge>
+                            <div className="flex items-center gap-1.5 text-xs flex-wrap justify-end">
+                              <span className="text-amber-700 font-medium">{preview.checkoutCount}CO</span>
+                              <span className="text-muted-foreground">+</span>
+                              <span className="text-blue-700 font-medium">{preview.dailyCount}D</span>
+                              <span className="text-muted-foreground">|</span>
+                              <span className="text-muted-foreground">{floorsLabel}</span>
+                              <span className="text-muted-foreground">|</span>
+                              <span className={`font-semibold ${weightColor}`}>
+                                W:{preview.totalWeight.toFixed(1)} ({weightStatus})
+                              </span>
                             </div>
                           </div>
                           
-                          {/* Time estimation row */}
-                          <div className="flex items-center gap-4 mt-2 text-sm">
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                              <span>
-                                Work: <strong>{formatMinutesToTime(preview.estimatedMinutes)}</strong>
-                              </span>
-                            </div>
-                            <span className="text-muted-foreground">+</span>
-                            <span>{BREAK_TIME_MINUTES}m break</span>
-                            <span className="text-muted-foreground">=</span>
+                          {/* Compact time row */}
+                          <div className="flex items-center gap-2 text-xs mt-1">
+                            <Clock className="h-3 w-3 text-muted-foreground" />
+                            <span>{formatMinutesToTime(preview.estimatedMinutes)} work + {BREAK_TIME_MINUTES}m break = </span>
                             <span className={`font-semibold ${preview.exceedsShift && preview.rooms.length > 0 ? 'text-destructive' : 'text-green-600'}`}>
-                              {formatMinutesToTime(preview.totalWithBreak)} total
+                              {formatMinutesToTime(preview.totalWithBreak)}
                             </span>
                             {preview.exceedsShift && preview.rooms.length > 0 && (
-                              <Badge variant="destructive" className="text-xs">
-                                +{formatMinutesToTime(preview.overageMinutes)} over 8h
+                              <Badge variant="destructive" className="text-[10px] px-1 py-0">
+                                +{formatMinutesToTime(preview.overageMinutes)}
                               </Badge>
                             )}
                           </div>
-
-                          {/* Per-staff justification */}
-                          {preview.rooms.length > 0 && (
-                            <div className="mt-2 text-xs text-muted-foreground space-y-0.5 border-t pt-1.5">
-                              <p>
-                                📋 {preview.checkoutCount} checkout ({CHECKOUT_MINUTES}min ea.) + {preview.dailyCount} daily ({DAILY_MINUTES}min ea.)
-                              </p>
-                              {(() => {
-                                const floors = [...new Set(preview.rooms.map(r => r.floor_number ?? Math.floor(parseInt(r.room_number) / 100)))].sort((a, b) => a - b);
-                                return <p>🏢 Floor grouping: {floors.length <= 3 ? `Floors ${floors.join(', ')}` : `${floors.length} floors`} — minimizes walking</p>;
-                              })()}
-                              <p className={avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.1 ? 'text-green-600' : avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.2 ? 'text-amber-600' : 'text-red-600'}>
-                                ⚖️ Weight: {preview.totalWeight.toFixed(1)} (avg: {avgWeight.toFixed(1)}) — {
-                                  avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.1 ? 'Fair' 
-                                  : avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.2 ? 'Acceptable' 
-                                  : 'Heavy'
-                                }
-                              </p>
-                            </div>
-                          )}
                         </CardHeader>
-                        <CardContent className="py-3">
+                        <CardContent className="py-2.5 px-3">
                           {preview.rooms.length === 0 ? (
                             <p className="text-sm text-muted-foreground text-center py-2">
                               No rooms assigned
                             </p>
                           ) : (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap gap-1.5">
                               {preview.rooms.map(room => {
                                 const isSelected = selectedRoomForMove?.roomId === room.id;
                                 const weight = calculateRoomWeight(room);
+                                const sizeSqm = room.room_size_sqm || 0;
+                                const sizeLabel = sizeSqm >= 40 ? 'XL' : sizeSqm >= 28 ? 'L' : sizeSqm >= 20 ? 'M' : sizeSqm > 0 ? 'S' : null;
+                                const sizeBadgeColor = sizeSqm >= 40 ? 'bg-red-200 text-red-800' : sizeSqm >= 28 ? 'bg-amber-200 text-amber-800' : sizeSqm >= 20 ? 'bg-blue-200 text-blue-800' : 'bg-gray-200 text-gray-700';
                                 
                                 return (
                                   <div
                                     key={room.id}
-                                    className={`relative px-3 py-1.5 rounded-md text-sm cursor-pointer transition-all ${
+                                    draggable
+                                    onDragStart={(e) => {
+                                      e.dataTransfer.setData('roomId', room.id);
+                                      e.dataTransfer.setData('fromStaffId', preview.staffId);
+                                      e.dataTransfer.effectAllowed = 'move';
+                                    }}
+                                    className={`relative flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium cursor-grab active:cursor-grabbing transition-all select-none ${
                                       room.is_checkout_room 
                                         ? 'bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300' 
                                         : 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300'
-                                    } ${isSelected ? 'ring-2 ring-primary ring-offset-2 scale-105 animate-pulse' : ''}`}
+                                    } ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}`}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       if (isSelected) {
@@ -595,11 +606,13 @@ export function AutoRoomAssignment({
                                         setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
                                       }
                                     }}
-                                    title={`${room.room_number} | ${room.room_size_sqm || '?'}m² | ${room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES}min | Weight: ${weight.toFixed(1)}`}
+                                    title={`${room.room_number} | ${sizeSqm || '?'}m² | ${room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES}min | Weight: ${weight.toFixed(1)}`}
                                   >
-                                    {room.room_number}
-                                    {room.room_size_sqm && room.room_size_sqm >= 30 && (
-                                      <span className="ml-1 text-xs opacity-70">L</span>
+                                    <span>{room.room_number}</span>
+                                    {sizeLabel && (
+                                      <span className={`text-[9px] px-1 rounded font-bold ${sizeBadgeColor}`}>
+                                        {sizeLabel}
+                                      </span>
                                     )}
                                   </div>
                                 );
@@ -607,10 +620,16 @@ export function AutoRoomAssignment({
                             </div>
                           )}
 
-                          {/* Drop zone indicator */}
-                          {isDropTarget && (
-                            <div className="mt-3 p-2 border-2 border-dashed border-primary rounded-lg text-center text-sm text-primary">
+                          {/* Drop zone indicator for click-to-move */}
+                          {isDropTarget && !isDragOver && (
+                            <div className="mt-2 p-1.5 border-2 border-dashed border-primary rounded-lg text-center text-xs text-primary">
                               Click to move room here
+                            </div>
+                          )}
+                          {/* Drag drop zone indicator */}
+                          {isDragOver && (
+                            <div className="mt-2 p-1.5 border-2 border-dashed border-blue-500 rounded-lg text-center text-xs text-blue-600 bg-blue-50 dark:bg-blue-950/30">
+                              Drop room here
                             </div>
                           )}
                         </CardContent>
