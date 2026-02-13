@@ -1,74 +1,98 @@
 
 
-## Plan: ACT in Hotel Room Overview + Button Styling + Attendance UI Cleanup
+## Plan: Fix PMS Upload Room Matching + No-Show Handling
 
-### Change 1: Add Average Clean Time (ACT) to Hotel Room Overview
+### Problem 1: Rooms 038 and 114 "Not Found" Despite Existing
 
-**File:** `src/components/dashboard/HotelRoomOverview.tsx`
+**Root Cause:** In `PMSUpload.tsx`, the hotel configuration lookup (`hotel_configurations` query with `.single()`) runs **inside the for-loop** for every single room (line 324-328). For 69 rooms, this means 69 redundant queries to look up the same hotel name. This can cause intermittent failures due to connection pooling or rate limiting, especially for rooms processed near the end of the file (which is exactly where QDR-038 and QDR-114 are -- the last 2 rows).
 
-- Fetch completed room assignments for the selected date and hotel to calculate average cleaning time
-- Query `room_assignments` where `status = 'completed'` and both `started_at` and `completed_at` are not null
-- Calculate average time in minutes across all completed rooms
-- Display "ACT: Xm" badge next to the room count badge in the CardHeader (line 292)
-- If no completed rooms yet, show "ACT: --"
+**Fix:** Move the hotel name resolution **outside** the processing loop. Look up the hotel name once before the loop starts, then reuse it for every room query.
 
-### Change 2: Swap Auto Assign / Assign Room Button Styles
+**File:** `src/components/dashboard/PMSUpload.tsx`
 
-**File:** `src/components/dashboard/HousekeepingManagerView.tsx`
+- Before the `for` loop (around line 299), add a one-time hotel name lookup
+- Remove the per-room hotel config query from inside the loop (lines 322-332)
+- Use the pre-resolved hotel name for all room queries
 
-- **Auto Assign button** (line 567-574): Change from `variant="secondary"` to `variant="default"` and add `className` with `bg-primary text-white` to make it the prominent blue button
-- **Assign Room button** (line 585-591): Change from `variant="default"` (no variant = default) to `variant="outline"` to make it a plain outlined button, discouraging its use
+### Problem 2: No-Show Handling
 
-### Change 3: Simplify Attendance Tracker UI
+**Current logic (line 409):**
+```
+if (row.Occupied === 'No' && row.Status === 'Untidy' && row.Arrival)
+```
 
-**File:** `src/components/dashboard/AttendanceTracker.tsx`
+This only catches no-shows when there is NO departure time. But in the uploaded file, the 3 rooms with `Occupied = No` all have departure times (06:26, 07:32, 06:41), so they fall into the checkout branch instead.
 
-Key improvements for the "Work Status & Attendance" page:
+**Improved detection:** A no-show or very-early-checkout should be identified when:
+- `Occupied = 'No'` AND has a departure time AND the departure is before 08:00 (guests who "left" before housekeeping hours likely never truly stayed)
+- OR `Occupied = 'No'` AND `Night/Total = '1/1'` with early departure
 
-**A. Cleaner "Not Checked In" state:**
-- Remove the notes textarea from the initial view (before check-in) -- notes are rarely needed before starting work
-- Make the location card more compact
-- Make the swipe-to-check-in area more prominent and centered
+These rooms still need cleaning (dirty status), but should be tagged with a "No Show" or "Early Checkout" note for manager visibility.
 
-**B. Cleaner "Checked In" state:**
-- Show check-in time and status more prominently at the top
-- Move the notes textarea below the action buttons (less important)
-- Reduce visual clutter of the break type selector
+**File:** `src/components/dashboard/PMSUpload.tsx`
 
-**C. Hide Break Types Management for non-admin:**
-- Already handled (line 757), no change needed
+- After the checkout branch (line 379-394), add a sub-check: if `Occupied === 'No'` and departure is before 08:00, mark the room note as "No Show / Early Checkout"
+- Keep the room status as dirty (it still needs cleaning)
+- This is purely informational -- the cleaning workflow remains the same
 
-**D. Remove the "Getting your location..." card when not needed** -- only show location status if location is not yet acquired, and make it a small inline message instead of a full card
+### Problem 3: Room Management Showing 0 Rooms (Screenshot 2)
 
-**E. Overall:**
-- Reduce vertical spacing to show more content above the fold on mobile
-- Make the status badge larger and more visible at the top
-- Keep existing functionality intact -- just reorganize for clarity
+The Room Management page uses `.or()` with embedded double quotes which could cause PostgREST parsing issues with hotel names containing spaces. This is the same hotel that has 69 rooms in the PMS file, so the rooms exist.
+
+**File:** `src/components/dashboard/RoomManagement.tsx`
+
+- The `.or()` filter at line 131 and 162 uses template literals with embedded double quotes. For hotel names with spaces like "Hotel Memories Budapest", this should work but can be fragile.
+- Simplify: since `assigned_hotel` is always "Hotel Memories Budapest" (verified from profiles table), and rooms.hotel is also "Hotel Memories Budapest", just use `.eq('hotel', profile.assigned_hotel)` directly instead of the complex `.or()` lookup.
+- Keep the hotel_configurations lookup as a fallback only when the direct match returns 0 results.
 
 ### Summary of Changes
 
 | File | Change |
 |------|--------|
-| `HotelRoomOverview.tsx` | Add ACT (average clean time) badge in header, fetched from completed assignments |
-| `HousekeepingManagerView.tsx` | Auto Assign: blue bg + white text (default variant). Assign Room: outline variant |
-| `AttendanceTracker.tsx` | Simplify layout: compact location, remove pre-checkin notes, larger status badge, cleaner spacing |
+| `PMSUpload.tsx` | Move hotel name lookup outside the loop; improve no-show detection for early-departure rooms |
+| `RoomManagement.tsx` | Simplify hotel filter to use direct `.eq()` first, then fallback to config lookup |
 
 ### Technical Details
 
-**ACT calculation:**
-```
-1. Query room_assignments WHERE assignment_date = selectedDate AND status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL
-2. For each: duration = completed_at - started_at (minutes)
-3. ACT = average of all durations, rounded to nearest minute
-4. Display as badge: "ACT: 23m" or "ACT: --" if no data
+**PMSUpload.tsx -- Hotel lookup optimization (before line 301):**
+```text
+// ONE-TIME hotel name resolution before the loop
+let hotelNameForFilter = selectedHotel;
+if (selectedHotel) {
+  const { data: hotelConfig } = await supabase
+    .from('hotel_configurations')
+    .select('hotel_name')
+    .eq('hotel_id', selectedHotel)
+    .maybeSingle();
+  hotelNameForFilter = hotelConfig?.hotel_name || selectedHotel;
+}
+
+// Then inside the loop, replace lines 322-332 with:
+if (hotelNameForFilter) {
+  roomQuery = roomQuery.eq('hotel', hotelNameForFilter);
+}
 ```
 
-**Button styling changes (HousekeepingManagerView lines 567-591):**
-- Auto Assign: `variant="default"` with `className="bg-primary text-primary-foreground hover:bg-primary/90"`
-- Assign Room: `variant="outline"` (removes the filled blue background)
+**PMSUpload.tsx -- Improved no-show detection (around line 379-413):**
+```text
+// Inside the checkout branch, after setting isCheckout = true:
+if (row.Occupied === 'No') {
+  // Parse departure time to check for no-show
+  const depTime = row.Departure?.trim();
+  const depHour = depTime ? parseInt(depTime.split(':')[0], 10) : 99;
+  if (depHour < 8) {
+    isNoShow = true;
+    // Still mark as dirty/checkout -- but add note
+  }
+}
+```
 
-**Attendance UI simplification:**
-- Move `Textarea` for notes after action buttons (checked-in state) or remove from pre-check-in state entirely
-- Reduce card padding on mobile from `p-6` to `p-4`
-- Make the "Ready to start?" section the primary focus with no distracting elements above it
+**RoomManagement.tsx -- Simplified filter (lines 126-144):**
+```text
+if (profile.assigned_hotel) {
+  // Try direct match first (works when rooms.hotel stores the same value as assigned_hotel)
+  query = query.eq('hotel', profile.assigned_hotel);
+}
+```
+If direct match returns 0 results, THEN do the hotel_configurations lookup as fallback. This eliminates the fragile `.or()` with embedded quotes.
 
