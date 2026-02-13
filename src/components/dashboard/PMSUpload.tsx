@@ -298,6 +298,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       const checkoutRoomsList: any[] = [];
       const dailyCleaningRoomsList: any[] = [];
 
+      // ONE-TIME hotel name resolution before the loop
+      let hotelNameForFilter = selectedHotel;
+      if (selectedHotel) {
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name')
+          .eq('hotel_id', selectedHotel)
+          .maybeSingle();
+        hotelNameForFilter = hotelConfig?.hotel_name || selectedHotel;
+        console.log(`[PMS] Resolved hotel filter: ${selectedHotel} -> ${hotelNameForFilter}`);
+      }
+
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
         setProgress(10 + (i / jsonData.length) * 80);
@@ -318,17 +330,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             .select('id, status, room_number, room_type, is_checkout_room, hotel, is_dnd')
             .eq('room_number', roomNumber);
 
-          // Filter by selected hotel if available
-          if (selectedHotel) {
-            // Get hotel name from hotel_id if needed
-            const { data: hotelConfig } = await supabase
-              .from('hotel_configurations')
-              .select('hotel_name')
-              .eq('hotel_id', selectedHotel)
-              .single();
-            
-            const hotelNameToFilter = hotelConfig?.hotel_name || selectedHotel;
-            roomQuery = roomQuery.eq('hotel', hotelNameToFilter);
+          // Filter by selected hotel using pre-resolved hotel name
+          if (hotelNameForFilter) {
+            roomQuery = roomQuery.eq('hotel', hotelNameForFilter);
           }
 
           const { data: rooms, error: roomError } = await roomQuery;
@@ -381,7 +385,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             newStatus = 'dirty';
             needsCleaning = true;
             isCheckout = true;
-            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${row.Departure})`);
+            
+            // Check for No Show / Early Checkout: Occupied=No with departure before 08:00
+            if (row.Occupied === 'No') {
+              const depTime = row.Departure?.trim();
+              const depHour = depTime ? parseInt(depTime.split(':')[0], 10) : 99;
+              if (depHour < 8) {
+                isNoShow = true;
+                console.log(`[PMS] Room ${roomNumber}: No Show / Early Checkout detected (Occupied: No, Departure: ${row.Departure} before 08:00)`);
+              }
+            }
+            
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${row.Departure}${isNoShow ? ' - No Show/Early Checkout' : ''})`);
             
             // Add to checkout rooms list
             checkoutRoomsList.push({
@@ -389,8 +404,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               roomType: room.room_type,
               departureTime: row.Departure,
               guestCount: row.People || 0,
-              status: 'checkout',
-              notes: row.Note
+              status: isNoShow ? 'no_show' : 'checkout',
+              notes: isNoShow ? `No Show / Early Checkout - ${row.Note || ''}`.trim() : row.Note
             });
           } else if (row.Occupied === 'Yes' && !row.Departure) {
             // Daily cleaning room (occupied but no departure)
