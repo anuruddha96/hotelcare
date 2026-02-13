@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Hotel, BedDouble, EyeOff, MapPin } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX } from 'lucide-react';
 import { getLocalDateString } from '@/lib/utils';
 
 interface RoomData {
@@ -13,6 +13,7 @@ interface RoomData {
   status: string | null;
   is_checkout_room: boolean | null;
   is_dnd: boolean | null;
+  notes: string | null;
 }
 
 interface AssignmentData {
@@ -73,7 +74,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd')
+          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes')
           .eq('hotel', hotelName)
           .order('room_number'),
         supabase
@@ -132,8 +133,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   });
 
   const isNoShow = (room: RoomData) => {
-    return room.status === 'dirty' && !assignmentMap.has(room.id) && !room.is_checkout_room;
+    return room.notes?.toLowerCase().includes('no show') || false;
   };
+
+  const noShowRooms = rooms.filter(r => isNoShow(r));
 
   const groupByFloor = (roomList: RoomData[]) => {
     const floorMap = new Map<number, RoomData[]>();
@@ -177,11 +180,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   px-2 py-1 rounded text-xs font-semibold border transition-all min-w-[40px] text-center
                   ${colorClass}
                   ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-                  ${noShow ? 'line-through opacity-60' : ''}
+                  ${noShow ? 'ring-2 ring-amber-500 ring-offset-1' : ''}
                 `}
               >
                 {room.room_number}
                 {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
+                {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
               </div>
               {staffName && (
                 <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
@@ -195,7 +199,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               <p className="font-semibold">Room {room.room_number}</p>
               <p>Status: {room.status || 'unknown'}</p>
               {isDND && <p className="text-purple-600 font-medium">🚫 Do Not Disturb</p>}
-              {noShow && <p className="text-gray-500">No Show</p>}
+              {noShow && <p className="text-amber-600 font-medium">⚠️ No Show / Early Checkout</p>}
               {staffName && <p>Assigned: {staffMap[assignmentMap.get(room.id)?.assigned_to || ''] || staffName}</p>}
               {getAssignmentStatus(room.id) && <p>Task: {getAssignmentStatus(room.id)}</p>}
             </div>
@@ -311,6 +315,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
           <Hotel className="h-4 w-4 text-primary" />
           Hotel Room Overview
           <Badge variant="secondary" className="text-xs ml-auto">{rooms.length} rooms</Badge>
+          {noShowRooms.length > 0 && (
+            <Badge variant="outline" className="text-xs font-semibold text-amber-700 border-amber-400 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">
+              <UserX className="h-3 w-3 mr-1" />
+              {noShowRooms.length} No-Show
+            </Badge>
+          )}
           <Badge variant="outline" className="text-xs font-semibold">
             ACT: {averageCleanTime !== null ? `${averageCleanTime}m` : '--'}
           </Badge>
@@ -323,6 +333,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             { label: 'In Progress', cls: 'bg-blue-100 border-blue-300' },
             { label: 'Out of Order', cls: 'bg-red-100 border-red-300' },
             { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted' },
+            { label: 'No-Show', cls: 'ring-2 ring-amber-500 bg-muted' },
           ].map(item => (
             <div key={item.label} className="flex items-center gap-1">
               <div className={`w-3 h-3 rounded border ${item.cls}`} />
