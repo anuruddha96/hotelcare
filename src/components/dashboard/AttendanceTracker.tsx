@@ -491,42 +491,42 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card className="w-full max-w-md mx-auto">
-        <CardHeader className="text-center">
-          <CardTitle className="flex items-center justify-center gap-2 text-base sm:text-lg">
-            <Clock className="h-4 w-4 sm:h-5 sm:w-5" />
+        <CardHeader className="text-center pb-2 pt-4 px-4">
+          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground mb-1">
+            <Calendar className="h-3 w-3" />
+            {format(new Date(), 'EEEE, MMMM do')}
+          </div>
+          <CardTitle className="flex items-center justify-center gap-2 text-base">
+            <Clock className="h-4 w-4" />
             {t('attendance.title')}
           </CardTitle>
-          <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-muted-foreground">
-            <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
-            {format(new Date(), 'EEEE, MMMM do, yyyy')}
-          </div>
         </CardHeader>
 
-      <CardContent className="space-y-3 sm:space-y-4 p-3 sm:p-6">
-        {location ? (
-          <div className="flex items-center gap-2 p-2 sm:p-3 bg-primary/5 rounded-lg border">
-            <MapPin className="h-3 w-3 sm:h-4 sm:w-4 text-primary flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs sm:text-sm font-medium">{t('attendance.currentLocation')}</p>
-              <p className="text-xs text-muted-foreground truncate">{location.address}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 p-2 sm:p-3 bg-muted/50 rounded-lg border border-dashed">
-            <MapPin className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground animate-pulse flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs sm:text-sm font-medium">{t('attendance.gettingLocation')}</p>
-              <p className="text-xs text-muted-foreground">{t('attendance.allowGPS')}</p>
-            </div>
+      <CardContent className="space-y-3 p-3 sm:p-4">
+        {!location && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
+            <MapPin className="h-3 w-3 animate-pulse" />
+            <span>{t('attendance.gettingLocation')}</span>
           </div>
         )}
 
         {currentRecord ? (
-          <div className="space-y-4">
-            <div className="text-center">
+          <div className="space-y-3">
+            <div className="text-center space-y-1">
               {getStatusBadge(currentRecord.status)}
+              <div className="flex justify-center gap-4 text-xs text-muted-foreground mt-1">
+                <span>{t('attendance.checkIn')}: <strong>{formatTime(currentRecord.check_in_time)}</strong></span>
+                {currentRecord.check_out_time && (
+                  <span>{t('attendance.checkOut')}: <strong>{formatTime(currentRecord.check_out_time)}</strong></span>
+                )}
+              </div>
+              {location && (
+                <p className="text-[10px] text-muted-foreground truncate max-w-[250px] mx-auto">
+                  <MapPin className="h-2.5 w-2.5 inline mr-0.5" />{location.address}
+                </p>
+              )}
             </div>
 
             {/* Show early signout status */}
@@ -568,47 +568,26 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
               </div>
             )}
 
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs sm:text-sm font-medium">{t('attendance.checkIn')}:</span>
-                <span className="text-xs sm:text-sm">{formatTime(currentRecord.check_in_time)}</span>
+            {currentRecord.check_out_time && (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-medium">{t('attendance.hoursWorked')}:</span>
+                  <span className="font-bold">
+                    {currentRecord.total_hours ? `${currentRecord.total_hours.toFixed(1)}h` : 'N/A'}
+                  </span>
+                </div>
+                <div className="pt-2 border-t">
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs text-muted-foreground text-center">
+                      {t('attendance.differentBreak')}
+                    </p>
+                    <BreakRequestDialog onRequestSubmitted={() => {}} />
+                  </div>
+                </div>
               </div>
-              
-              {currentRecord.check_out_time && (
-                <>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs sm:text-sm font-medium">{t('attendance.checkOut')}:</span>
-                    <span className="text-xs sm:text-sm">{formatTime(currentRecord.check_out_time)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs sm:text-sm font-medium">{t('attendance.hoursWorked')}:</span>
-                    <span className="text-xs sm:text-sm font-bold">
-                      {currentRecord.total_hours ? `${currentRecord.total_hours.toFixed(1)}h` : 'N/A'}
-                    </span>
-                  </div>
+            )}
 
-                  {/* Special break request option for housekeeping */}
-                  <div className="pt-3 sm:pt-4 border-t">
-                    <div className="flex flex-col gap-2">
-                      <p className="text-xs sm:text-sm text-muted-foreground text-center">
-                        {t('attendance.differentBreak')}
-                      </p>
-                      <BreakRequestDialog onRequestSubmitted={() => {}} />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <Textarea
-              placeholder={t('attendance.addNotes')}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              className="text-sm"
-            />
-
-            <div className="space-y-4">
+            <div className="space-y-3">
               {currentRecord.status === 'checked_in' && (
                 <>
                   <div className="space-y-3" data-training="break-type-selector">
@@ -655,11 +634,11 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                   <Button
                     onClick={handleCheckOut}
                     variant="outline"
-                    className="w-full transition-all duration-300 hover:scale-105 text-sm"
+                    className="w-full text-sm"
                     disabled={isLoading}
                     data-training="sign-out-button"
                   >
-                    <LogOut className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+                    <LogOut className="h-3 w-3 mr-2" />
                     {t('attendance.endShift')}
                   </Button>
                 </>
@@ -668,7 +647,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
               {currentRecord.status === 'on_break' && (
                 <>
                   {currentRecord.break_started_at && (
-                    <div className="mb-4">
+                    <div className="mb-3">
                       <BreakTimer
                         breakType={currentRecord.break_type || 'coffee'}
                         startedAt={currentRecord.break_started_at}
@@ -686,53 +665,47 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                   <Button
                     onClick={handleCheckOut}
                     variant="outline"
-                    className="w-full transition-all duration-300 hover:scale-105"
+                    className="w-full text-sm"
                     disabled={isLoading}
                     data-training="sign-out-button"
                   >
-                    <LogOut className="h-4 w-4 mr-2" />
+                    <LogOut className="h-3 w-3 mr-2" />
                     {t('attendance.endShift')}
                   </Button>
                 </>
               )}
 
               {currentRecord.status === 'checked_out' && (
-                <div className="text-center p-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200 animate-fade-in">
-                  <div className="text-4xl mb-3">🎉</div>
-                  <div className="text-xl font-bold text-green-700 mb-3">
+                <div className="text-center p-4 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
+                  <div className="text-3xl mb-2">🎉</div>
+                  <div className="text-lg font-bold text-green-700 mb-1">
                     {t('attendance.amazingWork')}
                   </div>
-                  <div className="text-sm text-green-600 mb-2 font-medium">
+                  <div className="text-xs text-green-600 font-medium">
                     {t('attendance.shiftCompleted')}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {t('attendance.restWell')}
                   </div>
                 </div>
               )}
             </div>
-          </div>
-        ) : (
-          <div className="space-y-3 sm:space-y-4">
-            <div className="text-center">
-              <Badge variant="outline" className="text-xs sm:text-sm">{t('attendance.notCheckedIn')}</Badge>
-            </div>
 
+            {/* Notes moved below actions */}
             <Textarea
               placeholder={t('attendance.addNotes')}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              className="text-sm"
+              rows={2}
+              className="text-xs"
             />
-
-            {/* Swipe to Check-in */}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Swipe to Check-in - primary focus */}
             <div className="space-y-3" data-training="check-in-button">
-              <div className="flex items-center gap-2 p-2 sm:p-3 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
-                <div className="text-xl sm:text-2xl">🌅</div>
+              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
+                <div className="text-2xl">🌅</div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-green-800 text-sm sm:text-base">{t('attendance.readyToStart')}</p>
-                  <p className="text-xs sm:text-sm text-green-600">{t('attendance.swipeToCheckIn')}</p>
+                  <p className="font-semibold text-green-800 text-sm">{t('attendance.readyToStart')}</p>
+                  <p className="text-xs text-green-600">{t('attendance.swipeToCheckIn')}</p>
                 </div>
               </div>
               

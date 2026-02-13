@@ -565,9 +565,9 @@ export function HousekeepingManagerView() {
               )}
 
               <Button
-                variant="secondary"
+                variant="default"
                 onClick={() => setAutoAssignDialogOpen(true)}
-                className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
+                className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Wand2 className="h-4 w-4" />
                 Auto Assign
@@ -583,6 +583,7 @@ export function HousekeepingManagerView() {
                </Button>
                
                <Button 
+                 variant="outline"
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                  onClick={() => setAssignmentDialogOpen(true)}
                >
