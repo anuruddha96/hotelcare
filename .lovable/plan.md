@@ -1,76 +1,74 @@
 
 
-## Plan: Fix DND Persistence on PMS Upload + Improve Sign-In Prompt
+## Plan: ACT in Hotel Room Overview + Button Styling + Attendance UI Cleanup
 
-### Problem 1: DND Not Clearing on PMS Upload
+### Change 1: Add Average Clean Time (ACT) to Hotel Room Overview
 
-**Root Cause Found:** In `src/components/dashboard/PMSUpload.tsx` (line 460), the room update (which includes `is_dnd: false`) only runs when status or checkout type changes:
+**File:** `src/components/dashboard/HotelRoomOverview.tsx`
 
-```
-if (currentStatus !== newStatus || room.is_checkout_room !== isCheckout) {
-    // update runs here — DND gets cleared
-}
-```
+- Fetch completed room assignments for the selected date and hotel to calculate average cleaning time
+- Query `room_assignments` where `status = 'completed'` and both `started_at` and `completed_at` are not null
+- Calculate average time in minutes across all completed rooms
+- Display "ACT: Xm" badge next to the room count badge in the CardHeader (line 292)
+- If no completed rooms yet, show "ACT: --"
 
-If a room stays "dirty" and stays non-checkout between days, the update is skipped entirely and DND persists from the previous day. Rooms 402 and 405 at Hotel Ottofiori are in this exact state (both marked DND on Feb 11, still showing today).
+### Change 2: Swap Auto Assign / Assign Room Button Styles
 
-**Fix:** Always run the DND-clearing update for every room processed, regardless of whether status/checkout changed.
+**File:** `src/components/dashboard/HousekeepingManagerView.tsx`
 
-- Move the DND fields out of the conditional update, OR
-- Add a separate unconditional update for DND fields when the main update is skipped
-- Specifically: after the existing `if` block, add an `else` block that clears DND fields if the room currently has `is_dnd: true`
+- **Auto Assign button** (line 567-574): Change from `variant="secondary"` to `variant="default"` and add `className` with `bg-primary text-white` to make it the prominent blue button
+- **Assign Room button** (line 585-591): Change from `variant="default"` (no variant = default) to `variant="outline"` to make it a plain outlined button, discouraging its use
 
-**Immediate Data Fix:** Run a direct database update to clear DND on rooms 402 and 405 for Hotel Ottofiori right now via a SQL migration.
+### Change 3: Simplify Attendance Tracker UI
 
-### Problem 2: Sign-In Prompt for Housekeepers
+**File:** `src/components/dashboard/AttendanceTracker.tsx`
 
-**Current State:** `AssignedRoomCard.tsx` already blocks room starts for unsigned-in users (line 310-334) and shows a toast with a "Go to Check In" button. However, the redirect uses `document.querySelector('[data-value="attendance"]')` which may not reliably find the tab.
+Key improvements for the "Work Status & Attendance" page:
 
-**Improvement:** Make the redirect more reliable and the message clearer:
-- Use `[value="attendance"]` selector (Radix TabsTrigger uses `value` attribute) as a fallback
-- Improve the toast message to be friendlier and more informative, explaining why they can't start
-- Keep the existing redirect button but make the selector more robust
+**A. Cleaner "Not Checked In" state:**
+- Remove the notes textarea from the initial view (before check-in) -- notes are rarely needed before starting work
+- Make the location card more compact
+- Make the swipe-to-check-in area more prominent and centered
 
-### Files Changed
+**B. Cleaner "Checked In" state:**
+- Show check-in time and status more prominently at the top
+- Move the notes textarea below the action buttons (less important)
+- Reduce visual clutter of the break type selector
+
+**C. Hide Break Types Management for non-admin:**
+- Already handled (line 757), no change needed
+
+**D. Remove the "Getting your location..." card when not needed** -- only show location status if location is not yet acquired, and make it a small inline message instead of a full card
+
+**E. Overall:**
+- Reduce vertical spacing to show more content above the fold on mobile
+- Make the status badge larger and more visible at the top
+- Keep existing functionality intact -- just reorganize for clarity
+
+### Summary of Changes
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/PMSUpload.tsx` | Always clear DND fields on every processed room, even when status hasn't changed |
-| `src/components/dashboard/AssignedRoomCard.tsx` | Improve sign-in prompt message and make tab redirect more robust |
-| New SQL migration | Clear DND on rooms 402 and 405 at Hotel Ottofiori immediately |
+| `HotelRoomOverview.tsx` | Add ACT (average clean time) badge in header, fetched from completed assignments |
+| `HousekeepingManagerView.tsx` | Auto Assign: blue bg + white text (default variant). Assign Room: outline variant |
+| `AttendanceTracker.tsx` | Simplify layout: compact location, remove pre-checkin notes, larger status badge, cleaner spacing |
 
 ### Technical Details
 
-**PMSUpload.tsx change (around line 460):**
-
-Current logic:
-```text
-if (currentStatus !== newStatus || room.is_checkout_room !== isCheckout) {
-    update ALL fields including is_dnd: false
-}
-// else: nothing happens, DND persists
+**ACT calculation:**
+```
+1. Query room_assignments WHERE assignment_date = selectedDate AND status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL
+2. For each: duration = completed_at - started_at (minutes)
+3. ACT = average of all durations, rounded to nearest minute
+4. Display as badge: "ACT: 23m" or "ACT: --" if no data
 ```
 
-New logic:
-```text
-if (currentStatus !== newStatus || room.is_checkout_room !== isCheckout) {
-    update ALL fields including is_dnd: false
-} else {
-    // Status unchanged, but still clear DND if it was set
-    if (room.is_dnd) {
-        update only: is_dnd: false, dnd_marked_at: null, dnd_marked_by: null
-    }
-}
-```
+**Button styling changes (HousekeepingManagerView lines 567-591):**
+- Auto Assign: `variant="default"` with `className="bg-primary text-primary-foreground hover:bg-primary/90"`
+- Assign Room: `variant="outline"` (removes the filled blue background)
 
-**AssignedRoomCard.tsx change (around line 321-327):**
-- Try multiple selectors: `[data-value="attendance"]`, `button[value="attendance"]`, or dispatching a custom event
-- Update message to: "Please sign in first to start cleaning. Tap below to go to the attendance page."
+**Attendance UI simplification:**
+- Move `Textarea` for notes after action buttons (checked-in state) or remove from pre-check-in state entirely
+- Reduce card padding on mobile from `p-6` to `p-4`
+- Make the "Ready to start?" section the primary focus with no distracting elements above it
 
-**SQL migration:**
-```sql
-UPDATE rooms SET is_dnd = false, dnd_marked_at = NULL, dnd_marked_by = NULL
-WHERE hotel = 'Hotel Ottofiori' AND room_number IN ('402', '405') AND is_dnd = true;
-```
-
-This is a safe, non-disruptive change -- it does not affect any ongoing room assignments, performance data, or allocated rooms. It only resets the DND flag so housekeepers can re-mark rooms if needed.
