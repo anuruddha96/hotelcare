@@ -1,98 +1,97 @@
 
 
-## Plan: Fix PMS Upload Room Matching + No-Show Handling
+## Plan: Drag-and-Drop Room Reassignment + Room Size Configuration
 
-### Problem 1: Rooms 038 and 114 "Not Found" Despite Existing
+### Change 1: Drag-and-Drop in Auto Room Assignment Preview
 
-**Root Cause:** In `PMSUpload.tsx`, the hotel configuration lookup (`hotel_configurations` query with `.single()`) runs **inside the for-loop** for every single room (line 324-328). For 69 rooms, this means 69 redundant queries to look up the same hotel name. This can cause intermittent failures due to connection pooling or rate limiting, especially for rooms processed near the end of the file (which is exactly where QDR-038 and QDR-114 are -- the last 2 rows).
+**File:** `src/components/dashboard/AutoRoomAssignment.tsx`
 
-**Fix:** Move the hotel name resolution **outside** the processing loop. Look up the hotel name once before the loop starts, then reuse it for every room query.
+Replace the current click-to-select-then-click-to-move flow with native HTML5 drag and drop:
 
-**File:** `src/components/dashboard/PMSUpload.tsx`
+- Each room chip becomes `draggable`, with `onDragStart` setting the room ID and source staff ID
+- Each staff Card becomes a drop zone with `onDragOver` (allow drop) and `onDrop` (execute move)
+- Visual feedback: highlight the drop target card with a blue dashed border when dragging over it
+- Keep the existing click-to-reassign as fallback for mobile (touch devices don't support HTML5 drag well)
+- Show a small "drag rooms to reassign" hint text instead of "click on a room to reassign it"
+- Room chips show size indicator: "S" (under 20m2), "M" (20-27m2), "L" (28-39m2), "XL" (40m2+) so managers can see weight at a glance
+- Show the room's estimated clean time below each chip on hover (already in title, make it visible)
 
-- Before the `for` loop (around line 299), add a one-time hotel name lookup
-- Remove the per-room hotel config query from inside the loop (lines 322-332)
-- Use the pre-resolved hotel name for all room queries
+**Preview UI Improvements:**
+- Simplify the per-staff justification section -- collapse into a single line: "6 CO + 8 Daily | Floors 1,2,3 | Weight: 17.0 (Fair)"
+- Make the Fairness Summary card more compact
+- Add room count and time summary inline with staff name instead of separate badges
 
-### Problem 2: No-Show Handling
+### Change 2: Room Size Configuration in Room Management
 
-**Current logic (line 409):**
-```
-if (row.Occupied === 'No' && row.Status === 'Untidy' && row.Arrival)
-```
+**Files:** `src/components/dashboard/RoomDetailDialog.tsx`, `src/components/dashboard/RoomManagement.tsx`
 
-This only catches no-shows when there is NO departure time. But in the uploaded file, the 3 rooms with `Occupied = No` all have departure times (06:26, 07:32, 06:41), so they fall into the checkout branch instead.
+Add room size (sqm) and capacity fields so admins can configure them:
 
-**Improved detection:** A no-show or very-early-checkout should be identified when:
-- `Occupied = 'No'` AND has a departure time AND the departure is before 08:00 (guests who "left" before housekeeping hours likely never truly stayed)
-- OR `Occupied = 'No'` AND `Night/Total = '1/1'` with early departure
+**RoomDetailDialog.tsx:**
+- Add `room_size_sqm` and `room_capacity` fields to the Room interface
+- Fetch these fields from the room data
+- Add editable number inputs for "Room Size (m2)" and "Room Capacity" in the room status section (visible to admin/manager only)
+- Save changes when status is updated, or add a separate "Save Room Details" button
+- The DB column `room_size_sqm` already exists, so no migration needed
 
-These rooms still need cleaning (dirty status), but should be tagged with a "No Show" or "Early Checkout" note for manager visibility.
+**RoomManagement.tsx (create form):**
+- Add "Room Size (m2)" and "Room Capacity" number inputs to the create room dialog (lines 560-570 area)
+- Include `room_size_sqm` and `room_capacity` in the insert payload
 
-**File:** `src/components/dashboard/PMSUpload.tsx`
+### Change 3: Bulk Room Size Update
 
-- After the checkout branch (line 379-394), add a sub-check: if `Occupied === 'No'` and departure is before 08:00, mark the room note as "No Show / Early Checkout"
-- Keep the room status as dirty (it still needs cleaning)
-- This is purely informational -- the cleaning workflow remains the same
+**File:** `src/components/dashboard/RoomDetailDialog.tsx`
 
-### Problem 3: Room Management Showing 0 Rooms (Screenshot 2)
-
-The Room Management page uses `.or()` with embedded double quotes which could cause PostgREST parsing issues with hotel names containing spaces. This is the same hotel that has 69 rooms in the PMS file, so the rooms exist.
-
-**File:** `src/components/dashboard/RoomManagement.tsx`
-
-- The `.or()` filter at line 131 and 162 uses template literals with embedded double quotes. For hotel names with spaces like "Hotel Memories Budapest", this should work but can be fragile.
-- Simplify: since `assigned_hotel` is always "Hotel Memories Budapest" (verified from profiles table), and rooms.hotel is also "Hotel Memories Budapest", just use `.eq('hotel', profile.assigned_hotel)` directly instead of the complex `.or()` lookup.
-- Keep the hotel_configurations lookup as a fallback only when the direct match returns 0 results.
+Since configuring 69+ rooms one by one is tedious, add a note in the Room Detail dialog suggesting bulk edit. The actual bulk editing can be done through the existing Bulk Room Creation or a future feature -- for now, individual room editing is the starting point.
 
 ### Summary of Changes
 
 | File | Change |
 |------|--------|
-| `PMSUpload.tsx` | Move hotel name lookup outside the loop; improve no-show detection for early-departure rooms |
-| `RoomManagement.tsx` | Simplify hotel filter to use direct `.eq()` first, then fallback to config lookup |
+| `AutoRoomAssignment.tsx` | Add HTML5 drag-and-drop for room chips; visual size indicators (S/M/L/XL); simplified staff card layout; drop zone highlighting |
+| `RoomDetailDialog.tsx` | Add room_size_sqm and room_capacity editable fields for admin/manager; save on update |
+| `RoomManagement.tsx` | Add room_size_sqm and room_capacity to create room form and insert payload |
 
 ### Technical Details
 
-**PMSUpload.tsx -- Hotel lookup optimization (before line 301):**
-```text
-// ONE-TIME hotel name resolution before the loop
-let hotelNameForFilter = selectedHotel;
-if (selectedHotel) {
-  const { data: hotelConfig } = await supabase
-    .from('hotel_configurations')
-    .select('hotel_name')
-    .eq('hotel_id', selectedHotel)
-    .maybeSingle();
-  hotelNameForFilter = hotelConfig?.hotel_name || selectedHotel;
-}
+**Drag-and-Drop implementation (AutoRoomAssignment.tsx):**
 
-// Then inside the loop, replace lines 322-332 with:
-if (hotelNameForFilter) {
-  roomQuery = roomQuery.eq('hotel', hotelNameForFilter);
-}
-```
-
-**PMSUpload.tsx -- Improved no-show detection (around line 379-413):**
 ```text
-// Inside the checkout branch, after setting isCheckout = true:
-if (row.Occupied === 'No') {
-  // Parse departure time to check for no-show
-  const depTime = row.Departure?.trim();
-  const depHour = depTime ? parseInt(depTime.split(':')[0], 10) : 99;
-  if (depHour < 8) {
-    isNoShow = true;
-    // Still mark as dirty/checkout -- but add note
+// On room chip:
+draggable
+onDragStart={(e) => {
+  e.dataTransfer.setData('roomId', room.id);
+  e.dataTransfer.setData('fromStaffId', preview.staffId);
+}}
+
+// On staff Card:
+onDragOver={(e) => e.preventDefault()} // allow drop
+onDrop={(e) => {
+  const roomId = e.dataTransfer.getData('roomId');
+  const fromStaffId = e.dataTransfer.getData('fromStaffId');
+  if (fromStaffId !== preview.staffId) {
+    moveRoom(previews, roomId, fromStaffId, preview.staffId);
   }
-}
+}}
 ```
 
-**RoomManagement.tsx -- Simplified filter (lines 126-144):**
-```text
-if (profile.assigned_hotel) {
-  // Try direct match first (works when rooms.hotel stores the same value as assigned_hotel)
-  query = query.eq('hotel', profile.assigned_hotel);
-}
-```
-If direct match returns 0 results, THEN do the hotel_configurations lookup as fallback. This eliminates the fragile `.or()` with embedded quotes.
+State for drag visual feedback:
+- `dragOverStaffId: string | null` -- set on dragEnter/dragLeave to highlight the target card
 
+**Room size indicators on chips:**
+- Under 20m2: no indicator (standard)
+- 20-27m2: "M" badge
+- 28-39m2: "L" badge (amber)
+- 40m2+: "XL" badge (red)
+
+**RoomDetailDialog room size fields:**
+- Two new `Input type="number"` fields in the Room Status card
+- On save, update `room_size_sqm` and `room_capacity` alongside status/notes
+- Add local state: `roomSize` and `roomCapacity` initialized from room data
+- Requires updating the Room interface to include these fields
+- The select query in RoomManagement already fetches `*` so the data is available
+
+**RoomManagement create form:**
+- Add to `newRoom` state: `room_size_sqm: ''` and `room_capacity: ''`
+- Add two Input fields after "Floor Number"
+- Include in insert: `room_size_sqm: newRoom.room_size_sqm ? parseFloat(newRoom.room_size_sqm) : null`
