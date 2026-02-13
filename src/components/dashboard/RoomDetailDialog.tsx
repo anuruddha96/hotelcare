@@ -39,6 +39,8 @@ interface Room {
   notes?: string;
   last_cleaned_at?: string;
   last_cleaned_by?: string;
+  room_size_sqm?: number;
+  room_capacity?: number;
 }
 
 interface MinibarItem {
@@ -83,11 +85,15 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
   const [tempUsage, setTempUsage] = useState<{ [key: string]: number }>({});
   const [roomNotes, setRoomNotes] = useState('');
+  const [roomSize, setRoomSize] = useState<string>('');
+  const [roomCapacity, setRoomCapacity] = useState<string>('');
   const [dndPhotosOpen, setDndPhotosOpen] = useState(false);
 
   useEffect(() => {
     if (open && room) {
       setRoomNotes(room.notes || '');
+      setRoomSize(room.room_size_sqm?.toString() || '');
+      setRoomCapacity(room.room_capacity?.toString() || '');
       fetchMinibarItems();
       fetchMinibarUsage();
       fetchRecentTickets();
@@ -158,6 +164,8 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       const updateData: any = {
         status: newStatus,
         notes: roomNotes,
+        room_size_sqm: roomSize ? parseFloat(roomSize) : null,
+        room_capacity: roomCapacity ? parseInt(roomCapacity) : null,
       };
 
       if (newStatus === 'clean') {
@@ -410,6 +418,35 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Room Size & Capacity - Admin/Manager only */}
+                {profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role) && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium">Room Size (m²)</label>
+                      <Input
+                        type="number"
+                        value={roomSize}
+                        onChange={(e) => setRoomSize(e.target.value)}
+                        placeholder="e.g., 25"
+                        className="mt-1"
+                        min="0"
+                        step="0.5"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Room Capacity</label>
+                      <Input
+                        type="number"
+                        value={roomCapacity}
+                        onChange={(e) => setRoomCapacity(e.target.value)}
+                        placeholder="e.g., 2"
+                        className="mt-1"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-sm font-medium">Notes</label>

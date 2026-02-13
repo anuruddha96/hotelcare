@@ -95,7 +95,9 @@ export function RoomManagement() {
     room_name: '',
     room_type: 'standard',
     bed_type: 'double',
-    floor_number: ''
+    floor_number: '',
+    room_size_sqm: '',
+    room_capacity: ''
   });
   const [hotels, setHotels] = useState<any[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
@@ -284,7 +286,9 @@ export function RoomManagement() {
           room_name: roomName,
           room_type: newRoom.room_type,
           bed_type: newRoom.bed_type,
-          floor_number: newRoom.floor_number ? parseInt(newRoom.floor_number) : null
+          floor_number: newRoom.floor_number ? parseInt(newRoom.floor_number) : null,
+          room_size_sqm: newRoom.room_size_sqm ? parseFloat(newRoom.room_size_sqm) : null,
+          room_capacity: newRoom.room_capacity ? parseInt(newRoom.room_capacity) : null
         })
         .select();
 
@@ -301,7 +305,7 @@ export function RoomManagement() {
       });
 
       setCreateDialogOpen(false);
-      setNewRoom({ hotel: '', room_number: '', room_name: '', room_type: 'standard', bed_type: 'double', floor_number: '' });
+      setNewRoom({ hotel: '', room_number: '', room_name: '', room_type: 'standard', bed_type: 'double', floor_number: '', room_size_sqm: '', room_capacity: '' });
       fetchRooms();
     } catch (error: any) {
       console.error('Room creation failed:', error);
@@ -557,15 +561,40 @@ export function RoomManagement() {
                           </Select>
                         </div>
                       </div>
-                      <div>
-                        <Label>Floor Number</Label>
-                        <Input
-                          type="number"
-                          value={newRoom.floor_number}
-                          onChange={(e) => setNewRoom({...newRoom, floor_number: e.target.value})}
-                          placeholder="e.g., 1"
-                          className="mt-1"
-                        />
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <Label>Floor Number</Label>
+                          <Input
+                            type="number"
+                            value={newRoom.floor_number}
+                            onChange={(e) => setNewRoom({...newRoom, floor_number: e.target.value})}
+                            placeholder="e.g., 1"
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label>Room Size (m²)</Label>
+                          <Input
+                            type="number"
+                            value={newRoom.room_size_sqm}
+                            onChange={(e) => setNewRoom({...newRoom, room_size_sqm: e.target.value})}
+                            placeholder="e.g., 25"
+                            className="mt-1"
+                            min="0"
+                            step="0.5"
+                          />
+                        </div>
+                        <div>
+                          <Label>Room Capacity</Label>
+                          <Input
+                            type="number"
+                            value={newRoom.room_capacity}
+                            onChange={(e) => setNewRoom({...newRoom, room_capacity: e.target.value})}
+                            placeholder="e.g., 2"
+                            className="mt-1"
+                            min="0"
+                          />
+                        </div>
                       </div>
                       <div>
                         <Label>Custom Room Name (Optional)</Label>
