@@ -1,97 +1,105 @@
 
 
-## Plan: Drag-and-Drop Room Reassignment + Room Size Configuration
+## Plan: Enhanced Drag-and-Drop with Visual Room Ghost
 
-### Change 1: Drag-and-Drop in Auto Room Assignment Preview
+### What Changes
+
+Upgrade the current basic HTML5 drag-and-drop to show a visible "floating room chip" that follows the mouse cursor as you drag, with smooth animations and clear visual feedback.
+
+### Change 1: Custom Drag Ghost + Visual Feedback
 
 **File:** `src/components/dashboard/AutoRoomAssignment.tsx`
 
-Replace the current click-to-select-then-click-to-move flow with native HTML5 drag and drop:
+**A. Custom drag image (ghost):**
+- On `onDragStart`, create a custom drag image element that looks like the room chip (colored, with room number) instead of the browser's default translucent clone
+- Use `e.dataTransfer.setDragImage(element, offsetX, offsetY)` with a styled clone
+- Add a subtle scale-up animation on the source chip when dragging starts (opacity reduction to show it's "picked up")
 
-- Each room chip becomes `draggable`, with `onDragStart` setting the room ID and source staff ID
-- Each staff Card becomes a drop zone with `onDragOver` (allow drop) and `onDrop` (execute move)
-- Visual feedback: highlight the drop target card with a blue dashed border when dragging over it
-- Keep the existing click-to-reassign as fallback for mobile (touch devices don't support HTML5 drag well)
-- Show a small "drag rooms to reassign" hint text instead of "click on a room to reassign it"
-- Room chips show size indicator: "S" (under 20m2), "M" (20-27m2), "L" (28-39m2), "XL" (40m2+) so managers can see weight at a glance
-- Show the room's estimated clean time below each chip on hover (already in title, make it visible)
+**B. Enhanced source chip styling during drag:**
+- Track `draggingRoomId` in state
+- The source chip gets `opacity-30 scale-95` while being dragged (ghost effect -- "it's been picked up")
+- On `onDragEnd`, clear the dragging state and restore the chip
 
-**Preview UI Improvements:**
-- Simplify the per-staff justification section -- collapse into a single line: "6 CO + 8 Daily | Floors 1,2,3 | Weight: 17.0 (Fair)"
-- Make the Fairness Summary card more compact
-- Add room count and time summary inline with staff name instead of separate badges
+**C. Improved drop zone feedback:**
+- When dragging over a staff card, show a pulsing blue dashed border and a subtle background glow
+- The "Drop room here" indicator appears immediately with a smooth fade-in animation
+- Staff cards that are NOT the source get a subtle "ready to receive" state (light border highlight)
 
-### Change 2: Room Size Configuration in Room Management
+**D. Drop animation:**
+- On successful drop, briefly flash the target card green to confirm the move
+- The moved room chip in its new location gets a brief `animate-scale-in` effect
 
-**Files:** `src/components/dashboard/RoomDetailDialog.tsx`, `src/components/dashboard/RoomManagement.tsx`
+### Change 2: Touch Support for Mobile
 
-Add room size (sqm) and capacity fields so admins can configure them:
+**File:** `src/components/dashboard/AutoRoomAssignment.tsx`
 
-**RoomDetailDialog.tsx:**
-- Add `room_size_sqm` and `room_capacity` fields to the Room interface
-- Fetch these fields from the room data
-- Add editable number inputs for "Room Size (m2)" and "Room Capacity" in the room status section (visible to admin/manager only)
-- Save changes when status is updated, or add a separate "Save Room Details" button
-- The DB column `room_size_sqm` already exists, so no migration needed
+- Keep the existing click-to-select fallback for touch devices
+- Add a small hint text that adapts: "Drag rooms to reassign" on desktop, "Tap a room, then tap a housekeeper" on mobile
+- Use `use-mobile` hook to detect
 
-**RoomManagement.tsx (create form):**
-- Add "Room Size (m2)" and "Room Capacity" number inputs to the create room dialog (lines 560-570 area)
-- Include `room_size_sqm` and `room_capacity` in the insert payload
+### Summary of Visual States
 
-### Change 3: Bulk Room Size Update
-
-**File:** `src/components/dashboard/RoomDetailDialog.tsx`
-
-Since configuring 69+ rooms one by one is tedious, add a note in the Room Detail dialog suggesting bulk edit. The actual bulk editing can be done through the existing Bulk Room Creation or a future feature -- for now, individual room editing is the starting point.
-
-### Summary of Changes
-
-| File | Change |
-|------|--------|
-| `AutoRoomAssignment.tsx` | Add HTML5 drag-and-drop for room chips; visual size indicators (S/M/L/XL); simplified staff card layout; drop zone highlighting |
-| `RoomDetailDialog.tsx` | Add room_size_sqm and room_capacity editable fields for admin/manager; save on update |
-| `RoomManagement.tsx` | Add room_size_sqm and room_capacity to create room form and insert payload |
+| State | Visual |
+|-------|--------|
+| Idle room chip | Normal colored chip with cursor-grab |
+| Room being dragged (source) | Faded out (opacity-30), slightly shrunk |
+| Custom drag ghost | Styled chip clone following cursor |
+| Staff card (potential drop target) | Subtle blue border glow |
+| Staff card (drag hovering over) | Blue dashed border, pulsing, "Drop here" text with fade-in |
+| Just-dropped room | Brief green flash on target card, scale-in animation on chip |
 
 ### Technical Details
 
-**Drag-and-Drop implementation (AutoRoomAssignment.tsx):**
-
+**Drag ghost creation (in onDragStart):**
 ```text
-// On room chip:
-draggable
-onDragStart={(e) => {
-  e.dataTransfer.setData('roomId', room.id);
-  e.dataTransfer.setData('fromStaffId', preview.staffId);
-}}
-
-// On staff Card:
-onDragOver={(e) => e.preventDefault()} // allow drop
-onDrop={(e) => {
-  const roomId = e.dataTransfer.getData('roomId');
-  const fromStaffId = e.dataTransfer.getData('fromStaffId');
-  if (fromStaffId !== preview.staffId) {
-    moveRoom(previews, roomId, fromStaffId, preview.staffId);
-  }
-}}
+const ghost = document.createElement('div');
+ghost.textContent = room.room_number;
+ghost.className = 'fixed px-3 py-1.5 rounded-md text-sm font-bold shadow-lg ...';
+// Color based on checkout vs daily
+ghost.style.backgroundColor = room.is_checkout_room ? '#fef3c7' : '#dbeafe';
+document.body.appendChild(ghost);
+e.dataTransfer.setDragImage(ghost, 20, 15);
+// Remove ghost after frame
+requestAnimationFrame(() => document.body.removeChild(ghost));
 ```
 
-State for drag visual feedback:
-- `dragOverStaffId: string | null` -- set on dragEnter/dragLeave to highlight the target card
+**New state variables:**
+```text
+const [draggingRoomId, setDraggingRoomId] = useState<string | null>(null);
+const [justDroppedStaffId, setJustDroppedStaffId] = useState<string | null>(null);
+const [justDroppedRoomId, setJustDroppedRoomId] = useState<string | null>(null);
+```
 
-**Room size indicators on chips:**
-- Under 20m2: no indicator (standard)
-- 20-27m2: "M" badge
-- 28-39m2: "L" badge (amber)
-- 40m2+: "XL" badge (red)
+**Source chip during drag:**
+```text
+className={`... ${draggingRoomId === room.id ? 'opacity-30 scale-95' : ''}`}
+```
 
-**RoomDetailDialog room size fields:**
-- Two new `Input type="number"` fields in the Room Status card
-- On save, update `room_size_sqm` and `room_capacity` alongside status/notes
-- Add local state: `roomSize` and `roomCapacity` initialized from room data
-- Requires updating the Room interface to include these fields
-- The select query in RoomManagement already fetches `*` so the data is available
+**Drop success flash:**
+```text
+// In onDrop handler:
+setJustDroppedStaffId(preview.staffId);
+setJustDroppedRoomId(roomId);
+setTimeout(() => { setJustDroppedStaffId(null); setJustDroppedRoomId(null); }, 600);
 
-**RoomManagement create form:**
-- Add to `newRoom` state: `room_size_sqm: ''` and `room_capacity: ''`
-- Add two Input fields after "Floor Number"
-- Include in insert: `room_size_sqm: newRoom.room_size_sqm ? parseFloat(newRoom.room_size_sqm) : null`
+// On card:
+className={`... ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500 transition-all' : ''}`}
+
+// On chip:
+className={`... ${justDroppedRoomId === room.id ? 'animate-scale-in' : ''}`}
+```
+
+**Mobile detection for hint text:**
+```text
+import { useIsMobile } from '@/hooks/use-mobile';
+const isMobile = useIsMobile();
+// In hint:
+{isMobile ? 'Tap a room, then tap a housekeeper to reassign' : 'Drag rooms between housekeepers to reassign'}
+```
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `AutoRoomAssignment.tsx` | Custom drag ghost, dragging/dropped state tracking, enhanced visual feedback, mobile-aware hint text |
+
