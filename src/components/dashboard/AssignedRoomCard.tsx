@@ -300,9 +300,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       // Check if user is on break before starting work
       if (freshAttendanceStatus === 'on_break') {
         console.log('⏸️ User is on break - blocking start');
-        showToast({
-          title: "🌸 Take Your Time",
+        toast.error("🌸 Take Your Time", {
           description: "Please finish your break before starting work. Your well-being matters! 😌",
+          duration: 10000,
         });
         return;
       }
@@ -310,35 +310,40 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       // Check if user is checked in before starting work
       if (!freshAttendanceStatus || freshAttendanceStatus === 'checked_out') {
         console.log('❌ User not checked in - blocking start', { freshAttendanceStatus });
-        showToast({
-          title: "⚠️ " + t('attendance.notCheckedIn'),
-          description: "Please sign in first to start cleaning. Tap below to go to the attendance page.",
-          variant: "destructive",
-          action: (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                // Try multiple selectors for robust tab redirect
-                const selectors = [
-                  '[data-value="attendance"]',
-                  'button[value="attendance"]',
-                  '[role="tab"][value="attendance"]'
-                ];
-                for (const selector of selectors) {
-                  const tab = document.querySelector(selector) as HTMLElement;
-                  if (tab) {
-                    tab.click();
-                    return;
+        toast.error("⚠️ " + t('attendance.notCheckedIn'), {
+          description: "Please sign in first to start cleaning. Use the Attendance tab to check in.",
+          duration: 15000,
+          action: {
+            label: t('attendance.goToCheckIn') || 'Go to Check-in',
+            onClick: () => {
+              // Try multiple selectors for robust tab redirect
+              const selectors = [
+                '[data-value="attendance"]',
+                'button[value="attendance"]',
+                '[role="tab"][value="attendance"]',
+                // Mobile-specific selectors
+                '[data-tab="attendance"]',
+                'button:has(svg)',
+              ];
+              let found = false;
+              for (const selector of selectors) {
+                const tabs = document.querySelectorAll(selector);
+                for (const tab of tabs) {
+                  const text = tab.textContent?.toLowerCase() || '';
+                  if (selector.includes('attendance') || text.includes('attendance') || text.includes('ircé') || text.includes('check')) {
+                    (tab as HTMLElement).click();
+                    found = true;
+                    break;
                   }
                 }
+                if (found) break;
+              }
+              if (!found) {
                 // Fallback: scroll to top where tabs are
                 window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-            >
-              {t('attendance.goToCheckIn')}
-            </Button>
-          )
+              }
+            }
+          }
         });
         return;
       }
