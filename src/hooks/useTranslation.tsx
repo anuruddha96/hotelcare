@@ -143,6 +143,8 @@ const translations = {
     'common.capture': 'Capture',
     'common.done': 'Done',
     'common.remove': 'Remove',
+    'common.selectAll': 'Select All',
+    'common.deselectAll': 'Deselect All',
     
     // Photo Capture
     'photoCapture.title': 'Photo Capture',
@@ -925,6 +927,8 @@ const translations = {
     'common.updating': 'Frissítés...',
     'common.done': 'Kész',
     'common.remove': 'Eltávolítás',
+    'common.selectAll': 'Összes kijelölése',
+    'common.deselectAll': 'Kijelölés megszüntetése',
     
     // Photo Capture Hungarian
     'photoCapture.title': 'Fotó Rögzítés',
@@ -1448,6 +1452,8 @@ const translations = {
     'common.updating': 'Actualizando...',
     'common.done': 'Hecho',
     'common.remove': 'Eliminar',
+    'common.selectAll': 'Seleccionar Todo',
+    'common.deselectAll': 'Deseleccionar Todo',
     
     // Photo Capture Spanish
     'photoCapture.title': 'Captura de Fotos',
@@ -1657,6 +1663,8 @@ const translations = {
     'common.updating': 'Đang Cập Nhật...',
     'common.done': 'Hoàn Thành',
     'common.remove': 'Xóa',
+    'common.selectAll': 'Chọn Tất Cả',
+    'common.deselectAll': 'Bỏ Chọn Tất Cả',
     
     // Photo Capture Vietnamese
     'photoCapture.title': 'Chụp Ảnh',
@@ -1868,6 +1876,8 @@ const translations = {
     'common.updating': 'Шинэчилж байна...',
     'common.done': 'Дууссан',
     'common.remove': 'Устгах',
+    'common.selectAll': 'Бүгдийг Сонгох',
+    'common.deselectAll': 'Сонголтыг Цуцлах',
     
     // Photo Capture Mongolian
     'photoCapture.title': 'Зураг Авалт',

@@ -25,16 +25,77 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface PMSData {
-  Room: string;
-  Occupied: string;
-  Departure: string;
-  Arrival: string;
-  People: number;
-  'Night / Total': string;
-  Note: string;
-  Nationality: string;
-  Defect: string;
-  Status: string;
+  [key: string]: any;
+}
+
+// Dynamic column mapping: maps expected fields to actual header names found in the file
+interface ColumnMap {
+  Room: string | null;
+  Occupied: string | null;
+  Departure: string | null;
+  Arrival: string | null;
+  People: string | null;
+  NightTotal: string | null;
+  Note: string | null;
+  Nationality: string | null;
+  Defect: string | null;
+  Status: string | null;
+}
+
+// Fuzzy match a header to expected column names
+function fuzzyMatchColumn(header: string, patterns: string[]): boolean {
+  const normalized = header.trim().toLowerCase().replace(/[\u200B-\u200D\uFEFF]/g, '');
+  return patterns.some(p => normalized.includes(p.toLowerCase()));
+}
+
+function buildColumnMap(headers: string[]): ColumnMap {
+  const map: ColumnMap = {
+    Room: null, Occupied: null, Departure: null, Arrival: null,
+    People: null, NightTotal: null, Note: null, Nationality: null,
+    Defect: null, Status: null
+  };
+
+  const matchers: Record<keyof ColumnMap, string[]> = {
+    Room: ['room', 'szoba', 'pokoj', 'habitación', 'zimmer', 'phòng'],
+    Occupied: ['occupied', 'foglalt', 'obsazeno', 'ocupado', 'belegt'],
+    Departure: ['departure', 'távozás', 'odjezd', 'salida', 'abreise', 'checkout'],
+    Arrival: ['arrival', 'érkezés', 'příjezd', 'llegada', 'anreise', 'checkin'],
+    People: ['people', 'személy', 'osoby', 'personas', 'personen', 'guests', 'fő'],
+    NightTotal: ['night', 'éjszaka', 'noc', 'noche', 'nacht', 'total'],
+    Note: ['note', 'megjegyzés', 'poznámka', 'nota', 'bemerkung', 'comment'],
+    Nationality: ['nationality', 'nemzetiség', 'národnost', 'nacionalidad', 'nationalität'],
+    Defect: ['defect', 'hiba', 'závada', 'defecto', 'mangel'],
+    Status: ['status', 'állapot', 'stav', 'estado', 'zustand']
+  };
+
+  for (const header of headers) {
+    const clean = header.trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
+    for (const [field, patterns] of Object.entries(matchers)) {
+      if (!map[field as keyof ColumnMap] && fuzzyMatchColumn(clean, patterns)) {
+        map[field as keyof ColumnMap] = header; // Use original header as key
+        break;
+      }
+    }
+  }
+
+  // Fallback: try exact match with common variants
+  if (!map.NightTotal) {
+    const nightTotalVariants = ['Night / Total', 'Night/Total', 'Night/ Total', 'Night /Total'];
+    for (const header of headers) {
+      if (nightTotalVariants.includes(header.trim())) {
+        map.NightTotal = header;
+        break;
+      }
+    }
+  }
+
+  return map;
+}
+
+function getField(row: PMSData, columnMap: ColumnMap, field: keyof ColumnMap): any {
+  const actualKey = columnMap[field];
+  if (!actualKey) return undefined;
+  return row[actualKey];
 }
 
 interface PMSUploadProps {
@@ -225,6 +286,19 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         return;
       }
 
+      // Build dynamic column map from actual headers
+      const firstRow = jsonData[0];
+      const headers = Object.keys(firstRow);
+      const columnMap = buildColumnMap(headers);
+      
+      console.log('[PMS] Detected headers:', headers);
+      console.log('[PMS] Column mapping:', columnMap);
+
+      if (!columnMap.Room) {
+        toast.error('Could not find "Room" column in the Excel file. Detected headers: ' + headers.join(', '));
+        return;
+      }
+
       setProgress(10);
       
       // Reset ONLY the selected hotel's current day room assignments since PMS upload will reset room data
@@ -316,13 +390,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
         try {
           // Skip empty or invalid rows
-          if (!row || !row.Room || row.Room === null || row.Room === undefined || String(row.Room).trim() === '') {
+          const roomVal = getField(row, columnMap, 'Room');
+          if (!row || !roomVal || roomVal === null || roomVal === undefined || String(roomVal).trim() === '') {
             // Silently skip truly empty rows (don't count as errors)
             continue;
           }
 
           // Extract room number from complex room name
-          const roomNumber = extractRoomNumber(String(row.Room).trim());
+          const roomNumber = extractRoomNumber(String(roomVal).trim());
           
           // Find the room by extracted number with hotel filter
           let roomQuery = supabase
@@ -338,7 +413,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const { data: rooms, error: roomError } = await roomQuery;
 
           if (roomError || !rooms || rooms.length === 0) {
-            processed.errors.push(`Room ${row.Room} (extracted: ${roomNumber}) not found in ${selectedHotel || 'any hotel'}`);
+            processed.errors.push(`Room ${roomVal} (extracted: ${roomNumber}) not found in ${selectedHotel || 'any hotel'}`);
             continue;
           }
 
@@ -361,8 +436,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           let isNoShow = false;
 
           // Parse Night/Total column for guest stay information
-          if (row['Night / Total'] && row['Night / Total'].trim() !== '') {
-            const nightTotal = String(row['Night / Total']).trim();
+          const nightTotalVal = getField(row, columnMap, 'NightTotal');
+          if (nightTotalVal && String(nightTotalVal).trim() !== '') {
+            const nightTotal = String(nightTotalVal).trim();
             // Format could be "2/3" meaning 2nd night out of 3 total nights
             const match = nightTotal.match(/(\d+)\/(\d+)/);
             if (match) {
@@ -379,58 +455,65 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             }
           }
 
+          const departureVal = getField(row, columnMap, 'Departure');
+          const occupiedVal = getField(row, columnMap, 'Occupied');
+          const arrivalVal = getField(row, columnMap, 'Arrival');
+          const peopleVal = getField(row, columnMap, 'People');
+          const noteVal = getField(row, columnMap, 'Note');
+          const statusVal = getField(row, columnMap, 'Status');
+
           // Any room with a departure time needs checkout cleaning (regardless of current occupancy)
-          if (row.Departure && row.Departure.trim() !== '') {
+          if (departureVal && String(departureVal).trim() !== '') {
             // Checkout room - needs checkout cleaning
             newStatus = 'dirty';
             needsCleaning = true;
             isCheckout = true;
             
             // Check for No Show / Early Checkout: Occupied=No with departure before 08:00
-            if (row.Occupied === 'No') {
-              const depTime = row.Departure?.trim();
+            if (String(occupiedVal) === 'No') {
+              const depTime = String(departureVal).trim();
               const depHour = depTime ? parseInt(depTime.split(':')[0], 10) : 99;
               if (depHour < 8) {
                 isNoShow = true;
-                console.log(`[PMS] Room ${roomNumber}: No Show / Early Checkout detected (Occupied: No, Departure: ${row.Departure} before 08:00)`);
+                console.log(`[PMS] Room ${roomNumber}: No Show / Early Checkout detected (Occupied: No, Departure: ${departureVal} before 08:00)`);
               }
             }
             
-            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${row.Departure}${isNoShow ? ' - No Show/Early Checkout' : ''})`);
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${departureVal}${isNoShow ? ' - No Show/Early Checkout' : ''})`);
             
             // Add to checkout rooms list
             checkoutRoomsList.push({
               roomNumber,
               roomType: room.room_type,
-              departureTime: row.Departure,
-              guestCount: row.People || 0,
+              departureTime: departureVal,
+              guestCount: peopleVal || 0,
               status: isNoShow ? 'no_show' : 'checkout',
-              notes: isNoShow ? `No Show / Early Checkout - ${row.Note || ''}`.trim() : row.Note
+              notes: isNoShow ? `No Show / Early Checkout - ${noteVal || ''}`.trim() : noteVal
             });
-          } else if (row.Occupied === 'Yes' && !row.Departure) {
+          } else if (String(occupiedVal) === 'Yes' && !departureVal) {
             // Daily cleaning room (occupied but no departure)
             needsCleaning = true;
             newStatus = 'dirty';
-            console.log(`[PMS] Room ${roomNumber}: Daily cleaning needed (Occupied: ${row.Occupied}, no departure)`);
+            console.log(`[PMS] Room ${roomNumber}: Daily cleaning needed (Occupied: ${occupiedVal}, no departure)`);
             
             // Add to daily cleaning rooms list
             dailyCleaningRoomsList.push({
               roomNumber,
               roomType: room.room_type,
-              guestCount: row.People || 0,
+              guestCount: peopleVal || 0,
               status: 'daily_cleaning',
-              notes: row.Note
+              notes: noteVal
             });
-          } else if (row.Occupied === 'No' && row.Status === 'Untidy' && row.Arrival) {
+          } else if (String(occupiedVal) === 'No' && (String(statusVal) === 'Untidy') && arrivalVal) {
             // No Show (NS) - Guest didn't show up, room was prepared but unused
             isNoShow = true;
             newStatus = 'clean'; // Room is clean but was prepared for no-show
             console.log(`[PMS] Room ${roomNumber}: No Show detected (Occupied: No, Status: Untidy with Arrival)`);
-          } else if (row.Status === 'Untidy' || row.Status === 'untidy' || row.Status === 'dirty') {
+          } else if (statusVal && ['Untidy', 'untidy', 'dirty'].includes(String(statusVal))) {
             // Room marked as dirty/untidy in PMS
             newStatus = 'dirty';
             needsCleaning = true;
-            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${row.Status})`);
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${statusVal})`);
           } else {
             console.log(`[PMS] Room ${roomNumber}: Setting to clean`);
           }
@@ -438,7 +521,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           console.log(`[PMS] Room ${roomNumber}: Status change ${currentStatus} -> ${newStatus}`);
 
           // Update room status and checkout information
-          const roomNotes = row.Note ? String(row.Note).trim() : null;
+          const roomNotes = noteVal ? String(noteVal).trim() : null;
           const statusNote = isNoShow ? 'No Show (NS)' : null;
           const combinedNotes = [statusNote, roomNotes].filter(Boolean).join(' - ');
           
@@ -446,7 +529,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             status: newStatus,
             notes: combinedNotes || null,
             is_checkout_room: isCheckout,
-            guest_count: row.People || 0,
+            guest_count: peopleVal || 0,
             guest_nights_stayed: guestNightsStayed,
             towel_change_required: towelChangeRequired,
             linen_change_required: linenChangeRequired,
@@ -465,7 +548,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             updateData.last_linen_change = today;
           }
 
-          if (isCheckout && row.Departure) {
+          if (isCheckout && departureVal) {
             updateData.checkout_time = new Date().toISOString();
           } else if (!isCheckout) {
             updateData.checkout_time = null;

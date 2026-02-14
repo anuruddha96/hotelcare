@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from '@/hooks/useTranslation';
 import { format } from 'date-fns';
-import { FileSpreadsheet, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
+import { FileSpreadsheet, AlertTriangle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface PMSUploadHistoryDialogProps {
   open: boolean;
@@ -32,6 +33,7 @@ export function PMSUploadHistoryDialog({ open, onOpenChange }: PMSUploadHistoryD
   const { t } = useTranslation();
   const [summaries, setSummaries] = useState<UploadSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [expandedSummaries, setExpandedSummaries] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (open) {
@@ -67,6 +69,18 @@ export function PMSUploadHistoryDialog({ open, onOpenChange }: PMSUploadHistoryD
     }
   };
 
+  const toggleExpanded = (id: string) => {
+    setExpandedSummaries(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[85vh]">
@@ -88,134 +102,153 @@ export function PMSUploadHistoryDialog({ open, onOpenChange }: PMSUploadHistoryD
             </div>
           ) : (
             <div className="space-y-4">
-              {summaries.map((summary) => (
-                <Card key={summary.id} className="border border-border">
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-lg">
-                        PMS Upload - {format(new Date(summary.upload_date), 'PPP p')}
-                      </CardTitle>
-                      <Badge variant="outline" className="bg-green-50 text-green-700">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Completed
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Uploaded by: {summary.profiles?.full_name || 'Unknown'}
-                    </p>
-                  </CardHeader>
+              {summaries.map((summary) => {
+                const isExpanded = expandedSummaries.has(summary.id);
+                const hasRoomDetails = (summary.checkout_rooms?.length > 0 || summary.daily_cleaning_rooms?.length > 0);
 
-                  <CardContent className="space-y-4">
-                    {/* Summary Stats */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-3 bg-blue-50 rounded-lg">
-                        <div className="text-2xl font-bold text-blue-900">
-                          {summary.processed_rooms}
-                        </div>
-                        <div className="text-sm text-blue-700">
-                          Processed Rooms
-                        </div>
+                return (
+                  <Card key={summary.id} className="border border-border">
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <CardTitle className="text-lg">
+                          PMS Upload - {format(new Date(summary.upload_date), 'PPP p')}
+                        </CardTitle>
+                        <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Completed
+                        </Badge>
                       </div>
-                      
-                      <div className="text-center p-3 bg-green-50 rounded-lg">
-                        <div className="text-2xl font-bold text-green-900">
-                          {summary.updated_rooms}
-                        </div>
-                        <div className="text-sm text-green-700">
-                          Updated Rooms
-                        </div>
-                      </div>
-                      
-                      <div className="text-center p-3 bg-purple-50 rounded-lg">
-                        <div className="text-2xl font-bold text-purple-900">
-                          {summary.checkout_rooms?.length || 0}
-                        </div>
-                        <div className="text-sm text-purple-700">
-                          {t('housekeeping.assignmentType.checkoutClean')}
-                        </div>
-                      </div>
-                      
-                      <div className="text-center p-3 bg-amber-50 rounded-lg">
-                        <div className="text-2xl font-bold text-amber-900">
-                          {summary.daily_cleaning_rooms?.length || 0}
-                        </div>
-                        <div className="text-sm text-amber-700">
-                          {t('housekeeping.assignmentType.dailyClean')}
-                        </div>
-                      </div>
-                    </div>
+                      <p className="text-sm text-muted-foreground">
+                        Uploaded by: {summary.profiles?.full_name || 'Unknown'}
+                      </p>
+                    </CardHeader>
 
-                    {/* Errors */}
-                    {summary.errors && summary.errors.length > 0 && (
-                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <div className="flex items-center gap-2 mb-2">
-                          <AlertTriangle className="h-4 w-4 text-red-600" />
-                          <h4 className="font-semibold text-red-800">
-                            Errors ({summary.errors.length})
-                          </h4>
+                    <CardContent className="space-y-4">
+                      {/* Summary Stats */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                          <div className="text-2xl font-bold text-blue-900 dark:text-blue-300">
+                            {summary.processed_rooms}
+                          </div>
+                          <div className="text-sm text-blue-700 dark:text-blue-400">
+                            Processed Rooms
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          {summary.errors.slice(0, 3).map((error, index) => (
-                            <p key={index} className="text-sm text-red-700">
-                              {error}
-                            </p>
-                          ))}
-                          {summary.errors.length > 3 && (
-                            <p className="text-sm text-red-600 italic">
-                              ... and {summary.errors.length - 3} more errors
-                            </p>
+                        
+                        <div className="text-center p-3 bg-green-50 dark:bg-green-900/30 rounded-lg">
+                          <div className="text-2xl font-bold text-green-900 dark:text-green-300">
+                            {summary.updated_rooms}
+                          </div>
+                          <div className="text-sm text-green-700 dark:text-green-400">
+                            Updated Rooms
+                          </div>
+                        </div>
+                        
+                        <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
+                          <div className="text-2xl font-bold text-purple-900 dark:text-purple-300">
+                            {summary.checkout_rooms?.length || 0}
+                          </div>
+                          <div className="text-sm text-purple-700 dark:text-purple-400">
+                            {t('housekeeping.assignmentType.checkoutClean')}
+                          </div>
+                        </div>
+                        
+                        <div className="text-center p-3 bg-amber-50 dark:bg-amber-900/30 rounded-lg">
+                          <div className="text-2xl font-bold text-amber-900 dark:text-amber-300">
+                            {summary.daily_cleaning_rooms?.length || 0}
+                          </div>
+                          <div className="text-sm text-amber-700 dark:text-amber-400">
+                            {t('housekeeping.assignmentType.dailyClean')}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Errors */}
+                      {summary.errors && summary.errors.length > 0 && (
+                        <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                            <h4 className="font-semibold text-red-800 dark:text-red-300">
+                              Errors ({summary.errors.length})
+                            </h4>
+                          </div>
+                          <div className="space-y-1">
+                            {summary.errors.slice(0, 3).map((error: string, index: number) => (
+                              <p key={index} className="text-sm text-red-700 dark:text-red-400">
+                                {error}
+                              </p>
+                            ))}
+                            {summary.errors.length > 3 && (
+                              <p className="text-sm text-red-600 dark:text-red-500 italic">
+                                ... and {summary.errors.length - 3} more errors
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Room Details Toggle */}
+                      {hasRoomDetails && (
+                        <div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => toggleExpanded(summary.id)}
+                            className="w-full flex items-center justify-center gap-2"
+                          >
+                            {isExpanded ? (
+                              <>
+                                <ChevronUp className="h-4 w-4" />
+                                Hide Room Details
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="h-4 w-4" />
+                                Show Room Details ({(summary.checkout_rooms?.length || 0) + (summary.daily_cleaning_rooms?.length || 0)} rooms)
+                              </>
+                            )}
+                          </Button>
+
+                          {isExpanded && (
+                            <div className="grid md:grid-cols-2 gap-4 mt-3">
+                              {summary.checkout_rooms?.length > 0 && (
+                                <div className="p-3 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
+                                  <h4 className="font-semibold text-purple-800 dark:text-purple-300 mb-2">
+                                    {t('housekeeping.assignmentType.checkoutClean')} ({summary.checkout_rooms.length})
+                                  </h4>
+                                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                                    {summary.checkout_rooms.map((room: any, index: number) => (
+                                      <div key={index} className="text-sm text-purple-700 dark:text-purple-400">
+                                        Room {room.roomNumber} - {room.roomType}
+                                        {room.departureTime && <span className="ml-1 text-purple-500">({room.departureTime})</span>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {summary.daily_cleaning_rooms?.length > 0 && (
+                                <div className="p-3 bg-amber-50 dark:bg-amber-900/30 rounded-lg">
+                                  <h4 className="font-semibold text-amber-800 dark:text-amber-300 mb-2">
+                                    {t('housekeeping.assignmentType.dailyClean')} ({summary.daily_cleaning_rooms.length})
+                                  </h4>
+                                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                                    {summary.daily_cleaning_rooms.map((room: any, index: number) => (
+                                      <div key={index} className="text-sm text-amber-700 dark:text-amber-400">
+                                        Room {room.roomNumber} - {room.roomType}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
-                      </div>
-                    )}
-
-                    {/* Room Details */}
-                    {(summary.checkout_rooms?.length > 0 || summary.daily_cleaning_rooms?.length > 0) && (
-                      <div className="grid md:grid-cols-2 gap-4">
-                        {summary.checkout_rooms?.length > 0 && (
-                          <div className="p-3 bg-purple-50 rounded-lg">
-                            <h4 className="font-semibold text-purple-800 mb-2">
-                              {t('housekeeping.assignmentType.checkoutClean')}
-                            </h4>
-                            <div className="space-y-1">
-                              {summary.checkout_rooms.slice(0, 5).map((room: any, index: number) => (
-                                <div key={index} className="text-sm text-purple-700">
-                                  Room {room.roomNumber} - {room.roomType}
-                                </div>
-                              ))}
-                              {summary.checkout_rooms.length > 5 && (
-                                <div className="text-sm text-purple-600 italic">
-                                  ... and {summary.checkout_rooms.length - 5} more
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {summary.daily_cleaning_rooms?.length > 0 && (
-                          <div className="p-3 bg-amber-50 rounded-lg">
-                            <h4 className="font-semibold text-amber-800 mb-2">
-                              {t('housekeeping.assignmentType.dailyClean')}
-                            </h4>
-                            <div className="space-y-1">
-                              {summary.daily_cleaning_rooms.slice(0, 5).map((room: any, index: number) => (
-                                <div key={index} className="text-sm text-amber-700">
-                                  Room {room.roomNumber} - {room.roomType}
-                                </div>
-                              ))}
-                              {summary.daily_cleaning_rooms.length > 5 && (
-                                <div className="text-sm text-amber-600 italic">
-                                  ... and {summary.daily_cleaning_rooms.length - 5} more
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </ScrollArea>

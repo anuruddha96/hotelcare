@@ -117,11 +117,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!isMounted) return;
         
         console.log('Auth state changed:', event, session?.user?.email);
-        // Only synchronous state updates in callback
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Defer profile fetching to prevent deadlock
         if (session?.user) {
           setTimeout(() => {
             if (isMounted) {
@@ -150,9 +148,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+    // Re-validate session when tab becomes visible again (fixes rooms disappearing)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isMounted) {
+        console.log('Tab became visible, re-validating session...');
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (!isMounted) return;
+          if (session?.user) {
+            setSession(session);
+            setUser(session.user);
+            // Re-fetch profile to ensure fresh data
+            fetchProfile(session.user.id, session.user.email, session.user.user_metadata);
+          } else {
+            console.warn('Session expired while tab was backgrounded');
+            setUser(null);
+            setSession(null);
+            setProfile(null);
+          }
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
