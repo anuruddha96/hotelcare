@@ -604,7 +604,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             updateData.last_linen_change = today;
           }
 
-          if (isCheckout && departureVal) {
+          if (isCheckout && departureParsed !== null) {
             updateData.checkout_time = new Date().toISOString();
           } else if (!isCheckout) {
             updateData.checkout_time = null;
