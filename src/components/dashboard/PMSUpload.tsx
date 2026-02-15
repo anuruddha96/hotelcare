@@ -98,6 +98,34 @@ function getField(row: PMSData, columnMap: ColumnMap, field: keyof ColumnMap): a
   return row[actualKey];
 }
 
+// Convert Excel serial time numbers to HH:MM strings
+function excelTimeToString(val: any): string | null {
+  if (val === undefined || val === null) return null;
+  if (typeof val === 'number') {
+    const totalMinutes = Math.round(val * 24 * 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  }
+  const str = String(val).trim();
+  return str === '' ? null : str;
+}
+
+// Case-insensitive, multi-language occupied check
+function isOccupiedYes(val: any): boolean {
+  if (val === true) return true;
+  if (val === undefined || val === null) return false;
+  const s = String(val).trim().toLowerCase();
+  return ['yes', 'igen', 'ano', 'si', 'ja', 'true', '1'].includes(s);
+}
+
+function isOccupiedNo(val: any): boolean {
+  if (val === false) return true;
+  if (val === undefined || val === null) return false;
+  const s = String(val).trim().toLowerCase();
+  return ['no', 'nem', 'ne', 'nein', 'false', '0'].includes(s);
+}
+
 interface PMSUploadProps {
   onNavigateToTeamView?: () => void;
 }
@@ -294,6 +322,17 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       console.log('[PMS] Detected headers:', headers);
       console.log('[PMS] Column mapping:', columnMap);
 
+      // Diagnostic toast for column mapping
+      const detectedCols = Object.entries(columnMap)
+        .filter(([_, v]) => v !== null)
+        .map(([k]) => k);
+      
+      if (!columnMap.Departure) {
+        toast.warning('⚠️ "Departure" column not detected — checkout rooms won\'t be identified. Headers: ' + headers.join(', '), { duration: 10000 });
+      } else {
+        toast.info(`Columns detected: ${detectedCols.join(', ')}`, { duration: 5000 });
+      }
+
       if (!columnMap.Room) {
         toast.error('Could not find "Room" column in the Excel file. Detected headers: ' + headers.join(', '));
         return;
@@ -463,34 +502,34 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const statusVal = getField(row, columnMap, 'Status');
 
           // Any room with a departure time needs checkout cleaning (regardless of current occupancy)
-          if (departureVal && String(departureVal).trim() !== '') {
+          const departureParsed = excelTimeToString(departureVal);
+          if (departureParsed !== null) {
             // Checkout room - needs checkout cleaning
             newStatus = 'dirty';
             needsCleaning = true;
             isCheckout = true;
             
             // Check for No Show / Early Checkout: Occupied=No with departure before 08:00
-            if (String(occupiedVal) === 'No') {
-              const depTime = String(departureVal).trim();
-              const depHour = depTime ? parseInt(depTime.split(':')[0], 10) : 99;
+            if (isOccupiedNo(occupiedVal)) {
+              const depHour = parseInt(departureParsed.split(':')[0], 10);
               if (depHour < 8) {
                 isNoShow = true;
-                console.log(`[PMS] Room ${roomNumber}: No Show / Early Checkout detected (Occupied: No, Departure: ${departureVal} before 08:00)`);
+                console.log(`[PMS] Room ${roomNumber}: No Show / Early Checkout detected (Occupied: No, Departure: ${departureParsed} before 08:00)`);
               }
             }
             
-            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${departureVal}${isNoShow ? ' - No Show/Early Checkout' : ''})`);
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${departureParsed}${isNoShow ? ' - No Show/Early Checkout' : ''})`);
             
             // Add to checkout rooms list
             checkoutRoomsList.push({
               roomNumber,
               roomType: room.room_type,
-              departureTime: departureVal,
+              departureTime: departureParsed,
               guestCount: peopleVal || 0,
               status: isNoShow ? 'no_show' : 'checkout',
               notes: isNoShow ? `No Show / Early Checkout - ${noteVal || ''}`.trim() : noteVal
             });
-          } else if (String(occupiedVal) === 'Yes' && !departureVal) {
+          } else if (isOccupiedYes(occupiedVal) && departureParsed === null) {
             // Daily cleaning room (occupied but no departure)
             needsCleaning = true;
             newStatus = 'dirty';
@@ -504,7 +543,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               status: 'daily_cleaning',
               notes: noteVal
             });
-          } else if (String(occupiedVal) === 'No' && (String(statusVal) === 'Untidy') && arrivalVal) {
+          } else if (isOccupiedNo(occupiedVal) && (String(statusVal) === 'Untidy') && arrivalVal) {
             // No Show (NS) - Guest didn't show up, room was prepared but unused
             isNoShow = true;
             newStatus = 'clean'; // Room is clean but was prepared for no-show
@@ -555,31 +594,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             updateData.is_checkout_room = false;
           }
 
-          if (currentStatus !== newStatus || room.is_checkout_room !== isCheckout) {
-            const { error: updateError } = await supabase
-              .from('rooms')
-              .update(updateData)
-              .eq('id', room.id);
+          // Always update on PMS upload to ensure re-uploads reclassify correctly
+          const { error: updateError } = await supabase
+            .from('rooms')
+            .update(updateData)
+            .eq('id', room.id);
 
-            if (!updateError) {
-              processed.updated++;
-            }
-          } else if (room.is_dnd) {
-            // Status unchanged, but still clear DND from previous day
-            const { error: dndError } = await supabase
-              .from('rooms')
-              .update({
-                is_dnd: false,
-                dnd_marked_at: null,
-                dnd_marked_by: null,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', room.id);
-
-            if (!dndError) {
-              processed.updated++;
-              console.log(`Cleared stale DND for room ${room.room_number}`);
-            }
+          if (!updateError) {
+            processed.updated++;
           }
 
           // Note: PMS upload only updates room statuses. Managers must manually assign rooms to housekeepers.
@@ -608,7 +630,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             assigned_rooms: processed.assigned,
             checkout_rooms: checkoutRoomsList,
             daily_cleaning_rooms: dailyCleaningRoomsList,
-            errors: processed.errors
+            errors: processed.errors,
+            hotel_filter: selectedHotel
           });
           
         if (summaryError) {
