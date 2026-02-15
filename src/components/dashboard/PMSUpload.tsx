@@ -314,7 +314,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData: PMSData[] = XLSX.utils.sheet_to_json(worksheet);
+      const jsonData: PMSData[] = XLSX.utils.sheet_to_json(worksheet, { defval: null });
 
       if (jsonData.length === 0) {
         toast.error('No data found in the Excel file');
