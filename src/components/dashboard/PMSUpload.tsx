@@ -44,8 +44,15 @@ interface ColumnMap {
 
 // Fuzzy match a header to expected column names
 function fuzzyMatchColumn(header: string, patterns: string[]): boolean {
-  const normalized = header.trim().toLowerCase().replace(/[\u200B-\u200D\uFEFF]/g, '');
-  return patterns.some(p => normalized.includes(p.toLowerCase()));
+  // Normalize: lowercase, remove BOM/invisible chars, remove hyphens/underscores/dots, collapse spaces
+  const normalized = header.trim().toLowerCase()
+    .replace(/[\u200B-\u200D\uFEFF\uFFFE\u00A0]/g, '')
+    .replace(/[-_./\\]/g, '')
+    .replace(/\s+/g, '');
+  return patterns.some(p => {
+    const normP = p.toLowerCase().replace(/[-_./\\]/g, '').replace(/\s+/g, '');
+    return normalized.includes(normP) || normP.includes(normalized);
+  });
 }
 
 function buildColumnMap(headers: string[]): ColumnMap {
@@ -56,16 +63,16 @@ function buildColumnMap(headers: string[]): ColumnMap {
   };
 
   const matchers: Record<keyof ColumnMap, string[]> = {
-    Room: ['room', 'szoba', 'pokoj', 'habitación', 'zimmer', 'phòng'],
-    Occupied: ['occupied', 'foglalt', 'obsazeno', 'ocupado', 'belegt'],
-    Departure: ['departure', 'távozás', 'odjezd', 'salida', 'abreise', 'checkout'],
-    Arrival: ['arrival', 'érkezés', 'příjezd', 'llegada', 'anreise', 'checkin'],
-    People: ['people', 'személy', 'osoby', 'personas', 'personen', 'guests', 'fő'],
-    NightTotal: ['night', 'éjszaka', 'noc', 'noche', 'nacht', 'total'],
-    Note: ['note', 'megjegyzés', 'poznámka', 'nota', 'bemerkung', 'comment'],
-    Nationality: ['nationality', 'nemzetiség', 'národnost', 'nacionalidad', 'nationalität'],
-    Defect: ['defect', 'hiba', 'závada', 'defecto', 'mangel'],
-    Status: ['status', 'állapot', 'stav', 'estado', 'zustand']
+    Room: ['room', 'szoba', 'pokoj', 'habitación', 'zimmer', 'phòng', 'camera', 'stanza', 'nr', 'číslo'],
+    Occupied: ['occupied', 'foglalt', 'obsazeno', 'ocupado', 'belegt', 'occupato', 'occupata', 'occ'],
+    Departure: ['departure', 'távozás', 'odjezd', 'salida', 'abreise', 'checkout', 'check-out', 'check out', 'partenza', 'dep', 'odchod', 'výjezd', 'co time', 'co-time'],
+    Arrival: ['arrival', 'érkezés', 'příjezd', 'llegada', 'anreise', 'checkin', 'check-in', 'check in', 'arrivo', 'arr', 'příchod'],
+    People: ['people', 'személy', 'osoby', 'personas', 'personen', 'guests', 'fő', 'persone', 'ospiti', 'pax', 'pers'],
+    NightTotal: ['night', 'éjszaka', 'noc', 'noche', 'nacht', 'total', 'notte', 'notti'],
+    Note: ['note', 'megjegyzés', 'poznámka', 'nota', 'bemerkung', 'comment', 'remark', 'poznámky'],
+    Nationality: ['nationality', 'nemzetiség', 'národnost', 'nacionalidad', 'nationalität', 'nazionalità', 'nazione'],
+    Defect: ['defect', 'hiba', 'závada', 'defecto', 'mangel', 'difetto', 'guasto'],
+    Status: ['status', 'állapot', 'stav', 'estado', 'zustand', 'stato']
   };
 
   for (const header of headers) {
@@ -319,18 +326,28 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       const headers = Object.keys(firstRow);
       const columnMap = buildColumnMap(headers);
       
-      console.log('[PMS] Detected headers:', headers);
-      console.log('[PMS] Column mapping:', columnMap);
+      console.log('[PMS] Detected headers:', JSON.stringify(headers));
+      console.log('[PMS] Column mapping:', JSON.stringify(columnMap));
+      
+      // Log first 2 rows raw data for debugging
+      for (let dbgIdx = 0; dbgIdx < Math.min(2, jsonData.length); dbgIdx++) {
+        const dbgRow = jsonData[dbgIdx];
+        console.log(`[PMS] Raw row ${dbgIdx}:`, JSON.stringify(dbgRow));
+        // Log each key-value pair to spot invisible chars
+        Object.entries(dbgRow).forEach(([k, v]) => {
+          console.log(`[PMS]   "${k}" (len=${k.length}, codes=${[...k].map(c => c.charCodeAt(0)).join(',')}) = "${v}"`);
+        });
+      }
 
       // Diagnostic toast for column mapping
       const detectedCols = Object.entries(columnMap)
         .filter(([_, v]) => v !== null)
-        .map(([k]) => k);
+        .map(([k, v]) => `${k}→"${v}"`);
       
       if (!columnMap.Departure) {
-        toast.warning('⚠️ "Departure" column not detected — checkout rooms won\'t be identified. Headers: ' + headers.join(', '), { duration: 10000 });
+        toast.warning('⚠️ "Departure" column not detected — checkout rooms won\'t be identified. Headers: ' + headers.join(', '), { duration: 15000 });
       } else {
-        toast.info(`Columns detected: ${detectedCols.join(', ')}`, { duration: 5000 });
+        toast.info(`Columns detected: ${detectedCols.join(', ')}`, { duration: 8000 });
       }
 
       if (!columnMap.Room) {
