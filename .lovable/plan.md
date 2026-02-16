@@ -1,35 +1,53 @@
 
 
-## Plan: Fix Checkout Count - Only Departure Time = Checkout
+## Plan: Hotel Selection Screen for Managers and Admins After Login
 
-### Root Cause
+### Problem
+Managers and admins work across multiple hotels in the same organization. Currently, switching hotels requires finding the small dropdown in the header. The user wants a dedicated hotel selection step after login.
 
-The code at lines 546-560 in `PMSUpload.tsx` has a dedicated branch that classifies rooms where `Night = Total` (e.g., 3/3) AND no departure time as "Early Checkout" and adds them to the checkout list. But these 21 rooms still have `Occupied = Igen` (Yes) -- the guest hasn't left yet. Only when the PMS records a departure time has the guest actually checked out.
+### Solution
+Add a **Hotel Selection Screen** that appears after login for managers and admins, allowing them to pick which hotel they want to work in. The screen shows only hotels from their organization.
 
-**Current behavior:** 30 (departure time) + 21 (early checkout) = 51 checkouts, 20 daily
-**Expected behavior:** 30 checkouts, 41 daily cleaning (20 regular + 21 last-night guests)
+### How It Works
 
-### Fix (single file)
+1. **After login**, if the user is a manager or admin, check if they need to select a hotel
+2. Show a full-screen hotel selection card with all organization hotels listed as clickable cards
+3. Once a hotel is selected, update `assigned_hotel` in the profile and proceed to the dashboard
+4. The existing **HotelSwitcher** dropdown in the header remains available for switching hotels mid-session without logging out
 
-**File: `src/components/dashboard/PMSUpload.tsx`**
+### Changes
 
-**Remove lines 546-560** (the `isEarlyCheckout && departureParsed === null` block that adds rooms to `checkoutRoomsList`). Let these rooms fall through to the next condition at line 561: `isOccupiedYes(occupiedVal) && departureParsed === null` which correctly classifies them as daily cleaning.
+**New file: `src/components/dashboard/HotelSelectionScreen.tsx`**
+- Full-screen component with hotel cards showing each hotel in the user's organization
+- Fetches hotels from `hotel_configurations` via the TenantContext
+- On selection, updates `profiles.assigned_hotel` and navigates to dashboard
+- Shows a "Continue with current hotel" option if they already have one assigned
+- Only shows hotels from the same organization (already filtered by TenantContext)
 
-The early checkout info is still preserved:
-- The `isEarlyCheckout` flag is still set at line 501-502
-- The room notes at line 593 still include "Early Checkout" text
-- The daily cleaning list entry will show the note
+**Modified file: `src/pages/Index.tsx`**
+- After auth check, add a condition: if user role is `admin`, `manager`, or `housekeeping_manager` AND they have no `assigned_hotel` set, show the `HotelSelectionScreen` instead of the Dashboard
+- Users with an assigned hotel go straight to the dashboard as before
+- A "Show hotel picker on login" behavior: store a flag in sessionStorage so the picker shows once per login session for managers/admins, giving them the chance to switch before working
 
-**After the fix, the logic becomes:**
-1. Has departure time? --> Checkout (30 rooms)
-2. Occupied = Yes, no departure? --> Daily cleaning (41 rooms, some noted as "last night")
-3. Occupied = No, Status = Untidy, has Arrival? --> No Show
-4. Status = Untidy/Dirty? --> Dirty room
+**No changes to:**
+- Hotel Ottofiori data or logic
+- HotelSwitcher component (still available in header for mid-session switching)
+- Auth flow or login page
+- Any other hotel's configuration
 
-### Safety: Hotel Ottofiori
+### Technical Details
 
-- No column mapping changes
-- No status matching changes
-- Only removing the early checkout --> checkout classification branch
-- Ottofiori rooms with departure times still work as checkouts
+```text
+Login Flow for Managers/Admins:
+  Auth Page --> Login Success --> Index.tsx
+    --> Is manager/admin? 
+      --> Yes: Has sessionStorage "hotel_selected" flag?
+        --> No: Show HotelSelectionScreen
+          --> User picks hotel --> Update profiles.assigned_hotel 
+              --> Set sessionStorage flag --> Show Dashboard
+        --> Yes: Show Dashboard directly
+      --> No (housekeeping, etc): Show Dashboard directly
+```
+
+The sessionStorage flag ensures the picker shows once per browser session (clears on tab close), so managers see it each time they open the app but not on every page refresh.
 
