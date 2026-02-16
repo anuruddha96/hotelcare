@@ -122,10 +122,56 @@ function getStaffWings(rooms: RoomForAssignment[]): Set<string> {
   return wings;
 }
 
+// Wing proximity map type: maps "wingA" -> "wingB" -> distance
+export type WingProximityMap = Record<string, Record<string, number>>;
+
+// Compute average map distance from a staff member's assigned wings to a candidate wing
+function getMapDistanceToAssignedWings(
+  staffRooms: RoomForAssignment[],
+  candidateWing: string,
+  proximityMap?: WingProximityMap
+): number {
+  if (!proximityMap) return 0;
+  const staffWings = new Set<string>();
+  staffRooms.forEach(r => {
+    staffWings.add(r.wing || `floor-${r.floor_number ?? getFloorFromRoomNumber(r.room_number)}`);
+  });
+  if (staffWings.size === 0) return 0;
+  let totalDist = 0;
+  let count = 0;
+  staffWings.forEach(sw => {
+    const dist = proximityMap[sw]?.[candidateWing] ?? proximityMap[candidateWing]?.[sw];
+    if (dist != null) {
+      totalDist += dist;
+      count++;
+    }
+  });
+  return count > 0 ? totalDist / count : 999;
+}
+
+// Build a wing proximity map from saved layout positions
+export function buildWingProximityMap(
+  layouts: Array<{ floor_number: number; wing: string; x: number; y: number }>
+): WingProximityMap {
+  const map: WingProximityMap = {};
+  for (const a of layouts) {
+    for (const b of layouts) {
+      const keyA = a.wing;
+      const keyB = b.wing;
+      if (keyA === keyB) continue;
+      const dist = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+      if (!map[keyA]) map[keyA] = {};
+      map[keyA][keyB] = Math.round(dist);
+    }
+  }
+  return map;
+}
+
 // Main auto-assignment algorithm: WING-FIRST grouping
 export function autoAssignRooms(
   rooms: RoomForAssignment[],
-  staff: StaffForAssignment[]
+  staff: StaffForAssignment[],
+  wingProximityMap?: WingProximityMap
 ): AssignmentPreview[] {
   if (staff.length === 0 || rooms.length === 0) {
     return staff.map(s => ({
@@ -178,6 +224,14 @@ export function autoAssignRooms(
         if (Math.abs(weightDiff) < 1.5) {
           const aRooms = assignments.get(a[0])!;
           const bRooms = assignments.get(b[0])!;
+          
+          // Use map-based distance if available
+          if (wingProximityMap) {
+            const aMapDist = getMapDistanceToAssignedWings(aRooms, wingEntry.wing, wingProximityMap);
+            const bMapDist = getMapDistanceToAssignedWings(bRooms, wingEntry.wing, wingProximityMap);
+            if (aMapDist !== bMapDist) return aMapDist - bMapDist;
+          }
+          
           const aProx = aRooms.length > 0 ? getAvgProximity(aRooms) : 99;
           const bProx = bRooms.length > 0 ? getAvgProximity(bRooms) : 99;
           // Prefer housekeeper whose current proximity is closer to this wing's proximity
