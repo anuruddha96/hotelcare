@@ -540,19 +540,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                 isEarlyCheckout = true;
               }
               
-              // Hotel Memories Budapest cleaning cycle
-              // Pattern repeats every 6 days starting from day 3:
-              // Day 3: RC, Day 5: T, Day 7: T, Day 9: RC, Day 11: T, Day 13: T, ...
+              // Cleaning cycle: T, T, RC repeating every 6 days from day 3
+              // Day 3: T, Day 5: T, Day 7: RC, Day 9: T, Day 11: T, Day 13: RC, ...
               if (guestNightsStayed >= 3) {
                 const cyclePosition = (guestNightsStayed - 3) % 6;
-                if (cyclePosition === 0) {
-                  // Room Cleaning days: 3, 9, 15, 21...
-                  linenChangeRequired = true;
-                  towelChangeRequired = false;
-                } else if (cyclePosition === 2 || cyclePosition === 4) {
-                  // Towel Change days: 5, 7, 11, 13, 17, 19...
+                if (cyclePosition === 0 || cyclePosition === 2) {
+                  // Towel Change days: 3, 5, 9, 11, 15, 17...
                   towelChangeRequired = true;
                   linenChangeRequired = false;
+                } else if (cyclePosition === 4) {
+                  // Room Cleaning days: 7, 13, 19...
+                  linenChangeRequired = true;
+                  towelChangeRequired = false;
                 }
               }
               
