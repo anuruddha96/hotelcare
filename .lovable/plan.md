@@ -1,114 +1,108 @@
 
 
-## Plan: Enhanced Map Layout Builder with Smart Proximity
+## Plan: Fix Towel Change / Room Cleaning Cycle and Smarter Assignment Weighting
 
-### Problems to Fix
+### The Problem
 
-1. **Rotation conflicts with drag**: Both drag and rotate share pointer events on the same element tree, causing the rotation handle to not work reliably. The `onPointerMove` on the parent wing container intercepts events meant for the rotation handle.
-2. **Counter-rotation hides the visual rotation**: Currently, the wing border rotates but inner content counter-rotates, making it look like nothing moved. The wing shape/border should rotate visually to represent the physical corridor orientation, while only the text/numbers counter-rotate.
-3. **No precision controls**: Only a drag-to-rotate handle exists. Need explicit rotation buttons (+/- 15 degrees) for precise control.
-4. **Canvas too cramped**: Wings overlap and can't be spread out properly.
-5. **Proximity not saved to memory**: After layout save, wing distances should be computed and stored for the assignment algorithm.
+The cleaning cycle logic is inverted. Currently, day 3 of a guest's stay triggers **Room Cleaning (linen change)**, but in practice day 3 should only require a **Towel Change**. The yellow-highlighted rooms in the Excel (3/3, 3/4, 3/5) are all on their 3rd night and should be towel-change-only.
 
-### Solution
+Additionally, the assignment algorithm treats towel-change-only rooms the same as full daily cleaning rooms (15 minutes, same weight), which leads to unfair workload distribution. A towel change takes roughly 5 minutes, not 15.
 
-#### 1. Separate drag and rotate into independent interaction modes
+### Root Cause
 
-Instead of both happening simultaneously on the same element, add an explicit **toolbar per wing** in edit mode with:
-- A **drag handle** (Move icon) -- only this initiates dragging
-- **Rotate left/right buttons** (-15 degrees / +15 degrees) for precise rotation
-- Keep the corner rotation handle but isolate its events completely from the parent drag
+In `PMSUpload.tsx` (lines 546-556), the cleaning cycle maps:
+- `cyclePosition === 0` (days 3, 9, 15...) to Room Cleaning (linen) -- **should be Towel Change**
+- `cyclePosition === 2 or 4` (days 5, 7, 11, 13...) to Towel Change -- **some of these should be Room Cleaning**
 
-#### 2. Fix the visual rotation pattern
+### Corrected Cleaning Cycle
 
-Change the CSS so:
-- The **outer wrapper** (border, background, shadow) rotates with the wing -- this shows the corridor orientation
-- Only the **inner text elements** (wing label, room number chips, badges) counter-rotate to stay readable
-- This means the rectangular wing card itself will appear rotated on screen
+Based on standard hotel practice and the user's feedback:
+
+| Day | Type | Rationale |
+|-----|------|-----------|
+| 3 | Towel Change (T) | First service - light touch |
+| 5 | Towel Change (T) | Second towel refresh |
+| 7 | Room Cleaning (RC) | Full clean after a week |
+| 9 | Towel Change (T) | Light service |
+| 11 | Towel Change (T) | Light service |
+| 13 | Room Cleaning (RC) | Full clean after two weeks |
+
+Pattern: every 6-day cycle starting from day 3 = **T, T, RC, T, T, RC...**
+
+### Changes
+
+**File 1: `src/components/dashboard/PMSUpload.tsx`**
+
+Fix the cleaning cycle logic (lines 546-556):
+- Day 3 (cyclePosition 0): Towel Change (was: Room Cleaning)
+- Day 5 (cyclePosition 2): Towel Change (stays same)
+- Day 7 (cyclePosition 4): Room Cleaning (was: Towel Change)
 
 ```
-Outer div: rotate(45deg) -- the card border/background rotates
-  Inner content wrapper: rotate(-45deg) -- text stays upright
+cyclePosition 0 -> towelChangeRequired = true   (day 3, 9, 15)
+cyclePosition 2 -> towelChangeRequired = true   (day 5, 11, 17)
+cyclePosition 4 -> linenChangeRequired = true   (day 7, 13, 19)
 ```
 
-#### 3. Add precision rotation controls
+**File 2: `src/lib/roomAssignmentAlgorithm.ts`**
 
-In edit mode, each wing gets small +/- rotation buttons:
-- -15 degrees (rotate left)
-- +15 degrees (rotate right)  
-- Reset to 0 degrees
-- Current angle display
+Add towel-change-aware time and weight calculations:
+- New constant: `TOWEL_CHANGE_MINUTES = 5`
+- `calculateRoomTime`: if room has `towel_change_required` and is NOT checkout, use 5 min base instead of 15
+- `calculateRoomWeight`: towel-change-only rooms get weight 0.4 instead of 1.0
 
-#### 4. Larger canvas with grid background
+This means the algorithm will:
+- Assign MORE towel-change rooms per housekeeper (they're quick)
+- Balance workloads more fairly by accounting for actual effort
+- Show accurate time estimates in the preview
 
-- Increase canvas min-height to 400px in edit mode
-- Add a subtle grid/dot pattern background to help with alignment
-- Allow scroll overflow so wings can be placed anywhere
+### Technical Details
 
-#### 5. Compute and save wing proximity on layout save
+**Cleaning cycle fix:**
+```typescript
+if (guestNightsStayed >= 3) {
+  const cyclePosition = (guestNightsStayed - 3) % 6;
+  if (cyclePosition === 0 || cyclePosition === 2) {
+    // Towel Change days: 3, 5, 9, 11, 15, 17...
+    towelChangeRequired = true;
+    linenChangeRequired = false;
+  } else if (cyclePosition === 4) {
+    // Room Cleaning days: 7, 13, 19...
+    linenChangeRequired = true;
+    towelChangeRequired = false;
+  }
+}
+```
 
-After saving positions, compute pairwise Euclidean distances between all wings across all floors and store them as a `wing_adjacency` JSON column on the `hotel_floor_layouts` table (one row per hotel, or as a separate lightweight table). This data feeds into the assignment algorithm.
+**Algorithm time calculation:**
+```typescript
+export const TOWEL_CHANGE_MINUTES = 5;
 
-Since we already have `buildWingProximityMap` in the algorithm file and `AutoRoomAssignment.tsx` fetches it, we just need to ensure the data is actually persisted and loaded properly.
+export function calculateRoomTime(room: RoomForAssignment): number {
+  // Towel-change-only rooms are much faster
+  if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
+    return TOWEL_CHANGE_MINUTES;
+  }
+  let baseTime = room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
+  // ... existing size adjustments
+}
+```
+
+**Algorithm weight calculation:**
+```typescript
+export function calculateRoomWeight(room: RoomForAssignment): number {
+  // Towel-change-only rooms are lightweight
+  if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
+    return 0.4;
+  }
+  // ... existing weight logic
+}
+```
 
 ### Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/components/dashboard/HotelFloorMap.tsx` | Major rewrite: separate drag/rotate handlers, fix CSS rotation pattern, add precision rotation buttons, larger canvas with grid, compute proximity on save |
-| `src/lib/roomAssignmentAlgorithm.ts` | No changes needed (already has `buildWingProximityMap` and proximity-aware assignment) |
-
-### Technical Details
-
-**Isolated drag vs rotate events:**
-- The wing container div only handles drag (onPointerDown for drag)
-- The rotation handle div uses `e.stopPropagation()` AND captures pointer to itself
-- Additionally, add clickable rotate buttons that simply increment/decrement rotation by 15 degrees (no pointer tracking needed)
-
-**Fixed CSS rotation pattern:**
-```typescript
-// Outer: rotates the wing card shape
-<div style={{ 
-  position: 'absolute',
-  left: `${x}%`, top: `${y}%`,
-  transform: `rotate(${rotation}deg)`,
-  transformOrigin: 'center center'
-}}>
-  {/* The border/background card -- this visually rotates */}
-  <div className="border rounded-lg p-2 bg-background shadow">
-    {/* Inner content counter-rotates so text is upright */}
-    <div style={{ transform: `rotate(${-rotation}deg)` }}>
-      <span>Wing D</span>
-      <div className="flex flex-wrap gap-1">
-        {rooms.map(room => <RoomChip />)}
-      </div>
-    </div>
-  </div>
-  
-  {/* Edit controls -- outside the rotated content */}
-  {editMode && (
-    <div className="absolute -bottom-8 left-0 flex gap-1">
-      <button onClick={() => rotate(-15)}>-15</button>
-      <span>45 degrees</span>
-      <button onClick={() => rotate(+15)}>+15</button>
-    </div>
-  )}
-</div>
-```
-
-**Precision rotation buttons:**
-Each wing in edit mode shows a small control bar below it with:
-- RotateCcw button: decrements rotation by 15 degrees
-- Current angle badge (e.g., "45 degrees")
-- RotateCw button: increments rotation by 15 degrees  
-- A "0 degrees" reset button
-
-**Grid background in edit mode:**
-```css
-background-image: radial-gradient(circle, #ddd 1px, transparent 1px);
-background-size: 20px 20px;
-```
-
-**Wing proximity computation on save:**
-After upserting layout positions, compute distances using the existing `buildWingProximityMap` function and log the result. The `AutoRoomAssignment` component already fetches layouts and builds the proximity map at runtime, so no additional persistence is strictly needed -- but the layout positions being saved IS the persistence mechanism.
+| `src/components/dashboard/PMSUpload.tsx` | Fix cleaning cycle: day 3 = Towel Change, day 7 = Room Cleaning |
+| `src/lib/roomAssignmentAlgorithm.ts` | Add TOWEL_CHANGE_MINUTES (5 min), adjust calculateRoomTime and calculateRoomWeight for towel-change-only rooms |
 
