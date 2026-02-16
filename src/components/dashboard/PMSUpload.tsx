@@ -388,6 +388,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           } else {
             console.log(`Reset DND flags for all rooms in ${selectedHotel}`);
           }
+
+          // Batch reset towel/linen change flags to prevent stale data from previous uploads
+          const { error: tcResetError } = await supabase
+            .from('rooms')
+            .update({ towel_change_required: false, linen_change_required: false })
+            .eq('hotel', selectedHotel);
+          
+          if (tcResetError) {
+            console.warn(`Error resetting T/RC flags for ${selectedHotel}:`, tcResetError);
+          } else {
+            console.log(`Reset towel/linen change flags for all rooms in ${selectedHotel}`);
+          }
         }
       } else {
         console.warn('No hotel selected - skipping assignment reset');
@@ -600,27 +612,29 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const statusNote = isNoShow ? 'No Show' : isEarlyCheckout && isCheckout ? 'Early Checkout' : null;
           const combinedNotes = [statusNote, roomNotes].filter(Boolean).join(' - ');
           
-          // Extract room type from PMS Room column name
-          const extractRoomType = (roomName: string): string | null => {
-            if (!roomName) return null;
+          // Extract room type, category and Shabath flag from PMS Room column name
+          const extractRoomInfo = (roomName: string): { roomType: string | null; roomCategory: string | null; isShabath: boolean } => {
+            if (!roomName) return { roomType: null, roomCategory: null, isShabath: false };
             const upper = roomName.toUpperCase();
+            // Shabath detection: SH suffix before room number dash, e.g. "4QUEEN-008SH" or "7TWIN-034SH"
+            const isShabath = /SH\s*$/.test(upper.replace(/[^A-Z0-9]/g, '')) || /SH$/.test(upper.trim());
+            
             // Hotel Memories Budapest patterns (order matters: check longer patterns first)
-            if (upper.includes('SYN.DOUBLE')) return 'superior_double';
-            if (upper.includes('SYN.TWIN')) return 'superior_twin';
-            if (upper.includes('EC.QRP')) return 'economy_quadruple';
-            if (upper.includes('ECDBL')) return 'economy_double';
-            if (upper.includes('QUEEN')) return 'queen';
-            if (upper.includes('DOUBLE')) return 'double';
-            if (upper.includes('TWIN')) return 'twin';
-            if (upper.includes('TRP')) return 'triple';
-            if (upper.includes('QDR')) return 'quadruple';
-            if (upper.includes('SNG')) return 'single';
-            // Don't override for other hotels (e.g. Ottofiori uses CQ-, Q-, DB/TW- patterns)
-            return null;
+            if (upper.includes('SYN.DOUBLE')) return { roomType: 'syn_double', roomCategory: 'Deluxe Double or Twin Room with Synagogue View', isShabath };
+            if (upper.includes('SYN.TWIN')) return { roomType: 'syn_twin', roomCategory: 'Deluxe Double or Twin Room with Synagogue View', isShabath };
+            if (upper.includes('EC.QRP')) return { roomType: 'economy_quadruple', roomCategory: 'Comfort Quadruple Room', isShabath };
+            if (upper.includes('ECDBL')) return { roomType: 'economy_double', roomCategory: 'Comfort Double Room with Small Window', isShabath };
+            if (upper.includes('QUEEN')) return { roomType: 'queen', roomCategory: 'Deluxe Queen Room', isShabath };
+            if (upper.includes('DOUBLE')) return { roomType: 'double', roomCategory: 'Deluxe Double or Twin Room', isShabath };
+            if (upper.includes('TWIN')) return { roomType: 'twin', roomCategory: 'Deluxe Double or Twin Room', isShabath };
+            if (upper.includes('TRP')) return { roomType: 'triple', roomCategory: 'Deluxe Triple Room', isShabath };
+            if (upper.includes('QDR')) return { roomType: 'quadruple', roomCategory: 'Deluxe Quadruple Room', isShabath };
+            if (upper.includes('SNG')) return { roomType: 'single', roomCategory: 'Deluxe Single Room', isShabath };
+            return { roomType: null, roomCategory: null, isShabath };
           };
 
           const roomNameVal = getField(row, columnMap, 'Room');
-          const extractedRoomType = extractRoomType(String(roomNameVal || ''));
+          const roomInfo = extractRoomInfo(String(roomNameVal || ''));
 
           const updateData: any = { 
             status: newStatus,
@@ -636,10 +650,15 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             updated_at: new Date().toISOString()
           };
 
-          // Only update room_type if we extracted one from the PMS room name
-          if (extractedRoomType) {
-            updateData.room_type = extractedRoomType;
+          // Update room_type, room_category, bed_type (shabath), and room_name from PMS
+          if (roomInfo.roomType) {
+            updateData.room_type = roomInfo.roomType;
           }
+          if (roomInfo.roomCategory) {
+            updateData.room_category = roomInfo.roomCategory;
+          }
+          updateData.bed_type = roomInfo.isShabath ? 'shabath' : null;
+          updateData.room_name = roomNameVal ? String(roomNameVal).trim() : null;
 
           // Set last change dates if changes are required
           const today = new Date().toISOString().split('T')[0];

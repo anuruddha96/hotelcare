@@ -24,6 +24,12 @@ interface RoomData {
   wing: string | null;
   room_category: string | null;
   elevator_proximity: number | null;
+  room_type: string | null;
+  bed_type: string | null;
+  room_name: string | null;
+  guest_nights_stayed: number | null;
+  towel_change_required: boolean | null;
+  linen_change_required: boolean | null;
 }
 
 interface AssignmentData {
@@ -119,7 +125,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity')
+          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required')
           .eq('hotel', hotelName)
           .order('room_number'),
         supabase
@@ -278,6 +284,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 `}
               >
                 {room.room_number}
+                {room.bed_type === 'shabath' && <span className="ml-0.5 text-[8px] font-bold text-blue-700 dark:text-blue-300">SH</span>}
+                {room.towel_change_required && <span className="ml-0.5 text-[8px] font-bold text-red-700">T</span>}
+                {room.linen_change_required && <span className="ml-0.5 text-[8px] font-bold text-red-700">RC</span>}
                 {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
                 {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
                 {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
@@ -293,15 +302,23 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
           <TooltipContent side="top" className="text-xs">
             <div className="space-y-1">
               <p className="font-semibold">Room {room.room_number}</p>
+              {room.room_type && <p>Type: {room.room_type.replace(/_/g, ' ')}</p>}
               <p>Status: {room.status || 'unknown'}</p>
               {room.wing && <p>Wing: {room.wing}</p>}
               {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
               {room.room_category && <p className="text-[10px] text-muted-foreground">{room.room_category}</p>}
+              {room.bed_type === 'shabath' && <p className="text-blue-600 font-medium">✡ Shabath Room</p>}
+              {room.guest_nights_stayed != null && room.guest_nights_stayed > 0 && (
+                <p>Guest Night: {room.guest_nights_stayed}</p>
+              )}
+              {room.towel_change_required && <p className="text-red-600 font-medium">🔄 Towel Change</p>}
+              {room.linen_change_required && <p className="text-red-600 font-medium">🛏️ Room Cleaning (Linen)</p>}
               {isDND && <p className="text-purple-600 font-medium">🚫 Do Not Disturb</p>}
               {noShow && <p className="text-red-600 font-medium">⚠️ No Show</p>}
               {earlyCheckout && <p className="text-orange-600 font-medium">🔶 Early Checkout</p>}
               {staffName && <p>Assigned: {staffMap[assignmentMap.get(room.id)?.assigned_to || ''] || staffName}</p>}
               {getAssignmentStatus(room.id) && <p>Task: {getAssignmentStatus(room.id)}</p>}
+              {room.room_name && <p className="text-[9px] text-muted-foreground">PMS: {room.room_name}</p>}
               {isManagerOrAdmin && <p className="text-primary font-medium">Click to edit room</p>}
             </div>
           </TooltipContent>
