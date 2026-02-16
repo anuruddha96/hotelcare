@@ -400,7 +400,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           if (dndResetError) {
             console.warn(`Error resetting DND for ${hotelNameForFilter}:`, dndResetError);
           } else {
-            console.log(`Reset DND flags for all rooms in ${hotelNameForFilter}`);
+            // Verify DND reset actually worked (detect silent RLS failures)
+            const { count: dndStillOn } = await supabase
+              .from('rooms')
+              .select('id', { count: 'exact', head: true })
+              .eq('hotel', hotelNameForFilter)
+              .eq('is_dnd', true);
+            if (dndStillOn && dndStillOn > 0) {
+              console.error(`DND reset FAILED - ${dndStillOn} rooms still have DND=true. Likely RLS issue.`);
+              toast.error(`DND reset failed for ${dndStillOn} rooms. Contact admin.`);
+            } else {
+              console.log(`Reset DND flags for all rooms in ${hotelNameForFilter}`);
+            }
           }
 
           // Batch reset towel/linen change flags to prevent stale data from previous uploads
@@ -412,7 +423,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           if (tcResetError) {
             console.warn(`Error resetting T/RC flags for ${hotelNameForFilter}:`, tcResetError);
           } else {
-            console.log(`Reset towel/linen change flags for all rooms in ${hotelNameForFilter}`);
+            // Verify T/RC reset
+            const { count: tcStillOn } = await supabase
+              .from('rooms')
+              .select('id', { count: 'exact', head: true })
+              .eq('hotel', hotelNameForFilter)
+              .or('towel_change_required.eq.true,linen_change_required.eq.true');
+            if (tcStillOn && tcStillOn > 0) {
+              console.error(`T/RC reset FAILED - ${tcStillOn} rooms still have flags set. Likely RLS issue.`);
+              toast.error(`Towel/linen reset failed for ${tcStillOn} rooms. Contact admin.`);
+            } else {
+              console.log(`Reset towel/linen change flags for all rooms in ${hotelNameForFilter}`);
+            }
           }
 
           // Batch reset checkout flags to prevent stale data from previous uploads
