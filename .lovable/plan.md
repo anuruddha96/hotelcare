@@ -1,40 +1,97 @@
 
 
-## Plan: Fix PMS Checkout Detection - Root Cause Found
+## Plan: Fix 5 Issues - No-Show vs Early Checkout, Notifications, ACT Tooltip, PMS Toast
 
-### Root Cause
+### Issue 1: Remove PMS Column Mapping Notification Toast
 
-The bug is on **line 317** of `PMSUpload.tsx`:
+The info toast showing "Columns detected: Room->Room, Occupied->Occupied, Departure->Departure..." is unnecessary for users and clutters the UI.
 
-```typescript
-const jsonData: PMSData[] = XLSX.utils.sheet_to_json(worksheet);
-```
+**File: `src/components/dashboard/PMSUpload.tsx` (~line 350)**
+- Remove the `toast.info(Columns detected: ...)` call entirely
+- Keep only the warning toast when a critical column (Room) is missing
 
-With default options (`raw: true`), SheetJS **skips empty cells** -- they are simply not included as keys in the row objects. The column map is built from `Object.keys(firstRow)` (line 326), but if the **first data row** has an empty cell in a column (like "Departure"), that column key is completely missing from the first row object.
+---
 
-In today's file, the first row is **CQ-405** which has **no departure time**. So `Object.keys(firstRow)` returns: `["Room", "Occupied", "Guests", "Night / Total", "Status"]` -- missing "Departure", "Arrival", "Note", "Nationality", "Defect", and "Assigned".
+### Issue 2: Separate Early Checkout from No Show
 
-Since "Departure" is never in the column map, `getField(row, columnMap, 'Departure')` returns `undefined` for ALL rows, and `departureParsed` is always `null`. Every room falls into the `daily_cleaning` branch.
+**Problem:** Rooms 105 (Night 3/3) and 406 (Night 3/3) are on their last night, meaning they check out TODAY. But since they have no Departure time value in the PMS file, the code classifies them as "daily cleaning" instead. Additionally, the current "No Show / Early Checkout" label conflates two distinct concepts.
 
-Previous uploads that worked had a first row WITH a departure value, so the key was present.
+**Definitions:**
+- **No Show**: Guest never arrived -- Occupied=No, Status=Untidy, has Arrival date
+- **Early Checkout**: Guest's last night (Night/Total = x/x where x equals total) -- they leave today but PMS hasn't set a departure time yet
 
-### Fix
+**Changes in `src/components/dashboard/PMSUpload.tsx`:**
+1. Add a new `isEarlyCheckout` flag (separate from `isNoShow`)
+2. In the Night/Total parsing section (~line 499), detect when `guestNightsStayed === totalNights` and set `isEarlyCheckout = true`
+3. After the departure check, add a new condition: if `isEarlyCheckout && departureParsed === null`, classify the room as a checkout room (dirty, needs cleaning, `is_checkout_room = true`)
+4. Add early checkout rooms to `checkoutRoomsList` with status `'early_checkout'`
+5. Update room notes to say "Early Checkout" (not "No Show")
+6. Fix the existing No Show detection: remove the `depHour < 8` logic (that incorrectly mixed up early checkouts with no-shows). True No Shows are only: Occupied=No + Status=Untidy + has Arrival
 
-**File: `src/components/dashboard/PMSUpload.tsx`** -- one-line change on line 317:
+**Changes in `src/components/dashboard/CheckoutRoomsView.tsx`:**
+- Update the `CheckoutRoom` interface to include `'early_checkout'` and `'no_show'` statuses
+- Show Early Checkout rooms in a distinct section or with a distinct badge
 
-```
-// BEFORE:
-const jsonData: PMSData[] = XLSX.utils.sheet_to_json(worksheet);
+**Changes in `src/components/dashboard/HotelRoomOverview.tsx`:**
+1. Separate `isNoShow` from `isEarlyCheckout` detection (check notes for each)
+2. Show separate counts: "X No-Show" and "X Early Checkout" badges
+3. Update tooltip text: show "No Show" or "Early Checkout" distinctly (not combined)
+4. Add "Early Checkout" to the legend with a distinct color (e.g., orange ring)
 
-// AFTER:
-const jsonData: PMSData[] = XLSX.utils.sheet_to_json(worksheet, { defval: null });
-```
+---
 
-The `defval: null` option tells SheetJS to include ALL columns in every row object, using `null` as the value for empty cells. This ensures `Object.keys(firstRow)` always contains every column header (Room, Occupied, Departure, Arrival, etc.), regardless of whether the first row has data in those cells.
+### Issue 3: ACT Tooltip - Show Full Meaning
 
-`excelTimeToString(null)` already returns `null` correctly, so empty departure cells continue to work as expected.
+**File: `src/components/dashboard/HotelRoomOverview.tsx` (~line 394)**
+- Wrap the ACT badge in a `Tooltip` component that shows "Average Cleaning Time" on hover
+- Same pattern already used for room chips in this file
 
-### After Fix
+---
 
-The app must be **Published** for this to take effect on the live site. Then re-upload the PMS file -- the 11 checkout rooms should be correctly identified.
+### Issue 4: Fix Notification Stacking and Duration
+
+**Problem:** Notifications stack on top of each other, stay too long, and block UI elements.
+
+**File: `src/components/dashboard/EnhancedNotificationOverlay.tsx`:**
+- Change max notifications from 3 to 1 (show only the latest notification, replacing the previous one)
+- Auto-remove timeout is already 5 seconds -- keep it
+- Add a queue system: new notification replaces the current one instead of stacking
+
+**File: `src/hooks/useNotifications.tsx`:**
+- Reduce toast duration from 5000ms to 4000ms
+- Remove `requireInteraction: true` from browser notifications (they should auto-dismiss)
+- Auto-close browser notifications after 5 seconds (already done but `requireInteraction` overrides it)
+- Remove the `flash` animation on `document.body` from `VisualNotificationOverlay` (distracting)
+
+**File: `src/components/dashboard/VisualNotificationOverlay.tsx`:**
+- Reduce auto-remove from 8 seconds to 5 seconds
+- Remove the `document.body.style.animation = 'flash 0.5s'` flash effect
+
+**File: `src/components/dashboard/RealtimeNotificationProvider.tsx`:**
+- No structural changes needed -- the notification providers are fine, only the display layer needs fixing
+
+---
+
+### Issue 5: Browser Notifications and Sound Improvements
+
+**File: `src/hooks/useNotifications.tsx`:**
+- **Sound**: Replace the harsh 1000Hz beep with a calmer, friendlier chime:
+  - Use a lower frequency (523Hz - C5 note) with a gentle fade-out envelope
+  - Shorter duration (0.2s) with smooth decay
+  - Different tones for different notification types: success (higher, pleasant), warning (two-tone alert), info (single soft chime)
+- **Browser notifications**: Remove `requireInteraction: true` so notifications auto-dismiss and don't pile up in the notification tray
+- **Service Worker**: The current service worker registration and notification flow looks correct. Ensure `tag: 'hotel-notification'` is used so new notifications replace old ones instead of stacking
+
+---
+
+### Summary of Files to Change
+
+| File | Changes |
+|------|---------|
+| `src/components/dashboard/PMSUpload.tsx` | Remove column mapping toast; add early checkout detection via Night/Total; separate No Show logic |
+| `src/components/dashboard/HotelRoomOverview.tsx` | Separate No-Show/Early Checkout display; ACT tooltip; update legend |
+| `src/components/dashboard/CheckoutRoomsView.tsx` | Add early_checkout status support |
+| `src/components/dashboard/EnhancedNotificationOverlay.tsx` | Max 1 notification, no stacking |
+| `src/components/dashboard/VisualNotificationOverlay.tsx` | Reduce to 5s, remove flash |
+| `src/hooks/useNotifications.tsx` | Calmer sound, remove requireInteraction, shorter durations |
 
