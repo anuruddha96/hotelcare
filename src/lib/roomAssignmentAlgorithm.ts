@@ -3,6 +3,7 @@
 // Time constants (in minutes)
 export const CHECKOUT_MINUTES = 45;
 export const DAILY_MINUTES = 15;
+export const TOWEL_CHANGE_MINUTES = 5;
 export const BREAK_TIME_MINUTES = 30;
 export const STANDARD_SHIFT_MINUTES = 480; // 8 hours
 export const AVAILABLE_WORK_MINUTES = STANDARD_SHIFT_MINUTES - BREAK_TIME_MINUTES; // 450 minutes
@@ -44,6 +45,10 @@ export interface AssignmentPreview {
 
 // Calculate estimated time for a room in minutes
 export function calculateRoomTime(room: RoomForAssignment): number {
+  // Towel-change-only rooms are much faster (5 min vs 15 min)
+  if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
+    return TOWEL_CHANGE_MINUTES;
+  }
   let baseTime = room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
   const size = room.room_size_sqm || 20;
   if (size >= 40) baseTime += 15;
@@ -77,6 +82,10 @@ export function formatMinutesToTime(minutes: number): string {
 
 // Weight calculation based on room characteristics
 export function calculateRoomWeight(room: RoomForAssignment): number {
+  // Towel-change-only rooms are lightweight
+  if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
+    return 0.4;
+  }
   let weight = room.is_checkout_room ? 1.5 : 1.0;
   const size = room.room_size_sqm || 20;
   if (size >= 40) weight += 1.0;
