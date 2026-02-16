@@ -124,20 +124,10 @@ export function useVisualNotifications() {
 
     setNotifications(prev => [...prev, newNotification]);
 
-    // Auto-remove after 8 seconds for visual notifications
+    // Auto-remove after 5 seconds
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 8000);
-
-    // Flash the screen for attention
-    if (document.body) {
-      document.body.style.animation = 'flash 0.5s ease-in-out';
-      setTimeout(() => {
-        if (document.body) {
-          document.body.style.animation = '';
-        }
-      }, 500);
-    }
+    }, 5000);
 
     return id;
   };

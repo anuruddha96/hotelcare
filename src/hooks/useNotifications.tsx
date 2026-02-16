@@ -144,11 +144,11 @@ export function useNotifications() {
       const audio = new Audio();
       audio.preload = 'auto';
       
-      // Create a data URL with beep sound for iOS compatibility
-      const createBeepDataURL = () => {
+      // Create a data URL with calm chime sound for iOS compatibility
+      const createChimeDataURL = () => {
         const sampleRate = 8000;
-        const duration = 0.3;
-        const samples = sampleRate * duration;
+        const duration = 0.25;
+        const samples = Math.floor(sampleRate * duration);
         const buffer = new ArrayBuffer(44 + samples * 2);
         const view = new DataView(buffer);
         
@@ -173,16 +173,18 @@ export function useNotifications() {
         writeString(36, 'data');
         view.setUint32(40, samples * 2, true);
         
-        // Generate beep sound
+        // Generate gentle chime (C5 = 523Hz) with smooth decay
         for (let i = 0; i < samples; i++) {
-          const sample = Math.sin(2 * Math.PI * 1000 * i / sampleRate) * 0.5;
+          const t = i / sampleRate;
+          const envelope = Math.exp(-t * 8); // smooth fade-out
+          const sample = Math.sin(2 * Math.PI * 523 * t) * 0.35 * envelope;
           view.setInt16(44 + i * 2, sample * 32767, true);
         }
         
         return `data:audio/wav;base64,${btoa(String.fromCharCode(...new Uint8Array(buffer)))}`;
       };
       
-      audio.src = createBeepDataURL();
+      audio.src = createChimeDataURL();
       
       // iOS Safari requires user interaction, so play with error handling
       const playPromise = audio.play();
@@ -204,14 +206,13 @@ export function useNotifications() {
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
             
-            oscillator.frequency.setValueAtTime(950, audioContext.currentTime);
-            // Quick attack-decay envelope for attention
+            oscillator.frequency.setValueAtTime(523, audioContext.currentTime); // C5 - calm chime
             gainNode.gain.setValueAtTime(0.001, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.3, audioContext.currentTime + 0.02);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.35);
+            gainNode.gain.exponentialRampToValueAtTime(0.25, audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.25);
             
             oscillator.start();
-            oscillator.stop(audioContext.currentTime + 0.4);
+            oscillator.stop(audioContext.currentTime + 0.3);
           } catch (webAudioError) {
             console.log('Web Audio not supported:', webAudioError);
           }
@@ -242,8 +243,7 @@ export function useNotifications() {
           body: message,
           icon: '/favicon.ico',
           badge: '/favicon.ico',
-          tag: 'hotel-notification',
-          requireInteraction: true
+          tag: 'hotel-notification'
         } as any);
 
         // Auto-close after 5 seconds
@@ -266,7 +266,7 @@ export function useNotifications() {
     
     // Show toast notification
     toast[type](message, {
-      duration: 5000,
+      duration: 4000,
       position: 'top-center',
       style: {
         background: type === 'warning' ? '#FED7AA' : type === 'success' ? '#D1FAE5' : '#DBEAFE',
@@ -286,7 +286,6 @@ export function useNotifications() {
           icon: '/favicon.ico',
           badge: '/favicon.ico',
           tag: 'hotel-notification',
-          requireInteraction: true,
           silent: false
         });
 
@@ -296,8 +295,8 @@ export function useNotifications() {
           notification.close();
         };
 
-        // Auto-close after 8 seconds
-        setTimeout(() => notification.close(), 8000);
+        // Auto-close after 5 seconds
+        setTimeout(() => notification.close(), 5000);
       } catch (error) {
         console.log('Browser notification failed:', error);
       }
@@ -309,7 +308,7 @@ export function useNotifications() {
           const notification = new Notification(title, {
             body: message,
             icon: '/favicon.ico',
-            requireInteraction: true,
+            tag: 'hotel-notification',
             silent: false
           });
         setTimeout(() => notification.close(), 5000);
