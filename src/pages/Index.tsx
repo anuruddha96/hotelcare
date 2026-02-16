@@ -1,11 +1,18 @@
+import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Dashboard } from '@/components/dashboard/Dashboard';
+import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
+
+const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager'];
 
 const Index = () => {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const [hotelSelected, setHotelSelected] = useState(
+    () => sessionStorage.getItem('hotel_selected') === 'true'
+  );
 
   if (loading) {
     return (
@@ -17,6 +24,11 @@ const Index = () => {
 
   if (!user) {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
+  }
+
+  // Show hotel picker once per session for managers/admins
+  if (profile && MANAGER_ROLES.includes(profile.role) && !hotelSelected) {
+    return <HotelSelectionScreen onHotelSelected={() => setHotelSelected(true)} />;
   }
 
   return (
