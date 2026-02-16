@@ -25,11 +25,8 @@ export function EnhancedNotificationOverlay() {
     // Listen for visual notifications
     const handleVisualNotification = (event: CustomEvent<NotificationData>) => {
       const notification = event.detail;
-      setNotifications(prev => {
-        // Limit to 3 notifications max to avoid clutter
-        const newNotifications = [...prev, notification];
-        return newNotifications.slice(-3);
-      });
+      // Show only the latest notification (replace previous one, no stacking)
+      setNotifications([notification]);
       
       // Auto-remove after 5 seconds
       setTimeout(() => {

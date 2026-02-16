@@ -339,15 +339,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         });
       }
 
-      // Diagnostic toast for column mapping
-      const detectedCols = Object.entries(columnMap)
-        .filter(([_, v]) => v !== null)
-        .map(([k, v]) => `${k}→"${v}"`);
-      
+      // Only warn if critical columns are missing
       if (!columnMap.Departure) {
         toast.warning('⚠️ "Departure" column not detected — checkout rooms won\'t be identified. Headers: ' + headers.join(', '), { duration: 15000 });
-      } else {
-        toast.info(`Columns detected: ${detectedCols.join(', ')}`, { duration: 8000 });
       }
 
       if (!columnMap.Room) {
@@ -490,6 +484,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           let towelChangeRequired = false;
           let linenChangeRequired = false;
           let isNoShow = false;
+          let isEarlyCheckout = false;
+          let totalNights = 0;
 
           // Parse Night/Total column for guest stay information
           const nightTotalVal = getField(row, columnMap, 'NightTotal');
@@ -499,7 +495,12 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             const match = nightTotal.match(/(\d+)\/(\d+)/);
             if (match) {
               guestNightsStayed = parseInt(match[1], 10);
-              const totalNights = parseInt(match[2], 10);
+              totalNights = parseInt(match[2], 10);
+              
+              // Early checkout: guest is on their last night (e.g. 3/3)
+              if (guestNightsStayed === totalNights && totalNights > 0) {
+                isEarlyCheckout = true;
+              }
               
               // Towel change required every 2 nights
               towelChangeRequired = guestNightsStayed >= 2 && guestNightsStayed % 2 === 0;
@@ -507,7 +508,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               // Linen change required every 5 nights
               linenChangeRequired = guestNightsStayed >= 5 && guestNightsStayed % 5 === 0;
               
-              console.log(`[PMS] Room ${roomNumber}: Guest stayed ${guestNightsStayed}/${totalNights} nights. Towel change: ${towelChangeRequired}, Linen change: ${linenChangeRequired}`);
+              console.log(`[PMS] Room ${roomNumber}: Guest stayed ${guestNightsStayed}/${totalNights} nights. Early checkout: ${isEarlyCheckout}. Towel change: ${towelChangeRequired}, Linen change: ${linenChangeRequired}`);
             }
           }
 
@@ -526,16 +527,13 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             needsCleaning = true;
             isCheckout = true;
             
-            // Check for No Show / Early Checkout: Occupied=No with departure before 08:00
-            if (isOccupiedNo(occupiedVal)) {
-              const depHour = parseInt(departureParsed.split(':')[0], 10);
-              if (depHour < 8) {
-                isNoShow = true;
-                console.log(`[PMS] Room ${roomNumber}: No Show / Early Checkout detected (Occupied: No, Departure: ${departureParsed} before 08:00)`);
-              }
+            // True No Show: Occupied=No (guest never arrived but has departure set)
+            if (isOccupiedNo(occupiedVal) && arrivalVal && (String(statusVal) === 'Untidy' || String(statusVal) === 'untidy')) {
+              isNoShow = true;
+              console.log(`[PMS] Room ${roomNumber}: No Show detected (Occupied: No, Status: Untidy, Arrival: ${arrivalVal})`);
             }
             
-            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${departureParsed}${isNoShow ? ' - No Show/Early Checkout' : ''})`);
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${departureParsed}${isNoShow ? ' - No Show' : ''})`);
             
             // Add to checkout rooms list
             checkoutRoomsList.push({
@@ -544,7 +542,22 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               departureTime: departureParsed,
               guestCount: peopleVal || 0,
               status: isNoShow ? 'no_show' : 'checkout',
-              notes: isNoShow ? `No Show / Early Checkout - ${noteVal || ''}`.trim() : noteVal
+              notes: isNoShow ? `No Show - ${noteVal || ''}`.trim() : noteVal
+            });
+          } else if (isEarlyCheckout && departureParsed === null) {
+            // Early Checkout: last night stay (e.g. 3/3) but no departure time set yet
+            newStatus = 'dirty';
+            needsCleaning = true;
+            isCheckout = true;
+            console.log(`[PMS] Room ${roomNumber}: Early Checkout detected (Night ${guestNightsStayed}/${totalNights}, no departure time)`);
+            
+            checkoutRoomsList.push({
+              roomNumber,
+              roomType: room.room_type,
+              departureTime: null,
+              guestCount: peopleVal || 0,
+              status: 'early_checkout',
+              notes: `Early Checkout (Night ${guestNightsStayed}/${totalNights}) - ${noteVal || ''}`.trim()
             });
           } else if (isOccupiedYes(occupiedVal) && departureParsed === null) {
             // Daily cleaning room (occupied but no departure)
@@ -560,7 +573,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               status: 'daily_cleaning',
               notes: noteVal
             });
-          } else if (isOccupiedNo(occupiedVal) && (String(statusVal) === 'Untidy') && arrivalVal) {
+          } else if (isOccupiedNo(occupiedVal) && (String(statusVal) === 'Untidy' || String(statusVal) === 'untidy') && arrivalVal) {
             // No Show (NS) - Guest didn't show up, room was prepared but unused
             isNoShow = true;
             newStatus = 'clean'; // Room is clean but was prepared for no-show
@@ -578,7 +591,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
           // Update room status and checkout information
           const roomNotes = noteVal ? String(noteVal).trim() : null;
-          const statusNote = isNoShow ? 'No Show (NS)' : null;
+          const statusNote = isNoShow ? 'No Show' : isEarlyCheckout && isCheckout ? 'Early Checkout' : null;
           const combinedNotes = [statusNote, roomNotes].filter(Boolean).join(' - ');
           
           const updateData: any = { 

@@ -9,7 +9,7 @@ interface CheckoutRoom {
   roomType?: string;
   departureTime?: string;
   guestCount?: number;
-  status: 'checkout' | 'daily_cleaning';
+  status: 'checkout' | 'daily_cleaning' | 'early_checkout' | 'no_show';
   notes?: string;
 }
 
@@ -31,6 +31,16 @@ export function CheckoutRoomsView({ checkoutRooms, dailyCleaningRooms }: Checkou
         {room.roomType && (
           <Badge variant="outline" className="text-xs">
             {room.roomType}
+          </Badge>
+        )}
+        {room.status === 'early_checkout' && (
+          <Badge className="text-xs bg-orange-100 text-orange-800 border-orange-300">
+            Early Checkout
+          </Badge>
+        )}
+        {room.status === 'no_show' && (
+          <Badge className="text-xs bg-amber-100 text-amber-800 border-amber-300">
+            No Show
           </Badge>
         )}
       </div>

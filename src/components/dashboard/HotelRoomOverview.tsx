@@ -196,7 +196,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
     return room.notes?.toLowerCase().includes('no show') || false;
   };
 
-  const noShowRooms = rooms.filter(r => isNoShow(r));
+  const isEarlyCheckout = (room: RoomData) => {
+    return room.notes?.toLowerCase().includes('early checkout') || false;
+  };
+
+  const noShowRooms = rooms.filter(r => isNoShow(r) && !isEarlyCheckout(r));
+  const earlyCheckoutRooms = rooms.filter(r => isEarlyCheckout(r));
 
   const groupByFloor = (roomList: RoomData[]) => {
     const floorMap = new Map<number, RoomData[]>();
@@ -227,7 +232,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
       : room.status || 'dirty';
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
     const isDND = room.is_dnd;
-    const noShow = isNoShow(room);
+    const noShow = isNoShow(room) && !isEarlyCheckout(room);
+    const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
 
@@ -246,12 +252,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   ${colorClass}
                   ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
                   ${noShow ? 'ring-2 ring-amber-500 ring-offset-1' : ''}
+                  ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
                   ${isManagerOrAdmin ? 'hover:scale-110 hover:shadow-md' : ''}
                 `}
               >
                 {room.room_number}
                 {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
                 {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
+                {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
                 {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
               </div>
               {staffName && (
@@ -267,7 +275,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               <p>Status: {room.status || 'unknown'}</p>
               {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
               {isDND && <p className="text-purple-600 font-medium">🚫 Do Not Disturb</p>}
-              {noShow && <p className="text-amber-600 font-medium">⚠️ No Show / Early Checkout</p>}
+              {noShow && <p className="text-amber-600 font-medium">⚠️ No Show</p>}
+              {earlyCheckout && <p className="text-orange-600 font-medium">🔶 Early Checkout</p>}
               {staffName && <p>Assigned: {staffMap[assignmentMap.get(room.id)?.assigned_to || ''] || staffName}</p>}
               {getAssignmentStatus(room.id) && <p>Task: {getAssignmentStatus(room.id)}</p>}
               {isManagerOrAdmin && <p className="text-primary font-medium">Click to set room size</p>}
@@ -391,9 +400,23 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 {noShowRooms.length} No-Show
               </Badge>
             )}
-            <Badge variant="outline" className="text-xs font-semibold">
-              ACT: {averageCleanTime !== null ? `${averageCleanTime}m` : '--'}
-            </Badge>
+            {earlyCheckoutRooms.length > 0 && (
+              <Badge variant="outline" className="text-xs font-semibold text-orange-700 border-orange-400 bg-orange-50 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700">
+                🔶 {earlyCheckoutRooms.length} Early Checkout
+              </Badge>
+            )}
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-xs font-semibold cursor-help">
+                    ACT: {averageCleanTime !== null ? `${averageCleanTime}m` : '--'}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  Average Cleaning Time
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </CardTitle>
           {/* Legend */}
           <div className="flex flex-wrap gap-2 mt-1">
@@ -404,6 +427,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               { label: 'Out of Order', cls: 'bg-red-100 border-red-300' },
               { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted' },
               { label: 'No-Show', cls: 'ring-2 ring-amber-500 bg-muted' },
+              { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted' },
             ].map(item => (
               <div key={item.label} className="flex items-center gap-1">
                 <div className={`w-3 h-3 rounded border ${item.cls}`} />
