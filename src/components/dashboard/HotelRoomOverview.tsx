@@ -494,6 +494,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               assignments={assignmentMap}
               staffMap={staffMap}
               onRoomClick={isManagerOrAdmin ? handleRoomClick : undefined}
+              hotelName={hotelName}
+              isAdmin={profile?.role === 'admin'}
             />
           ) : (
             <>

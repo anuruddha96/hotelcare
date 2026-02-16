@@ -583,6 +583,42 @@ export type Database = {
         }
         Relationships: []
       }
+      hotel_floor_layouts: {
+        Row: {
+          floor_number: number
+          hotel_name: string
+          id: string
+          rotation: number
+          updated_at: string
+          updated_by: string | null
+          wing: string
+          x: number
+          y: number
+        }
+        Insert: {
+          floor_number: number
+          hotel_name: string
+          id?: string
+          rotation?: number
+          updated_at?: string
+          updated_by?: string | null
+          wing: string
+          x?: number
+          y?: number
+        }
+        Update: {
+          floor_number?: number
+          hotel_name?: string
+          id?: string
+          rotation?: number
+          updated_at?: string
+          updated_by?: string | null
+          wing?: string
+          x?: number
+          y?: number
+        }
+        Relationships: []
+      }
       hotels: {
         Row: {
           created_at: string
