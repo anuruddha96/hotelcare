@@ -376,6 +376,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           } else {
             console.log(`Reset room assignments for ${selectedHotel} today (${roomIds.length} rooms)`);
           }
+
+          // Batch reset DND on ALL rooms for this hotel before processing
+          const { error: dndResetError } = await supabase
+            .from('rooms')
+            .update({ is_dnd: false, dnd_marked_at: null, dnd_marked_by: null })
+            .eq('hotel', selectedHotel);
+          
+          if (dndResetError) {
+            console.warn(`Error resetting DND for ${selectedHotel}:`, dndResetError);
+          } else {
+            console.log(`Reset DND flags for all rooms in ${selectedHotel}`);
+          }
         }
       } else {
         console.warn('No hotel selected - skipping assignment reset');

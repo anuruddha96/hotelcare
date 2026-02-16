@@ -641,7 +641,13 @@ export function HousekeepingManagerView() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {housekeepingStaff.map((staff) => {
+        {[...housekeepingStaff].sort((a, b) => {
+          const aCount = teamAssignments.find(t => t.staff_id === a.id)?.total_assigned || 0;
+          const bCount = teamAssignments.find(t => t.staff_id === b.id)?.total_assigned || 0;
+          if (aCount > 0 && bCount === 0) return -1;
+          if (aCount === 0 && bCount > 0) return 1;
+          return bCount - aCount;
+        }).map((staff) => {
           const assignment = teamAssignments.find(a => a.staff_id === staff.id);
           const progressPercentage = assignment ? getProgressPercentage(assignment.completed, assignment.total_assigned) : 0;
           

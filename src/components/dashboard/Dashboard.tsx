@@ -67,6 +67,25 @@ export function Dashboard() {
   const [accessManagementOpen, setAccessManagementOpen] = useState(false);
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
+  const [hotelDisplayName, setHotelDisplayName] = useState<string | null>(null);
+
+  // Resolve hotel slug to display name
+  useEffect(() => {
+    const resolveHotelName = async () => {
+      if (!profile?.assigned_hotel) return;
+      const { data } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', profile.assigned_hotel)
+        .limit(1);
+      if (data && data.length > 0) {
+        setHotelDisplayName(data[0].hotel_name);
+      } else {
+        setHotelDisplayName(profile.assigned_hotel);
+      }
+    };
+    resolveHotelName();
+  }, [profile?.assigned_hotel]);
 
   useEffect(() => {
     const handleVisualNotification = (event: CustomEvent) => {
@@ -332,10 +351,10 @@ export function Dashboard() {
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
-                {profile?.assigned_hotel || t('dashboard.title')}
+                {hotelDisplayName || t('dashboard.title')}
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground">
-                {profile?.assigned_hotel ? `${profile.assigned_hotel} Management System` : t('dashboard.subtitle')}
+                {hotelDisplayName ? `${hotelDisplayName} Management System` : t('dashboard.subtitle')}
               </p>
           </div>
           
