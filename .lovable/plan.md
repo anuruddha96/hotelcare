@@ -1,80 +1,70 @@
 
 
-## Plan: Fix PMS Checkout Detection for Hotel Memories Budapest, Add Room Types, Remove General Tasks
+## Plan: Fix Hungarian PMS File Parsing for Hotel Memories Budapest
 
-### Issue 1: 3 Missing Checkouts - No-Show Misclassification
+### Root Cause
 
-**Root cause:** At line 531 in `PMSUpload.tsx`, inside the `departureParsed !== null` block, a room is flagged as "No Show" if `Occupied=No + Status=Untidy + Arrival exists`. But for Hotel Memories Budapest, **every checkout room** has these properties:
-- `Occupied = No` (guest left)
-- `Status = Untidy` (room needs cleaning)
-- `Arrival = 14:30` (original arrival time)
+The Hungarian PMS file uses **"Elutazas"** as the departure column header, but the column matcher only knows **"tavozas"**. Both are valid Hungarian words for "departure" but "Elutazas" is what Previo PMS uses. Since the Departure column is not detected, the warning toast fires and ALL rooms fall through to the wrong classification branch.
 
-This means many normal checkouts get incorrectly tagged as "No Show". A **true No Show** should only be identified when there is NO departure time (guest never arrived, never left).
+Additionally, the Status column contains values like `objectTidinessStatus.untidy` and `objectTidinessStatus.clean` (Previo's internal status format) rather than plain "Untidy"/"Clean", so the no-show and dirty-status checks also fail.
 
-**Fix:** Remove the no-show detection from inside the `departureParsed !== null` block entirely. A room WITH a departure time, by definition, had a guest who departed -- it cannot be a no-show. The existing no-show detection at line 580 (outside the departure block, for rooms without departure time) already handles true no-shows correctly.
+### Three fixes needed, all in one file
 
-**File:** `src/components/dashboard/PMSUpload.tsx` (lines 530-534)
-- Remove the `isNoShow` check inside the departure block
-- All 30 rooms with departure times will now correctly be classified as regular checkouts or early checkouts
+**File: `src/components/dashboard/PMSUpload.tsx`**
 
----
+#### Fix 1: Add missing Hungarian column aliases (line 68-70)
 
-### Issue 2: Room Types for Hotel Memories Budapest
+Add `'elutazas'` and `'elutaz'` to the Departure matchers. The fuzzy matcher strips accents via normalization, but "elutazas" vs "tavozas" are entirely different words -- no amount of fuzzy matching helps here.
 
-**Current state:** All 71 rooms have `room_type = 'deluxe'` in the database.
+Also add `'vendeg'` to the People matchers (the file uses "Vendegek" = Guests).
 
-**PMS file analysis reveals these room types** (extracted from the Room column format):
+Also add `'hozzarendelve'` / `'assigned'` patterns are not critical but won't hurt.
 
-| PMS Pattern | Room Type | Example | Room Numbers |
-|------------|-----------|---------|-------------|
-| `SNG` | Single | 70SNG-306 | 306 |
-| `ECDBL` | Economy Double | 71ECDBL-308 | 308 |
-| `QUEEN` / `QUEEN-xxxSH` | Queen / Queen Shower | 1QUEEN-002, 4QUEEN-008SH | 002,004,008,010,032,040,042,102,112,132,140,142,204,206,208,210,302,304 |
-| `TWIN` / `TWIN-xxxSH` | Twin / Twin Shower | 7TWIN-034SH, 8TWIN-036 | 034,036,044,106,108,110,130,131,136,137,144,202,214 |
-| `DOUBLE` | Double | 16DOUBLE-104 | 104,134,135,139,141,143,145 |
-| `SYN.TWIN` / `SYN.TWIN-xxxSH` | Superior Twin / Superior Twin Shower | 13SYN.TWIN-101 | 101,109,115,119,123,125,127,201,203,205,207,215 |
-| `SYN.DOUBLE` / `SYN.DOUBLE-xxxSH` | Superior Double | 15SYN.DOUBLE-103 | 103,107,111,113,117 |
-| `TRP` / `TRP-xxxSH` | Triple / Triple Shower | 3TRP-006, 59TRP-209SH | 006,121,138,209,211,212,213,217 |
-| `EC.QRP` | Economy Quadruple | 66EC.QRP216 | 216 |
-| `QDR` | Quadruple | 9QDR-038 | 038,114 |
+```
+Departure: [...existing..., 'elutazás', 'elutazas', 'elutaz']
+People: [...existing..., 'vendégek', 'vendeg', 'guest']
+```
 
-**Fix:** Add an `extractRoomType` function that parses the room type from the PMS Room column. During PMS upload, update each room's `room_type` field in the database. This only affects rooms being processed -- Hotel Ottofiori uses different Room column formats (e.g., "CQ-405") and already has correct room types.
+#### Fix 2: Handle Previo status format (lines 575, 580)
 
-**File:** `src/components/dashboard/PMSUpload.tsx`
-- Add `extractRoomType(roomName: string): string` function
-- In the room update block (~line 601), include `room_type: extractedType` in the update data
+The Status column values from Previo are `objectTidinessStatus.untidy` and `objectTidinessStatus.clean`, not plain "Untidy"/"Clean". Update all status checks to use `.includes('untidy')` / `.includes('clean')` instead of exact string comparison.
 
----
+Change:
+```typescript
+// Line 575: No-show check
+String(statusVal) === 'Untidy' || String(statusVal) === 'untidy'
+// Line 580: Dirty check
+['Untidy', 'untidy', 'dirty'].includes(String(statusVal))
+```
+To:
+```typescript
+// Line 575: No-show check
+String(statusVal).toLowerCase().includes('untidy')
+// Line 580: Dirty check
+const statusLower = String(statusVal).toLowerCase();
+statusLower.includes('untidy') || statusLower.includes('dirty')
+```
 
-### Issue 3: Remove General Tasks Tab
+#### Fix 3: Remove the Departure warning toast (line 343-345)
 
-The "Public Area" section in Team Management now covers general task functionality, making the General Tasks tab redundant.
+The user explicitly asked to hide this toast. Remove or convert to a `console.warn` only, not a visible toast.
 
-**File:** `src/components/dashboard/HousekeepingTab.tsx`
-- Remove `import { GeneralTasksManagement }` (line 23)
-- Remove `'general-tasks'` from `TAB_CONFIGS` (line 48)
-- Remove `'general-tasks'` from `getTabOrder()` default array (line 156)
-- Remove the `TabsContent value="general-tasks"` block (lines 296-298)
+### Expected Results After Fix
 
-**File:** `src/components/dashboard/TabOrderManagement.tsx`
-- Remove `'general-tasks'` entry from the default tabs list (line 27)
+From analyzing today's PMS file for Hotel Memories Budapest:
 
-No files are deleted -- `GeneralTasksManagement.tsx` stays in the codebase but is simply no longer rendered or imported.
+| Category | Count | Rooms |
+|----------|-------|-------|
+| Checkout (with departure time) | 30 | 306, 308, 008, 032, 040, 042, 112, 204, 206, 208, 210, 034, 036, 044, 130, 214, 131, 137, 139, 143, 103, 123, 125, 201, 203, 205, 121, 006, 212, 217 |
+| Early Checkout (last night, no departure) | 21 | 004, 102, 132, 140, 106, 108, 110, 134, 136, 145, 147, 109, 107, 111, 117, 115, 207, 138, 209, 213, 038 |
+| Daily Cleaning (occupied, not last night) | 20 | 002, 010, 142, 302, 304, 104, 144, 202, 133, 135, 141, 101, 105, 113, 119, 127, 211, 215, 114, 216 |
 
----
-
-### Summary of Changes
-
-| File | Changes |
-|------|---------|
-| `src/components/dashboard/PMSUpload.tsx` | Remove incorrect no-show detection inside departure block; add `extractRoomType` function; update room_type during PMS upload |
-| `src/components/dashboard/HousekeepingTab.tsx` | Remove General Tasks tab, import, and content |
-| `src/components/dashboard/TabOrderManagement.tsx` | Remove general-tasks from default tab order |
+Total: 71 rooms processed.
 
 ### Safety: Hotel Ottofiori
 
-- Hotel Ottofiori uses `CQ-xxx`, `Q-xxx`, `DB/TW-xxx` patterns which don't match any of the new Hotel Memories patterns
-- The `extractRoomType` function only updates `room_type` based on what's in the PMS file -- Ottofiori files will produce their own correct types
-- The no-show fix is universal but correct: a room with a departure time is never a no-show, regardless of hotel
-- General Tasks removal applies to all hotels as requested
+- Ottofiori PMS files use English headers ("Room", "Departure", "Occupied") which already match
+- Ottofiori Status values are plain "Untidy"/"Clean" -- `.includes('untidy')` still matches these correctly
+- Adding new Hungarian aliases does not remove any existing English ones
+- No structural changes to the processing logic
 
