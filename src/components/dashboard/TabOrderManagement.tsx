@@ -24,9 +24,8 @@ const DEFAULT_TAB_ORDER: TabConfig[] = [
   { id: 'maintenance-photos', label: 'Maintenance', order: 7 },
   { id: 'lost-and-found', label: 'Lost & Found', order: 8 },
   { id: 'dirty-linen', label: 'Dirty Linen', order: 9 },
-  { id: 'general-tasks', label: 'General Tasks', order: 10 },
-  { id: 'attendance', label: 'HR Management', order: 11 },
-  { id: 'minibar', label: 'Minibar Tracking', order: 12 },
+  { id: 'attendance', label: 'HR Management', order: 10 },
+  { id: 'minibar', label: 'Minibar Tracking', order: 11 },
 ];
 
 export function TabOrderManagement() {

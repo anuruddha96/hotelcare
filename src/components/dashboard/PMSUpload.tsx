@@ -527,14 +527,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             needsCleaning = true;
             isCheckout = true;
             
-            // True No Show: Occupied=No (guest never arrived but has departure set)
-            if (isOccupiedNo(occupiedVal) && arrivalVal && (String(statusVal) === 'Untidy' || String(statusVal) === 'untidy')) {
-              isNoShow = true;
-              console.log(`[PMS] Room ${roomNumber}: No Show detected (Occupied: No, Status: Untidy, Arrival: ${arrivalVal})`);
-            }
-            
+            // A room WITH a departure time had a guest who departed -- never a no-show
             // Determine checkout sub-type
-            const checkoutStatus = isNoShow ? 'no_show' : isEarlyCheckout ? 'early_checkout' : 'checkout';
+            const checkoutStatus = isEarlyCheckout ? 'early_checkout' : 'checkout';
             const checkoutNotePrefix = isNoShow ? 'No Show' : isEarlyCheckout ? `Early Checkout (Night ${guestNightsStayed}/${totalNights})` : null;
             
             console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${departureParsed}${isNoShow ? ' - No Show' : ''}${isEarlyCheckout ? ' - Early Checkout' : ''})`);
@@ -598,6 +593,28 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const statusNote = isNoShow ? 'No Show' : isEarlyCheckout && isCheckout ? 'Early Checkout' : null;
           const combinedNotes = [statusNote, roomNotes].filter(Boolean).join(' - ');
           
+          // Extract room type from PMS Room column name
+          const extractRoomType = (roomName: string): string | null => {
+            if (!roomName) return null;
+            const upper = roomName.toUpperCase();
+            // Hotel Memories Budapest patterns (order matters: check longer patterns first)
+            if (upper.includes('SYN.DOUBLE')) return 'superior_double';
+            if (upper.includes('SYN.TWIN')) return 'superior_twin';
+            if (upper.includes('EC.QRP')) return 'economy_quadruple';
+            if (upper.includes('ECDBL')) return 'economy_double';
+            if (upper.includes('QUEEN')) return 'queen';
+            if (upper.includes('DOUBLE')) return 'double';
+            if (upper.includes('TWIN')) return 'twin';
+            if (upper.includes('TRP')) return 'triple';
+            if (upper.includes('QDR')) return 'quadruple';
+            if (upper.includes('SNG')) return 'single';
+            // Don't override for other hotels (e.g. Ottofiori uses CQ-, Q-, DB/TW- patterns)
+            return null;
+          };
+
+          const roomNameVal = getField(row, columnMap, 'Room');
+          const extractedRoomType = extractRoomType(String(roomNameVal || ''));
+
           const updateData: any = { 
             status: newStatus,
             notes: combinedNotes || null,
@@ -611,6 +628,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             dnd_marked_by: null,
             updated_at: new Date().toISOString()
           };
+
+          // Only update room_type if we extracted one from the PMS room name
+          if (extractedRoomType) {
+            updateData.room_type = extractedRoomType;
+          }
 
           // Set last change dates if changes are required
           const today = new Date().toISOString().split('T')[0];
