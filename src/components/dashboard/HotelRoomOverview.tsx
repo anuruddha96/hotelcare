@@ -181,7 +181,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
         .from('rooms')
         .update({ 
           room_size_sqm: parseInt(selectedSize, 10),
-          room_category: selectedCategory || null
+          room_category: selectedCategory === 'none' ? null : selectedCategory || null
         })
         .eq('id', selectedRoom.id);
 
@@ -189,7 +189,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
       
       // Update local state
       setRooms(prev => prev.map(r => 
-        r.id === selectedRoom.id ? { ...r, room_size_sqm: parseInt(selectedSize, 10), room_category: selectedCategory || null } : r
+        r.id === selectedRoom.id ? { ...r, room_size_sqm: parseInt(selectedSize, 10), room_category: selectedCategory === 'none' ? null : selectedCategory || null } : r
       ));
       toast.success(`Room ${selectedRoom.room_number} size updated`);
       setRoomSizeDialogOpen(false);
@@ -526,7 +526,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {ROOM_CATEGORIES.map(cat => (
                     <SelectItem key={cat} value={cat}>
                       {cat}
