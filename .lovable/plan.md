@@ -1,47 +1,114 @@
 
 
-## Plan: Fix Room Count Mismatch Between PMS Upload and Hotel Room Overview
+## Plan: Enhanced Map Layout Builder with Smart Proximity
 
-### Root Cause
+### Problems to Fix
 
-The PMS upload processing resets DND flags and towel/linen flags in a batch operation BEFORE processing each room. However, it does NOT batch-reset the `is_checkout_room` flag. This means:
+1. **Rotation conflicts with drag**: Both drag and rotate share pointer events on the same element tree, causing the rotation handle to not work reliably. The `onPointerMove` on the parent wing container intercepts events meant for the rotation handle.
+2. **Counter-rotation hides the visual rotation**: Currently, the wing border rotates but inner content counter-rotates, making it look like nothing moved. The wing shape/border should rotate visually to represent the physical corridor orientation, while only the text/numbers counter-rotate.
+3. **No precision controls**: Only a drag-to-rotate handle exists. Need explicit rotation buttons (+/- 15 degrees) for precise control.
+4. **Canvas too cramped**: Wings overlap and can't be spread out properly.
+5. **Proximity not saved to memory**: After layout save, wing distances should be computed and stored for the assignment algorithm.
 
-1. If any individual room update fails silently during processing, the old `is_checkout_room` value from a previous upload persists
-2. The per-room update (line 644) should correct each room, but without a batch reset as a safety net, stale data can accumulate
+### Solution
 
-**Evidence from the database:**
-- PMS Upload Summary says: 30 checkouts, 41 daily
-- Rooms table has: 27 with `is_checkout_room=true`, 44 with `is_checkout_room=false`
-- Rooms like 008, 032, 040, 042 (which the upload classified as checkouts) still have `is_checkout_room=false`
-- Rooms like 107, 109, 111, 113 (which should be daily today) still have `is_checkout_room=true` from a previous upload
+#### 1. Separate drag and rotate into independent interaction modes
 
-### Fix
+Instead of both happening simultaneously on the same element, add an explicit **toolbar per wing** in edit mode with:
+- A **drag handle** (Move icon) -- only this initiates dragging
+- **Rotate left/right buttons** (-15 degrees / +15 degrees) for precise rotation
+- Keep the corner rotation handle but isolate its events completely from the parent drag
 
-Add `is_checkout_room: false` to the batch reset that runs before room processing, alongside the existing DND and towel/linen resets. This guarantees a clean slate so that only rooms the current upload classifies as checkouts will have the flag set to true.
+#### 2. Fix the visual rotation pattern
 
-### Changes
+Change the CSS so:
+- The **outer wrapper** (border, background, shadow) rotates with the wing -- this shows the corridor orientation
+- Only the **inner text elements** (wing label, room number chips, badges) counter-rotate to stay readable
+- This means the rectangular wing card itself will appear rotated on screen
 
-| File | What Changes |
-|------|-------------|
-| `src/components/dashboard/PMSUpload.tsx` | Add batch reset of `is_checkout_room` and `checkout_time` before processing rows |
-
-### Technical Detail
-
-In `PMSUpload.tsx`, after the existing DND reset (around line 394) and towel/linen reset (around line 406), add a new batch reset:
-
-```typescript
-// Batch reset checkout flags to prevent stale data from previous uploads
-const { error: checkoutResetError } = await supabase
-  .from('rooms')
-  .update({ is_checkout_room: false, checkout_time: null })
-  .eq('hotel', hotelNameForFilter);
-
-if (checkoutResetError) {
-  console.warn(`Error resetting checkout flags for ${hotelNameForFilter}:`, checkoutResetError);
-} else {
-  console.log(`Reset checkout flags for all rooms in ${hotelNameForFilter}`);
-}
+```
+Outer div: rotate(45deg) -- the card border/background rotates
+  Inner content wrapper: rotate(-45deg) -- text stays upright
 ```
 
-This ensures that before any room is processed, ALL rooms in the hotel start with `is_checkout_room=false`. Then, as each row is processed, rooms with departures get `is_checkout_room=true` set correctly. The counts will match the upload summary exactly.
+#### 3. Add precision rotation controls
+
+In edit mode, each wing gets small +/- rotation buttons:
+- -15 degrees (rotate left)
+- +15 degrees (rotate right)  
+- Reset to 0 degrees
+- Current angle display
+
+#### 4. Larger canvas with grid background
+
+- Increase canvas min-height to 400px in edit mode
+- Add a subtle grid/dot pattern background to help with alignment
+- Allow scroll overflow so wings can be placed anywhere
+
+#### 5. Compute and save wing proximity on layout save
+
+After saving positions, compute pairwise Euclidean distances between all wings across all floors and store them as a `wing_adjacency` JSON column on the `hotel_floor_layouts` table (one row per hotel, or as a separate lightweight table). This data feeds into the assignment algorithm.
+
+Since we already have `buildWingProximityMap` in the algorithm file and `AutoRoomAssignment.tsx` fetches it, we just need to ensure the data is actually persisted and loaded properly.
+
+### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/components/dashboard/HotelFloorMap.tsx` | Major rewrite: separate drag/rotate handlers, fix CSS rotation pattern, add precision rotation buttons, larger canvas with grid, compute proximity on save |
+| `src/lib/roomAssignmentAlgorithm.ts` | No changes needed (already has `buildWingProximityMap` and proximity-aware assignment) |
+
+### Technical Details
+
+**Isolated drag vs rotate events:**
+- The wing container div only handles drag (onPointerDown for drag)
+- The rotation handle div uses `e.stopPropagation()` AND captures pointer to itself
+- Additionally, add clickable rotate buttons that simply increment/decrement rotation by 15 degrees (no pointer tracking needed)
+
+**Fixed CSS rotation pattern:**
+```typescript
+// Outer: rotates the wing card shape
+<div style={{ 
+  position: 'absolute',
+  left: `${x}%`, top: `${y}%`,
+  transform: `rotate(${rotation}deg)`,
+  transformOrigin: 'center center'
+}}>
+  {/* The border/background card -- this visually rotates */}
+  <div className="border rounded-lg p-2 bg-background shadow">
+    {/* Inner content counter-rotates so text is upright */}
+    <div style={{ transform: `rotate(${-rotation}deg)` }}>
+      <span>Wing D</span>
+      <div className="flex flex-wrap gap-1">
+        {rooms.map(room => <RoomChip />)}
+      </div>
+    </div>
+  </div>
+  
+  {/* Edit controls -- outside the rotated content */}
+  {editMode && (
+    <div className="absolute -bottom-8 left-0 flex gap-1">
+      <button onClick={() => rotate(-15)}>-15</button>
+      <span>45 degrees</span>
+      <button onClick={() => rotate(+15)}>+15</button>
+    </div>
+  )}
+</div>
+```
+
+**Precision rotation buttons:**
+Each wing in edit mode shows a small control bar below it with:
+- RotateCcw button: decrements rotation by 15 degrees
+- Current angle badge (e.g., "45 degrees")
+- RotateCw button: increments rotation by 15 degrees  
+- A "0 degrees" reset button
+
+**Grid background in edit mode:**
+```css
+background-image: radial-gradient(circle, #ddd 1px, transparent 1px);
+background-size: 20px 20px;
+```
+
+**Wing proximity computation on save:**
+After upserting layout positions, compute distances using the existing `buildWingProximityMap` function and log the result. The `AutoRoomAssignment` component already fetches layouts and builds the proximity map at runtime, so no additional persistence is strictly needed -- but the layout positions being saved IS the persistence mechanism.
 
