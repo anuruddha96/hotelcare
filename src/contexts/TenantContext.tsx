@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Organization {
   id: string;
@@ -90,9 +91,17 @@ export const TenantProvider: React.FC<{
     }
   };
 
+  const { user, loading: authLoading } = useAuth();
+
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setHotels([]);
+      setLoading(false);
+      return;
+    }
     fetchTenantData();
-  }, [organizationSlug]);
+  }, [organizationSlug, user?.id, authLoading]);
 
   const refreshTenant = async () => {
     await fetchTenantData();
