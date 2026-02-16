@@ -1,136 +1,123 @@
 
 
-## Plan: Room Parameters, Categories, Wing-Based Assignment, and Floor Map
+## Plan: PMS Room Code Parsing, Room Type Mapping, Tooltip Fixes, and Cleaning Cycle Correction
 
-This is the largest remaining item from your original request. It adds room metadata (wing/unit, category, elevator proximity), a visual floor map, room category selection, and smarter auto-assignment that groups rooms by physical proximity rather than just floor number.
+### 1. Enhanced PMS Room Code Parser (`PMSUpload.tsx`)
 
-### Overview
+The current `extractRoomType` function maps codes to generic types like `queen`, `twin`, `single`. This plan upgrades it to also:
 
-Hotel Memories Budapest has rooms spread across multiple wings on each floor. The current algorithm only groups by floor, but rooms on the same floor can be far apart. This plan introduces a **wing** concept so rooms that are physically close are assigned together, and considers elevator proximity for efficiency.
+- **Extract full room category** and store in `room_category` (e.g., "Deluxe Queen Room with Synagogue View")
+- **Detect Shabath (SH) rooms** by checking for `SH` suffix in the PMS room code
+- **Store PMS room name** in `room_name` column for reference
 
-### Room Wing Layout (from your description)
+**PMS Code Mapping Table:**
 
-Based on the attached map and your description:
+| PMS Pattern | room_type | room_category | is_shabath |
+|---|---|---|---|
+| `SNG` | single | Deluxe Single Room | no |
+| `ECDBL` | economy_double | Comfort Double Room with Small Window | no |
+| `QUEEN` | queen | Deluxe Queen Room | check SH |
+| `SYN.DOUBLE` | syn_double | Deluxe Double or Twin Room with Synagogue View | check SH |
+| `SYN.TWIN` | syn_twin | Deluxe Double or Twin Room with Synagogue View | check SH |
+| `DOUBLE` | double | Deluxe Double or Twin Room | check SH |
+| `TWIN` | twin | Deluxe Double or Twin Room | check SH |
+| `TRP` | triple | Deluxe Triple Room | check SH |
+| `QDR` | quadruple | Deluxe Quadruple Room | no |
+| `EC.QRP` | economy_quadruple | Comfort Quadruple Room | no |
 
-```text
-GROUND FLOOR (F0):
-  Wing A: 002-010 (near elevator)
-  Wing B: 032-036 (near elevator)  
-  Wing C: 038-044
+**Shabath detection:** If the room code ends with `SH` (before the room number dash), set `bed_type` to `'shabath'` (repurposing existing column).
 
-1ST FLOOR (F1):
-  Wing D (Synagogue view): 101,103,105,107,109,115,117,119,121,123,125,127
-  Wing E (Courtyard inner): 102,104,106,108,110,111,112,113,114
-  Wing F (Courtyard): 130,132,134,136
-  Wing G (Courtyard): 138,140,142,144
-  Wing H (Street view): 131,133,135,137,139,141,143,145,147
+**Changes in `extractRoomType`:** Return an object `{ roomType, roomCategory, isShabath }` instead of just a string. Update the `updateData` to also write `room_category` and `bed_type` (for Shabath) and `room_name` (raw PMS room column value).
 
-2ND FLOOR (F2):
-  Wing I: 202,204,206,208,210
-  Wing J (Synagogue): 201,203,205,207,209,211,213,215,217
-  Wing K (Courtyard): 212,214,216
+### 2. Add Shabath column to rooms table (Database)
 
-3RD FLOOR (F3):
-  Wing L: 302,304,306,308
-```
+The `bed_type` column already exists. We'll repurpose it: set to `'shabath'` for SH rooms, `null` otherwise. No schema migration needed.
 
-### Changes
+### 3. Show Room Type Info in Hotel Room Overview (`HotelRoomOverview.tsx`)
 
-#### 1. Database: Add new columns to `rooms` table
+- Fetch `room_type`, `bed_type`, `room_name` in addition to existing fields
+- On room chips: show a small **SH** badge (blue) for Shabath rooms
+- In tooltip: show room category, room type, and "Shabath Room" indicator
+- Show guest nights (e.g., "Night 2/3") from `guest_nights_stayed` if available
+- Show T/RC indicator in tooltip for towel/linen change rooms
 
-Add 3 new columns via SQL migration:
-- `wing` (text, nullable) -- e.g., "A", "B", "C"
-- `room_category` (text, nullable) -- e.g., "Deluxe Double or Twin Room with Synagogue View"
-- `elevator_proximity` (integer, nullable) -- 1=near, 2=medium, 3=far
+### 4. Fix Hover Tooltips in Auto Room Assignment Preview (`AutoRoomAssignment.tsx`)
 
-Then seed the wing and elevator proximity data for all Hotel Memories Budapest rooms based on the layout described above.
+Currently the T, RC, wing badges use `title` attribute which only shows after a delay. Replace with proper Radix `Tooltip` components for consistent hover behavior across all abbreviations:
 
-#### 2. Room Category Selector in Hotel Room Overview (`HotelRoomOverview.tsx`)
+- **T** badge: tooltip "Towel Change"
+- **RC** badge: tooltip "Room Cleaning"  
+- **Wing letter** badge: tooltip "Wing X"
+- **Size** badge (S/M/L/XL): tooltip with full size description
+- **CO/D** (checkout/daily count): tooltip "Checkout / Daily rooms"
 
-- Expand the room click dialog to include a **Room Category** dropdown alongside the existing room size selector
-- Categories: Deluxe Double or Twin Room with Synagogue View, Deluxe Double or Twin Room, Deluxe Queen Room, Deluxe Triple Room, Deluxe Quadruple Room, Comfort Quadruple Room, Comfort Double Room with Small Window, Deluxe Single Room
-- Saving updates `rooms.room_category`
-- Show the category abbreviation on the room chip tooltip
+### 5. Fix Towel Change / Room Cleaning Algorithm (`PMSUpload.tsx`)
 
-#### 3. Visual Floor Map (`HotelFloorMap.tsx` -- new component)
+**Bug confirmed:** Room 032 shows `guest_nights_stayed: 2` and `towel_change_required: true` in DB -- this is stale data from a previous upload before the algorithm fix was deployed.
 
-A simple, clean visual representation of the hotel layout shown in Hotel Room Overview:
-- Each floor is a horizontal section
-- Rooms are arranged in their wing groups with visual separators
-- Elevator icon shown between Wing A and Wing B on ground floor
-- Color-coded by room status (same palette as existing room chips)
-- Clicking a room opens the same size/category editor dialog
-- Wings labeled with their view type (Synagogue, Courtyard, Street)
+**Additional safeguard:** Add a batch reset of `towel_change_required` and `linen_change_required` to `false` for ALL hotel rooms before processing (same pattern as the DND batch reset at line 381-384). This ensures no stale T/RC flags persist from previous uploads.
 
-#### 4. Update Auto-Assignment Algorithm (`roomAssignmentAlgorithm.ts`)
+**Algorithm verification (correct as implemented):**
+- Night 1: nothing (correct)
+- Night 2: nothing (correct)  
+- Night 3: RC -- `(3-3)%6 = 0` (correct)
+- Night 4: nothing -- `(4-3)%6 = 1` (correct)
+- Night 5: T -- `(5-3)%6 = 2` (correct)
+- Night 6: nothing -- `(6-3)%6 = 3` (correct)
+- Night 7: T -- `(7-3)%6 = 4` (correct)
+- Night 8: nothing -- `(8-3)%6 = 5` (correct)
+- Night 9: RC -- `(9-3)%6 = 0` (correct)
 
-Current behavior: groups rooms by **floor** only.
+The algorithm logic is correct. The issue is purely stale data.
 
-New behavior: groups rooms by **wing** (floor + wing combo), which keeps physically adjacent rooms together.
+### Files to modify
 
-- Add `wing` and `elevator_proximity` to the `RoomForAssignment` interface
-- Replace `groupRoomsByFloor` with `groupRoomsByWing` in the daily room distribution step
-- When assigning a wing's rooms to a housekeeper, prefer wings that are near the same elevator (low proximity score) to reduce walking time
-- Wing-based grouping means a housekeeper gets rooms like "all of Wing D on Floor 1" instead of "random rooms from Floor 1"
-
-#### 5. Fetch wing data in AutoRoomAssignment (`AutoRoomAssignment.tsx`)
-
-- Add `wing`, `room_category`, `elevator_proximity` to the room fetch query
-- Pass wing data through to the algorithm
-- Show wing label in preview room chips (small badge)
-
-### Files to create/modify
-
-| File | Action | Changes |
-|------|--------|---------|
-| SQL migration | Create | Add `wing`, `room_category`, `elevator_proximity` columns; seed Hotel Memories Budapest data |
-| `src/lib/roomAssignmentAlgorithm.ts` | Modify | Add wing/proximity to interface; replace floor grouping with wing grouping; proximity-aware assignment |
-| `src/components/dashboard/HotelRoomOverview.tsx` | Modify | Add room category selector in dialog; show wing info; add floor map toggle |
-| `src/components/dashboard/HotelFloorMap.tsx` | Create | Visual floor map component with wing layout for Hotel Memories Budapest |
-| `src/components/dashboard/AutoRoomAssignment.tsx` | Modify | Fetch wing/category/proximity fields; show wing badges in preview |
+| File | Changes |
+|---|---|
+| `src/components/dashboard/PMSUpload.tsx` | Enhanced room code parser with category/shabath detection; batch reset T/RC flags; store room_name |
+| `src/components/dashboard/HotelRoomOverview.tsx` | Fetch room_type/bed_type/room_name; show SH badge, T/RC indicators, guest nights in tooltip |
+| `src/components/dashboard/AutoRoomAssignment.tsx` | Replace title attributes with Radix Tooltip components for T/RC/Wing/Size badges |
 
 ### Technical Details
 
-**Wing-based grouping in algorithm:**
+**Enhanced room code parser:**
 ```typescript
-// Instead of groupRoomsByFloor, use groupRoomsByWing
-function groupRoomsByWing(rooms: RoomForAssignment[]): Map<string, RoomForAssignment[]> {
-  const wingMap = new Map<string, RoomForAssignment[]>();
-  rooms.forEach(room => {
-    const key = room.wing || `floor-${room.floor_number ?? 0}`;
-    if (!wingMap.has(key)) wingMap.set(key, []);
-    wingMap.get(key)!.push(room);
-  });
-  return wingMap;
-}
+const extractRoomInfo = (roomName: string): { roomType: string | null; roomCategory: string | null; isShabath: boolean } => {
+  if (!roomName) return { roomType: null, roomCategory: null, isShabath: false };
+  const upper = roomName.toUpperCase();
+  const isShabath = upper.includes('SH') && /SH(?:\d|-|$)/.test(upper.replace(/[^A-Z0-9-]/g, ''));
+  
+  if (upper.includes('SYN.DOUBLE')) return { roomType: 'syn_double', roomCategory: 'Deluxe Double or Twin Room with Synagogue View', isShabath };
+  if (upper.includes('SYN.TWIN')) return { roomType: 'syn_twin', roomCategory: 'Deluxe Double or Twin Room with Synagogue View', isShabath };
+  if (upper.includes('EC.QRP')) return { roomType: 'economy_quadruple', roomCategory: 'Comfort Quadruple Room', isShabath };
+  if (upper.includes('ECDBL')) return { roomType: 'economy_double', roomCategory: 'Comfort Double Room with Small Window', isShabath };
+  if (upper.includes('QUEEN')) return { roomType: 'queen', roomCategory: 'Deluxe Queen Room', isShabath };
+  if (upper.includes('DOUBLE')) return { roomType: 'double', roomCategory: 'Deluxe Double or Twin Room', isShabath };
+  if (upper.includes('TWIN')) return { roomType: 'twin', roomCategory: 'Deluxe Double or Twin Room', isShabath };
+  if (upper.includes('TRP')) return { roomType: 'triple', roomCategory: 'Deluxe Triple Room', isShabath };
+  if (upper.includes('QDR')) return { roomType: 'quadruple', roomCategory: 'Deluxe Quadruple Room', isShabath };
+  if (upper.includes('SNG')) return { roomType: 'single', roomCategory: 'Deluxe Single Room', isShabath };
+  return { roomType: null, roomCategory: null, isShabath };
+};
 ```
 
-**Proximity-aware assignment:**
-When choosing which housekeeper gets a wing, prefer assigning wings with similar elevator proximity scores to the same housekeeper. This keeps their work area compact. For example, Wing A (elevator_proximity=1) and Wing B (elevator_proximity=1) would ideally go to the same person.
-
-**Wing data seeding SQL (example):**
-```sql
--- Ground floor wings
-UPDATE rooms SET wing = 'A', elevator_proximity = 1 
-WHERE hotel = 'Hotel Memories Budapest' AND room_number IN ('002','004','006','008','010');
-UPDATE rooms SET wing = 'B', elevator_proximity = 1 
-WHERE hotel = 'Hotel Memories Budapest' AND room_number IN ('032','034','036');
--- ... etc for all wings
-```
-
-**Room categories list:**
+**Batch T/RC reset (add alongside DND reset):**
 ```typescript
-const ROOM_CATEGORIES = [
-  'Deluxe Double or Twin Room with Synagogue View',
-  'Deluxe Double or Twin Room',
-  'Deluxe Queen Room',
-  'Deluxe Triple Room',
-  'Deluxe Quadruple Room',
-  'Comfort Quadruple Room',
-  'Comfort Double Room with Small Window',
-  'Deluxe Single Room',
-];
+await supabase
+  .from('rooms')
+  .update({ towel_change_required: false, linen_change_required: false })
+  .eq('hotel', selectedHotel);
 ```
 
-**Floor map layout:** A simple CSS grid per floor showing room numbers arranged by wing, with elevator markers and wing labels. Not a pixel-perfect architectural drawing, but a functional interactive map that makes the spatial layout clear.
+**Tooltip wrapper for badges in AutoRoomAssignment preview:**
+```typescript
+<TooltipProvider delayDuration={100}>
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <span className="text-[9px] px-1 rounded font-bold bg-red-200 text-red-800">T</span>
+    </TooltipTrigger>
+    <TooltipContent side="top" className="text-xs">Towel Change</TooltipContent>
+  </Tooltip>
+</TooltipProvider>
+```
 
