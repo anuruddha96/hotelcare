@@ -543,21 +543,6 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               status: checkoutStatus,
               notes: checkoutNotePrefix ? `${checkoutNotePrefix} - ${noteVal || ''}`.trim() : noteVal
             });
-          } else if (isEarlyCheckout && departureParsed === null) {
-            // Early Checkout: last night stay (e.g. 3/3) but no departure time set yet
-            newStatus = 'dirty';
-            needsCleaning = true;
-            isCheckout = true;
-            console.log(`[PMS] Room ${roomNumber}: Early Checkout detected (Night ${guestNightsStayed}/${totalNights}, no departure time)`);
-            
-            checkoutRoomsList.push({
-              roomNumber,
-              roomType: room.room_type,
-              departureTime: null,
-              guestCount: peopleVal || 0,
-              status: 'early_checkout',
-              notes: `Early Checkout (Night ${guestNightsStayed}/${totalNights}) - ${noteVal || ''}`.trim()
-            });
           } else if (isOccupiedYes(occupiedVal) && departureParsed === null) {
             // Daily cleaning room (occupied but no departure)
             needsCleaning = true;
