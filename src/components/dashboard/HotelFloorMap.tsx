@@ -159,7 +159,7 @@ export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick, hotel
       layoutY: layout.y,
     };
     setDragging(`${floor}-${wing}`);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const handleDragMove = (e: React.PointerEvent, floor: number, wing: string) => {
@@ -195,7 +195,7 @@ export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick, hotel
     const layout = getLayout(floor, wing, wingIndex);
     rotateStart.current = { centerX, centerY, startAngle, layoutRotation: layout.rotation };
     setRotating(`${floor}-${wing}`);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const handleRotateMove = (e: React.PointerEvent, floor: number, wing: string) => {
@@ -364,7 +364,7 @@ export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick, hotel
             <div
               ref={el => { canvasRefs.current[floor] = el; }}
               className="relative border border-border/30 rounded-lg bg-muted/10 overflow-visible"
-              style={{ minHeight: editMode ? '220px' : '120px' }}
+              style={{ minHeight: editMode ? '300px' : '120px' }}
             >
               {wings.map((wingKey, wingIndex) => {
                 const wingRooms = (roomsByWing.get(wingKey) || []).sort(

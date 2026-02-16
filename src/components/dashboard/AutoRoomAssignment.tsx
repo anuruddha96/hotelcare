@@ -22,6 +22,8 @@ import {
   moveRoom,
   calculateRoomWeight,
   formatMinutesToTime,
+  buildWingProximityMap,
+  WingProximityMap,
   CHECKOUT_MINUTES,
   DAILY_MINUTES,
   BREAK_TIME_MINUTES
@@ -82,6 +84,9 @@ export function AutoRoomAssignment({
   // Over-allocation confirmation
   const [showOverAllocationDialog, setShowOverAllocationDialog] = useState(false);
   const [overAllocatedStaff, setOverAllocatedStaff] = useState<AssignmentPreview[]>([]);
+
+  // Wing proximity map for smart assignments
+  const [wingProximity, setWingProximity] = useState<WingProximityMap | undefined>(undefined);
 
   // Public area assignments (post-room assignment step)
   const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map()); // areaKey -> staffId
@@ -158,6 +163,23 @@ export function AutoRoomAssignment({
       const availableRooms = (roomsData || []).filter(r => !assignedRoomIds.has(r.id));
       setDirtyRooms(availableRooms);
 
+      // Fetch wing layouts for proximity-based smart assignment
+      const { data: layoutData } = await supabase
+        .from('hotel_floor_layouts')
+        .select('floor_number, wing, x, y')
+        .eq('hotel_name', hotelName);
+      
+      if (layoutData && layoutData.length > 0) {
+        setWingProximity(buildWingProximityMap(layoutData.map(l => ({
+          floor_number: l.floor_number,
+          wing: l.wing,
+          x: Number(l.x),
+          y: Number(l.y),
+        }))));
+      } else {
+        setWingProximity(undefined);
+      }
+
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load data');
@@ -191,7 +213,7 @@ export function AutoRoomAssignment({
 
   const handleGeneratePreview = () => {
     const selectedStaff = allStaff.filter(s => selectedStaffIds.has(s.id));
-    const previews = autoAssignRooms(dirtyRooms, selectedStaff);
+    const previews = autoAssignRooms(dirtyRooms, selectedStaff, wingProximity);
     setAssignmentPreviews(previews);
     setStep('preview');
   };
