@@ -1,108 +1,103 @@
 
-
-## Plan: Fix Towel Change / Room Cleaning Cycle and Smarter Assignment Weighting
-
-### The Problem
-
-The cleaning cycle logic is inverted. Currently, day 3 of a guest's stay triggers **Room Cleaning (linen change)**, but in practice day 3 should only require a **Towel Change**. The yellow-highlighted rooms in the Excel (3/3, 3/4, 3/5) are all on their 3rd night and should be towel-change-only.
-
-Additionally, the assignment algorithm treats towel-change-only rooms the same as full daily cleaning rooms (15 minutes, same weight), which leads to unfair workload distribution. A towel change takes roughly 5 minutes, not 15.
+## Plan: Fix RLS Policy Blocking Manager PMS Uploads + Cleaning Cycle
 
 ### Root Cause
 
-In `PMSUpload.tsx` (lines 546-556), the cleaning cycle maps:
-- `cyclePosition === 0` (days 3, 9, 15...) to Room Cleaning (linen) -- **should be Towel Change**
-- `cyclePosition === 2 or 4` (days 5, 7, 11, 13...) to Towel Change -- **some of these should be Room Cleaning**
+The `rooms` table UPDATE RLS policy compares `profiles.assigned_hotel = hotel` directly. Managers have `assigned_hotel = 'memories-budapest'` (hotel_id) but the rooms table stores `hotel = 'Hotel Memories Budapest'` (hotel_name). This comparison always fails for managers.
 
-### Corrected Cleaning Cycle
+Supabase silently ignores RLS-blocked updates (returns no error, updates 0 rows), so the upload code reports "71 rooms updated" but nothing actually changes in the database.
 
-Based on standard hotel practice and the user's feedback:
+This causes ALL three reported issues:
+1. Room 002 DND not clearing (batch reset blocked by RLS)
+2. Every daily room showing stale towel change "T" (per-room updates blocked)
+3. The corrected cleaning cycle logic never saves to the database
 
-| Day | Type | Rationale |
-|-----|------|-----------|
-| 3 | Towel Change (T) | First service - light touch |
-| 5 | Towel Change (T) | Second towel refresh |
-| 7 | Room Cleaning (RC) | Full clean after a week |
-| 9 | Towel Change (T) | Light service |
-| 11 | Towel Change (T) | Light service |
-| 13 | Room Cleaning (RC) | Full clean after two weeks |
+### Fix
 
-Pattern: every 6-day cycle starting from day 3 = **T, T, RC, T, T, RC...**
+**1. SQL Migration: Update rooms UPDATE RLS policy**
 
-### Changes
+Add a `hotel_configurations` join to the UPDATE policy so managers whose `assigned_hotel` matches either `hotel_id` or `hotel_name` can update rooms. This mirrors what the SELECT policy already does.
 
-**File 1: `src/components/dashboard/PMSUpload.tsx`**
-
-Fix the cleaning cycle logic (lines 546-556):
-- Day 3 (cyclePosition 0): Towel Change (was: Room Cleaning)
-- Day 5 (cyclePosition 2): Towel Change (stays same)
-- Day 7 (cyclePosition 4): Room Cleaning (was: Towel Change)
-
+Current policy (broken for managers):
 ```
-cyclePosition 0 -> towelChangeRequired = true   (day 3, 9, 15)
-cyclePosition 2 -> towelChangeRequired = true   (day 5, 11, 17)
-cyclePosition 4 -> linenChangeRequired = true   (day 7, 13, 19)
+assigned_hotel = hotel
 ```
 
-**File 2: `src/lib/roomAssignmentAlgorithm.ts`**
-
-Add towel-change-aware time and weight calculations:
-- New constant: `TOWEL_CHANGE_MINUTES = 5`
-- `calculateRoomTime`: if room has `towel_change_required` and is NOT checkout, use 5 min base instead of 15
-- `calculateRoomWeight`: towel-change-only rooms get weight 0.4 instead of 1.0
-
-This means the algorithm will:
-- Assign MORE towel-change rooms per housekeeper (they're quick)
-- Balance workloads more fairly by accounting for actual effort
-- Show accurate time estimates in the preview
-
-### Technical Details
-
-**Cleaning cycle fix:**
-```typescript
-if (guestNightsStayed >= 3) {
-  const cyclePosition = (guestNightsStayed - 3) % 6;
-  if (cyclePosition === 0 || cyclePosition === 2) {
-    // Towel Change days: 3, 5, 9, 11, 15, 17...
-    towelChangeRequired = true;
-    linenChangeRequired = false;
-  } else if (cyclePosition === 4) {
-    // Room Cleaning days: 7, 13, 19...
-    linenChangeRequired = true;
-    towelChangeRequired = false;
-  }
-}
+Fixed policy:
+```
+assigned_hotel = hotel 
+OR EXISTS (
+  SELECT 1 FROM hotel_configurations hc
+  WHERE (assigned_hotel = hc.hotel_id OR assigned_hotel = hc.hotel_name)
+    AND (rooms.hotel = hc.hotel_id OR rooms.hotel = hc.hotel_name)
+)
 ```
 
-**Algorithm time calculation:**
-```typescript
-export const TOWEL_CHANGE_MINUTES = 5;
+**2. Code: Add update verification in PMSUpload.tsx**
 
-export function calculateRoomTime(room: RoomForAssignment): number {
-  // Towel-change-only rooms are much faster
-  if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
-    return TOWEL_CHANGE_MINUTES;
-  }
-  let baseTime = room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
-  // ... existing size adjustments
-}
-```
+After the batch resets, verify at least one row was affected by doing a quick check query. Log a warning if 0 rows were updated (helps catch silent RLS failures in the future).
 
-**Algorithm weight calculation:**
-```typescript
-export function calculateRoomWeight(room: RoomForAssignment): number {
-  // Towel-change-only rooms are lightweight
-  if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
-    return 0.4;
-  }
-  // ... existing weight logic
-}
-```
+Also add a `count` check on per-room updates to detect silent failures.
 
-### Files to Modify
+**3. Code: Cleaning cycle is already correct**
+
+The last edit already fixed the cycle (Day 3=T, Day 5=T, Day 7=RC, etc.). Once the RLS policy allows manager writes, the correct values will save to the database.
+
+### Files to Change
 
 | File | Changes |
 |------|---------|
-| `src/components/dashboard/PMSUpload.tsx` | Fix cleaning cycle: day 3 = Towel Change, day 7 = Room Cleaning |
-| `src/lib/roomAssignmentAlgorithm.ts` | Add TOWEL_CHANGE_MINUTES (5 min), adjust calculateRoomTime and calculateRoomWeight for towel-change-only rooms |
+| New migration SQL | Drop and recreate the rooms UPDATE policy with hotel_configurations join |
+| `src/components/dashboard/PMSUpload.tsx` | Add verification after batch resets to detect silent RLS failures; add count-based update check for per-room writes |
 
+### Technical Detail: Migration SQL
+
+```sql
+DROP POLICY IF EXISTS "Secure room updates" ON rooms;
+
+CREATE POLICY "Secure room updates" ON rooms
+FOR UPDATE USING (
+  is_super_admin(auth.uid()) 
+  OR (
+    organization_slug = get_user_organization_slug(auth.uid()) 
+    AND (
+      get_user_role(auth.uid()) = ANY(ARRAY['admin'::user_role, 'top_management'::user_role])
+      OR (SELECT profiles.assigned_hotel FROM profiles WHERE profiles.id = auth.uid()) = hotel
+      OR EXISTS (
+        SELECT 1 FROM hotel_configurations hc
+        WHERE (
+          (SELECT p.assigned_hotel FROM profiles p WHERE p.id = auth.uid()) = hc.hotel_id
+          OR (SELECT p.assigned_hotel FROM profiles p WHERE p.id = auth.uid()) = hc.hotel_name
+        )
+        AND (rooms.hotel = hc.hotel_id OR rooms.hotel = hc.hotel_name)
+      )
+    )
+  )
+);
+```
+
+### Technical Detail: Update Verification
+
+After each batch reset, add a verification query:
+
+```typescript
+// After DND reset
+const { count: dndCount } = await supabase
+  .from('rooms')
+  .select('id', { count: 'exact', head: true })
+  .eq('hotel', hotelNameForFilter)
+  .eq('is_dnd', true);
+
+if (dndCount && dndCount > 0) {
+  console.error(`DND reset FAILED - ${dndCount} rooms still have DND=true. Likely RLS issue.`);
+}
+```
+
+### What This Fixes
+
+Once the RLS policy is updated:
+- Batch reset clears DND, towel change, checkout flags for all rooms before processing
+- Per-room updates save the correct cleaning cycle (T on day 3/5, RC on day 7, etc.)
+- Rooms on day 1-2 will have no T/RC badge
+- Room 002 DND will clear on next upload
+- All managers can perform PMS uploads successfully
