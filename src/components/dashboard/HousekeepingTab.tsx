@@ -20,7 +20,7 @@ import { CompletionPhotosManagement } from './CompletionPhotosManagement';
 import { SimplifiedDirtyLinenManagement } from './SimplifiedDirtyLinenManagement';
 import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
 import { MaintenancePhotosManagement } from './MaintenancePhotosManagement';
-import { GeneralTasksManagement } from './GeneralTasksManagement';
+
 import { LostAndFoundManagement } from './LostAndFoundManagement';
 import { TabOrderManagement } from './TabOrderManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
@@ -45,7 +45,7 @@ const TAB_CONFIGS: { [key: string]: TabConfig } = {
   'maintenance-photos': { id: 'maintenance-photos', label: 'housekeeping.tabs.maintenance', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-red-500' },
   'lost-and-found': { id: 'lost-and-found', label: 'housekeeping.tabs.lostFound', icon: <Package className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-blue-500' },
   'dirty-linen': { id: 'dirty-linen', label: 'housekeeping.tabs.dirtyLinen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-purple-500' },
-  'general-tasks': { id: 'general-tasks', label: 'housekeeping.tabs.generalTasks', icon: <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-teal-500' },
+  
   'attendance': { id: 'attendance', label: 'housekeeping.tabs.hrManagement', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
   'minibar': { id: 'minibar', label: 'housekeeping.tabs.minibarTracking', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
   'tab-order': { id: 'tab-order', label: 'housekeeping.tabs.tabSettings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500' },
@@ -153,7 +153,7 @@ export function HousekeepingTab() {
     const defaultOrder = [
       'staff-management', 'supervisor', 'manage', 'performance', 'pms-upload',
       'completion-photos', 'dnd-photos', 'maintenance-photos', 'lost-and-found',
-      'dirty-linen', 'general-tasks', 'attendance', 'minibar'
+      'dirty-linen', 'attendance', 'minibar'
     ];
     
     if (orderedTabs.length > 0) {
@@ -291,10 +291,6 @@ export function HousekeepingTab() {
 
             <TabsContent value="maintenance-photos" className="space-y-6">
               <MaintenancePhotosManagement />
-            </TabsContent>
-
-            <TabsContent value="general-tasks" className="space-y-6">
-              <GeneralTasksManagement />
             </TabsContent>
 
             <TabsContent value="lost-and-found" className="space-y-6">
