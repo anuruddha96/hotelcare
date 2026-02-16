@@ -251,7 +251,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   px-2 py-1 rounded text-xs font-semibold border transition-all min-w-[40px] text-center
                   ${colorClass}
                   ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-                  ${noShow ? 'ring-2 ring-amber-500 ring-offset-1' : ''}
+                  ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
                   ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
                   ${isManagerOrAdmin ? 'hover:scale-110 hover:shadow-md' : ''}
                 `}
@@ -275,7 +275,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               <p>Status: {room.status || 'unknown'}</p>
               {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
               {isDND && <p className="text-purple-600 font-medium">🚫 Do Not Disturb</p>}
-              {noShow && <p className="text-amber-600 font-medium">⚠️ No Show</p>}
+              {noShow && <p className="text-red-600 font-medium">⚠️ No Show</p>}
               {earlyCheckout && <p className="text-orange-600 font-medium">🔶 Early Checkout</p>}
               {staffName && <p>Assigned: {staffMap[assignmentMap.get(room.id)?.assigned_to || ''] || staffName}</p>}
               {getAssignmentStatus(room.id) && <p>Task: {getAssignmentStatus(room.id)}</p>}
@@ -395,7 +395,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             Hotel Room Overview
             <Badge variant="secondary" className="text-xs ml-auto">{rooms.length} rooms</Badge>
             {noShowRooms.length > 0 && (
-              <Badge variant="outline" className="text-xs font-semibold text-amber-700 border-amber-400 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700">
+              <Badge variant="outline" className="text-xs font-semibold text-red-700 border-red-400 bg-red-50 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">
                 <UserX className="h-3 w-3 mr-1" />
                 {noShowRooms.length} No-Show
               </Badge>
@@ -426,7 +426,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               { label: 'In Progress', cls: 'bg-blue-100 border-blue-300' },
               { label: 'Out of Order', cls: 'bg-red-100 border-red-300' },
               { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted' },
-              { label: 'No-Show', cls: 'ring-2 ring-amber-500 bg-muted' },
+              { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted' },
               { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted' },
             ].map(item => (
               <div key={item.label} className="flex items-center gap-1">
