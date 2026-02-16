@@ -1,98 +1,84 @@
 
 
-## Plan: Draggable and Rotatable Wing Containers in Map View
+## Plan: Fix Wing Rotation and Use Map Layout for Smart Assignments
 
-### Overview
+### Problem 1: Rotation Not Working
 
-Enable admins to drag, rotate, and reposition wing containers in the Hotel Room Overview Map view so the digital layout matches the physical hotel floor plan. Room numbers and text inside wings always remain upright and readable.
+The rotation handle exists but doesn't function. The bug is in `setPointerCapture`: it's called on `e.target` (which resolves to the inner SVG icon element), but the `onPointerMove`/`onPointerUp` handlers are on the parent div. Events get captured by the icon but never reach the div's handlers.
 
-### Approach
+**Fix:** Change `e.target` to `e.currentTarget` in both the drag and rotation pointer capture calls. This ensures the correct element receives subsequent pointer events.
 
-Use a free-form canvas where each wing container is absolutely positioned. Admins can:
-- **Drag** wing containers to any position on the canvas
-- **Rotate** wing containers via a small rotation handle (or rotation controls)
-- Room numbers, badges, and text inside wings **counter-rotate** so they always read normally
+### Problem 2: Map Layout Should Inform Assignment Algorithm
 
-Layout is saved per hotel per floor to the database so all managers see the same map.
+When admins arrange wings on the map to match the physical hotel, the saved x/y positions encode real spatial relationships. The assignment algorithm should use this data to understand which wings are physically close and assign rooms more intelligently.
 
-### Database Storage
+### Changes
 
-Add a new table `hotel_floor_layouts` to persist wing positions and rotations:
+#### File: `src/components/dashboard/HotelFloorMap.tsx`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | uuid | Primary key |
-| hotel_name | text | Hotel identifier |
-| floor_number | integer | Floor (0, 1, 2, 3) |
-| wing | text | Wing letter (A, B, etc.) |
-| x | numeric | X position (percent of canvas) |
-| y | numeric | Y position (percent of canvas) |
-| rotation | numeric | Rotation in degrees |
-| updated_by | uuid | Last editor |
-| updated_at | timestamptz | Last update time |
+**Bug fix -- pointer capture on correct element:**
+- Line 162: Change `(e.target as HTMLElement)` to `(e.currentTarget as HTMLElement)` in `handleDragStart`
+- Line 198: Change `(e.target as HTMLElement)` to `(e.currentTarget as HTMLElement)` in `handleRotateStart`
 
-Unique constraint on `(hotel_name, floor_number, wing)`.
+**Better canvas height for rotation space:**
+- Increase minimum canvas height in edit mode from 220px to 300px so rotated wings don't overlap floor boundaries
 
-### UI Design
+**On save, compute and store wing adjacency data:**
+- After saving layout positions, compute pairwise distances between wings on the same floor using their x/y coordinates
+- Store this as a JSON record in `hotel_floor_layouts` or a new `wing_adjacency` column so the algorithm can query it
 
-**For admins in Map view:**
-1. An "Edit Layout" toggle button appears next to the Map/List toggle
-2. When enabled:
-   - Wing containers become draggable (cursor changes to grab)
-   - A small rotation handle appears on each wing (circular arrow icon)
-   - Click+drag the rotation handle to rotate the wing
-   - A "Save Layout" button appears to persist changes
-   - A "Reset" button restores default positions
-3. When disabled (normal mode):
-   - Wings display at their saved positions/rotations
-   - Room cards are clickable as before (for editing size/category)
+#### File: `src/lib/roomAssignmentAlgorithm.ts`
 
-**Counter-rotation of content:**
-- The wing container div gets `transform: rotate(Xdeg)`
-- All inner content (room chips, wing label, view text) gets `transform: rotate(-Xdeg)` so text stays upright
-- This is applied via inline styles
+**Use saved layout proximity when available:**
+- Add an optional `wingProximityMap` parameter to `autoAssignRooms`
+- When assigning wings, check the map-based distances between wings instead of only using `elevator_proximity`
+- Prefer assigning physically adjacent wings (close x/y on the map) to the same housekeeper
 
-### Default Positions
+#### File: `src/components/dashboard/HotelRoomOverview.tsx`
 
-When no saved layout exists, wings use a grid-based default layout (similar to current flex layout but converted to x/y coordinates). This ensures the map looks normal before any admin customization.
-
-### Files to Create/Modify
-
-| File | Changes |
-|------|---------|
-| `supabase/migrations/...` | Create `hotel_floor_layouts` table with RLS |
-| `src/components/dashboard/HotelFloorMap.tsx` | Major rewrite: canvas-based layout, drag/rotate support, load/save layout, counter-rotation for text |
-| `src/components/dashboard/HotelRoomOverview.tsx` | Pass `hotelName` and `isManagerOrAdmin` to HotelFloorMap |
+- When calling the assignment algorithm, fetch saved wing layout positions and pass them as the proximity map
 
 ### Technical Details
 
-**Drag implementation:** Use native pointer events (`onPointerDown`, `onPointerMove`, `onPointerUp`) on wing containers. Track delta from initial click position and update x/y state. No external drag library needed.
-
-**Rotation implementation:** A small circular handle at the corner of each wing. On pointer-down+move, calculate the angle from the wing center to the pointer position using `Math.atan2`. Update rotation state in real-time.
-
-**Counter-rotation CSS pattern:**
+**Pointer capture fix (the core rotation bug):**
 ```typescript
-// Wing container
-<div style={{ transform: `rotate(${rotation}deg)`, position: 'absolute', left: `${x}%`, top: `${y}px` }}>
-  {/* Wing label - counter-rotated */}
-  <div style={{ transform: `rotate(${-rotation}deg)` }}>
-    <span>Wing D (Synagogue View)</span>
-  </div>
-  {/* Room chips - each counter-rotated */}
-  <div style={{ transform: `rotate(${-rotation}deg)` }}>
-    {rooms.map(room => renderRoom(room))}
-  </div>
-</div>
+// BEFORE (broken - icon captures events, div never gets them)
+(e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+// AFTER (fixed - the div with handlers captures events)
+(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 ```
 
-**Save/Load flow:**
-1. On mount, fetch `hotel_floor_layouts` for the current hotel
-2. Build a map: `{ "0-A": { x, y, rotation }, "1-D": { x, y, rotation }, ... }`
-3. If no saved layout exists for a wing, use default position
-4. On "Save Layout" click, upsert all wing positions to the database
-5. Layout is shared across all users viewing that hotel
+**Wing distance calculation from map positions:**
+When the admin saves a layout, compute distances between all wing pairs on the same floor:
+```typescript
+// After saving, compute wing-to-wing distances
+const wingPositions = Object.entries(layouts);
+const adjacency: Record<string, Record<string, number>> = {};
+for (const [keyA, layoutA] of wingPositions) {
+  for (const [keyB, layoutB] of wingPositions) {
+    if (keyA === keyB) continue;
+    const dist = Math.sqrt((layoutA.x - layoutB.x) ** 2 + (layoutA.y - layoutB.y) ** 2);
+    adjacency[keyA] = adjacency[keyA] || {};
+    adjacency[keyA][keyB] = Math.round(dist);
+  }
+}
+```
 
-**Canvas sizing:** Each floor section is a relative-positioned container with a fixed minimum height (e.g., 200px). Wing containers are absolutely positioned within it using percentage-based x and pixel-based y coordinates.
+**Algorithm enhancement:**
+When choosing which housekeeper gets a wing, factor in map-based distance to wings they already have:
+```typescript
+// Current: uses elevator_proximity average
+// Enhanced: also considers map distance to already-assigned wings
+const aMapDist = getMapDistanceToAssignedWings(a[0], wingEntry.wing, wingProximityMap);
+const bMapDist = getMapDistanceToAssignedWings(b[0], wingEntry.wing, wingProximityMap);
+```
 
-**Non-admin users:** See the saved layout but cannot drag or rotate. The edit controls are hidden.
+### Files to modify
+
+| File | Changes |
+|------|---------|
+| `src/components/dashboard/HotelFloorMap.tsx` | Fix pointer capture bug (e.target to e.currentTarget), increase canvas height, compute wing adjacency on save |
+| `src/lib/roomAssignmentAlgorithm.ts` | Accept optional wing proximity map, use map distances for smarter assignment |
+| `src/components/dashboard/HotelRoomOverview.tsx` | Pass layout-based proximity data to algorithm when available |
 
