@@ -80,7 +80,7 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
                   <div>
                     <p className="font-medium text-foreground">{hotel.hotel_name}</p>
                     {profile?.assigned_hotel === hotel.hotel_id && (
-                      <p className="text-xs text-primary">Currently selected</p>
+                      <p className="text-xs text-primary">Last used</p>
                     )}
                   </div>
                 </div>

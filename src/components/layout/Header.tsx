@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +29,24 @@ export function Header() {
   const { t } = useTranslation();
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [hotelDisplayName, setHotelDisplayName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const resolveHotelName = async () => {
+      if (!profile?.assigned_hotel) return;
+      const { data } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', profile.assigned_hotel)
+        .limit(1);
+      if (data && data.length > 0) {
+        setHotelDisplayName(data[0].hotel_name);
+      } else {
+        setHotelDisplayName(profile.assigned_hotel);
+      }
+    };
+    resolveHotelName();
+  }, [profile?.assigned_hotel]);
 
   const getRoleColor = (role: string) => {
     switch (role) {
@@ -77,7 +96,7 @@ export function Header() {
             <div className="hidden md:flex flex-col">
               <span className="text-base font-semibold tracking-tight">RD Hotels</span>
               <span className="text-xs text-muted-foreground">
-                {profile?.assigned_hotel || 'Hotel Care Hub'}
+                {hotelDisplayName || 'Hotel Care Hub'}
               </span>
             </div>
           </div>
@@ -113,9 +132,9 @@ export function Header() {
                 >
                   {getRoleLabel(profile.role)}
                 </Badge>
-                {profile.assigned_hotel && (
+                {hotelDisplayName && (
                   <span className="text-xs text-muted-foreground hidden lg:inline">
-                    {profile.assigned_hotel}
+                    {hotelDisplayName}
                   </span>
                 )}
               </div>
