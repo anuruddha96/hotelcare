@@ -414,6 +414,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           } else {
             console.log(`Reset towel/linen change flags for all rooms in ${hotelNameForFilter}`);
           }
+
+          // Batch reset checkout flags to prevent stale data from previous uploads
+          const { error: checkoutResetError } = await supabase
+            .from('rooms')
+            .update({ is_checkout_room: false, checkout_time: null })
+            .eq('hotel', hotelNameForFilter);
+          
+          if (checkoutResetError) {
+            console.warn(`Error resetting checkout flags for ${hotelNameForFilter}:`, checkoutResetError);
+          } else {
+            console.log(`Reset checkout flags for all rooms in ${hotelNameForFilter}`);
+          }
         }
       } else {
         console.warn('No hotel selected - skipping assignment reset');
