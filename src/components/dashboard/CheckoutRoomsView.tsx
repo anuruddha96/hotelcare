@@ -39,7 +39,7 @@ export function CheckoutRoomsView({ checkoutRooms, dailyCleaningRooms }: Checkou
           </Badge>
         )}
         {room.status === 'no_show' && (
-          <Badge className="text-xs bg-amber-100 text-amber-800 border-amber-300">
+          <Badge className="text-xs bg-red-100 text-red-800 border-red-300">
             No Show
           </Badge>
         )}

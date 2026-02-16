@@ -533,7 +533,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               console.log(`[PMS] Room ${roomNumber}: No Show detected (Occupied: No, Status: Untidy, Arrival: ${arrivalVal})`);
             }
             
-            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${departureParsed}${isNoShow ? ' - No Show' : ''})`);
+            // Determine checkout sub-type
+            const checkoutStatus = isNoShow ? 'no_show' : isEarlyCheckout ? 'early_checkout' : 'checkout';
+            const checkoutNotePrefix = isNoShow ? 'No Show' : isEarlyCheckout ? `Early Checkout (Night ${guestNightsStayed}/${totalNights})` : null;
+            
+            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (checkout - Departure: ${departureParsed}${isNoShow ? ' - No Show' : ''}${isEarlyCheckout ? ' - Early Checkout' : ''})`);
             
             // Add to checkout rooms list
             checkoutRoomsList.push({
@@ -541,8 +545,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               roomType: room.room_type,
               departureTime: departureParsed,
               guestCount: peopleVal || 0,
-              status: isNoShow ? 'no_show' : 'checkout',
-              notes: isNoShow ? `No Show - ${noteVal || ''}`.trim() : noteVal
+              status: checkoutStatus,
+              notes: checkoutNotePrefix ? `${checkoutNotePrefix} - ${noteVal || ''}`.trim() : noteVal
             });
           } else if (isEarlyCheckout && departureParsed === null) {
             // Early Checkout: last night stay (e.g. 3/3) but no departure time set yet
