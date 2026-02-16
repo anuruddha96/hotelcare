@@ -1578,6 +1578,7 @@ export type Database = {
           created_at: string
           dnd_marked_at: string | null
           dnd_marked_by: string | null
+          elevator_proximity: number | null
           floor_number: number | null
           guest_count: number | null
           guest_nights_stayed: number | null
@@ -1593,6 +1594,7 @@ export type Database = {
           notes: string | null
           organization_slug: string | null
           room_capacity: number | null
+          room_category: string | null
           room_name: string | null
           room_number: string
           room_size_sqm: number | null
@@ -1600,6 +1602,7 @@ export type Database = {
           status: string | null
           towel_change_required: boolean | null
           updated_at: string
+          wing: string | null
         }
         Insert: {
           bed_type?: string | null
@@ -1607,6 +1610,7 @@ export type Database = {
           created_at?: string
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
+          elevator_proximity?: number | null
           floor_number?: number | null
           guest_count?: number | null
           guest_nights_stayed?: number | null
@@ -1622,6 +1626,7 @@ export type Database = {
           notes?: string | null
           organization_slug?: string | null
           room_capacity?: number | null
+          room_category?: string | null
           room_name?: string | null
           room_number: string
           room_size_sqm?: number | null
@@ -1629,6 +1634,7 @@ export type Database = {
           status?: string | null
           towel_change_required?: boolean | null
           updated_at?: string
+          wing?: string | null
         }
         Update: {
           bed_type?: string | null
@@ -1636,6 +1642,7 @@ export type Database = {
           created_at?: string
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
+          elevator_proximity?: number | null
           floor_number?: number | null
           guest_count?: number | null
           guest_nights_stayed?: number | null
@@ -1651,6 +1658,7 @@ export type Database = {
           notes?: string | null
           organization_slug?: string | null
           room_capacity?: number | null
+          room_category?: string | null
           room_name?: string | null
           room_number?: string
           room_size_sqm?: number | null
@@ -1658,6 +1666,7 @@ export type Database = {
           status?: string | null
           towel_change_required?: boolean | null
           updated_at?: string
+          wing?: string | null
         }
         Relationships: [
           {

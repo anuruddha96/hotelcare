@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
+import { HotelFloorMap } from './HotelFloorMap';
 
 interface RoomData {
   id: string;
@@ -20,6 +21,9 @@ interface RoomData {
   is_dnd: boolean | null;
   notes: string | null;
   room_size_sqm: number | null;
+  wing: string | null;
+  room_category: string | null;
+  elevator_proximity: number | null;
 }
 
 interface AssignmentData {
@@ -52,6 +56,17 @@ const ROOM_SIZE_OPTIONS = [
   { value: '25', label: 'M', fullLabel: 'Medium (~25m²)' },
   { value: '35', label: 'L', fullLabel: 'Large (~35m²)' },
   { value: '45', label: 'XL', fullLabel: 'Extra Large (~45m²)' },
+];
+
+const ROOM_CATEGORIES = [
+  'Deluxe Double or Twin Room with Synagogue View',
+  'Deluxe Double or Twin Room',
+  'Deluxe Queen Room',
+  'Deluxe Triple Room',
+  'Deluxe Quadruple Room',
+  'Comfort Quadruple Room',
+  'Comfort Double Room with Small Window',
+  'Deluxe Single Room',
 ];
 
 function getSizeLabel(sqm: number | null): string | null {
@@ -88,7 +103,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const [selectedRoom, setSelectedRoom] = useState<RoomData | null>(null);
   const [roomSizeDialogOpen, setRoomSizeDialogOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState<string>('25');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [savingSize, setSavingSize] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
 
@@ -102,7 +119,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm')
+          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity')
           .eq('hotel', hotelName)
           .order('room_number'),
         supabase
@@ -152,6 +169,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
     if (!isManagerOrAdmin) return;
     setSelectedRoom(room);
     setSelectedSize(String(room.room_size_sqm || 25));
+    setSelectedCategory(room.room_category || '');
     setRoomSizeDialogOpen(true);
   };
 
@@ -161,14 +179,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
     try {
       const { error } = await supabase
         .from('rooms')
-        .update({ room_size_sqm: parseInt(selectedSize, 10) })
+        .update({ 
+          room_size_sqm: parseInt(selectedSize, 10),
+          room_category: selectedCategory || null
+        })
         .eq('id', selectedRoom.id);
 
       if (error) throw error;
       
       // Update local state
       setRooms(prev => prev.map(r => 
-        r.id === selectedRoom.id ? { ...r, room_size_sqm: parseInt(selectedSize, 10) } : r
+        r.id === selectedRoom.id ? { ...r, room_size_sqm: parseInt(selectedSize, 10), room_category: selectedCategory || null } : r
       ));
       toast.success(`Room ${selectedRoom.room_number} size updated`);
       setRoomSizeDialogOpen(false);
@@ -273,13 +294,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             <div className="space-y-1">
               <p className="font-semibold">Room {room.room_number}</p>
               <p>Status: {room.status || 'unknown'}</p>
+              {room.wing && <p>Wing: {room.wing}</p>}
               {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
+              {room.room_category && <p className="text-[10px] text-muted-foreground">{room.room_category}</p>}
               {isDND && <p className="text-purple-600 font-medium">🚫 Do Not Disturb</p>}
               {noShow && <p className="text-red-600 font-medium">⚠️ No Show</p>}
               {earlyCheckout && <p className="text-orange-600 font-medium">🔶 Early Checkout</p>}
               {staffName && <p>Assigned: {staffMap[assignmentMap.get(room.id)?.assigned_to || ''] || staffName}</p>}
               {getAssignmentStatus(room.id) && <p>Task: {getAssignmentStatus(room.id)}</p>}
-              {isManagerOrAdmin && <p className="text-primary font-medium">Click to set room size</p>}
+              {isManagerOrAdmin && <p className="text-primary font-medium">Click to edit room</p>}
             </div>
           </TooltipContent>
         </Tooltip>
@@ -417,6 +440,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            {isManagerOrAdmin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
+              >
+                <MapIcon className="h-3 w-3 mr-1" />
+                {viewMode === 'list' ? 'Map' : 'List'}
+              </Button>
+            )}
           </CardTitle>
           {/* Legend */}
           <div className="flex flex-wrap gap-2 mt-1">
@@ -437,9 +471,20 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
-          {renderSection('Checkout Rooms', checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />)}
-          <div className="border-t border-border/50" />
-          {renderSection('Daily Rooms', dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />)}
+          {viewMode === 'map' ? (
+            <HotelFloorMap
+              rooms={rooms}
+              assignments={assignmentMap}
+              staffMap={staffMap}
+              onRoomClick={isManagerOrAdmin ? handleRoomClick : undefined}
+            />
+          ) : (
+            <>
+              {renderSection('Checkout Rooms', checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />)}
+              <div className="border-t border-border/50" />
+              {renderSection('Daily Rooms', dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />)}
+            </>
+          )}
           {publicAreaTasks.length > 0 && (
             <>
               <div className="border-t border-border/50" />
@@ -453,24 +498,43 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
       <Dialog open={roomSizeDialogOpen} onOpenChange={setRoomSizeDialogOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Room {selectedRoom?.room_number} - Set Size</DialogTitle>
+            <DialogTitle>Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Set the approximate room size. This affects auto-assignment workload balancing.
+              Set the room size and category. Size affects auto-assignment workload balancing.
             </p>
-            <Select value={selectedSize} onValueChange={setSelectedSize}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select size" />
-              </SelectTrigger>
-              <SelectContent>
-                {ROOM_SIZE_OPTIONS.map(opt => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.fullLabel}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Room Size</label>
+              <Select value={selectedSize} onValueChange={setSelectedSize}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select size" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROOM_SIZE_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.fullLabel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Room Category</label>
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {ROOM_CATEGORIES.map(cat => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setRoomSizeDialogOpen(false)}>
                 Cancel
