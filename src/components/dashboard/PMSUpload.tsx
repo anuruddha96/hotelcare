@@ -65,9 +65,9 @@ function buildColumnMap(headers: string[]): ColumnMap {
   const matchers: Record<keyof ColumnMap, string[]> = {
     Room: ['room', 'szoba', 'pokoj', 'habitación', 'zimmer', 'phòng', 'camera', 'stanza', 'nr', 'číslo'],
     Occupied: ['occupied', 'foglalt', 'obsazeno', 'ocupado', 'belegt', 'occupato', 'occupata', 'occ'],
-    Departure: ['departure', 'távozás', 'odjezd', 'salida', 'abreise', 'checkout', 'check-out', 'check out', 'partenza', 'dep', 'odchod', 'výjezd', 'co time', 'co-time'],
+    Departure: ['departure', 'távozás', 'elutazás', 'elutazas', 'elutaz', 'odjezd', 'salida', 'abreise', 'checkout', 'check-out', 'check out', 'partenza', 'dep', 'odchod', 'výjezd', 'co time', 'co-time'],
     Arrival: ['arrival', 'érkezés', 'příjezd', 'llegada', 'anreise', 'checkin', 'check-in', 'check in', 'arrivo', 'arr', 'příchod'],
-    People: ['people', 'személy', 'osoby', 'personas', 'personen', 'guests', 'fő', 'persone', 'ospiti', 'pax', 'pers'],
+    People: ['people', 'személy', 'osoby', 'personas', 'personen', 'guests', 'fő', 'persone', 'ospiti', 'pax', 'pers', 'vendégek', 'vendeg', 'guest'],
     NightTotal: ['night', 'éjszaka', 'noc', 'noche', 'nacht', 'total', 'notte', 'notti'],
     Note: ['note', 'megjegyzés', 'poznámka', 'nota', 'bemerkung', 'comment', 'remark', 'poznámky'],
     Nationality: ['nationality', 'nemzetiség', 'národnost', 'nacionalidad', 'nationalität', 'nazionalità', 'nazione'],
@@ -341,7 +341,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
       // Only warn if critical columns are missing
       if (!columnMap.Departure) {
-        toast.warning('⚠️ "Departure" column not detected — checkout rooms won\'t be identified. Headers: ' + headers.join(', '), { duration: 15000 });
+        console.warn('[PMS] "Departure" column not detected — checkout rooms won\'t be identified. Headers:', headers.join(', '));
       }
 
       if (!columnMap.Room) {
@@ -572,12 +572,12 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               status: 'daily_cleaning',
               notes: noteVal
             });
-          } else if (isOccupiedNo(occupiedVal) && (String(statusVal) === 'Untidy' || String(statusVal) === 'untidy') && arrivalVal) {
+          } else if (isOccupiedNo(occupiedVal) && String(statusVal).toLowerCase().includes('untidy') && arrivalVal) {
             // No Show (NS) - Guest didn't show up, room was prepared but unused
             isNoShow = true;
             newStatus = 'clean'; // Room is clean but was prepared for no-show
             console.log(`[PMS] Room ${roomNumber}: No Show detected (Occupied: No, Status: Untidy with Arrival)`);
-          } else if (statusVal && ['Untidy', 'untidy', 'dirty'].includes(String(statusVal))) {
+          } else if (statusVal && (String(statusVal).toLowerCase().includes('untidy') || String(statusVal).toLowerCase().includes('dirty'))) {
             // Room marked as dirty/untidy in PMS
             newStatus = 'dirty';
             needsCleaning = true;
