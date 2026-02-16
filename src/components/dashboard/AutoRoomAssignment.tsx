@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
@@ -651,18 +652,46 @@ export function AutoRoomAssignment({
                                   >
                                     <span>{room.room_number}</span>
                                     {room.wing && (
-                                      <span className="text-[9px] px-1 rounded font-bold bg-purple-200 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300" title={`Wing ${room.wing}`}>{room.wing}</span>
+                                      <TooltipProvider delayDuration={100}>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span className="text-[9px] px-1 rounded font-bold bg-purple-200 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">{room.wing}</span>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="text-xs">Wing {room.wing}</TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                     )}
                                     {room.towel_change_required && (
-                                      <span className="text-[9px] px-1 rounded font-bold bg-red-200 text-red-800" title="Towel Change">T</span>
+                                      <TooltipProvider delayDuration={100}>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span className="text-[9px] px-1 rounded font-bold bg-red-200 text-red-800">T</span>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="text-xs">Towel Change</TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                     )}
                                     {room.linen_change_required && (
-                                      <span className="text-[9px] px-1 rounded font-bold bg-red-200 text-red-800" title="Room Cleaning">RC</span>
+                                      <TooltipProvider delayDuration={100}>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span className="text-[9px] px-1 rounded font-bold bg-red-200 text-red-800">RC</span>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="text-xs">Room Cleaning (Linen Change)</TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                     )}
                                     {sizeLabel && (
-                                      <span className={`text-[9px] px-1 rounded font-bold ${sizeBadgeColor}`}>
-                                        {sizeLabel}
-                                      </span>
+                                      <TooltipProvider delayDuration={100}>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span className={`text-[9px] px-1 rounded font-bold ${sizeBadgeColor}`}>{sizeLabel}</span>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="text-xs">
+                                            Size: {sizeSqm}m² ({sizeLabel === 'XL' ? 'Extra Large' : sizeLabel === 'L' ? 'Large' : sizeLabel === 'M' ? 'Medium' : 'Small'})
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                     )}
                                   </div>
                                 );

@@ -12,6 +12,9 @@ interface RoomData {
   wing: string | null;
   room_category: string | null;
   room_size_sqm: number | null;
+  bed_type: string | null;
+  towel_change_required: boolean | null;
+  linen_change_required: boolean | null;
 }
 
 interface AssignmentData {
@@ -105,13 +108,17 @@ export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick }: Hot
               `}
             >
               {room.room_number}
+              {room.bed_type === 'shabath' && <span className="text-[7px] text-blue-700 font-bold ml-0.5">SH</span>}
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
             <p className="font-semibold">Room {room.room_number}</p>
             <p>Status: {room.status || 'unknown'}</p>
             {room.room_category && <p className="text-[10px]">{room.room_category}</p>}
+            {room.bed_type === 'shabath' && <p className="text-blue-600">✡ Shabath Room</p>}
             {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
+            {room.towel_change_required && <p className="text-red-600">🔄 Towel Change</p>}
+            {room.linen_change_required && <p className="text-red-600">🛏️ Room Cleaning</p>}
             {staff && <p>Assigned: {staff}</p>}
             {room.is_dnd && <p className="text-purple-600">🚫 DND</p>}
           </TooltipContent>
