@@ -141,7 +141,7 @@ export function AutoRoomAssignment({
       // Fetch dirty rooms that don't have assignments for today
       const { data: roomsData } = await supabase
         .from('rooms')
-        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, status')
+        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, status, towel_change_required, linen_change_required')
         .eq('hotel', hotelName)
         .eq('status', 'dirty');
 
@@ -647,6 +647,12 @@ export function AutoRoomAssignment({
                                     title={`${room.room_number} | ${sizeSqm || '?'}m² | ${room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES}min | Weight: ${weight.toFixed(1)}`}
                                   >
                                     <span>{room.room_number}</span>
+                                    {room.towel_change_required && (
+                                      <span className="text-[9px] px-1 rounded font-bold bg-red-200 text-red-800" title="Towel Change">T</span>
+                                    )}
+                                    {room.linen_change_required && (
+                                      <span className="text-[9px] px-1 rounded font-bold bg-red-200 text-red-800" title="Room Cleaning">RC</span>
+                                    )}
                                     {sizeLabel && (
                                       <span className={`text-[9px] px-1 rounded font-bold ${sizeBadgeColor}`}>
                                         {sizeLabel}

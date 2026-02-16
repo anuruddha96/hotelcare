@@ -16,6 +16,8 @@ export interface RoomForAssignment {
   room_capacity: number | null;
   is_checkout_room: boolean;
   status: string;
+  towel_change_required?: boolean;
+  linen_change_required?: boolean;
 }
 
 export interface StaffForAssignment {
