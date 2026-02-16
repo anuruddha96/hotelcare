@@ -1,4 +1,4 @@
-// Room Assignment Algorithm for fair distribution
+// Room Assignment Algorithm for fair distribution with wing-based grouping
 
 // Time constants (in minutes)
 export const CHECKOUT_MINUTES = 45;
@@ -36,7 +36,6 @@ export interface AssignmentPreview {
   totalWeight: number;
   checkoutCount: number;
   dailyCount: number;
-  // Time estimation fields
   estimatedMinutes: number;
   totalWithBreak: number;
   exceedsShift: boolean;
@@ -46,17 +45,10 @@ export interface AssignmentPreview {
 // Calculate estimated time for a room in minutes
 export function calculateRoomTime(room: RoomForAssignment): number {
   let baseTime = room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
-  
-  // Add extra time for larger rooms
   const size = room.room_size_sqm || 20;
-  if (size >= 40) {
-    baseTime += 15; // XXL rooms need more time
-  } else if (size >= 28) {
-    baseTime += 10; // Large rooms
-  } else if (size >= 22) {
-    baseTime += 5; // Medium-large rooms
-  }
-  
+  if (size >= 40) baseTime += 15;
+  else if (size >= 28) baseTime += 10;
+  else if (size >= 22) baseTime += 5;
   return baseTime;
 }
 
@@ -71,7 +63,6 @@ export function calculateTimeEstimation(rooms: RoomForAssignment[]): {
   const totalWithBreak = estimatedMinutes + BREAK_TIME_MINUTES;
   const exceedsShift = totalWithBreak > STANDARD_SHIFT_MINUTES;
   const overageMinutes = exceedsShift ? totalWithBreak - STANDARD_SHIFT_MINUTES : 0;
-  
   return { estimatedMinutes, totalWithBreak, exceedsShift, overageMinutes };
 }
 
@@ -84,35 +75,20 @@ export function formatMinutesToTime(minutes: number): string {
   return `${hours}h ${mins}m`;
 }
 
-// Weight calculation based on room characteristics - considers room size
+// Weight calculation based on room characteristics
 export function calculateRoomWeight(room: RoomForAssignment): number {
-  // Base weight: checkout rooms require more work
   let weight = room.is_checkout_room ? 1.5 : 1.0;
-  
-  // Size factor based on room_size_sqm - MORE SIGNIFICANT IMPACT
-  const size = room.room_size_sqm || 20; // default 20 sqm if unknown
-  
-  if (size >= 40) {
-    weight += 1.0; // XXL rooms (quadruple) - significant extra weight
-  } else if (size >= 28) {
-    weight += 0.6; // Large rooms (30+ sqm)
-  } else if (size >= 22) {
-    weight += 0.3; // Medium-large rooms (22-28 sqm)
-  }
-  // Standard rooms (16-22 sqm) get no bonus
-  
-  // Capacity factor for triple/quad rooms
+  const size = room.room_size_sqm || 20;
+  if (size >= 40) weight += 1.0;
+  else if (size >= 28) weight += 0.6;
+  else if (size >= 22) weight += 0.3;
   const capacity = room.room_capacity || 2;
-  if (capacity >= 4) {
-    weight += 0.3;
-  } else if (capacity >= 3) {
-    weight += 0.15;
-  }
-  
+  if (capacity >= 4) weight += 0.3;
+  else if (capacity >= 3) weight += 0.15;
   return weight;
 }
 
-// Get floor number from room number (first digit(s) before last 2 digits)
+// Get floor number from room number
 export function getFloorFromRoomNumber(roomNumber: string): number {
   const num = parseInt(roomNumber, 10);
   if (isNaN(num)) return 0;
@@ -122,15 +98,11 @@ export function getFloorFromRoomNumber(roomNumber: string): number {
 // Group rooms by wing (falls back to floor if no wing assigned)
 function groupRoomsByWing(rooms: RoomForAssignment[]): Map<string, RoomForAssignment[]> {
   const wingMap = new Map<string, RoomForAssignment[]>();
-  
   rooms.forEach(room => {
     const key = room.wing || `floor-${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`;
-    if (!wingMap.has(key)) {
-      wingMap.set(key, []);
-    }
+    if (!wingMap.has(key)) wingMap.set(key, []);
     wingMap.get(key)!.push(room);
   });
-  
   return wingMap;
 }
 
@@ -141,7 +113,16 @@ function getAvgProximity(rooms: RoomForAssignment[]): number {
   return withProx.reduce((sum, r) => sum + (r.elevator_proximity || 2), 0) / withProx.length;
 }
 
-// Main auto-assignment algorithm with FAIR checkout distribution
+// Get the set of wings assigned to a staff member
+function getStaffWings(rooms: RoomForAssignment[]): Set<string> {
+  const wings = new Set<string>();
+  rooms.forEach(r => {
+    wings.add(r.wing || `floor-${r.floor_number ?? getFloorFromRoomNumber(r.room_number)}`);
+  });
+  return wings;
+}
+
+// Main auto-assignment algorithm: WING-FIRST grouping
 export function autoAssignRooms(
   rooms: RoomForAssignment[],
   staff: StaffForAssignment[]
@@ -161,52 +142,19 @@ export function autoAssignRooms(
     }));
   }
 
-  // STEP 1: Separate checkout rooms from daily rooms
-  const checkoutRooms = rooms.filter(r => r.is_checkout_room);
-  const dailyRooms = rooms.filter(r => !r.is_checkout_room);
-
-  // Initialize assignments for each staff member
-  const assignments: Map<string, (RoomForAssignment & { weight: number; floor: number })[]> = new Map();
+  // Initialize assignments
+  const assignments: Map<string, RoomForAssignment[]> = new Map();
   const staffWeights: Map<string, number> = new Map();
-  
   staff.forEach(s => {
     assignments.set(s.id, []);
     staffWeights.set(s.id, 0);
   });
 
-  // STEP 2: Distribute checkout rooms FIRST using round-robin for fairness
-  // Sort checkout rooms by weight (heavier rooms first for better distribution)
-  const weightedCheckouts = checkoutRooms
-    .map(room => ({
-      ...room,
-      weight: calculateRoomWeight(room),
-      floor: room.floor_number ?? getFloorFromRoomNumber(room.room_number)
-    }))
-    .sort((a, b) => b.weight - a.weight); // Heaviest first
-  
-  // Round-robin assignment of checkout rooms
-  weightedCheckouts.forEach((room, index) => {
-    // Find the staff member with the lowest current weight
-    const sortedStaff = Array.from(staffWeights.entries())
-      .sort((a, b) => a[1] - b[1]);
-    const [staffId, currentWeight] = sortedStaff[0];
-    
-    assignments.get(staffId)!.push(room);
-    staffWeights.set(staffId, currentWeight + room.weight);
-  });
+  // STEP 1: Group ALL rooms (checkout + daily) by wing
+  const allByWing = groupRoomsByWing(rooms);
 
-  // STEP 3: Now distribute daily rooms, prioritizing keeping wings together
-  const dailyWeightedRooms = dailyRooms.map(room => ({
-    ...room,
-    weight: calculateRoomWeight(room),
-    floor: room.floor_number ?? getFloorFromRoomNumber(room.room_number)
-  }));
-
-  // Group daily rooms by wing (physical proximity)
-  const dailyByWing = groupRoomsByWing(dailyWeightedRooms as RoomForAssignment[]);
-  
-  // Sort wings by total weight (heaviest first for better distribution)
-  const sortedWings = Array.from(dailyByWing.entries())
+  // STEP 2: Sort wing groups by total weight (heaviest first for better distribution)
+  const wingEntries = Array.from(allByWing.entries())
     .map(([wing, wingRooms]) => ({
       wing,
       rooms: wingRooms,
@@ -215,174 +163,141 @@ export function autoAssignRooms(
     }))
     .sort((a, b) => b.totalWeight - a.totalWeight);
 
-  // Track proximity per staff for smart assignment
-  const staffProximity: Map<string, number[]> = new Map();
-  staff.forEach(s => staffProximity.set(s.id, []));
+  const totalAllWeight = wingEntries.reduce((s, w) => s + w.totalWeight, 0);
+  const avgTargetWeight = totalAllWeight / staff.length;
 
-  // Assign wings to housekeepers based on current weight balance + proximity
-  for (const { wing, rooms: wingRooms, totalWeight, avgProximity } of sortedWings) {
-    const floor = wingRooms[0]?.floor_number ?? getFloorFromRoomNumber(wingRooms[0]?.room_number || '0');
-    const roomsWithWeight = wingRooms.map(r => ({
-      ...r,
-      weight: calculateRoomWeight(r),
-      floor
-    }));
+  // STEP 3: Assign entire wing groups to housekeepers
+  for (const wingEntry of wingEntries) {
+    const { rooms: wingRooms, totalWeight, avgProximity } = wingEntry;
 
-    // Calculate average weight target
-    const totalCurrentWeight = Array.from(staffWeights.values()).reduce((a, b) => a + b, 0);
-    const avgTarget = (totalCurrentWeight + totalWeight) / staff.length;
-    
-    // Find staff with lowest current weight, preferring those with similar proximity
-    const sortedStaff = Array.from(staffWeights.entries())
+    // Find best housekeeper: lowest weight, with proximity tie-breaking
+    const candidates = Array.from(staffWeights.entries())
       .sort((a, b) => {
         const weightDiff = a[1] - b[1];
-        // If weights are close, prefer staff already working near this wing's elevator
-        if (Math.abs(weightDiff) < 1) {
-          const aProx = staffProximity.get(a[0]) || [];
-          const bProx = staffProximity.get(b[0]) || [];
-          const aAvg = aProx.length > 0 ? aProx.reduce((s, v) => s + v, 0) / aProx.length : 99;
-          const bAvg = bProx.length > 0 ? bProx.reduce((s, v) => s + v, 0) / bProx.length : 99;
-          return Math.abs(aAvg - avgProximity) - Math.abs(bAvg - avgProximity);
+        // If weights are close (within 1.5), prefer staff already working in nearby wings
+        if (Math.abs(weightDiff) < 1.5) {
+          const aRooms = assignments.get(a[0])!;
+          const bRooms = assignments.get(b[0])!;
+          const aProx = aRooms.length > 0 ? getAvgProximity(aRooms) : 99;
+          const bProx = bRooms.length > 0 ? getAvgProximity(bRooms) : 99;
+          // Prefer housekeeper whose current proximity is closer to this wing's proximity
+          return Math.abs(aProx - avgProximity) - Math.abs(bProx - avgProximity);
         }
         return weightDiff;
       });
-    
-    // If assigning entire wing to one person would exceed 30% above average,
-    // split the wing among multiple housekeepers
-    const [lightestId, lightestWeight] = sortedStaff[0];
+
+    const [lightestId, lightestWeight] = candidates[0];
     const wouldBe = lightestWeight + totalWeight;
-    
-    if (wouldBe > avgTarget * 1.3 && wingRooms.length > 2) {
-      // Split wing - distribute rooms one by one to balance weights
-      roomsWithWeight.sort((a, b) => b.weight - a.weight); // Heaviest first
-      
-      for (const room of roomsWithWeight) {
-        const minStaff = Array.from(staffWeights.entries())
-          .sort((a, b) => a[1] - b[1])[0];
-        
+
+    // If assigning whole wing would exceed 40% above average and wing has >3 rooms, split it
+    if (wouldBe > avgTargetWeight * 1.4 && wingRooms.length > 3) {
+      // Split: distribute rooms one by one to maintain balance, but keep them in same wing if possible
+      const sorted = [...wingRooms].sort((a, b) => calculateRoomWeight(b) - calculateRoomWeight(a));
+      for (const room of sorted) {
+        const minStaff = Array.from(staffWeights.entries()).sort((a, b) => a[1] - b[1])[0];
         assignments.get(minStaff[0])!.push(room);
-        staffWeights.set(minStaff[0], minStaff[1] + room.weight);
-        staffProximity.get(minStaff[0])!.push(avgProximity);
+        staffWeights.set(minStaff[0], minStaff[1] + calculateRoomWeight(room));
       }
     } else {
       // Assign entire wing to one housekeeper
-      assignments.get(lightestId)!.push(...roomsWithWeight);
+      assignments.get(lightestId)!.push(...wingRooms);
       staffWeights.set(lightestId, lightestWeight + totalWeight);
-      staffProximity.get(lightestId)!.push(avgProximity);
     }
   }
 
-  // STEP 4: Rebalancing pass - if any housekeeper has >20% more weight than average, redistribute
+  // STEP 4: Light rebalancing - only move rooms if it reduces imbalance without adding new wings
   const totalWeight = Array.from(staffWeights.values()).reduce((a, b) => a + b, 0);
   const avgWeight = totalWeight / staff.length;
-  const threshold = avgWeight * 0.20;
-  
-  let rebalanced = true;
+  const threshold = avgWeight * 0.25;
+
   let iterations = 0;
-  const maxIterations = 30;
-  
-  while (rebalanced && iterations < maxIterations) {
-    rebalanced = false;
+  while (iterations < 20) {
     iterations++;
-    
-    const sortedByWeight = Array.from(staffWeights.entries())
-      .sort((a, b) => b[1] - a[1]); // Highest weight first
-    
-    const [heaviestId, heaviestWeight] = sortedByWeight[0];
-    const [lightestId, lightestWeight] = sortedByWeight[sortedByWeight.length - 1];
-    
-    // If difference is significant, try to move a room
-    if (heaviestWeight - lightestWeight > threshold) {
-      const heaviestRooms = assignments.get(heaviestId)!;
-      
-      // Find the best daily room to move (prefer daily over checkout for balance)
-      // Don't move checkout rooms to preserve fair checkout distribution
-      const targetDiff = (heaviestWeight - lightestWeight) / 2;
-      
-      let bestRoomToMove: typeof heaviestRooms[0] | null = null;
-      let bestDiff = Infinity;
-      
-      for (const room of heaviestRooms) {
-        // Prefer moving daily rooms over checkout rooms
-        if (room.is_checkout_room) continue;
-        
-        // Check if moving this room would actually improve balance
-        const newHeaviest = heaviestWeight - room.weight;
-        const newLightest = lightestWeight + room.weight;
-        const newDiff = Math.abs(newHeaviest - newLightest);
-        const currentDiff = heaviestWeight - lightestWeight;
-        
-        if (newDiff < currentDiff && newDiff < bestDiff) {
-          bestDiff = newDiff;
-          bestRoomToMove = room;
-        }
-      }
-      
-      if (bestRoomToMove) {
-        // Move room from heaviest to lightest
-        const idx = heaviestRooms.indexOf(bestRoomToMove);
-        heaviestRooms.splice(idx, 1);
-        assignments.get(lightestId)!.push(bestRoomToMove);
-        
-        staffWeights.set(heaviestId, heaviestWeight - bestRoomToMove.weight);
-        staffWeights.set(lightestId, lightestWeight + bestRoomToMove.weight);
-        
-        rebalanced = true;
+    const sorted = Array.from(staffWeights.entries()).sort((a, b) => b[1] - a[1]);
+    const [heaviestId, heaviestW] = sorted[0];
+    const [lightestId, lightestW] = sorted[sorted.length - 1];
+
+    if (heaviestW - lightestW <= threshold) break;
+
+    const heaviestRooms = assignments.get(heaviestId)!;
+    const lightestWings = getStaffWings(assignments.get(lightestId)!);
+
+    // Find best room to move: prefer daily rooms from a wing the lightest already has
+    let bestRoom: RoomForAssignment | null = null;
+    let bestScore = Infinity;
+
+    for (const room of heaviestRooms) {
+      if (room.is_checkout_room) continue; // prefer not moving checkouts
+      const roomWing = room.wing || `floor-${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`;
+      const w = calculateRoomWeight(room);
+      const newDiff = Math.abs((heaviestW - w) - (lightestW + w));
+      const currentDiff = heaviestW - lightestW;
+      if (newDiff >= currentDiff) continue; // must improve balance
+
+      // Score: prefer rooms from wings the lightest already works in (score 0), else penalty (score 10)
+      const wingPenalty = lightestWings.has(roomWing) ? 0 : 10;
+      const score = newDiff + wingPenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        bestRoom = room;
       }
     }
+
+    if (!bestRoom) break;
+
+    // Move the room
+    const idx = heaviestRooms.indexOf(bestRoom);
+    heaviestRooms.splice(idx, 1);
+    assignments.get(lightestId)!.push(bestRoom);
+    const w = calculateRoomWeight(bestRoom);
+    staffWeights.set(heaviestId, heaviestW - w);
+    staffWeights.set(lightestId, lightestW + w);
   }
 
-  // STEP 5: Room count rebalancing - ensure no housekeeper has >2 more rooms than another
-  let countRebalanced = true;
-  let countIterations = 0;
-  while (countRebalanced && countIterations < 20) {
-    countRebalanced = false;
-    countIterations++;
-    
+  // STEP 5: Room count rebalancing (max diff of 2)
+  let countIter = 0;
+  while (countIter < 15) {
+    countIter++;
     const byCount = Array.from(assignments.entries())
-      .map(([id, rooms]) => ({ id, count: rooms.length, weight: staffWeights.get(id)! }))
+      .map(([id, r]) => ({ id, count: r.length, weight: staffWeights.get(id)! }))
       .sort((a, b) => b.count - a.count);
-    
     const most = byCount[0];
     const least = byCount[byCount.length - 1];
-    
-    if (most.count - least.count > 2) {
-      const mostRooms = assignments.get(most.id)!;
-      const dailyRooms = mostRooms.filter(r => !r.is_checkout_room);
-      
-      // Pick lightest daily room
-      const sorted = [...dailyRooms].sort((a, b) => a.weight - b.weight);
-      if (sorted.length > 0) {
-        const room = sorted[0];
-        const newLeastWeight = least.weight + room.weight;
-        const newAvg = totalWeight / staff.length;
-        
-        // Only move if it doesn't create excessive weight imbalance (25%)
-        if (Math.abs(newLeastWeight - newAvg) <= newAvg * 0.25) {
-          const idx = mostRooms.indexOf(room);
-          mostRooms.splice(idx, 1);
-          assignments.get(least.id)!.push(room);
-          
-          staffWeights.set(most.id, most.weight - room.weight);
-          staffWeights.set(least.id, newLeastWeight);
-          
-          countRebalanced = true;
-        }
-      }
-    }
+    if (most.count - least.count <= 2) break;
+
+    const mostRooms = assignments.get(most.id)!;
+    const leastWings = getStaffWings(assignments.get(least.id)!);
+    // Pick lightest daily room, preferring one from a wing the least already has
+    const dailyRooms = mostRooms.filter(r => !r.is_checkout_room);
+    const sorted = [...dailyRooms].sort((a, b) => {
+      const aWing = a.wing || `floor-${a.floor_number ?? getFloorFromRoomNumber(a.room_number)}`;
+      const bWing = b.wing || `floor-${b.floor_number ?? getFloorFromRoomNumber(b.room_number)}`;
+      const aBonus = leastWings.has(aWing) ? 0 : 100;
+      const bBonus = leastWings.has(bWing) ? 0 : 100;
+      return (calculateRoomWeight(a) + aBonus) - (calculateRoomWeight(b) + bBonus);
+    });
+    if (sorted.length === 0) break;
+
+    const room = sorted[0];
+    const rw = calculateRoomWeight(room);
+    const newLeastW = least.weight + rw;
+    if (Math.abs(newLeastW - avgWeight) > avgWeight * 0.3) break; // don't create weight imbalance
+
+    const idx = mostRooms.indexOf(room);
+    mostRooms.splice(idx, 1);
+    assignments.get(least.id)!.push(room);
+    staffWeights.set(most.id, most.weight - rw);
+    staffWeights.set(least.id, newLeastW);
   }
 
-  // Build final preview with sorted rooms (checkout first, then by floor and room number)
+  // STEP 6: Build final preview with sorted rooms (checkout first, then by floor/room number)
   return staff.map(s => {
     const staffRooms = assignments.get(s.id) || [];
     const sortedRooms = staffRooms.sort((a, b) => {
-      // Checkout rooms first (so housekeepers can start with them)
-      if (a.is_checkout_room !== b.is_checkout_room) {
-        return a.is_checkout_room ? -1 : 1;
-      }
-      // Then by floor
-      if (a.floor !== b.floor) return a.floor - b.floor;
-      // Then by room number
+      if (a.is_checkout_room !== b.is_checkout_room) return a.is_checkout_room ? -1 : 1;
+      const floorA = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
+      const floorB = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
+      if (floorA !== floorB) return floorA - floorB;
       return parseInt(a.room_number) - parseInt(b.room_number);
     });
 
@@ -420,39 +335,26 @@ export function moveRoom(
   const room = fromPreview.rooms[roomIndex];
   const roomWeight = calculateRoomWeight(room);
   
-  // Remove from source
   fromPreview.rooms.splice(roomIndex, 1);
   fromPreview.totalWeight -= roomWeight;
-  if (room.is_checkout_room) {
-    fromPreview.checkoutCount--;
-  } else {
-    fromPreview.dailyCount--;
-  }
+  if (room.is_checkout_room) fromPreview.checkoutCount--;
+  else fromPreview.dailyCount--;
   
-  // Add to target
   toPreview.rooms.push(room);
   toPreview.totalWeight += roomWeight;
-  if (room.is_checkout_room) {
-    toPreview.checkoutCount++;
-  } else {
-    toPreview.dailyCount++;
-  }
+  if (room.is_checkout_room) toPreview.checkoutCount++;
+  else toPreview.dailyCount++;
   
-  // Re-sort target rooms
   toPreview.rooms.sort((a, b) => {
     const floorA = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
     const floorB = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
-    if (a.is_checkout_room !== b.is_checkout_room) {
-      return a.is_checkout_room ? -1 : 1;
-    }
+    if (a.is_checkout_room !== b.is_checkout_room) return a.is_checkout_room ? -1 : 1;
     if (floorA !== floorB) return floorA - floorB;
     return parseInt(a.room_number) - parseInt(b.room_number);
   });
   
-  // Recalculate time estimates for both
   const fromTimeEstimate = calculateTimeEstimation(fromPreview.rooms);
   const toTimeEstimate = calculateTimeEstimation(toPreview.rooms);
-  
   Object.assign(fromPreview, fromTimeEstimate);
   Object.assign(toPreview, toTimeEstimate);
   

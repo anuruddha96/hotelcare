@@ -351,15 +351,29 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
       setProgress(10);
       
+      // ONE-TIME hotel name resolution FIRST before any reset queries
+      // selectedHotel can be hotel_id (e.g. 'memories-budapest') or hotel_name (e.g. 'Hotel Memories Budapest')
+      // rooms table stores 'hotel' as the full name, so we must resolve it first
+      let hotelNameForFilter = selectedHotel;
+      if (selectedHotel) {
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name')
+          .eq('hotel_id', selectedHotel)
+          .maybeSingle();
+        hotelNameForFilter = hotelConfig?.hotel_name || selectedHotel;
+        console.log(`[PMS] Resolved hotel filter: ${selectedHotel} -> ${hotelNameForFilter}`);
+      }
+
       // Reset ONLY the selected hotel's current day room assignments since PMS upload will reset room data
       const today = new Date().toISOString().split('T')[0];
       
-      if (selectedHotel) {
-        // First, get all room IDs for the selected hotel
+      if (hotelNameForFilter) {
+        // First, get all room IDs for the selected hotel (use resolved name)
         const { data: selectedHotelRooms } = await supabase
           .from('rooms')
           .select('id')
-          .eq('hotel', selectedHotel);
+          .eq('hotel', hotelNameForFilter);
         
         if (selectedHotelRooms && selectedHotelRooms.length > 0) {
           const roomIds = selectedHotelRooms.map(r => r.id);
@@ -372,33 +386,33 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             .in('room_id', roomIds);
           
           if (resetError) {
-            console.warn(`Error resetting room assignments for ${selectedHotel}:`, resetError);
+            console.warn(`Error resetting room assignments for ${hotelNameForFilter}:`, resetError);
           } else {
-            console.log(`Reset room assignments for ${selectedHotel} today (${roomIds.length} rooms)`);
+            console.log(`Reset room assignments for ${hotelNameForFilter} today (${roomIds.length} rooms)`);
           }
 
           // Batch reset DND on ALL rooms for this hotel before processing
           const { error: dndResetError } = await supabase
             .from('rooms')
             .update({ is_dnd: false, dnd_marked_at: null, dnd_marked_by: null })
-            .eq('hotel', selectedHotel);
+            .eq('hotel', hotelNameForFilter);
           
           if (dndResetError) {
-            console.warn(`Error resetting DND for ${selectedHotel}:`, dndResetError);
+            console.warn(`Error resetting DND for ${hotelNameForFilter}:`, dndResetError);
           } else {
-            console.log(`Reset DND flags for all rooms in ${selectedHotel}`);
+            console.log(`Reset DND flags for all rooms in ${hotelNameForFilter}`);
           }
 
           // Batch reset towel/linen change flags to prevent stale data from previous uploads
           const { error: tcResetError } = await supabase
             .from('rooms')
             .update({ towel_change_required: false, linen_change_required: false })
-            .eq('hotel', selectedHotel);
+            .eq('hotel', hotelNameForFilter);
           
           if (tcResetError) {
-            console.warn(`Error resetting T/RC flags for ${selectedHotel}:`, tcResetError);
+            console.warn(`Error resetting T/RC flags for ${hotelNameForFilter}:`, tcResetError);
           } else {
-            console.log(`Reset towel/linen change flags for all rooms in ${selectedHotel}`);
+            console.log(`Reset towel/linen change flags for all rooms in ${hotelNameForFilter}`);
           }
         }
       } else {
@@ -406,11 +420,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       }
 
       // Clear minibar records from previous day for the current hotel to avoid confusion
-      if (selectedHotel) {
+      if (hotelNameForFilter) {
         const { data: hotelRooms } = await supabase
           .from('rooms')
           .select('id')
-          .or(`hotel.eq.${selectedHotel}`);
+          .eq('hotel', hotelNameForFilter);
         
         if (hotelRooms && hotelRooms.length > 0) {
           const roomIds = hotelRooms.map(r => r.id);
@@ -440,23 +454,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           }
         }
       }
-      
+
       // Process the data
       const processed = { processed: 0, updated: 0, assigned: 0, errors: [] as string[] };
       const checkoutRoomsList: any[] = [];
       const dailyCleaningRoomsList: any[] = [];
-
-      // ONE-TIME hotel name resolution before the loop
-      let hotelNameForFilter = selectedHotel;
-      if (selectedHotel) {
-        const { data: hotelConfig } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_name')
-          .eq('hotel_id', selectedHotel)
-          .maybeSingle();
-        hotelNameForFilter = hotelConfig?.hotel_name || selectedHotel;
-        console.log(`[PMS] Resolved hotel filter: ${selectedHotel} -> ${hotelNameForFilter}`);
-      }
 
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
