@@ -514,11 +514,21 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                 isEarlyCheckout = true;
               }
               
-              // Towel change required every 2 nights
-              towelChangeRequired = guestNightsStayed >= 2 && guestNightsStayed % 2 === 0;
-              
-              // Linen change required every 5 nights
-              linenChangeRequired = guestNightsStayed >= 5 && guestNightsStayed % 5 === 0;
+              // Hotel Memories Budapest cleaning cycle
+              // Pattern repeats every 6 days starting from day 3:
+              // Day 3: RC, Day 5: T, Day 7: T, Day 9: RC, Day 11: T, Day 13: T, ...
+              if (guestNightsStayed >= 3) {
+                const cyclePosition = (guestNightsStayed - 3) % 6;
+                if (cyclePosition === 0) {
+                  // Room Cleaning days: 3, 9, 15, 21...
+                  linenChangeRequired = true;
+                  towelChangeRequired = false;
+                } else if (cyclePosition === 2 || cyclePosition === 4) {
+                  // Towel Change days: 5, 7, 11, 13, 17, 19...
+                  towelChangeRequired = true;
+                  linenChangeRequired = false;
+                }
+              }
               
               console.log(`[PMS] Room ${roomNumber}: Guest stayed ${guestNightsStayed}/${totalNights} nights. Early checkout: ${isEarlyCheckout}. Towel change: ${towelChangeRequired}, Linen change: ${linenChangeRequired}`);
             }
