@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { RotateCw, Move, Save, RotateCcw, Pencil } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface RoomData {
   id: string;
@@ -23,11 +27,19 @@ interface AssignmentData {
   status: string;
 }
 
+interface WingLayout {
+  x: number;
+  y: number;
+  rotation: number;
+}
+
 interface HotelFloorMapProps {
   rooms: RoomData[];
   assignments: Map<string, AssignmentData>;
   staffMap: Record<string, string>;
   onRoomClick?: (room: RoomData) => void;
+  hotelName: string;
+  isAdmin?: boolean;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -68,13 +80,185 @@ const FLOOR_WINGS: Record<number, string[]> = {
   3: ['L'],
 };
 
-export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick }: HotelFloorMapProps) {
+function getDefaultLayout(floor: number, wingKey: string, wingIndex: number): WingLayout {
+  const totalWings = FLOOR_WINGS[floor]?.length || 1;
+  const spacing = 100 / (totalWings + 1);
+  return {
+    x: spacing * (wingIndex + 1) - 10,
+    y: 20,
+    rotation: 0,
+  };
+}
+
+export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick, hotelName, isAdmin }: HotelFloorMapProps) {
+  const [editMode, setEditMode] = useState(false);
+  const [layouts, setLayouts] = useState<Record<string, WingLayout>>({});
+  const [savedLayouts, setSavedLayouts] = useState<Record<string, WingLayout>>({});
+  const [saving, setSaving] = useState(false);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [rotating, setRotating] = useState<string | null>(null);
+  const dragStart = useRef<{ x: number; y: number; layoutX: number; layoutY: number } | null>(null);
+  const rotateStart = useRef<{ centerX: number; centerY: number; startAngle: number; layoutRotation: number } | null>(null);
+  const containerRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const canvasRefs = useRef<Record<number, HTMLDivElement | null>>({});
+
   const roomsByWing = new Map<string, RoomData[]>();
   rooms.forEach(room => {
     const wing = room.wing || 'unknown';
     if (!roomsByWing.has(wing)) roomsByWing.set(wing, []);
     roomsByWing.get(wing)!.push(room);
   });
+
+  // Load layouts from DB
+  useEffect(() => {
+    if (!hotelName) return;
+    const loadLayouts = async () => {
+      const { data } = await supabase
+        .from('hotel_floor_layouts')
+        .select('floor_number, wing, x, y, rotation')
+        .eq('hotel_name', hotelName);
+
+      if (data && data.length > 0) {
+        const map: Record<string, WingLayout> = {};
+        data.forEach(row => {
+          map[`${row.floor_number}-${row.wing}`] = {
+            x: Number(row.x),
+            y: Number(row.y),
+            rotation: Number(row.rotation),
+          };
+        });
+        setLayouts(map);
+        setSavedLayouts(map);
+      }
+    };
+    loadLayouts();
+  }, [hotelName]);
+
+  const getLayout = (floor: number, wing: string, wingIndex: number): WingLayout => {
+    const key = `${floor}-${wing}`;
+    return layouts[key] || getDefaultLayout(floor, wing, wingIndex);
+  };
+
+  const setWingLayout = (floor: number, wing: string, layout: WingLayout) => {
+    setLayouts(prev => ({ ...prev, [`${floor}-${wing}`]: layout }));
+  };
+
+  // Drag handlers
+  const handleDragStart = (e: React.PointerEvent, floor: number, wing: string, wingIndex: number) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const layout = getLayout(floor, wing, wingIndex);
+    const canvas = canvasRefs.current[floor];
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    dragStart.current = {
+      x: e.clientX,
+      y: e.clientY,
+      layoutX: layout.x,
+      layoutY: layout.y,
+    };
+    setDragging(`${floor}-${wing}`);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handleDragMove = (e: React.PointerEvent, floor: number, wing: string) => {
+    if (!dragging || dragging !== `${floor}-${wing}` || !dragStart.current) return;
+    const canvas = canvasRefs.current[floor];
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const dx = ((e.clientX - dragStart.current.x) / rect.width) * 100;
+    const dy = ((e.clientY - dragStart.current.y) / rect.height) * 100;
+    setWingLayout(floor, wing, {
+      ...getLayout(floor, wing, 0),
+      x: dragStart.current.layoutX + dx,
+      y: dragStart.current.layoutY + dy,
+    });
+  };
+
+  const handleDragEnd = () => {
+    setDragging(null);
+    dragStart.current = null;
+  };
+
+  // Rotation handlers
+  const handleRotateStart = (e: React.PointerEvent, floor: number, wing: string, wingIndex: number) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const container = containerRefs.current[`${floor}-${wing}`];
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
+    const layout = getLayout(floor, wing, wingIndex);
+    rotateStart.current = { centerX, centerY, startAngle, layoutRotation: layout.rotation };
+    setRotating(`${floor}-${wing}`);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handleRotateMove = (e: React.PointerEvent, floor: number, wing: string) => {
+    if (!rotating || rotating !== `${floor}-${wing}` || !rotateStart.current) return;
+    const { centerX, centerY, startAngle, layoutRotation } = rotateStart.current;
+    const currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
+    const delta = currentAngle - startAngle;
+    const newRotation = Math.round((layoutRotation + delta) / 5) * 5; // snap to 5deg
+    setWingLayout(floor, wing, {
+      ...getLayout(floor, wing, 0),
+      rotation: newRotation,
+    });
+  };
+
+  const handleRotateEnd = () => {
+    setRotating(null);
+    rotateStart.current = null;
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const upserts = Object.entries(layouts).map(([key, layout]) => {
+        const [floor, wing] = key.split('-');
+        return {
+          hotel_name: hotelName,
+          floor_number: parseInt(floor),
+          wing,
+          x: layout.x,
+          y: layout.y,
+          rotation: layout.rotation,
+          updated_by: user.id,
+          updated_at: new Date().toISOString(),
+        };
+      });
+
+      const { error } = await supabase
+        .from('hotel_floor_layouts')
+        .upsert(upserts, { onConflict: 'hotel_name,floor_number,wing' });
+
+      if (error) throw error;
+      setSavedLayouts({ ...layouts });
+      toast.success('Layout saved successfully');
+      setEditMode(false);
+    } catch (err: any) {
+      console.error('Error saving layout:', err);
+      toast.error('Failed to save layout');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = () => {
+    setLayouts({ ...savedLayouts });
+  };
+
+  const handleCancelEdit = () => {
+    setLayouts({ ...savedLayouts });
+    setEditMode(false);
+  };
 
   const getAssignmentStatus = (roomId: string): string | null => {
     return assignments.get(roomId)?.status || null;
@@ -99,7 +283,10 @@ export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick }: Hot
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              onClick={() => onRoomClick?.(room)}
+              onClick={(e) => {
+                if (editMode) { e.stopPropagation(); return; }
+                onRoomClick?.(room);
+              }}
               className={`
                 px-1.5 py-0.5 rounded text-[10px] font-bold border min-w-[32px] text-center
                 transition-all hover:scale-110 hover:shadow-md
@@ -129,6 +316,32 @@ export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick }: Hot
 
   return (
     <div className="space-y-3">
+      {/* Admin controls */}
+      {isAdmin && (
+        <div className="flex items-center gap-2">
+          {!editMode ? (
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setEditMode(true)}>
+              <Pencil className="h-3 w-3" /> Edit Layout
+            </Button>
+          ) : (
+            <>
+              <Button variant="default" size="sm" className="h-7 text-xs gap-1" onClick={handleSave} disabled={saving}>
+                <Save className="h-3 w-3" /> {saving ? 'Saving...' : 'Save Layout'}
+              </Button>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handleReset}>
+                <RotateCcw className="h-3 w-3" /> Reset
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={handleCancelEdit}>
+                Cancel
+              </Button>
+              <span className="text-[10px] text-muted-foreground ml-2">
+                Drag wings to reposition • Use rotation handle to rotate
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
       {FLOOR_ORDER.map(floor => {
         const wings = FLOOR_WINGS[floor] || [];
         const hasRooms = wings.some(w => (roomsByWing.get(w) || []).length > 0);
@@ -146,25 +359,85 @@ export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick }: Hot
                 </span>
               )}
             </div>
-            <div className="flex flex-wrap gap-3">
-              {wings.map(wingKey => {
+
+            {/* Canvas for this floor */}
+            <div
+              ref={el => { canvasRefs.current[floor] = el; }}
+              className="relative border border-border/30 rounded-lg bg-muted/10 overflow-visible"
+              style={{ minHeight: editMode ? '220px' : '120px' }}
+            >
+              {wings.map((wingKey, wingIndex) => {
                 const wingRooms = (roomsByWing.get(wingKey) || []).sort(
                   (a, b) => parseInt(a.room_number) - parseInt(b.room_number)
                 );
                 if (wingRooms.length === 0) return null;
                 const info = WING_INFO[wingKey];
+                const layout = getLayout(floor, wingKey, wingIndex);
+                const key = `${floor}-${wingKey}`;
 
                 return (
-                  <div key={wingKey} className="border border-border/50 rounded-lg p-2 bg-muted/30">
-                    <div className="flex items-center gap-1 mb-1">
-                      <span className="text-[10px] font-bold text-primary">{info?.label || wingKey}</span>
-                      {info?.view && (
-                        <span className="text-[9px] text-muted-foreground">({info.view})</span>
-                      )}
+                  <div
+                    key={key}
+                    ref={el => { containerRefs.current[key] = el; }}
+                    className={`
+                      absolute origin-center
+                      ${editMode ? 'cursor-grab active:cursor-grabbing' : ''}
+                      ${dragging === key ? 'z-20 opacity-90' : 'z-10'}
+                    `}
+                    style={{
+                      left: `${layout.x}%`,
+                      top: `${layout.y}%`,
+                      transform: `rotate(${layout.rotation}deg)`,
+                      transformOrigin: 'center center',
+                    }}
+                    onPointerDown={editMode ? (e) => handleDragStart(e, floor, wingKey, wingIndex) : undefined}
+                    onPointerMove={editMode ? (e) => {
+                      handleDragMove(e, floor, wingKey);
+                      handleRotateMove(e, floor, wingKey);
+                    } : undefined}
+                    onPointerUp={editMode ? () => { handleDragEnd(); handleRotateEnd(); } : undefined}
+                  >
+                    {/* Counter-rotated content so text stays upright */}
+                    <div
+                      className="border border-border/50 rounded-lg p-2 bg-background/80 backdrop-blur-sm shadow-sm"
+                      style={{ transform: `rotate(${-layout.rotation}deg)` }}
+                    >
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className="text-[10px] font-bold text-primary">{info?.label || wingKey}</span>
+                        {info?.view && (
+                          <span className="text-[9px] text-muted-foreground">({info.view})</span>
+                        )}
+                        {editMode && (
+                          <span className="text-[8px] text-muted-foreground ml-1">
+                            {Math.round(layout.rotation)}°
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {wingRooms.map(room => renderRoom(room))}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-1">
-                      {wingRooms.map(room => renderRoom(room))}
-                    </div>
+
+                    {/* Rotation handle (only in edit mode) */}
+                    {editMode && (
+                      <div
+                        className="absolute -top-3 -right-3 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center cursor-grab hover:scale-110 transition-transform shadow-md z-30"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          handleRotateStart(e, floor, wingKey, wingIndex);
+                        }}
+                        onPointerMove={(e) => {
+                          e.stopPropagation();
+                          handleRotateMove(e, floor, wingKey);
+                        }}
+                        onPointerUp={(e) => {
+                          e.stopPropagation();
+                          handleRotateEnd();
+                        }}
+                      >
+                        <RotateCw className="h-3 w-3" />
+                      </div>
+                    )}
                   </div>
                 );
               })}
