@@ -18,6 +18,9 @@ export interface RoomForAssignment {
   status: string;
   towel_change_required?: boolean;
   linen_change_required?: boolean;
+  wing?: string | null;
+  elevator_proximity?: number | null;
+  room_category?: string | null;
 }
 
 export interface StaffForAssignment {
@@ -116,19 +119,26 @@ export function getFloorFromRoomNumber(roomNumber: string): number {
   return Math.floor(num / 100);
 }
 
-// Group rooms by floor
-function groupRoomsByFloor(rooms: RoomForAssignment[]): Map<number, RoomForAssignment[]> {
-  const floorMap = new Map<number, RoomForAssignment[]>();
+// Group rooms by wing (falls back to floor if no wing assigned)
+function groupRoomsByWing(rooms: RoomForAssignment[]): Map<string, RoomForAssignment[]> {
+  const wingMap = new Map<string, RoomForAssignment[]>();
   
   rooms.forEach(room => {
-    const floor = room.floor_number ?? getFloorFromRoomNumber(room.room_number);
-    if (!floorMap.has(floor)) {
-      floorMap.set(floor, []);
+    const key = room.wing || `floor-${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`;
+    if (!wingMap.has(key)) {
+      wingMap.set(key, []);
     }
-    floorMap.get(floor)!.push(room);
+    wingMap.get(key)!.push(room);
   });
   
-  return floorMap;
+  return wingMap;
+}
+
+// Get average elevator proximity for a group of rooms
+function getAvgProximity(rooms: RoomForAssignment[]): number {
+  const withProx = rooms.filter(r => r.elevator_proximity != null);
+  if (withProx.length === 0) return 2;
+  return withProx.reduce((sum, r) => sum + (r.elevator_proximity || 2), 0) / withProx.length;
 }
 
 // Main auto-assignment algorithm with FAIR checkout distribution
@@ -185,28 +195,34 @@ export function autoAssignRooms(
     staffWeights.set(staffId, currentWeight + room.weight);
   });
 
-  // STEP 3: Now distribute daily rooms, prioritizing keeping floors together
+  // STEP 3: Now distribute daily rooms, prioritizing keeping wings together
   const dailyWeightedRooms = dailyRooms.map(room => ({
     ...room,
     weight: calculateRoomWeight(room),
     floor: room.floor_number ?? getFloorFromRoomNumber(room.room_number)
   }));
 
-  // Group daily rooms by floor
-  const dailyByFloor = groupRoomsByFloor(dailyWeightedRooms as RoomForAssignment[]);
+  // Group daily rooms by wing (physical proximity)
+  const dailyByWing = groupRoomsByWing(dailyWeightedRooms as RoomForAssignment[]);
   
-  // Sort floors by total weight (heaviest first for better distribution)
-  const sortedFloors = Array.from(dailyByFloor.entries())
-    .map(([floor, floorRooms]) => ({
-      floor,
-      rooms: floorRooms,
-      totalWeight: floorRooms.reduce((sum, r) => sum + calculateRoomWeight(r), 0)
+  // Sort wings by total weight (heaviest first for better distribution)
+  const sortedWings = Array.from(dailyByWing.entries())
+    .map(([wing, wingRooms]) => ({
+      wing,
+      rooms: wingRooms,
+      totalWeight: wingRooms.reduce((sum, r) => sum + calculateRoomWeight(r), 0),
+      avgProximity: getAvgProximity(wingRooms)
     }))
     .sort((a, b) => b.totalWeight - a.totalWeight);
 
-  // Assign floors to housekeepers based on current weight balance
-  for (const { floor, rooms: floorRooms, totalWeight } of sortedFloors) {
-    const roomsWithWeight = floorRooms.map(r => ({
+  // Track proximity per staff for smart assignment
+  const staffProximity: Map<string, number[]> = new Map();
+  staff.forEach(s => staffProximity.set(s.id, []));
+
+  // Assign wings to housekeepers based on current weight balance + proximity
+  for (const { wing, rooms: wingRooms, totalWeight, avgProximity } of sortedWings) {
+    const floor = wingRooms[0]?.floor_number ?? getFloorFromRoomNumber(wingRooms[0]?.room_number || '0');
+    const roomsWithWeight = wingRooms.map(r => ({
       ...r,
       weight: calculateRoomWeight(r),
       floor
@@ -216,17 +232,28 @@ export function autoAssignRooms(
     const totalCurrentWeight = Array.from(staffWeights.values()).reduce((a, b) => a + b, 0);
     const avgTarget = (totalCurrentWeight + totalWeight) / staff.length;
     
-    // Find staff with lowest current weight
+    // Find staff with lowest current weight, preferring those with similar proximity
     const sortedStaff = Array.from(staffWeights.entries())
-      .sort((a, b) => a[1] - b[1]);
+      .sort((a, b) => {
+        const weightDiff = a[1] - b[1];
+        // If weights are close, prefer staff already working near this wing's elevator
+        if (Math.abs(weightDiff) < 1) {
+          const aProx = staffProximity.get(a[0]) || [];
+          const bProx = staffProximity.get(b[0]) || [];
+          const aAvg = aProx.length > 0 ? aProx.reduce((s, v) => s + v, 0) / aProx.length : 99;
+          const bAvg = bProx.length > 0 ? bProx.reduce((s, v) => s + v, 0) / bProx.length : 99;
+          return Math.abs(aAvg - avgProximity) - Math.abs(bAvg - avgProximity);
+        }
+        return weightDiff;
+      });
     
-    // If assigning entire floor to one person would exceed 30% above average,
-    // split the floor among multiple housekeepers
+    // If assigning entire wing to one person would exceed 30% above average,
+    // split the wing among multiple housekeepers
     const [lightestId, lightestWeight] = sortedStaff[0];
     const wouldBe = lightestWeight + totalWeight;
     
-    if (wouldBe > avgTarget * 1.3 && floorRooms.length > 2) {
-      // Split floor - distribute rooms one by one to balance weights
+    if (wouldBe > avgTarget * 1.3 && wingRooms.length > 2) {
+      // Split wing - distribute rooms one by one to balance weights
       roomsWithWeight.sort((a, b) => b.weight - a.weight); // Heaviest first
       
       for (const room of roomsWithWeight) {
@@ -235,11 +262,13 @@ export function autoAssignRooms(
         
         assignments.get(minStaff[0])!.push(room);
         staffWeights.set(minStaff[0], minStaff[1] + room.weight);
+        staffProximity.get(minStaff[0])!.push(avgProximity);
       }
     } else {
-      // Assign entire floor to one housekeeper
+      // Assign entire wing to one housekeeper
       assignments.get(lightestId)!.push(...roomsWithWeight);
       staffWeights.set(lightestId, lightestWeight + totalWeight);
+      staffProximity.get(lightestId)!.push(avgProximity);
     }
   }
 

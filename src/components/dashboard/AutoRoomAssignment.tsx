@@ -141,7 +141,7 @@ export function AutoRoomAssignment({
       // Fetch dirty rooms that don't have assignments for today
       const { data: roomsData } = await supabase
         .from('rooms')
-        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, status, towel_change_required, linen_change_required')
+        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category')
         .eq('hotel', hotelName)
         .eq('status', 'dirty');
 
@@ -502,7 +502,10 @@ export function AutoRoomAssignment({
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
                     const isDragOver = dragOverStaffId === preview.staffId;
                     const floors = [...new Set(preview.rooms.map(r => r.floor_number ?? Math.floor(parseInt(r.room_number) / 100)))].sort((a, b) => a - b);
-                    const floorsLabel = floors.length <= 3 ? `Fl. ${floors.join(',')}` : `${floors.length} floors`;
+                    const wings = [...new Set(preview.rooms.map(r => r.wing).filter(Boolean))].sort();
+                    const floorsLabel = wings.length > 0 
+                      ? (wings.length <= 4 ? `Wing ${wings.join(',')}` : `${wings.length} wings`)
+                      : (floors.length <= 3 ? `Fl. ${floors.join(',')}` : `${floors.length} floors`);
                     const weightStatus = avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.1 ? 'Fair' 
                       : avgWeight > 0 && Math.abs(preview.totalWeight - avgWeight) <= avgWeight * 0.2 ? 'OK' : 'Heavy';
                     const weightColor = weightStatus === 'Fair' ? 'text-green-600' : weightStatus === 'OK' ? 'text-amber-600' : 'text-red-600';
@@ -647,6 +650,9 @@ export function AutoRoomAssignment({
                                     title={`${room.room_number} | ${sizeSqm || '?'}m² | ${room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES}min | Weight: ${weight.toFixed(1)}`}
                                   >
                                     <span>{room.room_number}</span>
+                                    {room.wing && (
+                                      <span className="text-[9px] px-1 rounded font-bold bg-purple-200 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300" title={`Wing ${room.wing}`}>{room.wing}</span>
+                                    )}
                                     {room.towel_change_required && (
                                       <span className="text-[9px] px-1 rounded font-bold bg-red-200 text-red-800" title="Towel Change">T</span>
                                     )}
