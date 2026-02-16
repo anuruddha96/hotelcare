@@ -1,70 +1,35 @@
 
 
-## Plan: Fix Hungarian PMS File Parsing for Hotel Memories Budapest
+## Plan: Fix Checkout Count - Only Departure Time = Checkout
 
 ### Root Cause
 
-The Hungarian PMS file uses **"Elutazas"** as the departure column header, but the column matcher only knows **"tavozas"**. Both are valid Hungarian words for "departure" but "Elutazas" is what Previo PMS uses. Since the Departure column is not detected, the warning toast fires and ALL rooms fall through to the wrong classification branch.
+The code at lines 546-560 in `PMSUpload.tsx` has a dedicated branch that classifies rooms where `Night = Total` (e.g., 3/3) AND no departure time as "Early Checkout" and adds them to the checkout list. But these 21 rooms still have `Occupied = Igen` (Yes) -- the guest hasn't left yet. Only when the PMS records a departure time has the guest actually checked out.
 
-Additionally, the Status column contains values like `objectTidinessStatus.untidy` and `objectTidinessStatus.clean` (Previo's internal status format) rather than plain "Untidy"/"Clean", so the no-show and dirty-status checks also fail.
+**Current behavior:** 30 (departure time) + 21 (early checkout) = 51 checkouts, 20 daily
+**Expected behavior:** 30 checkouts, 41 daily cleaning (20 regular + 21 last-night guests)
 
-### Three fixes needed, all in one file
+### Fix (single file)
 
 **File: `src/components/dashboard/PMSUpload.tsx`**
 
-#### Fix 1: Add missing Hungarian column aliases (line 68-70)
+**Remove lines 546-560** (the `isEarlyCheckout && departureParsed === null` block that adds rooms to `checkoutRoomsList`). Let these rooms fall through to the next condition at line 561: `isOccupiedYes(occupiedVal) && departureParsed === null` which correctly classifies them as daily cleaning.
 
-Add `'elutazas'` and `'elutaz'` to the Departure matchers. The fuzzy matcher strips accents via normalization, but "elutazas" vs "tavozas" are entirely different words -- no amount of fuzzy matching helps here.
+The early checkout info is still preserved:
+- The `isEarlyCheckout` flag is still set at line 501-502
+- The room notes at line 593 still include "Early Checkout" text
+- The daily cleaning list entry will show the note
 
-Also add `'vendeg'` to the People matchers (the file uses "Vendegek" = Guests).
-
-Also add `'hozzarendelve'` / `'assigned'` patterns are not critical but won't hurt.
-
-```
-Departure: [...existing..., 'elutazás', 'elutazas', 'elutaz']
-People: [...existing..., 'vendégek', 'vendeg', 'guest']
-```
-
-#### Fix 2: Handle Previo status format (lines 575, 580)
-
-The Status column values from Previo are `objectTidinessStatus.untidy` and `objectTidinessStatus.clean`, not plain "Untidy"/"Clean". Update all status checks to use `.includes('untidy')` / `.includes('clean')` instead of exact string comparison.
-
-Change:
-```typescript
-// Line 575: No-show check
-String(statusVal) === 'Untidy' || String(statusVal) === 'untidy'
-// Line 580: Dirty check
-['Untidy', 'untidy', 'dirty'].includes(String(statusVal))
-```
-To:
-```typescript
-// Line 575: No-show check
-String(statusVal).toLowerCase().includes('untidy')
-// Line 580: Dirty check
-const statusLower = String(statusVal).toLowerCase();
-statusLower.includes('untidy') || statusLower.includes('dirty')
-```
-
-#### Fix 3: Remove the Departure warning toast (line 343-345)
-
-The user explicitly asked to hide this toast. Remove or convert to a `console.warn` only, not a visible toast.
-
-### Expected Results After Fix
-
-From analyzing today's PMS file for Hotel Memories Budapest:
-
-| Category | Count | Rooms |
-|----------|-------|-------|
-| Checkout (with departure time) | 30 | 306, 308, 008, 032, 040, 042, 112, 204, 206, 208, 210, 034, 036, 044, 130, 214, 131, 137, 139, 143, 103, 123, 125, 201, 203, 205, 121, 006, 212, 217 |
-| Early Checkout (last night, no departure) | 21 | 004, 102, 132, 140, 106, 108, 110, 134, 136, 145, 147, 109, 107, 111, 117, 115, 207, 138, 209, 213, 038 |
-| Daily Cleaning (occupied, not last night) | 20 | 002, 010, 142, 302, 304, 104, 144, 202, 133, 135, 141, 101, 105, 113, 119, 127, 211, 215, 114, 216 |
-
-Total: 71 rooms processed.
+**After the fix, the logic becomes:**
+1. Has departure time? --> Checkout (30 rooms)
+2. Occupied = Yes, no departure? --> Daily cleaning (41 rooms, some noted as "last night")
+3. Occupied = No, Status = Untidy, has Arrival? --> No Show
+4. Status = Untidy/Dirty? --> Dirty room
 
 ### Safety: Hotel Ottofiori
 
-- Ottofiori PMS files use English headers ("Room", "Departure", "Occupied") which already match
-- Ottofiori Status values are plain "Untidy"/"Clean" -- `.includes('untidy')` still matches these correctly
-- Adding new Hungarian aliases does not remove any existing English ones
-- No structural changes to the processing logic
+- No column mapping changes
+- No status matching changes
+- Only removing the early checkout --> checkout classification branch
+- Ottofiori rooms with departure times still work as checkouts
 
