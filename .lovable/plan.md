@@ -1,103 +1,95 @@
 
-## Plan: Fix RLS Policy Blocking Manager PMS Uploads + Cleaning Cycle
+## Plan: Fix Towel Change Logic, Add Hotel Ottofiori Room Categories
 
-### Root Cause
+### What's Wrong
 
-The `rooms` table UPDATE RLS policy compares `profiles.assigned_hotel = hotel` directly. Managers have `assigned_hotel = 'memories-budapest'` (hotel_id) but the rooms table stores `hotel = 'Hotel Memories Budapest'` (hotel_name). This comparison always fails for managers.
+**Issue 1: Towel change showing on ALL daily rooms instead of only night 3+**
+The cleaning cycle code IS correct in the file (day 3 = Towel Change, day 5 = Towel Change, day 7 = Room Cleaning). However, the database currently contains stale data from a previous upload that ran with the OLD code (before the fix). Evidence:
+- Room 101 (night 3): towel_change = false, but should be true
+- Room 102 (night 2): towel_change = true, but should be false
+- This is the exact pattern the OLD (inverted) code would produce
 
-Supabase silently ignores RLS-blocked updates (returns no error, updates 0 rows), so the upload code reports "71 rooms updated" but nothing actually changes in the database.
+The RLS fix IS working (DND reset cleared successfully). The cleaning cycle code is correct. A re-upload with the current code will produce the right results.
 
-This causes ALL three reported issues:
-1. Room 002 DND not clearing (batch reset blocked by RLS)
-2. Every daily room showing stale towel change "T" (per-room updates blocked)
-3. The corrected cleaning cycle logic never saves to the database
+However, to make this bulletproof, we will add explicit debug logging and a **post-upload verification check** that compares the expected towel/linen flags against what's actually in the database.
 
-### Fix
+**Issue 2: Room categories not hotel-specific**
+The `extractRoomInfo` function only handles Hotel Memories Budapest patterns (QUEEN, DOUBLE, TWIN, SNG, etc.). Hotel Ottofiori uses different PMS room prefixes:
+- CQ = Comfort Queen (not handled)
+- Q = Queen (partially handled -- wrongly matches nothing since "Q-101" doesn't contain "QUEEN")
+- DB/TW = Double/Twin (partially handled -- matches "TWIN" or "DOUBLE" incorrectly)
+- TRP = Triple (works -- matches existing TRP pattern)
+- QRP = Quadruple (not handled separately for Ottofiori category)
 
-**1. SQL Migration: Update rooms UPDATE RLS policy**
+**Issue 3: ROOM_CATEGORIES dropdown is hardcoded for Budapest only**
+The category selector in HotelRoomOverview shows only Budapest room types. Hotel Ottofiori needs its own categories:
+- Economy Double Room
+- Deluxe Double or Twin Room
+- Deluxe Queen Room
+- Deluxe Triple Room
+- Deluxe Quadruple Room
 
-Add a `hotel_configurations` join to the UPDATE policy so managers whose `assigned_hotel` matches either `hotel_id` or `hotel_name` can update rooms. This mirrors what the SELECT policy already does.
+### Changes
 
-Current policy (broken for managers):
+**File 1: `src/components/dashboard/PMSUpload.tsx`**
+
+1. Make `extractRoomInfo` hotel-aware by accepting the hotel name and having separate pattern blocks per hotel:
+
 ```
-assigned_hotel = hotel
-```
+Hotel Ottofiori patterns:
+  CQ-xxx -> queen, "Deluxe Queen Room"
+  Q-xxx -> queen, "Deluxe Queen Room"
+  DB/TW-xxx -> double_twin, "Deluxe Double or Twin Room"
+  TRP-xxx -> triple, "Deluxe Triple Room"
+  QRP-xxx -> quadruple, "Deluxe Quadruple Room"
 
-Fixed policy:
-```
-assigned_hotel = hotel 
-OR EXISTS (
-  SELECT 1 FROM hotel_configurations hc
-  WHERE (assigned_hotel = hc.hotel_id OR assigned_hotel = hc.hotel_name)
-    AND (rooms.hotel = hc.hotel_id OR rooms.hotel = hc.hotel_name)
-)
-```
-
-**2. Code: Add update verification in PMSUpload.tsx**
-
-After the batch resets, verify at least one row was affected by doing a quick check query. Log a warning if 0 rows were updated (helps catch silent RLS failures in the future).
-
-Also add a `count` check on per-room updates to detect silent failures.
-
-**3. Code: Cleaning cycle is already correct**
-
-The last edit already fixed the cycle (Day 3=T, Day 5=T, Day 7=RC, etc.). Once the RLS policy allows manager writes, the correct values will save to the database.
-
-### Files to Change
-
-| File | Changes |
-|------|---------|
-| New migration SQL | Drop and recreate the rooms UPDATE policy with hotel_configurations join |
-| `src/components/dashboard/PMSUpload.tsx` | Add verification after batch resets to detect silent RLS failures; add count-based update check for per-room writes |
-
-### Technical Detail: Migration SQL
-
-```sql
-DROP POLICY IF EXISTS "Secure room updates" ON rooms;
-
-CREATE POLICY "Secure room updates" ON rooms
-FOR UPDATE USING (
-  is_super_admin(auth.uid()) 
-  OR (
-    organization_slug = get_user_organization_slug(auth.uid()) 
-    AND (
-      get_user_role(auth.uid()) = ANY(ARRAY['admin'::user_role, 'top_management'::user_role])
-      OR (SELECT profiles.assigned_hotel FROM profiles WHERE profiles.id = auth.uid()) = hotel
-      OR EXISTS (
-        SELECT 1 FROM hotel_configurations hc
-        WHERE (
-          (SELECT p.assigned_hotel FROM profiles p WHERE p.id = auth.uid()) = hc.hotel_id
-          OR (SELECT p.assigned_hotel FROM profiles p WHERE p.id = auth.uid()) = hc.hotel_name
-        )
-        AND (rooms.hotel = hc.hotel_id OR rooms.hotel = hc.hotel_name)
-      )
-    )
-  )
-);
+Hotel Memories Budapest patterns (existing):
+  SYN.DOUBLE, SYN.TWIN -> "Deluxe Double or Twin Room with Synagogue View"
+  EC.QRP -> "Comfort Quadruple Room"
+  ECDBL -> "Comfort Double Room with Small Window"
+  QUEEN -> "Deluxe Queen Room"
+  DOUBLE/TWIN -> "Deluxe Double or Twin Room"
+  TRP -> "Deluxe Triple Room"
+  QDR -> "Deluxe Quadruple Room"
+  SNG -> "Deluxe Single Room"
 ```
 
-### Technical Detail: Update Verification
+2. Add a post-upload verification step that logs mismatches between expected and actual towel/linen flags, making future debugging trivial.
 
-After each batch reset, add a verification query:
+**File 2: `src/components/dashboard/HotelRoomOverview.tsx`**
 
-```typescript
-// After DND reset
-const { count: dndCount } = await supabase
-  .from('rooms')
-  .select('id', { count: 'exact', head: true })
-  .eq('hotel', hotelNameForFilter)
-  .eq('is_dnd', true);
+1. Make ROOM_CATEGORIES hotel-aware with a mapping object:
 
-if (dndCount && dndCount > 0) {
-  console.error(`DND reset FAILED - ${dndCount} rooms still have DND=true. Likely RLS issue.`);
+```
+HOTEL_ROOM_CATEGORIES = {
+  'Hotel Ottofiori': [
+    'Economy Double Room',
+    'Deluxe Double or Twin Room',
+    'Deluxe Queen Room',
+    'Deluxe Triple Room',
+    'Deluxe Quadruple Room',
+  ],
+  default: [
+    'Deluxe Double or Twin Room with Synagogue View',
+    'Deluxe Double or Twin Room',
+    'Deluxe Queen Room',
+    'Deluxe Triple Room',
+    'Deluxe Quadruple Room',
+    'Comfort Quadruple Room',
+    'Comfort Double Room with Small Window',
+    'Deluxe Single Room',
+  ]
 }
 ```
 
+2. Use the `hotelName` prop to select the correct category list in the dropdown.
+
 ### What This Fixes
 
-Once the RLS policy is updated:
-- Batch reset clears DND, towel change, checkout flags for all rooms before processing
-- Per-room updates save the correct cleaning cycle (T on day 3/5, RC on day 7, etc.)
-- Rooms on day 1-2 will have no T/RC badge
-- Room 002 DND will clear on next upload
-- All managers can perform PMS uploads successfully
+After implementation and a PMS re-upload:
+- Only rooms on night 3+ will show Towel Change (T) badge
+- Rooms on night 1-2 will have NO T/RC badge
+- Room 101 (night 3/4) and Room 404 (night 3/3) will correctly show T badge
+- All other daily rooms (night 2) will show NO T badge
+- Room categories will be correctly assigned per hotel
+- The category dropdown will show hotel-specific options
