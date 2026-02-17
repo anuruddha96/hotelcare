@@ -357,10 +357,6 @@ export function autoAssignRooms(
   return staff.map(s => {
     const staffRooms = assignments.get(s.id) || [];
     const sortedRooms = staffRooms.sort((a, b) => {
-      if (a.is_checkout_room !== b.is_checkout_room) return a.is_checkout_room ? -1 : 1;
-      const floorA = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
-      const floorB = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
-      if (floorA !== floorB) return floorA - floorB;
       return parseInt(a.room_number) - parseInt(b.room_number);
     });
 
@@ -409,10 +405,6 @@ export function moveRoom(
   else toPreview.dailyCount++;
   
   toPreview.rooms.sort((a, b) => {
-    const floorA = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
-    const floorB = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
-    if (a.is_checkout_room !== b.is_checkout_room) return a.is_checkout_room ? -1 : 1;
-    if (floorA !== floorB) return floorA - floorB;
     return parseInt(a.room_number) - parseInt(b.room_number);
   });
   
