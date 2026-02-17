@@ -354,6 +354,52 @@ export function AutoRoomAssignment({
     ? assignmentPreviews.reduce((sum, p) => sum + p.totalWeight, 0) / assignmentPreviews.length 
     : 0;
 
+  const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
+    const isSelected = selectedRoomForMove?.roomId === room.id;
+    const chipColor = room.is_checkout_room
+      ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
+      : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
+
+    return (
+      <div
+        key={room.id}
+        draggable={!isMobile}
+        onDragStart={(e) => {
+          e.dataTransfer.setData('roomId', room.id);
+          e.dataTransfer.setData('fromStaffId', preview.staffId);
+          e.dataTransfer.effectAllowed = 'move';
+          setDraggingRoomId(room.id);
+          const ghost = document.createElement('div');
+          ghost.textContent = room.room_number;
+          ghost.style.cssText = `position:fixed;top:-100px;left:-100px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;background:${room.is_checkout_room ? '#fef3c7' : '#dbeafe'};color:${room.is_checkout_room ? '#92400e' : '#1e40af'};border:2px solid ${room.is_checkout_room ? '#f59e0b' : '#3b82f6'};`;
+          document.body.appendChild(ghost);
+          e.dataTransfer.setDragImage(ghost, 20, 15);
+          requestAnimationFrame(() => document.body.removeChild(ghost));
+        }}
+        onDragEnd={() => { setDraggingRoomId(null); setDragOverStaffId(null); }}
+        className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 select-none ${
+          !isMobile ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+        } ${chipColor} ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}
+        ${draggingRoomId === room.id ? 'opacity-30 scale-95' : ''}
+        ${justDroppedRoomId === room.id ? 'animate-scale-in ring-2 ring-green-500' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isSelected) setSelectedRoomForMove(null);
+          else setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
+        }}
+        title={`Room ${room.room_number}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
+      >
+        <span>{room.room_number}</span>
+        {room.towel_change_required && (
+          <span className="text-[10px] px-0.5 font-bold text-red-600">T</span>
+        )}
+        {room.linen_change_required && (
+          <span className="text-[10px] px-0.5 font-bold text-red-600">L</span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -472,15 +518,11 @@ export function AutoRoomAssignment({
                     Daily
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded bg-green-200 border border-green-400"></span>
-                    Towel only
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-[9px] font-bold text-red-600">T</span>
+                    <span className="text-[10px] font-bold text-red-600">T</span>
                     Towel change
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="text-[9px] font-bold text-red-600">L</span>
+                    <span className="text-[10px] font-bold text-red-600">L</span>
                     Linen change
                   </span>
                 </div>
@@ -533,80 +575,71 @@ export function AutoRoomAssignment({
                           }
                         }}
                       >
-                        {/* Compact header */}
-                        <div className={`flex items-center justify-between px-3 py-2 ${isOverShift ? 'bg-destructive/10' : 'bg-muted/40'}`}>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-sm">{preview.staffName}</span>
-                            {isOverShift && <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="font-medium">{preview.rooms.length} rooms</span>
-                            <span>·</span>
-                            <span className={isOverShift ? 'text-destructive font-semibold' : 'text-green-600 font-medium'}>
-                              {formatMinutesToTime(preview.totalWithBreak)}
-                            </span>
-                            {isOverShift && (
-                              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                                +{formatMinutesToTime(preview.overageMinutes)}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
+                        {/* Compact header with summary */}
+                        {(() => {
+                          const checkoutRooms = preview.rooms.filter(r => r.is_checkout_room);
+                          const dailyRooms = preview.rooms.filter(r => !r.is_checkout_room);
+                          const towelCount = preview.rooms.filter(r => r.towel_change_required).length;
+                          const linenCount = preview.rooms.filter(r => r.linen_change_required).length;
+                          return (
+                            <div className={`px-3 py-2 ${isOverShift ? 'bg-destructive/10' : 'bg-muted/40'}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-sm">{preview.staffName}</span>
+                                  {isOverShift && <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
+                                </div>
+                                <span className={`text-xs ${isOverShift ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}>
+                                  {formatMinutesToTime(preview.totalWithBreak)}
+                                  {isOverShift && ` (+${formatMinutesToTime(preview.overageMinutes)})`}
+                                </span>
+                              </div>
+                              {preview.rooms.length > 0 && (
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  {checkoutRooms.length} checkouts · {dailyRooms.length} daily
+                                  {towelCount > 0 && <> · <span className="text-red-600 font-semibold">{towelCount}T</span></>}
+                                  {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}L</span></>}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
 
-                        {/* Room chips */}
+                        {/* Room chips - grouped by checkout then daily */}
                         <div className="px-3 py-2.5">
                           {preview.rooms.length === 0 ? (
                             <p className="text-sm text-muted-foreground text-center py-2">No rooms assigned</p>
                           ) : (
-                            <div className="flex flex-wrap gap-1.5">
-                              {preview.rooms.map(room => {
-                                const isSelected = selectedRoomForMove?.roomId === room.id;
-                                const isTowelOnly = room.towel_change_required && !room.is_checkout_room && !room.linen_change_required;
-                                const chipColor = room.is_checkout_room
-                                  ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
-                                  : isTowelOnly
-                                  ? 'bg-green-100 text-green-900 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300'
-                                  : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
-                                
+                            <div className="space-y-2">
+                              {/* Checkout rooms */}
+                              {(() => {
+                                const checkouts = preview.rooms
+                                  .filter(r => r.is_checkout_room)
+                                  .sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
+                                if (checkouts.length === 0) return null;
                                 return (
-                                  <div
-                                    key={room.id}
-                                    draggable={!isMobile}
-                                    onDragStart={(e) => {
-                                      e.dataTransfer.setData('roomId', room.id);
-                                      e.dataTransfer.setData('fromStaffId', preview.staffId);
-                                      e.dataTransfer.effectAllowed = 'move';
-                                      setDraggingRoomId(room.id);
-                                      const ghost = document.createElement('div');
-                                      ghost.textContent = room.room_number;
-                                      ghost.style.cssText = `position:fixed;top:-100px;left:-100px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;background:${room.is_checkout_room ? '#fef3c7' : '#dbeafe'};color:${room.is_checkout_room ? '#92400e' : '#1e40af'};border:2px solid ${room.is_checkout_room ? '#f59e0b' : '#3b82f6'};`;
-                                      document.body.appendChild(ghost);
-                                      e.dataTransfer.setDragImage(ghost, 20, 15);
-                                      requestAnimationFrame(() => document.body.removeChild(ghost));
-                                    }}
-                                    onDragEnd={() => { setDraggingRoomId(null); setDragOverStaffId(null); }}
-                                    className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 select-none ${
-                                      !isMobile ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
-                                    } ${chipColor} ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}
-                                    ${draggingRoomId === room.id ? 'opacity-30 scale-95' : ''}
-                                    ${justDroppedRoomId === room.id ? 'animate-scale-in ring-2 ring-green-500' : ''}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (isSelected) setSelectedRoomForMove(null);
-                                      else setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
-                                    }}
-                                    title={`Room ${room.room_number}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
-                                  >
-                                    <span>{room.room_number}</span>
-                                    {room.towel_change_required && !isTowelOnly && (
-                                      <span className="text-[9px] px-0.5 rounded font-bold text-red-600">t</span>
-                                    )}
-                                    {room.linen_change_required && (
-                                      <span className="text-[9px] px-0.5 rounded font-bold text-red-600">l</span>
-                                    )}
+                                  <div>
+                                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wide">Checkouts</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {checkouts.map(room => renderRoomChip(room, preview))}
+                                    </div>
                                   </div>
                                 );
-                              })}
+                              })()}
+                              {/* Daily rooms */}
+                              {(() => {
+                                const dailys = preview.rooms
+                                  .filter(r => !r.is_checkout_room)
+                                  .sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
+                                if (dailys.length === 0) return null;
+                                return (
+                                  <div>
+                                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wide">Daily</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {dailys.map(room => renderRoomChip(room, preview))}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
 
