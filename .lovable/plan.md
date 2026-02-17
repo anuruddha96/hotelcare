@@ -1,76 +1,77 @@
 
 
-## Plan: Fix QR Downloads, Nav UI, Minibar Item Management, and Notification Count
+## Plan: Fix QR URL Structure, Guest "Recorded By" Label, and Housekeeping Tab Truncation
 
-This plan addresses 4 separate issues reported by the user.
+Three issues to address:
 
 ---
 
-### Issue 1: QR Code Download Shows "No rooms found"
+### Issue 1: "Recorded By" Should Show "Guest (QR Scan)" for Guest Submissions
 
-**Root Cause**: The `MinibarQRManagement` component filters rooms with `.eq('hotel', profile.assigned_hotel)`. For the current manager, `profile.assigned_hotel = 'memories-budapest'`, but rooms in the database have `hotel = 'Hotel Memories Budapest'`. This mismatch returns zero rooms.
-
-**Fix**: In `MinibarQRManagement.tsx`, resolve the hotel display name from `hotel_configurations` (same pattern used in the dirty linen fix), and filter rooms using both the short ID and the full name.
+Currently, when `recorded_by` is NULL (guest submissions), the "Recorded By" column shows "Unknown". It should show something like "Guest (QR Scan)" to clearly indicate it was submitted by a guest scanning the QR code.
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/MinibarQRManagement.tsx` | In `fetchRooms()`, look up `hotel_name` from `hotel_configurations` using `profile.assigned_hotel`, then filter rooms with `.or('hotel.eq.X,hotel.eq.Y')` using both values |
+| `src/components/dashboard/MinibarTrackingView.tsx` | On line 241, change the fallback logic: if `source === 'guest'`, display `'Guest (QR Scan)'` instead of `'Unknown'`. |
 
 ---
 
-### Issue 2: Navigation Tab UI - "Housekeeping" Text Overflow
+### Issue 2: QR Code URL Structure
 
-**Root Cause**: The manager/admin tab list uses `grid-cols-5` (for Tickets, Rooms, Housekeeping, Attendance, Admin) inside a `max-w-lg` container. "Housekeeping" is a long word that overflows its column.
+The user wants shorter, branded URLs without "lovable" in them. The current format is:
+`https://hotelcare.lovable.app/rdhotels/minibar/{token}`
 
-**Fix**: Widen the container and add text truncation. Also improve visual styling so the active tab is more prominent.
+The user wants something like:
+`my.hotelcare.app/RDHotels/Ottofiori/minibar/{id}`
+
+**Reality check**: The published URL is `hotelcare.lovable.app`. To remove "lovable" from the URL, the user needs to set up a custom domain (e.g., `hotelcare.app` or `my.hotelcare.app`). Once that's done, we update the base URL.
+
+**What we can do now**: Restructure the route to include the hotel name in the path for readability:
+- New route: `/:organizationSlug/:hotelSlug/minibar/:roomToken`
+- QR URL becomes: `https://hotelcare.lovable.app/rdhotels/ottofiori/minibar/{token}`
+
+This makes the URL cleaner and hotel-specific. When a custom domain is added later, the "lovable" part disappears automatically.
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/Dashboard.tsx` | For the manager TabsList (line 396): increase `max-w-lg` to `max-w-2xl`, and add `truncate` class to tab label spans. For managers without admin, use `grid-cols-4`. Add better active-state styling. |
+| `src/App.tsx` | Add route `/:organizationSlug/:hotelSlug/minibar/:roomToken` pointing to `GuestMinibar` (keep old route for backward compatibility) |
+| `src/pages/GuestMinibar.tsx` | Accept optional `hotelSlug` param (ignored functionally since `roomToken` is the lookup key, but makes URL prettier) |
+| `src/components/dashboard/MinibarQRManagement.tsx` | Update `getBaseUrl()` and URL construction to include hotel slug in the path. Derive hotel slug from hotel name (lowercase, hyphenated). |
 
 ---
 
-### Issue 3: No Option to Create Minibar Items on Tracking Page
+### Issue 3: "Housekee..." Truncation on Navigation Tabs
 
-**Root Cause**: The `MinimBarManagement` component (which allows creating/editing minibar items) is only accessible from `RoomManagement`, not from `MinibarTrackingView`. Managers on the Minibar Tracking page have no way to add new items.
-
-**Fix**: Add a "Manage Items" button to the `MinibarTrackingView` header (visible to admin/manager roles) that opens the existing `MinimBarManagement` dialog.
+The "Housekeeping" tab label is being truncated to "Housekee..." because the `truncate` class was added in the previous fix. The real issue is the container is still too narrow for 5 tabs.
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/MinibarTrackingView.tsx` | Import and add `MinimBarManagement` dialog. Add a "Manage Items" button next to the existing buttons (visible to admin/manager/housekeeping_manager). |
+| `src/components/dashboard/Dashboard.tsx` | Remove `truncate` class from tab labels (or at least from "Housekeeping"). Increase container width or switch to `auto-cols` / `flex` layout so all tab labels fit without truncation. |
 
 ---
 
-### Issue 4: Pending Approval Red Badge Not Showing for Hotel Memories Budapest
+### Technical Details
 
-**Root Cause**: In `usePendingApprovals.tsx` line 51, the query filters with `.eq('rooms.hotel', userHotel)`. The manager at Hotel Memories Budapest has `assigned_hotel = 'memories-budapest'` but rooms have `hotel = 'Hotel Memories Budapest'`. Same hotel name mismatch as all other issues.
+**Recorded By fix** (MinibarTrackingView.tsx, line 241):
+```typescript
+recorded_by_name: record.profiles?.full_name 
+  || ((record as any).source === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
+```
 
-**Fix**: Resolve the hotel display name from `hotel_configurations` before filtering, then use an OR condition to match both the short ID and full name.
+**QR URL construction** (MinibarQRManagement.tsx):
+```typescript
+// Derive hotel slug from hotel name
+const hotelSlug = room.hotel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+const url = `${getBaseUrl()}/${getOrgSlug()}/${hotelSlug}/minibar/${room.minibar_qr_token}`;
+// Result: hotelcare.lovable.app/rdhotels/hotel-ottofiori/minibar/abc123
+```
 
-| File | Change |
-|------|--------|
-| `src/hooks/usePendingApprovals.tsx` | After getting `userHotel`, query `hotel_configurations` to get `hotel_name`. Use `.or()` filter with both values for `rooms.hotel` and `tickets.hotel`. |
+**Tab layout fix** (Dashboard.tsx, line 396):
+Replace `grid` layout with `flex` and allow natural sizing so "Housekeeping" displays fully:
+```typescript
+<TabsList className="flex w-full min-w-[320px] max-w-2xl h-10 sm:h-12">
+  <TabsTrigger ... className="flex-1 ...">
+```
 
----
-
-### Notification Sound Enhancement
-
-The current notification sound is a basic 523Hz sine wave generated programmatically. We will improve it with a richer, more pleasant two-tone chime (C5 + E5) with harmonics for a more modern, recognizable sound.
-
-| File | Change |
-|------|--------|
-| `src/hooks/useNotifications.tsx` | Update `playNotificationSound` to generate a richer two-tone chime using Web Audio API with harmonics (fundamental + overtones) for a more distinctive, pleasant alert sound. |
-
----
-
-### Summary of All File Changes
-
-| File | Issues Addressed |
-|------|-----------------|
-| `src/components/dashboard/MinibarQRManagement.tsx` | QR download fix (hotel name resolution) |
-| `src/components/dashboard/Dashboard.tsx` | Navigation tab UI improvements |
-| `src/components/dashboard/MinibarTrackingView.tsx` | Add "Manage Items" button |
-| `src/hooks/usePendingApprovals.tsx` | Pending approval count fix (hotel name resolution) |
-| `src/hooks/useNotifications.tsx` | Improved notification sound |
+Note to user: To fully remove "lovable" from QR URLs, you would need to connect a custom domain (like `hotelcare.app`). The URL structure improvement we're making now will carry over seamlessly once a custom domain is configured.
 
