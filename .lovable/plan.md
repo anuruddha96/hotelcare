@@ -1,95 +1,74 @@
 
-## Plan: Fix Towel Change Logic, Add Hotel Ottofiori Room Categories
 
-### What's Wrong
+## Plan: Sort Rooms Numerically in Preview + Fix Blank Hotel Selection Page
 
-**Issue 1: Towel change showing on ALL daily rooms instead of only night 3+**
-The cleaning cycle code IS correct in the file (day 3 = Towel Change, day 5 = Towel Change, day 7 = Room Cleaning). However, the database currently contains stale data from a previous upload that ran with the OLD code (before the fix). Evidence:
-- Room 101 (night 3): towel_change = false, but should be true
-- Room 102 (night 2): towel_change = true, but should be false
-- This is the exact pattern the OLD (inverted) code would produce
+### Issue 1: Room Sort Order in Auto-Assignment Preview
 
-The RLS fix IS working (DND reset cleared successfully). The cleaning cycle code is correct. A re-upload with the current code will produce the right results.
+**Current behavior**: Rooms in the preview are sorted by checkout first, then floor, then room number. Within each housekeeper's card, rooms from different wings appear interleaved (e.g., 203, 207, 209, 213, 201, 205, 211, 215, 217, 302, 304, 306, 308) because wing assignment scatters rooms across floors.
 
-However, to make this bulletproof, we will add explicit debug logging and a **post-upload verification check** that compares the expected towel/linen flags against what's actually in the database.
+**Fix**: Sort rooms purely by numerical room number (lowest to highest) within each housekeeper's card. This applies in three places:
 
-**Issue 2: Room categories not hotel-specific**
-The `extractRoomInfo` function only handles Hotel Memories Budapest patterns (QUEEN, DOUBLE, TWIN, SNG, etc.). Hotel Ottofiori uses different PMS room prefixes:
-- CQ = Comfort Queen (not handled)
-- Q = Queen (partially handled -- wrongly matches nothing since "Q-101" doesn't contain "QUEEN")
-- DB/TW = Double/Twin (partially handled -- matches "TWIN" or "DOUBLE" incorrectly)
-- TRP = Triple (works -- matches existing TRP pattern)
-- QRP = Quadruple (not handled separately for Ottofiori category)
+1. **`roomAssignmentAlgorithm.ts` - STEP 6** (line 359): Change the final sort from "checkout-first, then floor, then number" to simply numerical ascending by room number.
 
-**Issue 3: ROOM_CATEGORIES dropdown is hardcoded for Budapest only**
-The category selector in HotelRoomOverview shows only Budapest room types. Hotel Ottofiori needs its own categories:
-- Economy Double Room
-- Deluxe Double or Twin Room
-- Deluxe Queen Room
-- Deluxe Triple Room
-- Deluxe Quadruple Room
+2. **`roomAssignmentAlgorithm.ts` - `moveRoom` function** (line 411): Same sort change when a room is moved between housekeepers.
 
-### Changes
+3. **Algorithm proximity logic**: The wing-based grouping already tries to keep nearby rooms together. No changes needed to the core assignment logic -- the existing wing-first approach already clusters rooms spatially. The sort is purely for display.
 
-**File 1: `src/components/dashboard/PMSUpload.tsx`**
-
-1. Make `extractRoomInfo` hotel-aware by accepting the hotel name and having separate pattern blocks per hotel:
-
+**Sort logic change**:
 ```
-Hotel Ottofiori patterns:
-  CQ-xxx -> queen, "Deluxe Queen Room"
-  Q-xxx -> queen, "Deluxe Queen Room"
-  DB/TW-xxx -> double_twin, "Deluxe Double or Twin Room"
-  TRP-xxx -> triple, "Deluxe Triple Room"
-  QRP-xxx -> quadruple, "Deluxe Quadruple Room"
+// Before (confusing order)
+sort by: checkout first -> floor -> room number
 
-Hotel Memories Budapest patterns (existing):
-  SYN.DOUBLE, SYN.TWIN -> "Deluxe Double or Twin Room with Synagogue View"
-  EC.QRP -> "Comfort Quadruple Room"
-  ECDBL -> "Comfort Double Room with Small Window"
-  QUEEN -> "Deluxe Queen Room"
-  DOUBLE/TWIN -> "Deluxe Double or Twin Room"
-  TRP -> "Deluxe Triple Room"
-  QDR -> "Deluxe Quadruple Room"
-  SNG -> "Deluxe Single Room"
+// After (clean numerical order)
+sort by: room number (parseInt, ascending)
 ```
 
-2. Add a post-upload verification step that logs mismatches between expected and actual towel/linen flags, making future debugging trivial.
+### Issue 2: Blank Hotel Selection Page
 
-**File 2: `src/components/dashboard/HotelRoomOverview.tsx`**
+**Root cause**: The `HotelSelectionScreen` component depends on `useTenant()` which fetches hotels asynchronously. When `tenantLoading` becomes `false` but `hotels` is still an empty array (due to RLS timing or race condition), the screen renders with no hotel cards and no error message -- just a blank page with a title.
 
-1. Make ROOM_CATEGORIES hotel-aware with a mapping object:
+**Fix in `HotelSelectionScreen.tsx`**:
+- Add a fallback when `hotels` is empty and loading is complete: show a retry button and a message ("No hotels found. Tap to retry.")
+- Add error boundary around the hotel fetch to prevent unhandled promise rejections from blanking the page.
 
+### Issue 3: Hotel-specific safeguard
+
+The plan only modifies sorting logic (which is universal/harmless) and the hotel selection screen. No hotel-specific extraction or category logic is touched, so Ottofiori and Budapest remain independent.
+
+### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/lib/roomAssignmentAlgorithm.ts` | Change room sort in STEP 6 and `moveRoom` to pure numerical ascending |
+| `src/components/dashboard/HotelSelectionScreen.tsx` | Add empty-state fallback with retry button when hotels array is empty |
+
+### Technical Details
+
+**roomAssignmentAlgorithm.ts - STEP 6 sort (line 359-365)**:
+```typescript
+const sortedRooms = staffRooms.sort((a, b) => {
+  return parseInt(a.room_number) - parseInt(b.room_number);
+});
 ```
-HOTEL_ROOM_CATEGORIES = {
-  'Hotel Ottofiori': [
-    'Economy Double Room',
-    'Deluxe Double or Twin Room',
-    'Deluxe Queen Room',
-    'Deluxe Triple Room',
-    'Deluxe Quadruple Room',
-  ],
-  default: [
-    'Deluxe Double or Twin Room with Synagogue View',
-    'Deluxe Double or Twin Room',
-    'Deluxe Queen Room',
-    'Deluxe Triple Room',
-    'Deluxe Quadruple Room',
-    'Comfort Quadruple Room',
-    'Comfort Double Room with Small Window',
-    'Deluxe Single Room',
-  ]
-}
+
+**roomAssignmentAlgorithm.ts - moveRoom sort (line 411-417)**:
+```typescript
+toPreview.rooms.sort((a, b) => {
+  return parseInt(a.room_number) - parseInt(b.room_number);
+});
 ```
 
-2. Use the `hotelName` prop to select the correct category list in the dropdown.
+**HotelSelectionScreen.tsx - empty state fallback**:
+```typescript
+{hotels.length === 0 && !tenantLoading && (
+  <div className="text-center space-y-4">
+    <p className="text-muted-foreground">No hotels found</p>
+    <Button variant="outline" onClick={() => window.location.reload()}>
+      Retry
+    </Button>
+  </div>
+)}
+```
 
-### What This Fixes
+Also add a `useEffect` with a 3-second timeout: if `tenantLoading` is still true after 3 seconds, force-refresh tenant data. This catches the race condition where the auth session resolves after the initial fetch.
 
-After implementation and a PMS re-upload:
-- Only rooms on night 3+ will show Towel Change (T) badge
-- Rooms on night 1-2 will have NO T/RC badge
-- Room 101 (night 3/4) and Room 404 (night 3/3) will correctly show T badge
-- All other daily rooms (night 2) will show NO T badge
-- Room categories will be correctly assigned per hotel
-- The category dropdown will show hotel-specific options
