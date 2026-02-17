@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search, Upload, Image } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -69,10 +69,13 @@ export function MinibarTrackingView() {
   const [qrManagementOpen, setQrManagementOpen] = useState(false);
   const [manageItemsOpen, setManageItemsOpen] = useState(false);
   const [searchRoom, setSearchRoom] = useState('');
+  const [minibarLogoUrl, setMinibarLogoUrl] = useState('');
+  const [minibarLogoUploading, setMinibarLogoUploading] = useState(false);
 
   useEffect(() => {
     fetchUserRole();
     fetchMinibarData();
+    fetchMinibarLogo();
   }, [selectedDate]);
 
   const fetchUserRole = async () => {
@@ -83,6 +86,46 @@ export function MinibarTrackingView() {
         .eq('id', user.id)
         .single();
       setUserRole(data?.role || '');
+    }
+  };
+
+  const fetchMinibarLogo = async () => {
+    if (!profile?.assigned_hotel) return;
+    const { data } = await supabase
+      .from('hotel_configurations')
+      .select('minibar_logo_url' as any)
+      .or(`hotel_id.eq.${profile.assigned_hotel},hotel_name.eq.${profile.assigned_hotel}`)
+      .limit(1);
+    if (data && data.length > 0) {
+      setMinibarLogoUrl((data[0] as any)?.minibar_logo_url || '');
+    }
+  };
+
+  const handleMinibarLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile?.assigned_hotel) return;
+    setMinibarLogoUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `minibar-logo-${profile.assigned_hotel}-${Date.now()}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('hotel-assets')
+        .upload(fileName, file, { upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from('hotel-assets').getPublicUrl(fileName);
+      const publicUrl = urlData.publicUrl;
+      const { error: updateError } = await (supabase
+        .from('hotel_configurations')
+        .update({ minibar_logo_url: publicUrl } as any)
+        .or(`hotel_id.eq.${profile.assigned_hotel},hotel_name.eq.${profile.assigned_hotel}`) as any);
+      if (updateError) throw updateError;
+      setMinibarLogoUrl(publicUrl);
+      toast({ title: 'Success', description: 'Minibar logo updated successfully' });
+    } catch (error: any) {
+      console.error('Error uploading minibar logo:', error);
+      toast({ title: 'Error', description: 'Failed to upload minibar logo', variant: 'destructive' });
+    } finally {
+      setMinibarLogoUploading(false);
     }
   };
 
@@ -444,6 +487,44 @@ export function MinibarTrackingView() {
           })()}
         </CardContent>
       </Card>
+
+      {/* Minibar Branding Section */}
+      {canManageItems && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Image className="h-4 w-4" />
+              Minibar Guest Page Logo
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-3">
+              Upload a custom logo for the guest minibar page. This logo will be shown to guests when they scan the room QR code.
+            </p>
+            <div className="flex items-center gap-4">
+              {minibarLogoUrl && (
+                <img src={minibarLogoUrl} alt="Minibar logo" className="h-12 w-auto object-contain border rounded-lg p-1" />
+              )}
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleMinibarLogoUpload}
+                  disabled={minibarLogoUploading}
+                />
+                <div className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-muted transition-colors text-sm">
+                  {minibarLogoUploading ? (
+                    <><span className="animate-spin">⏳</span> Uploading...</>
+                  ) : (
+                    <><Upload className="h-4 w-4" /> {minibarLogoUrl ? 'Change Logo' : 'Upload Logo'}</>
+                  )}
+                </div>
+              </label>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Clear All Confirmation Dialog */}
       <AlertDialog open={clearAllDialogOpen} onOpenChange={setClearAllDialogOpen}>

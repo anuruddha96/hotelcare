@@ -519,12 +519,16 @@ export function HousekeepingManagerView() {
     return <div className="flex justify-center p-8">{t('common.loading')}</div>;
   }
 
+  const isReception = profile?.role === 'reception';
+
   return (
     <Tabs defaultValue="team" className="space-y-6">
-      <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="team">Team View</TabsTrigger>
-        <TabsTrigger value="early-signout">Early Sign-Out Approvals</TabsTrigger>
-      </TabsList>
+      {!isReception && (
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="team">Team View</TabsTrigger>
+          <TabsTrigger value="early-signout">Early Sign-Out Approvals</TabsTrigger>
+        </TabsList>
+      )}
 
       <TabsContent value="team" className="space-y-6">
       {/* Header with Actions */}
@@ -897,9 +901,11 @@ export function HousekeepingManagerView() {
       )}
       </TabsContent>
 
-      <TabsContent value="early-signout">
-        <EarlySignoutApprovalView />
-      </TabsContent>
+      {!isReception && (
+        <TabsContent value="early-signout">
+          <EarlySignoutApprovalView />
+        </TabsContent>
+      )}
     </Tabs>
   );
 }
