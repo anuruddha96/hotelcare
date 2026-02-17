@@ -132,91 +132,52 @@ export function useNotifications() {
     }
   }, []);
 
-  // Enhanced iOS-compatible notification sound and vibration
+  // Enhanced iOS-compatible notification sound - rich two-tone chime
   const playNotificationSound = useCallback(() => {
     try {
-      // Vibration for mobile devices (works on iOS when website is added to home screen)
+      // Vibration for mobile devices
       if ('vibrate' in navigator) {
         navigator.vibrate([200, 100, 200, 100, 200]);
       }
 
-      // Create audio element for iOS Safari compatibility
-      const audio = new Audio();
-      audio.preload = 'auto';
-      
-      // Create a data URL with calm chime sound for iOS compatibility
-      const createChimeDataURL = () => {
-        const sampleRate = 8000;
-        const duration = 0.25;
-        const samples = Math.floor(sampleRate * duration);
-        const buffer = new ArrayBuffer(44 + samples * 2);
-        const view = new DataView(buffer);
-        
-        // WAV header
-        const writeString = (offset: number, string: string) => {
-          for (let i = 0; i < string.length; i++) {
-            view.setUint8(offset + i, string.charCodeAt(i));
-          }
-        };
-        
-        writeString(0, 'RIFF');
-        view.setUint32(4, 36 + samples * 2, true);
-        writeString(8, 'WAVE');
-        writeString(12, 'fmt ');
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, 1, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, sampleRate * 2, true);
-        view.setUint16(32, 2, true);
-        view.setUint16(34, 16, true);
-        writeString(36, 'data');
-        view.setUint32(40, samples * 2, true);
-        
-        // Generate gentle chime (C5 = 523Hz) with smooth decay
-        for (let i = 0; i < samples; i++) {
-          const t = i / sampleRate;
-          const envelope = Math.exp(-t * 8); // smooth fade-out
-          const sample = Math.sin(2 * Math.PI * 523 * t) * 0.35 * envelope;
-          view.setInt16(44 + i * 2, sample * 32767, true);
+      // Use Web Audio API for a rich two-tone chime
+      try {
+        if (!sharedAudioContext) {
+          sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         }
-        
-        return `data:audio/wav;base64,${btoa(String.fromCharCode(...new Uint8Array(buffer)))}`;
-      };
-      
-      audio.src = createChimeDataURL();
-      
-      // iOS Safari requires user interaction, so play with error handling
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          // Fallback: try Web Audio API for desktop browsers
-          try {
-            if (!sharedAudioContext) {
-              sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            }
-            const audioContext = sharedAudioContext;
-            // Try resuming (required on iOS)
-            audioContext.resume?.();
+        const ctx = sharedAudioContext;
+        ctx.resume?.();
 
-            // Beep using Web Audio (more reliable on iOS once unlocked)
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            oscillator.frequency.setValueAtTime(523, audioContext.currentTime); // C5 - calm chime
-            gainNode.gain.setValueAtTime(0.001, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.25, audioContext.currentTime + 0.01);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.25);
-            
-            oscillator.start();
-            oscillator.stop(audioContext.currentTime + 0.3);
-          } catch (webAudioError) {
-            console.log('Web Audio not supported:', webAudioError);
-          }
-        });
+        const now = ctx.currentTime;
+
+        // Create a rich two-tone chime (C5 + E5) with harmonics
+        const playTone = (freq: number, startTime: number, duration: number, volume: number) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, startTime);
+          gain.gain.setValueAtTime(0.001, startTime);
+          gain.gain.exponentialRampToValueAtTime(volume, startTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startTime);
+          osc.stop(startTime + duration + 0.05);
+        };
+
+        // First chime: C5 (523Hz) + overtone
+        playTone(523, now, 0.3, 0.15);
+        playTone(1046, now, 0.2, 0.05); // octave overtone
+
+        // Second chime: E5 (659Hz) + overtone, slightly delayed
+        playTone(659, now + 0.15, 0.35, 0.12);
+        playTone(1318, now + 0.15, 0.25, 0.04); // octave overtone
+
+        // Soft third: G5 (784Hz) for a pleasant resolution
+        playTone(784, now + 0.3, 0.3, 0.06);
+
+      } catch (webAudioError) {
+        console.log('Web Audio not supported:', webAudioError);
       }
       
     } catch (error) {

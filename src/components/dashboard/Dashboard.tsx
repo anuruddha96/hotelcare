@@ -393,27 +393,27 @@ export function Dashboard() {
                 </TabsTrigger>
               </TabsList>
             ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
-              <TabsList className="grid w-full min-w-[400px] max-w-lg grid-cols-5 h-10 sm:h-12" data-training="main-tabs">
-                <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab">
-                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.tickets')}</span>
+              <TabsList className={`grid w-full min-w-[320px] max-w-2xl h-10 sm:h-12 ${profile?.role === 'admin' ? 'grid-cols-5' : 'grid-cols-4'}`} data-training="main-tabs">
+                <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="tickets-tab">
+                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                  <span className="truncate">{t('dashboard.tickets')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="rooms-tab">
-                  <Home className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.rooms')}</span>
+                <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="rooms-tab">
+                  <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                  <span className="truncate">{t('dashboard.rooms')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="housekeeping-tab">
-                  <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.housekeeping')}</span>
+                <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="housekeeping-tab">
+                  <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                  <span className="truncate">{t('dashboard.housekeeping')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab">
-                  <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.workStatus')}</span>
+                <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="attendance-tab">
+                  <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                  <span className="truncate">{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
                 {profile?.role === 'admin' && (
-                  <TabsTrigger value="admin" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="admin-tab">
-                    <Settings className="h-3 w-3 sm:h-4 sm:w-4" />
-                    <span>Admin</span>
+                  <TabsTrigger value="admin" className="flex items-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="admin-tab">
+                    <Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                    <span className="truncate">Admin</span>
                   </TabsTrigger>
                 )}
               </TabsList>

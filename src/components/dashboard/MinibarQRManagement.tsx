@@ -37,14 +37,33 @@ export function MinibarQRManagement({ open, onOpenChange }: MinibarQRManagementP
 
   const fetchRooms = async () => {
     setLoading(true);
+
+    // Resolve hotel display name from hotel_configurations
+    const userHotel = profile?.assigned_hotel;
+    let resolvedHotelName = userHotel;
+    if (userHotel) {
+      const { data: hotelConfig } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', userHotel)
+        .maybeSingle();
+      if (hotelConfig?.hotel_name) {
+        resolvedHotelName = hotelConfig.hotel_name;
+      }
+    }
+
     const query = supabase
       .from('rooms')
       .select('id, room_number, hotel, minibar_qr_token')
       .not('minibar_qr_token' as any, 'is', null)
       .order('room_number');
 
-    if (profile?.assigned_hotel) {
-      query.eq('hotel', profile.assigned_hotel);
+    if (userHotel) {
+      if (resolvedHotelName && resolvedHotelName !== userHotel) {
+        query.or(`hotel.eq.${userHotel},hotel.eq.${resolvedHotelName}`);
+      } else {
+        query.eq('hotel', userHotel);
+      }
     }
 
     const { data } = await query;
