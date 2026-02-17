@@ -996,7 +996,9 @@ export type Database = {
           category: string | null
           created_at: string
           id: string
+          image_url: string | null
           is_active: boolean | null
+          is_promoted: boolean | null
           name: string
           price: number
           updated_at: string
@@ -1005,7 +1007,9 @@ export type Database = {
           category?: string | null
           created_at?: string
           id?: string
+          image_url?: string | null
           is_active?: boolean | null
+          is_promoted?: boolean | null
           name: string
           price?: number
           updated_at?: string
@@ -1014,7 +1018,9 @@ export type Database = {
           category?: string | null
           created_at?: string
           id?: string
+          image_url?: string | null
           is_active?: boolean | null
+          is_promoted?: boolean | null
           name?: string
           price?: number
           updated_at?: string

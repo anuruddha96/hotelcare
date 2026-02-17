@@ -4,10 +4,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Edit, Trash2, Coffee, Wine, Package } from 'lucide-react';
+import { Plus, Edit, Trash2, Coffee, Wine, Package, Star, Upload, X, Loader2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface MinibarItem {
@@ -16,6 +17,8 @@ interface MinibarItem {
   category: string;
   price: number;
   is_active: boolean;
+  is_promoted: boolean;
+  image_url: string | null;
   created_at: string;
 }
 
@@ -28,11 +31,14 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
   const [items, setItems] = useState<MinibarItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingItem, setEditingItem] = useState<MinibarItem | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     category: 'beverage',
     price: '',
-    is_active: true
+    is_active: true,
+    is_promoted: false,
+    image_url: null as string | null,
   });
 
   useEffect(() => {
@@ -51,7 +57,7 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
         .order('name', { ascending: true });
 
       if (error) throw error;
-      setItems(data || []);
+      setItems((data as any as MinibarItem[]) || []);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -63,15 +69,53 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Error', description: 'Please select an image file', variant: 'destructive' });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: 'Error', description: 'Image must be under 5MB', variant: 'destructive' });
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('minibar-images')
+        .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('minibar-images')
+        .getPublicUrl(fileName);
+
+      setFormData(prev => ({ ...prev, image_url: urlData.publicUrl }));
+      toast({ title: 'Success', description: 'Image uploaded successfully' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: 'Failed to upload image: ' + error.message, variant: 'destructive' });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const removeImage = () => {
+    setFormData(prev => ({ ...prev, image_url: null }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name || !formData.price) {
-      toast({
-        title: 'Error',
-        description: 'Name and price are required',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Name and price are required', variant: 'destructive' });
       return;
     }
 
@@ -81,42 +125,32 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
         name: formData.name,
         category: formData.category,
         price: parseFloat(formData.price),
-        is_active: formData.is_active
+        is_active: formData.is_active,
+        is_promoted: formData.is_promoted,
+        image_url: formData.image_url,
       };
 
       if (editingItem) {
         const { error } = await supabase
           .from('minibar_items')
-          .update(itemData)
+          .update(itemData as any)
           .eq('id', editingItem.id);
 
         if (error) throw error;
-
-        toast({
-          title: 'Success',
-          description: 'Minibar item updated successfully',
-        });
+        toast({ title: 'Success', description: 'Minibar item updated successfully' });
       } else {
         const { error } = await supabase
           .from('minibar_items')
-          .insert(itemData);
+          .insert(itemData as any);
 
         if (error) throw error;
-
-        toast({
-          title: 'Success',
-          description: 'Minibar item created successfully',
-        });
+        toast({ title: 'Success', description: 'Minibar item created successfully' });
       }
 
       resetForm();
       fetchItems();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -128,48 +162,30 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
       name: item.name,
       category: item.category,
       price: item.price.toString(),
-      is_active: item.is_active
+      is_active: item.is_active,
+      is_promoted: item.is_promoted || false,
+      image_url: item.image_url || null,
     });
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this item?')) {
-      return;
-    }
+    if (!confirm('Are you sure you want to delete this item?')) return;
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('minibar_items')
-        .delete()
-        .eq('id', id);
-
+      const { error } = await supabase.from('minibar_items').delete().eq('id', id);
       if (error) throw error;
-
-      toast({
-        title: 'Success',
-        description: 'Minibar item deleted successfully',
-      });
-
+      toast({ title: 'Success', description: 'Minibar item deleted successfully' });
       fetchItems();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
   const resetForm = () => {
-    setFormData({
-      name: '',
-      category: 'beverage',
-      price: '',
-      is_active: true
-    });
+    setFormData({ name: '', category: 'beverage', price: '', is_active: true, is_promoted: false, image_url: null });
     setEditingItem(null);
   };
 
@@ -183,9 +199,7 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
   };
 
   const groupedItems = items.reduce((acc, item) => {
-    if (!acc[item.category]) {
-      acc[item.category] = [];
-    }
+    if (!acc[item.category]) acc[item.category] = [];
     acc[item.category].push(item);
     return acc;
   }, {} as Record<string, MinibarItem[]>);
@@ -248,6 +262,43 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
                 </div>
               </div>
 
+              {/* Image Upload */}
+              <div className="space-y-2">
+                <Label>Product Image</Label>
+                <div className="flex items-center gap-3">
+                  {formData.image_url ? (
+                    <div className="relative">
+                      <img src={formData.image_url} alt="Product" className="w-16 h-16 rounded-lg object-cover border" />
+                      <button
+                        type="button"
+                        onClick={removeImage}
+                        className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-2 px-3 py-2 border border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                      {uploadingImage ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <span className="text-sm text-muted-foreground">
+                        {uploadingImage ? 'Uploading...' : 'Upload image'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                        disabled={uploadingImage}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-2">
                 <div className="flex items-center space-x-2">
                   <input
@@ -258,6 +309,18 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
                     className="rounded"
                   />
                   <Label htmlFor="is_active" className="text-sm">Active</Label>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="is_promoted"
+                    checked={formData.is_promoted}
+                    onCheckedChange={(checked) => setFormData({...formData, is_promoted: checked})}
+                  />
+                  <Label htmlFor="is_promoted" className="text-sm flex items-center gap-1">
+                    <Star className="h-3.5 w-3.5 text-amber-500" />
+                    Featured / Promoted
+                  </Label>
                 </div>
                 
                 <div className="flex gap-2 ml-auto">
@@ -290,30 +353,27 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
                   {categoryItems.map((item) => (
                     <div key={item.id} className="p-4 border rounded-lg bg-card">
                       <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <h4 className="font-medium text-foreground">{item.name}</h4>
-                          <p className="text-sm text-muted-foreground">€{item.price.toFixed(2)}</p>
+                        <div className="flex items-center gap-2">
+                          {item.image_url && (
+                            <img src={item.image_url} alt={item.name} className="w-10 h-10 rounded object-cover border" />
+                          )}
+                          <div>
+                            <div className="flex items-center gap-1">
+                              {item.is_promoted && <Star className="h-3 w-3 text-amber-500 fill-amber-500" />}
+                              <h4 className="font-medium text-foreground">{item.name}</h4>
+                            </div>
+                            <p className="text-sm text-muted-foreground">€{item.price.toFixed(2)}</p>
+                          </div>
                         </div>
                         <Badge variant={item.is_active ? 'default' : 'secondary'}>
                           {item.is_active ? 'Active' : 'Inactive'}
                         </Badge>
                       </div>
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleEdit(item)}
-                          className="flex-1"
-                        >
-                          <Edit className="h-3 w-3 mr-1" />
-                          Edit
+                        <Button size="sm" variant="outline" onClick={() => handleEdit(item)} className="flex-1">
+                          <Edit className="h-3 w-3 mr-1" /> Edit
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDelete(item.id)}
-                          className="text-destructive hover:text-destructive"
-                        >
+                        <Button size="sm" variant="outline" onClick={() => handleDelete(item.id)} className="text-destructive hover:text-destructive">
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
@@ -327,6 +387,7 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="font-semibold">Image</TableHead>
                           <TableHead className="font-semibold">Name</TableHead>
                           <TableHead className="font-semibold">Price</TableHead>
                           <TableHead className="font-semibold">Status</TableHead>
@@ -336,7 +397,21 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
                       <TableBody>
                         {categoryItems.map((item) => (
                           <TableRow key={item.id} className="hover:bg-muted/50">
-                            <TableCell className="font-medium">{item.name}</TableCell>
+                            <TableCell>
+                              {item.image_url ? (
+                                <img src={item.image_url} alt={item.name} className="w-10 h-10 rounded object-cover border" />
+                              ) : (
+                                <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+                                  <Package className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-1">
+                                {item.is_promoted && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />}
+                                {item.name}
+                              </div>
+                            </TableCell>
                             <TableCell className="font-medium text-primary">€{item.price.toFixed(2)}</TableCell>
                             <TableCell>
                               <Badge variant={item.is_active ? 'default' : 'secondary'}>
@@ -345,20 +420,10 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-2 justify-center">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleEdit(item)}
-                                  className="hover:bg-primary hover:text-primary-foreground"
-                                >
+                                <Button size="sm" variant="outline" onClick={() => handleEdit(item)} className="hover:bg-primary hover:text-primary-foreground">
                                   <Edit className="h-3 w-3" />
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleDelete(item.id)}
-                                  className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
-                                >
+                                <Button size="sm" variant="outline" onClick={() => handleDelete(item.id)} className="text-destructive hover:bg-destructive hover:text-destructive-foreground">
                                   <Trash2 className="h-3 w-3" />
                                 </Button>
                               </div>
