@@ -553,6 +553,45 @@ export type Database = {
         }
         Relationships: []
       }
+      guest_recommendations: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          icon: string | null
+          id: string
+          is_active: boolean | null
+          map_url: string | null
+          name: string
+          sort_order: number | null
+          specialty: string | null
+          type: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          map_url?: string | null
+          name: string
+          sort_order?: number | null
+          specialty?: string | null
+          type: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          map_url?: string | null
+          name?: string
+          sort_order?: number | null
+          specialty?: string | null
+          type?: string
+        }
+        Relationships: []
+      }
       hotel_configurations: {
         Row: {
           created_at: string | null
@@ -991,10 +1030,32 @@ export type Database = {
           },
         ]
       }
+      minibar_category_order: {
+        Row: {
+          category: string
+          created_at: string | null
+          id: string
+          sort_order: number | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          id?: string
+          sort_order?: number | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          id?: string
+          sort_order?: number | null
+        }
+        Relationships: []
+      }
       minibar_items: {
         Row: {
           category: string | null
           created_at: string
+          display_order: number | null
           id: string
           image_url: string | null
           is_active: boolean | null
@@ -1006,6 +1067,7 @@ export type Database = {
         Insert: {
           category?: string | null
           created_at?: string
+          display_order?: number | null
           id?: string
           image_url?: string | null
           is_active?: boolean | null
@@ -1017,6 +1079,7 @@ export type Database = {
         Update: {
           category?: string | null
           created_at?: string
+          display_order?: number | null
           id?: string
           image_url?: string | null
           is_active?: boolean | null
