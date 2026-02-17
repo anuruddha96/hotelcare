@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { Building2, ChevronRight, Loader2 } from 'lucide-react';
+import { Building2, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -12,9 +12,41 @@ interface HotelSelectionScreenProps {
 }
 
 export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenProps) {
-  const { hotels, loading: tenantLoading } = useTenant();
+  const { hotels, loading: tenantLoading, refreshTenant } = useTenant();
   const { profile } = useAuth();
   const [selecting, setSelecting] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+
+  // Auto-retry if loading takes too long or hotels come back empty
+  useEffect(() => {
+    if (tenantLoading) {
+      const timeout = setTimeout(() => {
+        console.log('[HotelSelection] Loading timeout - forcing refresh');
+        refreshTenant?.();
+      }, 3000);
+      return () => clearTimeout(timeout);
+    }
+  }, [tenantLoading, refreshTenant]);
+
+  // If hotels empty after load, auto-retry once
+  useEffect(() => {
+    if (!tenantLoading && hotels.length === 0 && !retrying) {
+      setRetrying(true);
+      const timeout = setTimeout(() => {
+        console.log('[HotelSelection] Empty hotels - auto-retrying');
+        refreshTenant?.();
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [tenantLoading, hotels.length, retrying, refreshTenant]);
+
+  const handleRetry = useCallback(() => {
+    if (refreshTenant) {
+      refreshTenant();
+    } else {
+      window.location.reload();
+    }
+  }, [refreshTenant]);
 
   const handleSelectHotel = async (hotelId: string, hotelName: string) => {
     if (!profile) return;
@@ -65,34 +97,44 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
           </p>
         </div>
 
-        <div className="space-y-3">
-          {hotels.map((hotel) => (
-            <Card
-              key={hotel.hotel_id}
-              className={`cursor-pointer transition-all hover:shadow-md hover:border-primary/50 ${
-                profile?.assigned_hotel === hotel.hotel_id ? 'border-primary bg-primary/5' : ''
-              }`}
-              onClick={() => handleSelectHotel(hotel.hotel_id, hotel.hotel_name)}
-            >
-              <CardContent className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <Building2 className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium text-foreground">{hotel.hotel_name}</p>
-                    {profile?.assigned_hotel === hotel.hotel_id && (
-                      <p className="text-xs text-primary">Last used</p>
-                    )}
+        {hotels.length === 0 ? (
+          <div className="text-center space-y-4 py-8">
+            <p className="text-muted-foreground">No hotels found. Tap to retry.</p>
+            <Button variant="outline" onClick={handleRetry} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {hotels.map((hotel) => (
+              <Card
+                key={hotel.hotel_id}
+                className={`cursor-pointer transition-all hover:shadow-md hover:border-primary/50 ${
+                  profile?.assigned_hotel === hotel.hotel_id ? 'border-primary bg-primary/5' : ''
+                }`}
+                onClick={() => handleSelectHotel(hotel.hotel_id, hotel.hotel_name)}
+              >
+                <CardContent className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium text-foreground">{hotel.hotel_name}</p>
+                      {profile?.assigned_hotel === hotel.hotel_id && (
+                        <p className="text-xs text-primary">Last used</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-                {selecting === hotel.hotel_id ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  {selecting === hotel.hotel_id ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {currentHotel && (
           <Button
