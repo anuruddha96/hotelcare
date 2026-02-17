@@ -1,103 +1,193 @@
 
-## Plan: Reception Enhancements -- Room Search, Data Visibility Fix, and Team View Access
 
-Three issues to address:
+## Plan: Guest Minibar UI Overhaul, Multi-language Support, Cart UX, Reception Fix, and Admin Features
+
+This plan covers 7 feature areas.
 
 ---
 
-### 1. Fix: Room Number, Hotel, and Recorded By showing as "N/A" / "Unknown" for Reception Users
+### 1. Hide Early Sign-Out Approvals for Reception Users
 
-**Root Cause**: The `rooms` table RLS policy does not include the `reception` role. When reception users query `room_minibar_usage` with a join to `rooms`, Supabase returns `null` for the room data due to RLS restrictions. Similarly, `profiles` RLS doesn't let reception users see other staff profiles, so "Recorded By" shows "Unknown".
+**Root Cause**: `HousekeepingManagerView.tsx` (line 522-527) renders two internal tabs -- "Team View" and "Early Sign-Out Approvals" -- for all users. Reception users see both even though they should only see Team View.
 
-**Fix**: Add RLS policies so reception users can read rooms and profiles for their assigned hotel.
+**Fix**: Pass the user role to `HousekeepingManagerView` (or read it via `useAuth`) and conditionally hide the "Early Sign-Out Approvals" tab for reception users.
+
+| File | Change |
+|------|--------|
+| `src/components/dashboard/HousekeepingManagerView.tsx` | Import `useAuth`, check if role is `reception`. If so, hide the `TabsList` entirely and only render the "team" content directly (no tabs). Otherwise show both tabs as before. |
+
+---
+
+### 2. Add Custom Minibar Logo Per Hotel (Admin Setting)
+
+The `hotel_configurations` table already has `custom_logo_url`. The guest minibar page already reads it. However, admins need a way to upload/set a minibar-specific logo per hotel. We'll add a "Hotel Minibar Logo" upload field in the Minibar Tracking page settings area.
+
+**Database change**: Add `minibar_logo_url TEXT` column to `hotel_configurations` so hotels can have a separate minibar logo distinct from the main app logo.
+
+| File | Change |
+|------|--------|
+| Database migration | Add `minibar_logo_url` column to `hotel_configurations` |
+| `src/components/dashboard/MinibarTrackingView.tsx` | Add a "Minibar Branding" section (visible to admins/managers) with an image upload for the hotel minibar logo |
+| `src/pages/GuestMinibar.tsx` | Prefer `minibar_logo_url` over `custom_logo_url` when rendering the header logo |
+
+---
+
+### 3. Improve Guest Minibar UI
+
+Redesign the guest page for a more polished, premium hotel experience:
+
+- Personalized welcome: "Welcome to Hotel Ottofiori" using the hotel name from branding
+- Better typography and spacing
+- Refined card designs with subtle shadows
+- Footer with hotel branding and "Powered by HotelCare" text
+- Language switcher in the header
+
+| File | Change |
+|------|--------|
+| `src/pages/GuestMinibar.tsx` | Complete UI refresh: personalized welcome using `branding.hotel_name`, improved card styling, add footer section at the bottom with hotel logo and powered-by text |
+
+---
+
+### 4. Multi-language Support for Guest Minibar Page
+
+Add a language switcher to the guest minibar page. Since this is a public page (no auth), we'll use a self-contained translation system with a `useState` for language selection. All static text (welcome, categories, buttons, discover section headers) will be translated. Product names come from the database and won't be translated.
+
+**Supported languages**: English, German, French, Italian, Spanish, Portuguese, Hungarian, Czech, Polish, Dutch, Korean, Chinese (Simplified), Hindi
+
+| File | Change |
+|------|--------|
+| `src/pages/GuestMinibar.tsx` | Add a `guestTranslations` object with all static strings in all languages. Add a language selector dropdown in the header. Wrap all static text with a `gt()` helper function that reads from the translations object. Store language preference in `localStorage`. |
+
+**Translation keys needed:**
+- `welcome` ("Welcome to your Minibar")
+- `welcomeDesc` ("Enjoyed something from the minibar?...")
+- `featured` ("Featured")
+- `discover` ("Discover Budapest")
+- `discoverDesc` ("Explore the best of Budapest...")
+- `confirmUsage` ("Confirm Usage")
+- `recording` ("Recording...")
+- `items` ("items")
+- `noPayment` ("This simply records what you've enjoyed...")
+- `thankYou` / `recorded` / `enjoyStay` / `recordMore`
+- `invalidQR` / `invalidDesc`
+- `map` ("Map")
+- `error` / `dismiss`
+- Category labels: `snacks`, `beverages`, `alcohols`
+
+---
+
+### 5. Enhanced Cart Display with Item Details
+
+Currently the sticky cart footer only shows total count and price. Enhance it to show individual cart items with names, quantities, and per-item prices in a collapsible section.
+
+| File | Change |
+|------|--------|
+| `src/pages/GuestMinibar.tsx` | Add an expandable cart details section above the confirm button. When expanded, shows each cart item with name, quantity (with +/- controls), and line total. Collapsed by default, tap to expand. |
+
+---
+
+### 6. Add Levante Budapest and Mitico Budapest to Discover Listings
+
+Insert two new recommendations into the `guest_recommendations` database table.
 
 | Change | Details |
 |--------|---------|
-| Database migration | Add SELECT policy on `rooms` for `reception` role, scoped to same hotel. Add SELECT policy on `profiles` for `reception` role (limited to same organization). |
-
-**Migration SQL:**
-```sql
--- Allow reception to view rooms in their hotel
-CREATE POLICY "Reception can view rooms in their hotel"
-ON public.rooms FOR SELECT
-USING (
-  get_user_role(auth.uid()) = 'reception'::user_role
-  AND organization_slug = get_user_organization_slug(auth.uid())
-);
-
--- Allow reception to view profiles in their organization
-CREATE POLICY "Reception can view profiles"
-ON public.profiles FOR SELECT
-USING (
-  get_user_role(auth.uid()) = 'reception'::user_role
-  AND organization_slug = get_user_organization_slug(auth.uid())
-);
-```
+| Database migration | Insert `Levante Budapest` and `Mitico Budapest` into `guest_recommendations` with appropriate descriptions, types, icons, and map URLs |
 
 ---
 
-### 2. Add Room Number Search to Minibar Tracking View
+### 7. Add Footer to Guest Minibar Page
 
-Add a search input that lets reception users filter minibar records by room number.
-
-| File | Change |
-|------|--------|
-| `src/components/dashboard/MinibarTrackingView.tsx` | Add a `searchRoom` state and a search input field next to the date picker. Filter `usageRecords` by room number before rendering. |
-
----
-
-### 3. Give Reception Access to Housekeeping Team Management (Read-Only)
-
-Reception should see the "Housekeeping" tab in the main navigation, which loads the `HousekeepingTab` component. Inside, they should only see the "Team View" sub-tab (read-only, same as what managers see in Team Management).
+Add a branded footer at the bottom of the guest minibar page showing:
+- Hotel logo (if available)
+- Hotel name
+- "Powered by HotelCare" text
+- A subtle divider
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/Dashboard.tsx` | Add a "Housekeeping" tab to the reception tab list (lines 420-438). Add corresponding `TabsContent` for reception. Update `grid-cols-4` to `grid-cols-5`. |
-| `src/components/dashboard/HousekeepingTab.tsx` | Update `canAccessHousekeeping` check (line 146) to include `reception`. When role is `reception`, show only the "Team View" (`manage`) tab in read-only mode -- hide all other tabs like Staff Management, PMS Upload, etc. |
+| `src/pages/GuestMinibar.tsx` | Add a footer section after the Discover Budapest section, before the sticky cart. Shows hotel logo, hotel name, and powered-by attribution. |
 
 ---
 
 ### Technical Details
 
-**Search filter in MinibarTrackingView.tsx:**
+**Language switcher implementation (GuestMinibar.tsx):**
 ```typescript
-const [searchRoom, setSearchRoom] = useState('');
+const GUEST_LANGUAGES = [
+  { code: 'en', name: 'English', flag: '🇬🇧' },
+  { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
+  { code: 'fr', name: 'Francais', flag: '🇫🇷' },
+  { code: 'it', name: 'Italiano', flag: '🇮🇹' },
+  { code: 'es', name: 'Espanol', flag: '🇪🇸' },
+  { code: 'pt', name: 'Portugues', flag: '🇵🇹' },
+  { code: 'hu', name: 'Magyar', flag: '🇭🇺' },
+  { code: 'cs', name: 'Cestina', flag: '🇨🇿' },
+  { code: 'pl', name: 'Polski', flag: '🇵🇱' },
+  { code: 'nl', name: 'Nederlands', flag: '🇳🇱' },
+  { code: 'ko', name: '한국어', flag: '🇰🇷' },
+  { code: 'zh', name: '中文', flag: '🇨🇳' },
+  { code: 'hi', name: 'हिन्दी', flag: '🇮🇳' },
+];
 
-// Filter records by search
-const filteredRecords = usageRecords.filter(record =>
-  !searchRoom || record.room_number.toLowerCase().includes(searchRoom.toLowerCase())
+const [guestLang, setGuestLang] = useState(() => 
+  localStorage.getItem('guest_minibar_lang') || 'en'
 );
-// Use filteredRecords instead of usageRecords in the table render
+
+const gt = (key: string) => guestTranslations[guestLang]?.[key] || guestTranslations['en'][key];
 ```
 
-**Reception tab layout change (Dashboard.tsx line 421):**
+**Reception early-signout fix (HousekeepingManagerView.tsx):**
 ```typescript
-<TabsList className="flex w-full min-w-[400px] max-w-xl h-10 sm:h-12">
-  <TabsTrigger value="tickets" ...>Tickets</TabsTrigger>
-  <TabsTrigger value="rooms" ...>Rooms</TabsTrigger>
-  <TabsTrigger value="housekeeping" ...>Team View</TabsTrigger>
-  <TabsTrigger value="minibar" ...>Minibar</TabsTrigger>
-  <TabsTrigger value="lost-found" ...>Lost & Found</TabsTrigger>
-</TabsList>
+const { user } = useAuth();
+const userRole = user?.role || '';
+const isReception = userRole === 'reception';
+
+// In the render:
+{isReception ? (
+  // Render team content directly without tabs
+  <div className="space-y-6">...</div>
+) : (
+  <Tabs defaultValue="team">
+    <TabsList>...</TabsList>
+    ...
+  </Tabs>
+)}
 ```
 
-**HousekeepingTab.tsx -- reception-only tab filtering:**
+**Expandable cart section:**
 ```typescript
-const canAccessHousekeeping = hasManagerAccess 
-  || ['housekeeping', 'reception'].includes(userRole);
+const [cartExpanded, setCartExpanded] = useState(false);
 
-// For reception, only show 'manage' (Team View) tab
-const isReceptionReadOnly = userRole === 'reception';
-// Filter available tabs to just ['manage'] for reception
+// In sticky footer:
+{cartExpanded && (
+  <div className="max-h-40 overflow-y-auto space-y-1 border-b pb-2 mb-2">
+    {cart.map(item => (
+      <div className="flex justify-between text-sm">
+        <span>{item.name} x{item.quantity}</span>
+        <span>EUR {(item.price * item.quantity).toFixed(2)}</span>
+      </div>
+    ))}
+  </div>
+)}
+```
+
+**New recommendations seed SQL:**
+```sql
+INSERT INTO guest_recommendations (name, type, description, specialty, map_url, icon, sort_order)
+VALUES
+  ('Levante Budapest', 'Restaurant', 'Modern Mediterranean cuisine...', 'Mediterranean dining', 'https://maps.google.com/...', '🍽️', 7),
+  ('Mitico Budapest', 'Restaurant', 'Italian fine dining...', 'Italian cuisine', 'https://maps.google.com/...', '🍝', 8);
 ```
 
 ---
 
 ### Summary of All Changes
 
-| Area | Change |
-|------|--------|
-| Database migration | Add rooms SELECT RLS for reception; Add profiles SELECT RLS for reception |
-| `src/components/dashboard/MinibarTrackingView.tsx` | Add room number search input and filtering |
-| `src/components/dashboard/Dashboard.tsx` | Add "Team View" tab to reception navigation |
-| `src/components/dashboard/HousekeepingTab.tsx` | Allow reception access, restrict to Team View tab only (read-only) |
+| Area | Changes |
+|------|---------|
+| Database migration | Add `minibar_logo_url` to `hotel_configurations`; Insert Levante + Mitico into `guest_recommendations` |
+| `src/pages/GuestMinibar.tsx` | UI overhaul, multi-language support (13 languages), language switcher, expandable cart with item details, footer with branding, personalized welcome |
+| `src/components/dashboard/HousekeepingManagerView.tsx` | Hide Early Sign-Out tab for reception users |
+| `src/components/dashboard/MinibarTrackingView.tsx` | Add minibar logo upload for admins |
+
