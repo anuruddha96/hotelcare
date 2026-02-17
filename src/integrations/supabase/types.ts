@@ -1587,6 +1587,7 @@ export type Database = {
           quantity_used: number | null
           recorded_by: string | null
           room_id: string
+          source: string | null
           updated_at: string
           usage_date: string | null
         }
@@ -1600,6 +1601,7 @@ export type Database = {
           quantity_used?: number | null
           recorded_by?: string | null
           room_id: string
+          source?: string | null
           updated_at?: string
           usage_date?: string | null
         }
@@ -1613,6 +1615,7 @@ export type Database = {
           quantity_used?: number | null
           recorded_by?: string | null
           room_id?: string
+          source?: string | null
           updated_at?: string
           usage_date?: string | null
         }
@@ -1660,6 +1663,7 @@ export type Database = {
           last_linen_change: string | null
           last_towel_change: string | null
           linen_change_required: boolean | null
+          minibar_qr_token: string | null
           notes: string | null
           organization_slug: string | null
           room_capacity: number | null
@@ -1692,6 +1696,7 @@ export type Database = {
           last_linen_change?: string | null
           last_towel_change?: string | null
           linen_change_required?: boolean | null
+          minibar_qr_token?: string | null
           notes?: string | null
           organization_slug?: string | null
           room_capacity?: number | null
@@ -1724,6 +1729,7 @@ export type Database = {
           last_linen_change?: string | null
           last_towel_change?: string | null
           linen_change_required?: boolean | null
+          minibar_qr_token?: string | null
           notes?: string | null
           organization_slug?: string | null
           room_capacity?: number | null

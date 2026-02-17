@@ -5,10 +5,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { MinibarQuickAdd } from './MinibarQuickAdd';
+import { MinibarQRManagement } from './MinibarQRManagement';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +41,7 @@ interface MinibarUsageRecord {
   total_price: number;
   usage_date: string;
   recorded_by_name: string;
+  source: string;
 }
 
 interface MinibarSummary {
@@ -60,6 +63,8 @@ export function MinibarTrackingView() {
   const [loading, setLoading] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
   const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [qrManagementOpen, setQrManagementOpen] = useState(false);
 
   useEffect(() => {
     fetchUserRole();
@@ -110,6 +115,8 @@ export function MinibarTrackingView() {
   const canDelete = ['admin', 'manager', 'housekeeping_manager'].includes(userRole);
   const isSuperAdmin = profile?.is_super_admin || false;
   const canClearAll = ['admin'].includes(userRole) || isSuperAdmin;
+  const canQuickAdd = ['admin', 'manager', 'housekeeping_manager', 'reception'].includes(userRole);
+  const canManageQR = ['admin'].includes(userRole) || isSuperAdmin;
 
   const handleClearAllRecords = async () => {
     setLoading(true);
@@ -229,6 +236,7 @@ export function MinibarTrackingView() {
         total_price: (record.minibar_items?.price || 0) * record.quantity_used,
         usage_date: record.usage_date,
         recorded_by_name: record.profiles?.full_name || 'Unknown',
+        source: (record as any).source || 'staff',
       }));
 
       setUsageRecords(records);
@@ -258,7 +266,19 @@ export function MinibarTrackingView() {
           <h2 className="text-3xl font-bold tracking-tight">{t('minibar.tracking')}</h2>
           <p className="text-muted-foreground">{t('minibar.history')}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {canQuickAdd && (
+            <Button onClick={() => setQuickAddOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Record Usage
+            </Button>
+          )}
+          {canManageQR && (
+            <Button variant="outline" onClick={() => setQrManagementOpen(true)} className="gap-2">
+              <QrCode className="h-4 w-4" />
+              QR Codes
+            </Button>
+          )}
           {canClearAll && (
             <Button 
               variant="destructive" 
@@ -350,6 +370,7 @@ export function MinibarTrackingView() {
                     <TableHead className="text-right">{t('pms.processedRooms')}</TableHead>
                     <TableHead className="text-right">{t('linen.total')}</TableHead>
                     <TableHead>Recorded By</TableHead>
+                    <TableHead>Source</TableHead>
                     <TableHead>Time</TableHead>
                     {canDelete && <TableHead className="text-right">Actions</TableHead>}
                   </TableRow>
@@ -369,6 +390,11 @@ export function MinibarTrackingView() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {record.recorded_by_name}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={record.source === 'guest' ? 'secondary' : record.source === 'reception' ? 'outline' : 'default'} className="text-xs capitalize">
+                          {record.source || 'staff'}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {format(new Date(record.usage_date), 'HH:mm')}
@@ -412,6 +438,17 @@ export function MinibarTrackingView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Quick Add Dialog */}
+      <MinibarQuickAdd
+        open={quickAddOpen}
+        onOpenChange={setQuickAddOpen}
+        onRecorded={fetchMinibarData}
+        source={userRole === 'reception' ? 'reception' : 'staff'}
+      />
+
+      {/* QR Code Management */}
+      <MinibarQRManagement open={qrManagementOpen} onOpenChange={setQrManagementOpen} />
     </div>
   );
 }

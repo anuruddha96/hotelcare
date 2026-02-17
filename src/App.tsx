@@ -11,6 +11,7 @@ import { TrainingOverlay, TrainingWelcomePrompt } from "@/components/training";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import GuestMinibar from "./pages/GuestMinibar";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,9 @@ const App = () => (
                   {/* Legacy routes - redirect to rdhotels organization */}
                   <Route path="/" element={<Navigate to="/rdhotels" replace />} />
                   <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
+                  
+                  {/* Guest minibar - public, no auth needed */}
+                  <Route path="/:organizationSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   
                   {/* Multi-tenant routes */}
                   <Route path="/:organizationSlug/*" element={<TenantRouter />} />
