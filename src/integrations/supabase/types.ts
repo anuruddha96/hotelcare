@@ -609,6 +609,7 @@ export type Database = {
           is_active: boolean | null
           logo_scale: number | null
           logo_scale_auth: number | null
+          minibar_logo_url: string | null
           organization_id: string | null
           settings: Json | null
           updated_at: string | null
@@ -629,6 +630,7 @@ export type Database = {
           is_active?: boolean | null
           logo_scale?: number | null
           logo_scale_auth?: number | null
+          minibar_logo_url?: string | null
           organization_id?: string | null
           settings?: Json | null
           updated_at?: string | null
@@ -649,6 +651,7 @@ export type Database = {
           is_active?: boolean | null
           logo_scale?: number | null
           logo_scale_auth?: number | null
+          minibar_logo_url?: string | null
           organization_id?: string | null
           settings?: Json | null
           updated_at?: string | null
