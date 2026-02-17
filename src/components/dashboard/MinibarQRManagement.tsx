@@ -73,7 +73,8 @@ export function MinibarQRManagement({ open, onOpenChange }: MinibarQRManagementP
     // Generate QR data URLs
     const urls: Record<string, string> = {};
     for (const room of roomData) {
-      const url = `${getBaseUrl()}/${getOrgSlug()}/minibar/${room.minibar_qr_token}`;
+      const hotelSlug = room.hotel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const url = `${getBaseUrl()}/${getOrgSlug()}/${hotelSlug}/minibar/${room.minibar_qr_token}`;
       try {
         urls[room.id] = await QRCode.toDataURL(url, { width: 200, margin: 1, color: { dark: '#000000', light: '#ffffff' } });
       } catch { /* skip */ }
@@ -83,7 +84,8 @@ export function MinibarQRManagement({ open, onOpenChange }: MinibarQRManagementP
   };
 
   const downloadSingleQR = async (room: Room) => {
-    const url = `${getBaseUrl()}/${getOrgSlug()}/minibar/${room.minibar_qr_token}`;
+    const hotelSlug = room.hotel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const url = `${getBaseUrl()}/${getOrgSlug()}/${hotelSlug}/minibar/${room.minibar_qr_token}`;
     try {
       const dataUrl = await QRCode.toDataURL(url, { width: 400, margin: 2 });
       const link = document.createElement('a');
@@ -125,7 +127,8 @@ export function MinibarQRManagement({ open, onOpenChange }: MinibarQRManagementP
         const x = padding + col * cellW;
         const y = 40 + padding + row * cellH;
 
-        const url = `${getBaseUrl()}/${getOrgSlug()}/minibar/${room.minibar_qr_token}`;
+        const hotelSlug = room.hotel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const url = `${getBaseUrl()}/${getOrgSlug()}/${hotelSlug}/minibar/${room.minibar_qr_token}`;
         const dataUrl = await QRCode.toDataURL(url, { width: qrSize, margin: 1 });
         const img = await loadImage(dataUrl);
         ctx.drawImage(img, x, y, qrSize, qrSize);
