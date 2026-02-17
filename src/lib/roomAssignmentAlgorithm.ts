@@ -176,11 +176,66 @@ export function buildWingProximityMap(
   return map;
 }
 
+// Room affinity map type: maps "roomA|roomB" key to affinity score (0-1)
+export type RoomAffinityMap = Map<string, number>;
+
+// Build affinity key (always sorted so A|B === B|A)
+function affinityKey(roomA: string, roomB: string): string {
+  return roomA < roomB ? `${roomA}|${roomB}` : `${roomB}|${roomA}`;
+}
+
+// Build affinity map from raw DB patterns
+export function buildAffinityMap(
+  patterns: Array<{ room_number_a: string; room_number_b: string; pair_count: number }>
+): RoomAffinityMap {
+  if (patterns.length === 0) return new Map();
+  const maxCount = Math.max(...patterns.map(p => p.pair_count));
+  if (maxCount === 0) return new Map();
+  const map: RoomAffinityMap = new Map();
+  for (const p of patterns) {
+    const key = affinityKey(p.room_number_a, p.room_number_b);
+    map.set(key, p.pair_count / maxCount);
+  }
+  return map;
+}
+
+// Calculate total affinity bonus for placing a room with a set of existing rooms
+function getAffinityBonus(
+  roomNumber: string,
+  existingRoomNumbers: string[],
+  affinityMap?: RoomAffinityMap
+): number {
+  if (!affinityMap || affinityMap.size === 0) return 0;
+  let bonus = 0;
+  for (const existing of existingRoomNumbers) {
+    const score = affinityMap.get(affinityKey(roomNumber, existing));
+    if (score) bonus += score;
+  }
+  return bonus;
+}
+
+// Calculate affinity loss if a room is removed from its current group
+function getAffinityLoss(
+  roomNumber: string,
+  currentGroupRoomNumbers: string[],
+  affinityMap?: RoomAffinityMap
+): number {
+  if (!affinityMap || affinityMap.size === 0) return 0;
+  let loss = 0;
+  for (const other of currentGroupRoomNumbers) {
+    if (other === roomNumber) continue;
+    const score = affinityMap.get(affinityKey(roomNumber, other));
+    if (score) loss += score;
+  }
+  return loss;
+}
+
 // Main auto-assignment algorithm: WING-FIRST grouping
 export function autoAssignRooms(
   rooms: RoomForAssignment[],
   staff: StaffForAssignment[],
-  wingProximityMap?: WingProximityMap
+  wingProximityMap?: WingProximityMap,
+  affinityMap?: RoomAffinityMap
 ): AssignmentPreview[] {
   if (staff.length === 0 || rooms.length === 0) {
     return staff.map(s => ({
@@ -254,12 +309,21 @@ export function autoAssignRooms(
 
     // If assigning whole wing would exceed 40% above average and wing has >3 rooms, split it
     if (wouldBe > avgTargetWeight * 1.4 && wingRooms.length > 3) {
-      // Split: distribute rooms one by one to maintain balance, but keep them in same wing if possible
+      // Split: distribute rooms one by one, using affinity to prefer keeping learned pairs together
       const sorted = [...wingRooms].sort((a, b) => calculateRoomWeight(b) - calculateRoomWeight(a));
       for (const room of sorted) {
-        const minStaff = Array.from(staffWeights.entries()).sort((a, b) => a[1] - b[1])[0];
-        assignments.get(minStaff[0])!.push(room);
-        staffWeights.set(minStaff[0], minStaff[1] + calculateRoomWeight(room));
+        // Find staff with lowest effective weight (weight minus affinity bonus)
+        const candidates = Array.from(staffWeights.entries()).sort((a, b) => {
+          const aRooms = assignments.get(a[0])!;
+          const bRooms = assignments.get(b[0])!;
+          const aBonus = getAffinityBonus(room.room_number, aRooms.map(r => r.room_number), affinityMap);
+          const bBonus = getAffinityBonus(room.room_number, bRooms.map(r => r.room_number), affinityMap);
+          // Lower effective weight = weight - affinityBonus (bonus makes staff more attractive)
+          return (a[1] - aBonus * 2) - (b[1] - bBonus * 2);
+        });
+        const [bestId, bestWeight] = candidates[0];
+        assignments.get(bestId)!.push(room);
+        staffWeights.set(bestId, bestWeight + calculateRoomWeight(room));
       }
     } else {
       // Assign entire wing to one housekeeper
@@ -297,9 +361,12 @@ export function autoAssignRooms(
       const currentDiff = heaviestW - lightestW;
       if (newDiff >= currentDiff) continue; // must improve balance
 
+      // Affinity penalty: penalize moving room away from high-affinity partners
+      const affinityPenalty = getAffinityLoss(room.room_number, heaviestRooms.map(r => r.room_number), affinityMap) * 5;
+
       // Score: prefer rooms from wings the lightest already works in (score 0), else penalty (score 10)
       const wingPenalty = lightestWings.has(roomWing) ? 0 : 10;
-      const score = newDiff + wingPenalty;
+      const score = newDiff + wingPenalty + affinityPenalty;
       if (score < bestScore) {
         bestScore = score;
         bestRoom = room;
@@ -335,9 +402,12 @@ export function autoAssignRooms(
     const sorted = [...dailyRooms].sort((a, b) => {
       const aWing = a.wing || `floor-${a.floor_number ?? getFloorFromRoomNumber(a.room_number)}`;
       const bWing = b.wing || `floor-${b.floor_number ?? getFloorFromRoomNumber(b.room_number)}`;
-      const aBonus = leastWings.has(aWing) ? 0 : 100;
-      const bBonus = leastWings.has(bWing) ? 0 : 100;
-      return (calculateRoomWeight(a) + aBonus) - (calculateRoomWeight(b) + bBonus);
+      const aWingBonus = leastWings.has(aWing) ? 0 : 100;
+      const bWingBonus = leastWings.has(bWing) ? 0 : 100;
+      // Add affinity penalty: rooms with high affinity to current group are harder to move
+      const aAffinityPenalty = getAffinityLoss(a.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;
+      const bAffinityPenalty = getAffinityLoss(b.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;
+      return (calculateRoomWeight(a) + aWingBonus + aAffinityPenalty) - (calculateRoomWeight(b) + bWingBonus + bAffinityPenalty);
     });
     if (sorted.length === 0) break;
 

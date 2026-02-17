@@ -68,6 +68,39 @@ export type Database = {
         }
         Relationships: []
       }
+      assignment_patterns: {
+        Row: {
+          created_at: string
+          hotel: string
+          id: string
+          last_seen_at: string
+          organization_slug: string | null
+          pair_count: number
+          room_number_a: string
+          room_number_b: string
+        }
+        Insert: {
+          created_at?: string
+          hotel: string
+          id?: string
+          last_seen_at?: string
+          organization_slug?: string | null
+          pair_count?: number
+          room_number_a: string
+          room_number_b: string
+        }
+        Update: {
+          created_at?: string
+          hotel?: string
+          id?: string
+          last_seen_at?: string
+          organization_slug?: string | null
+          pair_count?: number
+          room_number_a?: string
+          room_number_b?: string
+        }
+        Relationships: []
+      }
       break_requests: {
         Row: {
           approved_at: string | null
@@ -2364,6 +2397,15 @@ export type Database = {
           p_user_id: string
         }
         Returns: Json
+      }
+      upsert_assignment_pattern: {
+        Args: {
+          p_hotel: string
+          p_org_slug?: string
+          p_room_a: string
+          p_room_b: string
+        }
+        Returns: undefined
       }
       user_can_view_ticket: { Args: { ticket_id: string }; Returns: boolean }
     }

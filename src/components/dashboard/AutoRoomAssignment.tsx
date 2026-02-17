@@ -23,6 +23,8 @@ import {
   calculateRoomWeight,
   formatMinutesToTime,
   buildWingProximityMap,
+  buildAffinityMap,
+  RoomAffinityMap,
   WingProximityMap,
   CHECKOUT_MINUTES,
   DAILY_MINUTES,
@@ -87,6 +89,7 @@ export function AutoRoomAssignment({
 
   // Wing proximity map for smart assignments
   const [wingProximity, setWingProximity] = useState<WingProximityMap | undefined>(undefined);
+  const [roomAffinity, setRoomAffinity] = useState<RoomAffinityMap | undefined>(undefined);
 
   // Public area assignments (post-room assignment step)
   const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map()); // areaKey -> staffId
@@ -180,6 +183,19 @@ export function AutoRoomAssignment({
         setWingProximity(undefined);
       }
 
+      // Fetch assignment patterns for learning
+      const { data: patternData } = await supabase
+        .from('assignment_patterns')
+        .select('room_number_a, room_number_b, pair_count')
+        .eq('hotel', hotelName)
+        .eq('organization_slug', profile?.organization_slug || 'rdhotels');
+
+      if (patternData && patternData.length > 0) {
+        setRoomAffinity(buildAffinityMap(patternData));
+      } else {
+        setRoomAffinity(undefined);
+      }
+
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load data');
@@ -213,7 +229,7 @@ export function AutoRoomAssignment({
 
   const handleGeneratePreview = () => {
     const selectedStaff = allStaff.filter(s => selectedStaffIds.has(s.id));
-    const previews = autoAssignRooms(dirtyRooms, selectedStaff, wingProximity);
+    const previews = autoAssignRooms(dirtyRooms, selectedStaff, wingProximity, roomAffinity);
     setAssignmentPreviews(previews);
     setStep('preview');
   };
@@ -274,6 +290,44 @@ export function AutoRoomAssignment({
         .insert(assignments);
 
       if (error) throw error;
+
+      // Save assignment patterns for learning
+      const hotelName = await getManagerHotel();
+      if (hotelName) {
+        const pairsToUpsert: Array<{ hotel: string; room_number_a: string; room_number_b: string; organization_slug: string }> = [];
+        for (const preview of assignmentPreviews) {
+          const roomNumbers = preview.rooms.map(r => r.room_number);
+          for (let i = 0; i < roomNumbers.length; i++) {
+            for (let j = i + 1; j < roomNumbers.length; j++) {
+              const [a, b] = roomNumbers[i] < roomNumbers[j] 
+                ? [roomNumbers[i], roomNumbers[j]] 
+                : [roomNumbers[j], roomNumbers[i]];
+              pairsToUpsert.push({
+                hotel: hotelName,
+                room_number_a: a,
+                room_number_b: b,
+                organization_slug: profile?.organization_slug || 'rdhotels',
+              });
+            }
+          }
+        }
+
+        // Upsert patterns using DB function (best-effort, don't block on failure)
+        if (pairsToUpsert.length > 0) {
+          const upsertPromises = pairsToUpsert.map(p =>
+            supabase.rpc('upsert_assignment_pattern' as any, {
+              p_hotel: p.hotel,
+              p_room_a: p.room_number_a,
+              p_room_b: p.room_number_b,
+              p_org_slug: p.organization_slug,
+            })
+          );
+          // Fire all in parallel, don't await individually - best effort
+          Promise.allSettled(upsertPromises).catch(() => {
+            console.warn('Some pattern learning calls failed');
+          });
+        }
+      }
 
       const totalRooms = assignments.length;
       const staffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
