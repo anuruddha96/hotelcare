@@ -1,74 +1,66 @@
 
 
-## Plan: Sort Rooms Numerically in Preview + Fix Blank Hotel Selection Page
+## Plan: Improve Auto Assignment Preview - Group Rooms, Fix Legend, Add Summary
 
-### Issue 1: Room Sort Order in Auto-Assignment Preview
+### Changes to Make
 
-**Current behavior**: Rooms in the preview are sorted by checkout first, then floor, then room number. Within each housekeeper's card, rooms from different wings appear interleaved (e.g., 203, 207, 209, 213, 201, 205, 211, 215, 217, 302, 304, 306, 308) because wing assignment scatters rooms across floors.
+**1. Sort rooms: Checkouts first, then Daily, each group numerically**
 
-**Fix**: Sort rooms purely by numerical room number (lowest to highest) within each housekeeper's card. This applies in three places:
+Within each housekeeper's card, rooms will be grouped:
+- Checkout rooms first (sorted by room number, lowest to highest)
+- Daily rooms second (sorted by room number, lowest to highest)
+- A subtle visual separator between the two groups
 
-1. **`roomAssignmentAlgorithm.ts` - STEP 6** (line 359): Change the final sort from "checkout-first, then floor, then number" to simply numerical ascending by room number.
+**2. Fix the legend and remove "Towel only" concept**
 
-2. **`roomAssignmentAlgorithm.ts` - `moveRoom` function** (line 411): Same sort change when a room is moved between housekeepers.
+The current legend has "Towel only" (green) which is confusing. Replace with a clearer two-color system:
+- Amber = Checkout room
+- Blue = Daily room
+- Red **T** = Towel change required
+- Red **L** = Linen change required
 
-3. **Algorithm proximity logic**: The wing-based grouping already tries to keep nearby rooms together. No changes needed to the core assignment logic -- the existing wing-first approach already clusters rooms spatially. The sort is purely for display.
+Remove the green "Towel only" category entirely. A daily room that only needs towel change is still a blue daily room -- it just has a red **T** indicator.
 
-**Sort logic change**:
+**3. Add per-housekeeper summary line**
+
+Below the housekeeper name, show a compact summary:
 ```
-// Before (confusing order)
-sort by: checkout first -> floor -> room number
-
-// After (clean numerical order)
-sort by: room number (parseInt, ascending)
+3 checkouts · 10 daily · 2T · 1L
 ```
+This gives managers an instant count of checkout rooms, daily rooms, towel changes, and linen changes for each housekeeper.
 
-### Issue 2: Blank Hotel Selection Page
+**4. Room cleaning note**
 
-**Root cause**: The `HotelSelectionScreen` component depends on `useTenant()` which fetches hotels asynchronously. When `tenantLoading` becomes `false` but `hotels` is still an empty array (due to RLS timing or race condition), the screen renders with no hotel cards and no error message -- just a blank page with a title.
+Daily rooms requiring full room cleaning (linen change) are on-request -- the guest puts out the notice. The **L** indicator on a room chip tells the housekeeper which rooms have this request. No workflow change needed, just correct labeling.
 
-**Fix in `HotelSelectionScreen.tsx`**:
-- Add a fallback when `hotels` is empty and loading is complete: show a retry button and a message ("No hotels found. Tap to retry.")
-- Add error boundary around the hotel fetch to prevent unhandled promise rejections from blanking the page.
-
-### Issue 3: Hotel-specific safeguard
-
-The plan only modifies sorting logic (which is universal/harmless) and the hotel selection screen. No hotel-specific extraction or category logic is touched, so Ottofiori and Budapest remain independent.
-
-### Files to Modify
+### File to Modify
 
 | File | Changes |
 |------|---------|
-| `src/lib/roomAssignmentAlgorithm.ts` | Change room sort in STEP 6 and `moveRoom` to pure numerical ascending |
-| `src/components/dashboard/HotelSelectionScreen.tsx` | Add empty-state fallback with retry button when hotels array is empty |
+| `src/components/dashboard/AutoRoomAssignment.tsx` | Update legend (remove green/towel-only), group rooms by checkout then daily with separator, add summary counts per housekeeper, make T and L uppercase red indicators |
 
 ### Technical Details
 
-**roomAssignmentAlgorithm.ts - STEP 6 sort (line 359-365)**:
+**Room sorting within each card (replaces current flat list):**
 ```typescript
-const sortedRooms = staffRooms.sort((a, b) => {
-  return parseInt(a.room_number) - parseInt(b.room_number);
-});
+const checkoutRooms = preview.rooms
+  .filter(r => r.is_checkout_room)
+  .sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
+const dailyRooms = preview.rooms
+  .filter(r => !r.is_checkout_room)
+  .sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
 ```
 
-**roomAssignmentAlgorithm.ts - moveRoom sort (line 411-417)**:
+**Summary counts:**
 ```typescript
-toPreview.rooms.sort((a, b) => {
-  return parseInt(a.room_number) - parseInt(b.room_number);
-});
+const towelCount = preview.rooms.filter(r => r.towel_change_required).length;
+const linenCount = preview.rooms.filter(r => r.linen_change_required).length;
 ```
 
-**HotelSelectionScreen.tsx - empty state fallback**:
-```typescript
-{hotels.length === 0 && !tenantLoading && (
-  <div className="text-center space-y-4">
-    <p className="text-muted-foreground">No hotels found</p>
-    <Button variant="outline" onClick={() => window.location.reload()}>
-      Retry
-    </Button>
-  </div>
-)}
+**Updated legend:**
+```
+[amber square] Checkout  [blue square] Daily  T Towel change  L Linen change
 ```
 
-Also add a `useEffect` with a 3-second timeout: if `tenantLoading` is still true after 3 seconds, force-refresh tenant data. This catches the race condition where the auth session resolves after the initial fetch.
+**Room chip color:** All daily rooms use blue (no more green). Checkout rooms use amber. The T/L indicators appear as uppercase red letters on the chip.
 
