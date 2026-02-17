@@ -5,12 +5,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { MinibarQuickAdd } from './MinibarQuickAdd';
 import { MinibarQRManagement } from './MinibarQRManagement';
+import { MinimBarManagement } from './MinimBarManagement';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,6 +66,7 @@ export function MinibarTrackingView() {
   const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [qrManagementOpen, setQrManagementOpen] = useState(false);
+  const [manageItemsOpen, setManageItemsOpen] = useState(false);
 
   useEffect(() => {
     fetchUserRole();
@@ -117,6 +119,7 @@ export function MinibarTrackingView() {
   const canClearAll = ['admin'].includes(userRole) || isSuperAdmin;
   const canQuickAdd = ['admin', 'manager', 'housekeeping_manager', 'reception'].includes(userRole);
   const canManageQR = ['admin'].includes(userRole) || isSuperAdmin;
+  const canManageItems = ['admin', 'manager', 'housekeeping_manager'].includes(userRole);
 
   const handleClearAllRecords = async () => {
     setLoading(true);
@@ -277,6 +280,12 @@ export function MinibarTrackingView() {
             <Button variant="outline" onClick={() => setQrManagementOpen(true)} className="gap-2">
               <QrCode className="h-4 w-4" />
               QR Codes
+            </Button>
+          )}
+          {canManageItems && (
+            <Button variant="outline" onClick={() => setManageItemsOpen(true)} className="gap-2">
+              <Settings className="h-4 w-4" />
+              Manage Items
             </Button>
           )}
           {canClearAll && (
@@ -449,6 +458,11 @@ export function MinibarTrackingView() {
 
       {/* QR Code Management */}
       <MinibarQRManagement open={qrManagementOpen} onOpenChange={setQrManagementOpen} />
+
+      {/* Manage Minibar Items */}
+      {canManageItems && (
+        <MinimBarManagement open={manageItemsOpen} onOpenChange={setManageItemsOpen} />
+      )}
     </div>
   );
 }
