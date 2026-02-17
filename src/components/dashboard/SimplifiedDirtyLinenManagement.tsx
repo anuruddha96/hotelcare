@@ -72,6 +72,19 @@ export function SimplifiedDirtyLinenManagement() {
         .single();
 
       const userHotel = currentProfile?.assigned_hotel;
+
+      // Resolve the display name via hotel_configurations
+      let resolvedHotelName = userHotel;
+      if (userHotel) {
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name')
+          .eq('hotel_id', userHotel)
+          .maybeSingle();
+        if (hotelConfig?.hotel_name) {
+          resolvedHotelName = hotelConfig.hotel_name;
+        }
+      }
       
       const { data: countsData, error: countsError } = await supabase
         .from('dirty_linen_counts')
@@ -105,7 +118,13 @@ export function SimplifiedDirtyLinenManagement() {
         .in('id', housekeeperIds);
       
       if (userHotel) {
-        housekeepersQuery = housekeepersQuery.eq('assigned_hotel', userHotel);
+        if (resolvedHotelName && resolvedHotelName !== userHotel) {
+          housekeepersQuery = housekeepersQuery.or(
+            `assigned_hotel.eq.${userHotel},assigned_hotel.eq.${resolvedHotelName}`
+          );
+        } else {
+          housekeepersQuery = housekeepersQuery.eq('assigned_hotel', userHotel);
+        }
       }
       
       const { data: housekeepersData } = await housekeepersQuery;
