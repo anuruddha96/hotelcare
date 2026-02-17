@@ -238,7 +238,7 @@ export function MinibarTrackingView() {
         item_price: record.minibar_items?.price || 0,
         total_price: (record.minibar_items?.price || 0) * record.quantity_used,
         usage_date: record.usage_date,
-        recorded_by_name: record.profiles?.full_name || 'Unknown',
+        recorded_by_name: record.profiles?.full_name || ((record as any).source === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
         source: (record as any).source || 'staff',
       }));
 

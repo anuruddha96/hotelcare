@@ -50,6 +50,7 @@ const App = () => (
                   <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
                   
                   {/* Guest minibar - public, no auth needed */}
+                  <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   <Route path="/:organizationSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   
                   {/* Multi-tenant routes */}
