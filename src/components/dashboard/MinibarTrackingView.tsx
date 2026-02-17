@@ -5,10 +5,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { Input } from '@/components/ui/input';
 import { MinibarQuickAdd } from './MinibarQuickAdd';
 import { MinibarQRManagement } from './MinibarQRManagement';
 import { MinimBarManagement } from './MinimBarManagement';
@@ -67,6 +68,7 @@ export function MinibarTrackingView() {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [qrManagementOpen, setQrManagementOpen] = useState(false);
   const [manageItemsOpen, setManageItemsOpen] = useState(false);
+  const [searchRoom, setSearchRoom] = useState('');
 
   useEffect(() => {
     fetchUserRole();
@@ -270,6 +272,15 @@ export function MinibarTrackingView() {
           <p className="text-muted-foreground">{t('minibar.history')}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search room..."
+              value={searchRoom}
+              onChange={(e) => setSearchRoom(e.target.value)}
+              className="pl-8 w-[160px]"
+            />
+          </div>
           {canQuickAdd && (
             <Button onClick={() => setQuickAddOpen(true)} className="gap-2">
               <Plus className="h-4 w-4" />
@@ -363,9 +374,13 @@ export function MinibarTrackingView() {
         <CardContent>
           {loading ? (
             <div className="text-center py-8">{t('common.loading')}</div>
-          ) : usageRecords.length === 0 ? (
+          ) : (() => {
+            const filteredRecords = usageRecords.filter(record =>
+              !searchRoom || record.room_number.toLowerCase().includes(searchRoom.toLowerCase())
+            );
+            return filteredRecords.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {t('minibar.noData')}
+              {searchRoom ? 'No records found for this room' : t('minibar.noData')}
             </div>
           ) : (
             <div className="rounded-md border">
@@ -385,7 +400,7 @@ export function MinibarTrackingView() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {usageRecords.map((record) => (
+                  {filteredRecords.map((record) => (
                     <TableRow key={record.id}>
                       <TableCell className="font-medium">{record.room_number}</TableCell>
                       <TableCell>
@@ -425,7 +440,8 @@ export function MinibarTrackingView() {
                 </TableBody>
               </Table>
             </div>
-          )}
+          );
+          })()}
         </CardContent>
       </Card>
 
