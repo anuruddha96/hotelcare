@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
@@ -121,6 +121,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
 
@@ -522,13 +523,94 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
         </CardContent>
       </Card>
 
-      {/* Room Size Edit Dialog */}
+      {/* Room Edit Dialog */}
       <Dialog open={roomSizeDialogOpen} onOpenChange={setRoomSizeDialogOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Room Actions */}
+            {selectedRoom && (() => {
+              const assignment = assignmentMap.get(selectedRoom.id);
+              const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room;
+              return (
+                <div className="space-y-2 pb-2 border-b">
+                  <label className="text-sm font-medium">Quick Actions</label>
+                  {/* Mark Ready to Clean */}
+                  {isCheckout && assignment && assignment.status !== 'completed' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start gap-2"
+                      disabled={actionLoading === 'ready'}
+                      onClick={async () => {
+                        setActionLoading('ready');
+                        try {
+                          const { error } = await supabase
+                            .from('room_assignments')
+                            .update({ ready_to_clean: true } as any)
+                            .eq('room_id', selectedRoom.id)
+                            .eq('assignment_date', selectedDate);
+                          if (error) throw error;
+                          toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
+                          fetchData();
+                        } catch (err) {
+                          toast.error('Failed to mark room as ready');
+                        } finally {
+                          setActionLoading(null);
+                        }
+                      }}
+                    >
+                      {actionLoading === 'ready' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4 text-green-600" />}
+                      Mark as Ready to Clean
+                    </Button>
+                  )}
+                  {/* Switch Room Type */}
+                  {assignment && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start gap-2"
+                      disabled={actionLoading === 'switch'}
+                      onClick={async () => {
+                        setActionLoading('switch');
+                        const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
+                        const newIsCheckout = !isCheckout;
+                        try {
+                          const [assignRes, roomRes] = await Promise.all([
+                            supabase
+                              .from('room_assignments')
+                              .update({ assignment_type: newType } as any)
+                              .eq('room_id', selectedRoom.id)
+                              .eq('assignment_date', selectedDate),
+                            supabase
+                              .from('rooms')
+                              .update({ is_checkout_room: newIsCheckout } as any)
+                              .eq('id', selectedRoom.id),
+                          ]);
+                          if (assignRes.error) throw assignRes.error;
+                          if (roomRes.error) throw roomRes.error;
+                          toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+                          fetchData();
+                        } catch (err) {
+                          toast.error('Failed to switch room type');
+                        } finally {
+                          setActionLoading(null);
+                        }
+                      }}
+                    >
+                      {actionLoading === 'switch' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-blue-600" />}
+                      Switch to {isCheckout ? 'Daily' : 'Checkout'}
+                    </Button>
+                  )}
+                  {!assignment && (
+                    <p className="text-xs text-muted-foreground">No assignment for today — assign a room first to use quick actions.</p>
+                  )}
+                </div>
+              );
+            })()}
+
             <p className="text-sm text-muted-foreground">
               Set the room size and category. Size affects auto-assignment workload balancing.
             </p>

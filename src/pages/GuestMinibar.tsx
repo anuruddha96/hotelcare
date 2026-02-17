@@ -4,13 +4,15 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Minus, ShoppingCart, Check, Wine, Coffee, Package, Loader2 } from 'lucide-react';
+import { Plus, Minus, ShoppingCart, Check, Wine, Coffee, Package, Loader2, Star, MapPin, ExternalLink, Compass } from 'lucide-react';
 
 interface MinibarItem {
   id: string;
   name: string;
   category: string;
   price: number;
+  image_url?: string | null;
+  is_promoted?: boolean;
 }
 
 interface CartItem {
@@ -27,6 +29,57 @@ interface HotelBranding {
 }
 
 type SubmitState = 'idle' | 'loading' | 'success' | 'error' | 'invalid';
+
+const LOCAL_RECOMMENDATIONS = [
+  {
+    name: 'Treats and Stuff Café',
+    type: 'Café & Bakery',
+    description: 'Cozy artisan bakery known for irresistible brownies, specialty coffee, and homemade treats. A must-visit for dessert lovers!',
+    specialty: '🍫 Famous brownies & specialty coffee',
+    mapUrl: 'https://maps.google.com/?q=Treats+and+Stuff+Budapest',
+    icon: '☕',
+  },
+  {
+    name: 'Mika Tivadar Secret Museum',
+    type: 'Museum',
+    description: 'Hidden gem dedicated to the visionary art of Tivadar Csontváry Kosztka, one of Hungary\'s most enigmatic painters.',
+    specialty: '🎨 Rare Csontváry masterpieces',
+    mapUrl: 'https://maps.google.com/?q=Mika+Tivadar+Secret+Museum+Budapest',
+    icon: '🏛️',
+  },
+  {
+    name: 'Szimpla Kert',
+    type: 'Ruin Bar',
+    description: 'The original ruin bar — an eclectic maze of quirky décor, live music, and craft drinks in a converted warehouse.',
+    specialty: '🎶 Live music & unique atmosphere',
+    mapUrl: 'https://maps.google.com/?q=Szimpla+Kert+Budapest',
+    icon: '🍻',
+  },
+  {
+    name: 'Széchenyi Thermal Bath',
+    type: 'Spa & Wellness',
+    description: 'Europe\'s largest thermal bath complex with stunning neo-baroque architecture and rejuvenating thermal waters.',
+    specialty: '♨️ 18 pools & thermal waters',
+    mapUrl: 'https://maps.google.com/?q=Széchenyi+Thermal+Bath+Budapest',
+    icon: '🧖',
+  },
+  {
+    name: 'Great Market Hall',
+    type: 'Market & Shopping',
+    description: 'Budapest\'s grandest covered market — three floors of Hungarian delicacies, spices, crafts, and souvenirs.',
+    specialty: '🌶️ Hungarian paprika & local treats',
+    mapUrl: 'https://maps.google.com/?q=Great+Market+Hall+Budapest',
+    icon: '🏪',
+  },
+  {
+    name: 'Fisherman\'s Bastion',
+    type: 'Landmark',
+    description: 'Fairy-tale terraces on Castle Hill offering the most breathtaking panoramic views of the Danube and Parliament.',
+    specialty: '📸 Best photo spot in Budapest',
+    mapUrl: 'https://maps.google.com/?q=Fisherman%27s+Bastion+Budapest',
+    icon: '🏰',
+  },
+];
 
 export default function GuestMinibar() {
   const { roomToken, organizationSlug } = useParams<{ roomToken: string; organizationSlug: string }>();
@@ -45,7 +98,6 @@ export default function GuestMinibar() {
     if (!roomToken) { setSubmitState('invalid'); setLoading(false); return; }
 
     try {
-      // Look up room by token to get hotel info
       const { data: room, error: roomErr } = await (supabase
         .from('rooms')
         .select('room_number, hotel') as any)
@@ -56,7 +108,6 @@ export default function GuestMinibar() {
 
       setRoomNumber(room.room_number);
 
-      // Get hotel branding
       const { data: hotelConfig } = await supabase
         .from('hotel_configurations')
         .select('hotel_name, custom_logo_url, custom_primary_color')
@@ -69,7 +120,6 @@ export default function GuestMinibar() {
         setBranding({ hotel_name: room.hotel });
       }
 
-      // Get active minibar items
       const { data: minibarItems } = await supabase
         .from('minibar_items')
         .select('id, name, category, price')
@@ -77,7 +127,8 @@ export default function GuestMinibar() {
         .order('category')
         .order('name');
 
-      setItems(minibarItems || []);
+      // Cast to include possible extra columns from DB
+      setItems((minibarItems as any as MinibarItem[]) || []);
     } catch {
       setSubmitState('invalid');
     } finally {
@@ -143,6 +194,7 @@ export default function GuestMinibar() {
     }
   };
 
+  const promotedItems = items.filter(i => i.is_promoted);
   const grouped = items.reduce((acc, item) => {
     if (!acc[item.category]) acc[item.category] = [];
     acc[item.category].push(item);
@@ -188,6 +240,43 @@ export default function GuestMinibar() {
 
   const primaryColor = branding?.custom_primary_color || 'hsl(30, 60%, 40%)';
 
+  const renderItemCard = (item: MinibarItem, featured = false) => {
+    const qty = getCartQuantity(item.id);
+    return (
+      <Card key={item.id} className={`transition-all ${featured ? 'ring-2 ring-amber-400 bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200' : ''} ${qty > 0 && !featured ? 'ring-2 ring-amber-400 bg-amber-50/50' : !featured ? 'bg-white' : ''}`}>
+        <CardContent className="p-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            {item.image_url && (
+              <img 
+                src={item.image_url} 
+                alt={item.name} 
+                className="w-12 h-12 rounded-lg object-cover border border-amber-200 flex-shrink-0" 
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                {featured && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500 flex-shrink-0" />}
+                <p className="font-medium text-sm truncate">{item.name}</p>
+              </div>
+              <p className="text-xs text-muted-foreground">€{item.price.toFixed(2)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {qty > 0 && (
+              <Button size="icon" variant="outline" className="h-8 w-8 rounded-full" onClick={() => removeFromCart(item.id)}>
+                <Minus className="h-3 w-3" />
+              </Button>
+            )}
+            {qty > 0 && <span className="w-6 text-center font-semibold text-sm">{qty}</span>}
+            <Button size="icon" className="h-8 w-8 rounded-full bg-amber-600 hover:bg-amber-700" onClick={() => addToCart(item)}>
+              <Plus className="h-3 w-3 text-white" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
       {/* Header */}
@@ -215,6 +304,19 @@ export default function GuestMinibar() {
           </p>
         </div>
 
+        {/* Featured / Promoted Items */}
+        {promotedItems.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
+              <h3 className="font-semibold text-amber-900">Featured</h3>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              {promotedItems.map(item => renderItemCard(item, true))}
+            </div>
+          </div>
+        )}
+
         {/* Items by category */}
         {Object.entries(grouped).map(([category, categoryItems]) => (
           <div key={category} className="space-y-3">
@@ -223,33 +325,50 @@ export default function GuestMinibar() {
               <h3 className="font-semibold text-amber-900 capitalize">{category}s</h3>
             </div>
             <div className="grid grid-cols-1 gap-2">
-              {categoryItems.map(item => {
-                const qty = getCartQuantity(item.id);
-                return (
-                  <Card key={item.id} className={`transition-all ${qty > 0 ? 'ring-2 ring-amber-400 bg-amber-50/50' : 'bg-white'}`}>
-                    <CardContent className="p-3 flex items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{item.name}</p>
-                        <p className="text-xs text-muted-foreground">€{item.price.toFixed(2)}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {qty > 0 && (
-                          <Button size="icon" variant="outline" className="h-8 w-8 rounded-full" onClick={() => removeFromCart(item.id)}>
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                        )}
-                        {qty > 0 && <span className="w-6 text-center font-semibold text-sm">{qty}</span>}
-                        <Button size="icon" className="h-8 w-8 rounded-full bg-amber-600 hover:bg-amber-700" onClick={() => addToCart(item)}>
-                          <Plus className="h-3 w-3 text-white" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+              {categoryItems.map(item => renderItemCard(item))}
             </div>
           </div>
         ))}
+
+        {/* Discover Section */}
+        <div className="space-y-4 pt-4">
+          <div className="flex items-center gap-2">
+            <Compass className="h-5 w-5 text-amber-700" />
+            <h3 className="font-semibold text-amber-900 text-lg">Discover Budapest</h3>
+          </div>
+          <p className="text-sm text-amber-700/80">
+            Explore the best of Budapest — handpicked by our team for an unforgettable stay.
+          </p>
+          <div className="grid grid-cols-1 gap-3">
+            {LOCAL_RECOMMENDATIONS.map((place) => (
+              <Card key={place.name} className="bg-white/80 border-amber-100 hover:shadow-md transition-shadow">
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{place.icon}</span>
+                      <div>
+                        <h4 className="font-semibold text-sm text-amber-900">{place.name}</h4>
+                        <p className="text-xs text-amber-600">{place.type}</p>
+                      </div>
+                    </div>
+                    <a
+                      href={place.mapUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 px-2 py-1 rounded-full transition-colors flex-shrink-0"
+                    >
+                      <MapPin className="h-3 w-3" />
+                      Map
+                      <ExternalLink className="h-2.5 w-2.5" />
+                    </a>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{place.description}</p>
+                  <p className="text-xs font-medium text-amber-800">{place.specialty}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Sticky Cart Footer */}
