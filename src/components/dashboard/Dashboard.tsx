@@ -418,20 +418,24 @@ export function Dashboard() {
                 )}
               </TabsList>
             ) : profile?.role === 'reception' ? (
-              <TabsList className="grid w-full min-w-[400px] max-w-lg grid-cols-4 h-10 sm:h-12">
-                <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+              <TabsList className="flex w-full min-w-[400px] max-w-xl h-10 sm:h-12">
+                <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.tickets')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Home className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.rooms')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="minibar" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                <TabsTrigger value="housekeeping" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>Team View</span>
+                </TabsTrigger>
+                <TabsTrigger value="minibar" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Minibar</span>
                 </TabsTrigger>
-                <TabsTrigger value="lost-found" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                <TabsTrigger value="lost-found" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Lost & Found</span>
                 </TabsTrigger>

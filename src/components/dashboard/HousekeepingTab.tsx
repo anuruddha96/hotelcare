@@ -134,19 +134,22 @@ export function HousekeepingTab() {
           // Otherwise, default to pending approvals
           setActiveTab('supervisor');
         }
+      } else if (userRole === 'reception') {
+        setActiveTab('manage');
       } else {
         setActiveTab('assignments');
       }
     };
     
     checkPMSUploadStatus();
-  }, [hasManagerAccess]);
+  }, [hasManagerAccess, userRole]);
   
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
-  const canAccessHousekeeping = hasManagerAccess || ['housekeeping'].includes(userRole);
+  const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'reception'].includes(userRole);
   
   // Read-only access for housekeeping staff only
   const isReadOnlyAccess = ['housekeeping'].includes(userRole) && !hasManagerAccess;
+  const isReceptionReadOnly = userRole === 'reception';
 
   // Get ordered tabs or use default order
   const getTabOrder = () => {
@@ -214,35 +217,47 @@ export function HousekeepingTab() {
     <div className="space-y-4 sm:space-y-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className={`
-          ${hasManagerAccess 
+          ${hasManagerAccess || isReceptionReadOnly
             ? 'inline-flex overflow-x-auto overflow-y-hidden w-full justify-start gap-1 p-1 h-auto flex-nowrap scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent' 
             : 'grid w-full grid-cols-1'
           }
         `}>
-          {hasManagerAccess && (
+          {isReceptionReadOnly ? (
+            <TabsTrigger 
+              value="manage" 
+              className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+            >
+              <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span>{t('housekeeping.tabs.teamView')}</span>
+            </TabsTrigger>
+          ) : (
             <>
-              {getTabOrder().map(tabId => renderTabTrigger(tabId))}
-              {isAdmin && (
-                <TabsTrigger 
-                  value="tab-order" 
-                  className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-                >
-                  <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />
-                  <span className="hidden sm:inline">Tab Settings</span>
-                  <span className="sm:hidden">Settings</span>
-                </TabsTrigger>
+              {hasManagerAccess && (
+                <>
+                  {getTabOrder().map(tabId => renderTabTrigger(tabId))}
+                  {isAdmin && (
+                    <TabsTrigger 
+                      value="tab-order" 
+                      className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+                    >
+                      <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />
+                      <span className="hidden sm:inline">Tab Settings</span>
+                      <span className="sm:hidden">Settings</span>
+                    </TabsTrigger>
+                  )}
+                </>
               )}
+              <TabsTrigger
+                value="assignments" 
+                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+                data-training="my-tasks-tab"
+              >
+                <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
+                <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
+              </TabsTrigger>
             </>
           )}
-          <TabsTrigger
-            value="assignments" 
-            className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-            data-training="my-tasks-tab"
-          >
-            <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
-            <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
-          </TabsTrigger>
         </TabsList>
 
         {hasManagerAccess && (
@@ -303,6 +318,12 @@ export function HousekeepingTab() {
               </TabsContent>
             )}
           </>
+        )}
+
+        {isReceptionReadOnly && (
+          <TabsContent value="manage" className="space-y-6">
+            <HousekeepingManagerView />
+          </TabsContent>
         )}
 
         <TabsContent value="assignments" className="space-y-6">
