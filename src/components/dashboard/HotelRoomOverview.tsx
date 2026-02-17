@@ -64,16 +64,25 @@ const ROOM_SIZE_OPTIONS = [
   { value: '45', label: 'XL', fullLabel: 'Extra Large (~45m²)' },
 ];
 
-const ROOM_CATEGORIES = [
-  'Deluxe Double or Twin Room with Synagogue View',
-  'Deluxe Double or Twin Room',
-  'Deluxe Queen Room',
-  'Deluxe Triple Room',
-  'Deluxe Quadruple Room',
-  'Comfort Quadruple Room',
-  'Comfort Double Room with Small Window',
-  'Deluxe Single Room',
-];
+const HOTEL_ROOM_CATEGORIES: Record<string, string[]> = {
+  'Hotel Ottofiori': [
+    'Economy Double Room',
+    'Deluxe Double or Twin Room',
+    'Deluxe Queen Room',
+    'Deluxe Triple Room',
+    'Deluxe Quadruple Room',
+  ],
+  default: [
+    'Deluxe Double or Twin Room with Synagogue View',
+    'Deluxe Double or Twin Room',
+    'Deluxe Queen Room',
+    'Deluxe Triple Room',
+    'Deluxe Quadruple Room',
+    'Comfort Quadruple Room',
+    'Comfort Double Room with Small Window',
+    'Deluxe Single Room',
+  ],
+};
 
 function getSizeLabel(sqm: number | null): string | null {
   if (!sqm) return null;
@@ -546,7 +555,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
-                  {ROOM_CATEGORIES.map(cat => (
+                  {(HOTEL_ROOM_CATEGORIES[hotelName] || HOTEL_ROOM_CATEGORIES.default).map(cat => (
                     <SelectItem key={cat} value={cat}>
                       {cat}
                     </SelectItem>

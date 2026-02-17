@@ -648,11 +648,25 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const combinedNotes = [statusNote, roomNotes].filter(Boolean).join(' - ');
           
           // Extract room type, category and Shabath flag from PMS Room column name
-          const extractRoomInfo = (roomName: string): { roomType: string | null; roomCategory: string | null; isShabath: boolean } => {
+          const extractRoomInfo = (roomName: string, hotelName: string): { roomType: string | null; roomCategory: string | null; isShabath: boolean } => {
             if (!roomName) return { roomType: null, roomCategory: null, isShabath: false };
             const upper = roomName.toUpperCase();
             // Shabath detection: SH suffix before room number dash, e.g. "4QUEEN-008SH" or "7TWIN-034SH"
             const isShabath = /SH\s*$/.test(upper.replace(/[^A-Z0-9]/g, '')) || /SH$/.test(upper.trim());
+            
+            const isOttofiori = hotelName.toLowerCase().includes('ottofiori');
+            
+            if (isOttofiori) {
+              // Hotel Ottofiori patterns (prefix-based: CQ-, Q-, DB/TW-, TRP-, QRP-)
+              if (/^CQ-/i.test(roomName.trim())) return { roomType: 'queen', roomCategory: 'Deluxe Queen Room', isShabath };
+              if (/^Q-/i.test(roomName.trim())) return { roomType: 'queen', roomCategory: 'Deluxe Queen Room', isShabath };
+              if (/^DB\/TW-/i.test(roomName.trim())) return { roomType: 'double_twin', roomCategory: 'Deluxe Double or Twin Room', isShabath };
+              if (/^TRP-/i.test(roomName.trim())) return { roomType: 'triple', roomCategory: 'Deluxe Triple Room', isShabath };
+              if (/^QRP-/i.test(roomName.trim())) return { roomType: 'quadruple', roomCategory: 'Deluxe Quadruple Room', isShabath };
+              if (/^ECO/i.test(roomName.trim()) || /^EC-/i.test(roomName.trim())) return { roomType: 'economy_double', roomCategory: 'Economy Double Room', isShabath };
+              console.log(`[PMS] Ottofiori: No category match for "${roomName}"`);
+              return { roomType: null, roomCategory: null, isShabath };
+            }
             
             // Hotel Memories Budapest patterns (order matters: check longer patterns first)
             if (upper.includes('SYN.DOUBLE')) return { roomType: 'syn_double', roomCategory: 'Deluxe Double or Twin Room with Synagogue View', isShabath };
@@ -669,7 +683,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           };
 
           const roomNameVal = getField(row, columnMap, 'Room');
-          const roomInfo = extractRoomInfo(String(roomNameVal || ''));
+          const roomInfo = extractRoomInfo(String(roomNameVal || ''), hotelNameForFilter || '');
 
           const updateData: any = { 
             status: newStatus,
