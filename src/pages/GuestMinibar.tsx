@@ -30,56 +30,16 @@ interface HotelBranding {
 
 type SubmitState = 'idle' | 'loading' | 'success' | 'error' | 'invalid';
 
-const LOCAL_RECOMMENDATIONS = [
-  {
-    name: 'Treats and Stuff Café',
-    type: 'Café & Bakery',
-    description: 'Cozy artisan bakery known for irresistible brownies, specialty coffee, and homemade treats. A must-visit for dessert lovers!',
-    specialty: '🍫 Famous brownies & specialty coffee',
-    mapUrl: 'https://maps.google.com/?q=Treats+and+Stuff+Budapest',
-    icon: '☕',
-  },
-  {
-    name: 'Mika Tivadar Secret Museum',
-    type: 'Museum',
-    description: 'Hidden gem dedicated to the visionary art of Tivadar Csontváry Kosztka, one of Hungary\'s most enigmatic painters.',
-    specialty: '🎨 Rare Csontváry masterpieces',
-    mapUrl: 'https://maps.google.com/?q=Mika+Tivadar+Secret+Museum+Budapest',
-    icon: '🏛️',
-  },
-  {
-    name: 'Szimpla Kert',
-    type: 'Ruin Bar',
-    description: 'The original ruin bar — an eclectic maze of quirky décor, live music, and craft drinks in a converted warehouse.',
-    specialty: '🎶 Live music & unique atmosphere',
-    mapUrl: 'https://maps.google.com/?q=Szimpla+Kert+Budapest',
-    icon: '🍻',
-  },
-  {
-    name: 'Széchenyi Thermal Bath',
-    type: 'Spa & Wellness',
-    description: 'Europe\'s largest thermal bath complex with stunning neo-baroque architecture and rejuvenating thermal waters.',
-    specialty: '♨️ 18 pools & thermal waters',
-    mapUrl: 'https://maps.google.com/?q=Széchenyi+Thermal+Bath+Budapest',
-    icon: '🧖',
-  },
-  {
-    name: 'Great Market Hall',
-    type: 'Market & Shopping',
-    description: 'Budapest\'s grandest covered market — three floors of Hungarian delicacies, spices, crafts, and souvenirs.',
-    specialty: '🌶️ Hungarian paprika & local treats',
-    mapUrl: 'https://maps.google.com/?q=Great+Market+Hall+Budapest',
-    icon: '🏪',
-  },
-  {
-    name: 'Fisherman\'s Bastion',
-    type: 'Landmark',
-    description: 'Fairy-tale terraces on Castle Hill offering the most breathtaking panoramic views of the Danube and Parliament.',
-    specialty: '📸 Best photo spot in Budapest',
-    mapUrl: 'https://maps.google.com/?q=Fisherman%27s+Bastion+Budapest',
-    icon: '🏰',
-  },
-];
+interface GuestRecommendation {
+  id: string;
+  name: string;
+  type: string;
+  description: string | null;
+  specialty: string | null;
+  map_url: string | null;
+  icon: string;
+  sort_order: number;
+}
 
 export default function GuestMinibar() {
   const { roomToken, organizationSlug } = useParams<{ roomToken: string; organizationSlug: string }>();
@@ -89,6 +49,8 @@ export default function GuestMinibar() {
   const [roomNumber, setRoomNumber] = useState<string>('');
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
   const [loading, setLoading] = useState(true);
+  const [recommendations, setRecommendations] = useState<GuestRecommendation[]>([]);
+  const [categoryOrder, setCategoryOrder] = useState<Record<string, number>>({});
 
   useEffect(() => {
     loadData();
@@ -122,13 +84,33 @@ export default function GuestMinibar() {
 
       const { data: minibarItems } = await supabase
         .from('minibar_items')
-        .select('id, name, category, price')
-        .eq('is_active', true)
-        .order('category')
-        .order('name');
+      .select('id, name, category, price, image_url, is_promoted')
+      .eq('is_active', true)
+      .order('category')
+      .order('name');
 
-      // Cast to include possible extra columns from DB
-      setItems((minibarItems as any as MinibarItem[]) || []);
+    setItems((minibarItems as any as MinibarItem[]) || []);
+
+      // Fetch category order
+      const { data: catOrder } = await (supabase
+        .from('minibar_category_order' as any)
+        .select('category, sort_order')
+        .order('sort_order') as any);
+
+      if (catOrder) {
+        const orderMap: Record<string, number> = {};
+        (catOrder as any[]).forEach((c: any) => { orderMap[c.category] = c.sort_order; });
+        setCategoryOrder(orderMap);
+      }
+
+      // Fetch recommendations
+      const { data: recs } = await (supabase
+        .from('guest_recommendations' as any)
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order') as any);
+
+      setRecommendations((recs as any as GuestRecommendation[]) || []);
     } catch {
       setSubmitState('invalid');
     } finally {
@@ -318,7 +300,9 @@ export default function GuestMinibar() {
         )}
 
         {/* Items by category */}
-        {Object.entries(grouped).map(([category, categoryItems]) => (
+        {Object.entries(grouped)
+          .sort(([a], [b]) => (categoryOrder[a] ?? 999) - (categoryOrder[b] ?? 999))
+          .map(([category, categoryItems]) => (
           <div key={category} className="space-y-3">
             <div className="flex items-center gap-2">
               {getCategoryIcon(category)}
@@ -340,7 +324,7 @@ export default function GuestMinibar() {
             Explore the best of Budapest — handpicked by our team for an unforgettable stay.
           </p>
           <div className="grid grid-cols-1 gap-3">
-            {LOCAL_RECOMMENDATIONS.map((place) => (
+            {recommendations.map((place) => (
               <Card key={place.name} className="bg-white/80 border-amber-100 hover:shadow-md transition-shadow">
                 <CardContent className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
@@ -352,7 +336,7 @@ export default function GuestMinibar() {
                       </div>
                     </div>
                     <a
-                      href={place.mapUrl}
+                      href={place.map_url || '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 px-2 py-1 rounded-full transition-colors flex-shrink-0"
