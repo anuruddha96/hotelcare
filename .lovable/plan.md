@@ -1,96 +1,133 @@
 
+## Plan: Guest QR Minibar Self-Service + Reception Role Access
 
-## Plan: Smart Learning from Manager Assignment Patterns
+This is a large feature with 4 major parts. Here's the breakdown:
 
-### How It Works
+---
 
-When a manager uses Auto Room Assignment, they often adjust the algorithm's suggestion by dragging rooms between housekeepers. When they click **Confirm**, the app will save the final room-to-housekeeper pairings as historical patterns. Over time, the algorithm will use this data to prefer groupings that managers have consistently chosen in the past.
+### Part 1: Guest-Facing QR Minibar Page (Public, No Login Required)
 
-### What Gets Recorded
+**New public route**: `/:organizationSlug/minibar/:roomToken`
 
-Each confirmed assignment saves a snapshot of "room pairs" -- which rooms were assigned together to the same housekeeper. For example, if a manager consistently assigns rooms 101, 103, 105 to the same person, the algorithm learns that these rooms belong together.
+Each room gets a unique token (UUID stored in the `rooms` table). When a guest scans the QR code, they land on a branded, mobile-friendly page showing the hotel's minibar items. They can tap items to add them to a "cart" and submit their usage -- no login, no pressure, just a friendly nudge to record what they took.
 
-### Database
+**How it works:**
+- The page loads the room token from the URL, looks up the room (and hotel branding from `hotel_configurations`)
+- Displays minibar items in a beautiful card grid with prices, grouped by category
+- Guest taps items, adjusts quantity, and hits "Confirm" to record usage
+- Records are inserted into `room_minibar_usage` with `recorded_by = NULL` (guest source) and a new `source` column set to `'guest'`
+- A thank-you screen appears after submission
 
-**New table: `assignment_patterns`**
+**Branding**: The page pulls the hotel's logo, colors, and name from `hotel_configurations` to match Hotel Ottofiori or any other property.
 
-| Column | Type | Purpose |
-|--------|------|---------|
-| id | uuid | Primary key |
-| hotel | text | Hotel name (patterns are hotel-specific) |
-| room_number_a | text | First room in the pair |
-| room_number_b | text | Second room in the pair |
-| pair_count | integer | How many times these two rooms were assigned together |
-| last_seen_at | timestamp | When this pairing was last confirmed |
-| organization_slug | text | Tenant isolation |
-| created_at | timestamp | Record creation |
+---
 
-This stores room-pair affinity: every time rooms A and B end up assigned to the same housekeeper, their `pair_count` increments. The algorithm then uses high-count pairs to keep those rooms together.
+### Part 2: Unique QR Codes per Room + Admin Download
 
-### Algorithm Enhancement
+**Database change**: Add a `minibar_qr_token` column (UUID, unique) to the `rooms` table. Pre-populate existing rooms with tokens via migration.
 
-The auto-assignment algorithm (`roomAssignmentAlgorithm.ts`) will receive an optional `roomAffinityMap` parameter. During the wing-splitting and rebalancing steps, when deciding which room to move or where to assign it, the algorithm will add a **affinity bonus** to keep high-affinity room pairs together with the same housekeeper.
+**QR Code Management** (admin feature in the Housekeeping tab or Minibar settings):
+- A new "QR Codes" button/section in the Minibar Tracking page (visible to admins)
+- Shows a list of all rooms with their QR codes
+- Each QR encodes the URL: `https://hotelcare.lovable.app/{org}/minibar/{roomToken}`
+- "Download All QRs" button generates a printable PDF/image grid with room number labels
+- Individual QR download per room
+- Uses a client-side QR code generation library (we'll use a lightweight inline SVG generator or the `qrcode` npm package)
 
-Specifically:
-- During STEP 3 (wing splitting): When a wing must be split across housekeepers, prefer keeping high-affinity pairs together
-- During STEP 4 (rebalancing): Penalize moving a room away from its high-affinity partners
-- During STEP 5 (count rebalancing): Same affinity penalty
+---
 
-### Code Changes
+### Part 3: Deduplication Logic (Guest vs Housekeeper vs Reception)
 
-**1. New migration: Create `assignment_patterns` table**
+**New column on `room_minibar_usage`**: `source` (text, default `'staff'`)
+- Values: `'guest'`, `'staff'`, `'reception'`
+
+**Deduplication rules:**
+- When a housekeeper records minibar usage, check if the guest already recorded the same item for the same room on the same day. If so, skip the duplicate (keep the guest's record since they reported first)
+- When a guest records usage, check if staff already recorded the same item. If so, skip the duplicate (keep staff's record)
+- If neither has recorded it, insert normally
+- The "source" badge appears in the Minibar Tracking table so managers can see who reported each usage (Guest / Staff / Reception)
+- This validation happens at insert time in the component logic -- not at DB level, to keep it flexible
+
+---
+
+### Part 4: Reception Role Dashboard Access
+
+The `reception` role already exists in the `user_role` enum. Currently, reception users land on the "rooms" tab with limited visibility. We need to expand their access:
+
+**Dashboard changes for reception users:**
+- Add a new tab layout for `reception` role in `Dashboard.tsx` with tabs: Tickets, Rooms, Minibar, Lost & Found
+- The "Minibar" tab shows `MinibarTrackingView` (read access to see all usage) plus a quick-add form at the top
+- The "Lost & Found" tab shows `LostAndFoundManagement` (read-only)
+- The "Rooms" tab shows `RoomManagement` (read-only team view)
+
+**Quick-Add for Reception:**
+- In the Minibar Tracking view, add a "Record Usage" button (visible to reception, manager, admin roles)
+- Opens a simple dialog: search/select room number, pick items from dropdown, set quantity, submit
+- Source is set to `'reception'`
+
+**RLS adjustments:**
+- `room_minibar_usage` INSERT policy already allows all staff -- reception is covered
+- `minibar_items` SELECT policy needs to allow anon access for the guest page (or use a dedicated edge function)
+- For the guest page (no auth), we'll use an edge function to handle the insert securely, bypassing RLS with service role
+
+---
+
+### Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/pages/GuestMinibar.tsx` | Public guest-facing minibar page with hotel branding |
+| `src/components/dashboard/MinibarQRManagement.tsx` | Admin QR code generation and download UI |
+| `src/components/dashboard/MinibarQuickAdd.tsx` | Reception/manager quick-add usage dialog |
+| `supabase/functions/guest-minibar-submit/index.ts` | Edge function for unauthenticated guest submissions |
+
+### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/App.tsx` | Add public route `/:organizationSlug/minibar/:roomToken` |
+| `src/components/dashboard/Dashboard.tsx` | Add reception role tab layout with Minibar and Lost & Found tabs |
+| `src/components/dashboard/MinibarTrackingView.tsx` | Add source badge column, quick-add button, reception access |
+| `src/components/dashboard/HousekeepingTab.tsx` | Add QR management button to minibar section |
+| `supabase/config.toml` | Add `[functions.guest-minibar-submit]` with `verify_jwt = false` |
+
+### Database Migration
 
 ```sql
-CREATE TABLE assignment_patterns (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  hotel text NOT NULL,
-  room_number_a text NOT NULL,
-  room_number_b text NOT NULL,
-  pair_count integer NOT NULL DEFAULT 1,
-  last_seen_at timestamptz NOT NULL DEFAULT now(),
-  organization_slug text DEFAULT 'rdhotels',
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(hotel, room_number_a, room_number_b, organization_slug)
-);
+-- Add QR token to rooms
+ALTER TABLE rooms ADD COLUMN minibar_qr_token uuid DEFAULT gen_random_uuid() UNIQUE;
 
--- RLS: managers and admins can read/write
-ALTER TABLE assignment_patterns ENABLE ROW LEVEL SECURITY;
--- SELECT for managers/admins
--- INSERT/UPDATE for managers/admins (upsert on confirm)
+-- Backfill existing rooms
+UPDATE rooms SET minibar_qr_token = gen_random_uuid() WHERE minibar_qr_token IS NULL;
+
+-- Add source column to track who recorded the usage
+ALTER TABLE room_minibar_usage ADD COLUMN source text DEFAULT 'staff';
+
+-- Allow anon SELECT on rooms for QR token lookup (limited columns)
+-- This will be handled by the edge function instead (service role)
 ```
 
-**2. `src/lib/roomAssignmentAlgorithm.ts`**
+### Technical Details
 
-- Add a new exported type `RoomAffinityMap` -- a Map from `"roomA-roomB"` to affinity score (0-1)
-- Add a new exported function `buildAffinityMap(patterns)` that converts raw DB rows into a normalized affinity map
-- Modify `autoAssignRooms` to accept an optional `affinityMap` parameter
-- In STEP 3 (wing splitting): When distributing rooms one-by-one from a split wing, check which housekeeper already has the highest affinity partner rooms, and add an affinity bonus (lower effective weight) to that housekeeper
-- In STEP 4 and STEP 5 (rebalancing): Add an affinity penalty when a room move would separate high-affinity pairs -- only move if the balance improvement outweighs the affinity loss
+**Guest Minibar Edge Function** (`guest-minibar-submit`):
+- Accepts: `{ roomToken, items: [{ minibar_item_id, quantity }] }`
+- Validates the room token exists
+- Checks for duplicates (same room + same item + same day)
+- Inserts into `room_minibar_usage` with `recorded_by = NULL`, `source = 'guest'`
+- Returns success/error
 
-**3. `src/components/dashboard/AutoRoomAssignment.tsx`**
+**QR Code Generation:**
+- Uses inline SVG QR generation (no external dependency needed -- we can use a small utility function, or add the lightweight `qrcode` package)
+- Each QR encodes: `{publishedUrl}/{orgSlug}/minibar/{minibar_qr_token}`
+- Download all: renders QR codes to a canvas grid and exports as PNG
 
-- In `fetchData()`: Query `assignment_patterns` for the current hotel to build the affinity map, and pass it to `autoAssignRooms`
-- In `handleConfirmAssignment()`: After inserting room_assignments, compute all room pairs from the final preview and upsert them into `assignment_patterns` (increment pair_count for existing pairs, insert new ones)
+**Deduplication in Quick-Add and Housekeeper flow:**
+- Before inserting, query `room_minibar_usage` for same `room_id`, `minibar_item_id`, and `usage_date` (same day)
+- If exists, show a toast: "This item was already recorded for this room today (by {source})" and skip
+- Manager can override if needed
 
-### How Affinity Scoring Works
-
+**Reception tab layout:**
 ```
-affinityScore(roomA, roomB) = pair_count / max_pair_count_in_hotel
+Tickets | Rooms | Minibar | Lost & Found
 ```
-
-This normalizes scores to 0-1. A pair that's been confirmed together 20 times out of a max of 20 gets score 1.0. A pair seen 5 times gets 0.25.
-
-During assignment, when deciding which housekeeper gets a room, the algorithm adds:
-```
-affinityBonus = sum of affinityScore(room, existingRoom) for all existingRooms of that housekeeper
-```
-
-This gently biases the algorithm toward historically proven groupings without overriding workload balancing.
-
-### What This Does NOT Change
-
-- Hotel Ottofiori and Budapest remain independent (patterns are stored per-hotel)
-- The wing-based grouping remains the primary logic -- affinity is a secondary tiebreaker
-- Managers can still freely drag-and-drop in the preview; those final choices feed back into learning
-- No existing UI changes -- this is invisible intelligence behind the scenes
-
+This gives reception staff exactly the tools they need without exposing housekeeping management, assignments, or admin features.
