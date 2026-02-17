@@ -13,6 +13,8 @@ import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
 import { CompanySettings } from './CompanySettings';
 import { HousekeepingTab } from './HousekeepingTab';
+import { MinibarTrackingView } from './MinibarTrackingView';
+import { LostAndFoundManagement } from './LostAndFoundManagement';
 import { MaintenanceStaffView } from './MaintenanceStaffView';
 import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
@@ -25,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2 } from 'lucide-react';
+import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Ticket {
@@ -415,6 +417,25 @@ export function Dashboard() {
                   </TabsTrigger>
                 )}
               </TabsList>
+            ) : profile?.role === 'reception' ? (
+              <TabsList className="grid w-full min-w-[400px] max-w-lg grid-cols-4 h-10 sm:h-12">
+                <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>{t('dashboard.tickets')}</span>
+                </TabsTrigger>
+                <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Home className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>{t('dashboard.rooms')}</span>
+                </TabsTrigger>
+                <TabsTrigger value="minibar" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>Minibar</span>
+                </TabsTrigger>
+                <TabsTrigger value="lost-found" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>Lost & Found</span>
+                </TabsTrigger>
+              </TabsList>
             ) : (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12" data-training="main-tabs">
                 <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab">
@@ -647,6 +668,18 @@ export function Dashboard() {
               </div>
             )}
           </TabsContent>
+
+          {/* Reception-specific tabs */}
+          {profile?.role === 'reception' && (
+            <>
+              <TabsContent value="minibar" className="space-y-6">
+                <MinibarTrackingView />
+              </TabsContent>
+              <TabsContent value="lost-found" className="space-y-6">
+                <LostAndFoundManagement />
+              </TabsContent>
+            </>
+          )}
 
           {/* Admin Tab - Organization & Hotel Management */}
           {profile?.role === 'admin' && (

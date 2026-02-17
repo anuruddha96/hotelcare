@@ -98,3 +98,6 @@ verify_jwt = true
 
 [functions.auto-signout]
 verify_jwt = false
+
+[functions.guest-minibar-submit]
+verify_jwt = false
