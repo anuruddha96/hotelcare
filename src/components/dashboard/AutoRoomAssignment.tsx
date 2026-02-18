@@ -9,10 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move, MapPin } from 'lucide-react';
+import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move, MapPin, Trash2, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
   autoAssignRooms, 
@@ -22,6 +23,7 @@ import {
   moveRoom,
   calculateRoomWeight,
   formatMinutesToTime,
+  getFloorFromRoomNumber,
   buildWingProximityMap,
   buildAffinityMap,
   RoomAffinityMap,
@@ -53,6 +55,17 @@ interface AutoRoomAssignmentProps {
 }
 
 type Step = 'select-staff' | 'preview' | 'confirm' | 'public-areas';
+
+// LocalStorage key for auto-save
+function getSaveKey(hotel: string | null | undefined, date: string): string {
+  return `auto_assignment_${hotel || 'unknown'}_${date}`;
+}
+
+interface SavedState {
+  staffIds: string[];
+  previews: AssignmentPreview[];
+  savedAt: number;
+}
 
 export function AutoRoomAssignment({
   open,
@@ -86,23 +99,89 @@ export function AutoRoomAssignment({
   // Over-allocation confirmation
   const [showOverAllocationDialog, setShowOverAllocationDialog] = useState(false);
   const [overAllocatedStaff, setOverAllocatedStaff] = useState<AssignmentPreview[]>([]);
+  // Auto-save restored flag
+  const [restoredFromSave, setRestoredFromSave] = useState(false);
 
   // Wing proximity map for smart assignments
   const [wingProximity, setWingProximity] = useState<WingProximityMap | undefined>(undefined);
   const [roomAffinity, setRoomAffinity] = useState<RoomAffinityMap | undefined>(undefined);
 
   // Public area assignments (post-room assignment step)
-  const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map()); // areaKey -> staffId
+  const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map());
 
-  // Reset state when dialog opens
+  const saveKey = getSaveKey(profile?.assigned_hotel, selectedDate);
+
+  // Auto-save: persist staff selection and previews
+  useEffect(() => {
+    if (!open) return;
+    if (selectedStaffIds.size === 0 && assignmentPreviews.length === 0) return;
+    
+    const data: SavedState = {
+      staffIds: Array.from(selectedStaffIds),
+      previews: assignmentPreviews,
+      savedAt: Date.now()
+    };
+    try {
+      localStorage.setItem(saveKey, JSON.stringify(data));
+    } catch (e) {
+      // localStorage full or unavailable, ignore
+    }
+  }, [selectedStaffIds, assignmentPreviews, saveKey, open]);
+
+  // Clear saved state
+  const handleClearSaved = () => {
+    localStorage.removeItem(saveKey);
+    setRestoredFromSave(false);
+    setStep('select-staff');
+    setSelectedStaffIds(new Set());
+    setAssignmentPreviews([]);
+    setSelectedRoomForMove(null);
+    toast.success('Saved assignment data cleared');
+  };
+
+  // Reset state when dialog opens - restore from localStorage if available
   useEffect(() => {
     if (open) {
-      setStep('select-staff');
-      setSelectedStaffIds(new Set());
-      setAssignmentPreviews([]);
       setSelectedRoomForMove(null);
       setShowOverAllocationDialog(false);
       setPublicAreaAssignments(new Map());
+
+      // Try to restore from localStorage
+      try {
+        const saved = localStorage.getItem(saveKey);
+        if (saved) {
+          const data: SavedState = JSON.parse(saved);
+          // Only restore if less than 12 hours old
+          if (Date.now() - data.savedAt < 12 * 60 * 60 * 1000) {
+            setSelectedStaffIds(new Set(data.staffIds));
+            if (data.previews?.length > 0) {
+              setAssignmentPreviews(data.previews);
+              setStep('preview');
+              setRestoredFromSave(true);
+            } else {
+              setStep('select-staff');
+              setRestoredFromSave(true);
+            }
+          } else {
+            localStorage.removeItem(saveKey);
+            setStep('select-staff');
+            setSelectedStaffIds(new Set());
+            setAssignmentPreviews([]);
+            setRestoredFromSave(false);
+          }
+        } else {
+          setStep('select-staff');
+          setSelectedStaffIds(new Set());
+          setAssignmentPreviews([]);
+          setRestoredFromSave(false);
+        }
+      } catch {
+        setStep('select-staff');
+        setSelectedStaffIds(new Set());
+        setAssignmentPreviews([]);
+        setRestoredFromSave(false);
+      }
+
       fetchData();
     }
   }, [open]);
@@ -144,8 +223,11 @@ export function AutoRoomAssignment({
       const hotelCheckedIn = allCheckedIn.filter(id => hotelStaffIds.has(id));
       
       setCheckedInStaff(new Set(hotelCheckedIn));
-      // Auto-select only staff who are checked in AND from this hotel
-      setSelectedStaffIds(new Set(hotelCheckedIn));
+      
+      // Only auto-select checked-in staff if NOT restored from save
+      if (!restoredFromSave) {
+        setSelectedStaffIds(new Set(hotelCheckedIn));
+      }
 
       // Fetch dirty rooms that don't have assignments for today
       const { data: roomsData } = await supabase
@@ -265,20 +347,29 @@ export function AutoRoomAssignment({
     
     setSubmitting(true);
     try {
-      // Create all assignments
-      const assignments = assignmentPreviews.flatMap(preview => 
-        preview.rooms.map((room, index) => ({
+      // Create all assignments with checkout-first priority ordering
+      const assignments = assignmentPreviews.flatMap(preview => {
+        // Sort: checkouts first, then daily, by floor and room number
+        const sorted = [...preview.rooms].sort((a, b) => {
+          if (a.is_checkout_room && !b.is_checkout_room) return -1;
+          if (!a.is_checkout_room && b.is_checkout_room) return 1;
+          const floorA = getFloorFromRoomNumber(a.room_number);
+          const floorB = getFloorFromRoomNumber(b.room_number);
+          if (floorA !== floorB) return floorA - floorB;
+          return parseInt(a.room_number) - parseInt(b.room_number);
+        });
+        return sorted.map((room, index) => ({
           room_id: room.id,
           assigned_to: preview.staffId,
           assigned_by: user.id,
           assignment_date: selectedDate,
           assignment_type: (room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
           status: 'assigned' as const,
-          priority: index + 1,
+          priority: index + 1, // Checkouts get lowest numbers (highest priority)
           organization_slug: profile?.organization_slug,
-          ready_to_clean: !room.is_checkout_room // Daily rooms are ready, checkout rooms wait
-        }))
-      );
+          ready_to_clean: !room.is_checkout_room
+        }));
+      });
 
       if (assignments.length === 0) {
         toast.error('No rooms to assign');
@@ -312,7 +403,6 @@ export function AutoRoomAssignment({
           }
         }
 
-        // Upsert patterns using DB function (best-effort, don't block on failure)
         if (pairsToUpsert.length > 0) {
           const upsertPromises = pairsToUpsert.map(p =>
             supabase.rpc('upsert_assignment_pattern' as any, {
@@ -322,12 +412,14 @@ export function AutoRoomAssignment({
               p_org_slug: p.organization_slug,
             })
           );
-          // Fire all in parallel, don't await individually - best effort
           Promise.allSettled(upsertPromises).catch(() => {
             console.warn('Some pattern learning calls failed');
           });
         }
       }
+
+      // Clear saved state after successful assignment
+      localStorage.removeItem(saveKey);
 
       const totalRooms = assignments.length;
       const staffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
@@ -408,6 +500,27 @@ export function AutoRoomAssignment({
     ? assignmentPreviews.reduce((sum, p) => sum + p.totalWeight, 0) / assignmentPreviews.length 
     : 0;
 
+  // Calculate max time for workload bar scaling
+  const maxTime = assignmentPreviews.length > 0
+    ? Math.max(...assignmentPreviews.filter(p => p.rooms.length > 0).map(p => p.totalWithBreak), 1)
+    : 1;
+
+  // Group rooms by floor for a given set of rooms
+  const groupByFloor = (rooms: RoomForAssignment[]) => {
+    const groups: Record<number, RoomForAssignment[]> = {};
+    rooms.forEach(r => {
+      const floor = getFloorFromRoomNumber(r.room_number);
+      if (!groups[floor]) groups[floor] = [];
+      groups[floor].push(r);
+    });
+    return Object.entries(groups)
+      .sort(([a], [b]) => parseInt(a) - parseInt(b))
+      .map(([floor, floorRooms]) => ({
+        floor: parseInt(floor),
+        rooms: floorRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number))
+      }));
+  };
+
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const isSelected = selectedRoomForMove?.roomId === room.id;
     const chipColor = room.is_checkout_room
@@ -454,6 +567,62 @@ export function AutoRoomAssignment({
     );
   };
 
+  // Summary table for consolidated preview
+  const renderSummaryTable = () => {
+    const activePreviews = assignmentPreviews.filter(p => p.rooms.length > 0);
+    if (activePreviews.length === 0) return null;
+
+    return (
+      <div className="rounded-lg border bg-card overflow-hidden">
+        <div className="grid grid-cols-[1fr,auto,auto,auto,auto,1fr] gap-x-3 gap-y-0 text-xs">
+          {/* Header */}
+          <div className="px-3 py-2 bg-muted/60 font-semibold">Staff</div>
+          <div className="px-2 py-2 bg-muted/60 font-semibold text-center">CO</div>
+          <div className="px-2 py-2 bg-muted/60 font-semibold text-center">Daily</div>
+          <div className="px-2 py-2 bg-muted/60 font-semibold text-center">Tasks</div>
+          <div className="px-2 py-2 bg-muted/60 font-semibold text-right">Time</div>
+          <div className="px-3 py-2 bg-muted/60 font-semibold">Workload</div>
+          
+          {/* Rows */}
+          {activePreviews.map((p, i) => {
+            const towelCount = p.rooms.filter(r => r.towel_change_required).length;
+            const linenCount = p.rooms.filter(r => r.linen_change_required).length;
+            const workloadPct = Math.min(100, Math.round((p.totalWithBreak / maxTime) * 100));
+            const barColor = p.exceedsShift ? 'bg-destructive' : workloadPct > 80 ? 'bg-amber-500' : 'bg-green-500';
+            
+            return (
+              <React.Fragment key={p.staffId}>
+                <div className={`px-3 py-1.5 font-medium truncate ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                  {p.staffName}
+                </div>
+                <div className={`px-2 py-1.5 text-center text-amber-600 font-semibold ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                  {p.checkoutCount}
+                </div>
+                <div className={`px-2 py-1.5 text-center text-blue-600 font-semibold ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                  {p.dailyCount}
+                </div>
+                <div className={`px-2 py-1.5 text-center ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                  {towelCount > 0 && <span className="text-red-600 font-semibold">{towelCount}T</span>}
+                  {towelCount > 0 && linenCount > 0 && ' '}
+                  {linenCount > 0 && <span className="text-red-600 font-semibold">{linenCount}L</span>}
+                  {towelCount === 0 && linenCount === 0 && '—'}
+                </div>
+                <div className={`px-2 py-1.5 text-right ${p.exceedsShift ? 'text-destructive font-semibold' : ''} ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                  {formatMinutesToTime(p.totalWithBreak)}
+                </div>
+                <div className={`px-3 py-1.5 flex items-center ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${workloadPct}%` }} />
+                  </div>
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -462,6 +631,11 @@ export function AutoRoomAssignment({
             <DialogTitle className="flex items-center gap-2">
               <Wand2 className="h-5 w-5" />
               Auto Room Assignment
+              {restoredFromSave && (
+                <Badge variant="outline" className="text-xs text-green-600 border-green-300 ml-2">
+                  Restored
+                </Badge>
+              )}
             </DialogTitle>
           </DialogHeader>
 
@@ -581,6 +755,15 @@ export function AutoRoomAssignment({
                   </span>
                 </div>
 
+                {/* Consolidated Summary Table */}
+                {renderSummaryTable()}
+
+                {/* Info about room order */}
+                <div className="flex items-start gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-xs text-blue-800 dark:text-blue-300">
+                  <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                  <span>Checkouts appear first for housekeepers. Rooms are ordered by floor then room number for optimal walking path.</span>
+                </div>
+
                 {/* Summary */}
                 <div className="px-3 py-2 bg-muted/40 rounded-lg text-sm flex items-center justify-between flex-wrap gap-2">
                   <p>
@@ -598,6 +781,8 @@ export function AutoRoomAssignment({
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
                     const isDragOver = dragOverStaffId === preview.staffId;
                     const isOverShift = preview.exceedsShift && preview.rooms.length > 0;
+                    const workloadPct = Math.min(100, Math.round((preview.totalWithBreak / maxTime) * 100));
+                    const barColor = isOverShift ? 'bg-destructive' : workloadPct > 80 ? 'bg-amber-500' : 'bg-green-500';
                     
                     return (
                       <Card 
@@ -629,7 +814,7 @@ export function AutoRoomAssignment({
                           }
                         }}
                       >
-                        {/* Compact header with summary */}
+                        {/* Header with workload bar */}
                         {(() => {
                           const checkoutRooms = preview.rooms.filter(r => r.is_checkout_room);
                           const dailyRooms = preview.rooms.filter(r => !r.is_checkout_room);
@@ -648,48 +833,70 @@ export function AutoRoomAssignment({
                                 </span>
                               </div>
                               {preview.rooms.length > 0 && (
-                                <p className="text-[11px] text-muted-foreground mt-0.5">
-                                  {checkoutRooms.length} checkouts · {dailyRooms.length} daily
-                                  {towelCount > 0 && <> · <span className="text-red-600 font-semibold">{towelCount}T</span></>}
-                                  {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}L</span></>}
-                                </p>
+                                <>
+                                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                                    {checkoutRooms.length} checkouts · {dailyRooms.length} daily
+                                    {towelCount > 0 && <> · <span className="text-red-600 font-semibold">{towelCount}T</span></>}
+                                    {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}L</span></>}
+                                  </p>
+                                  {/* Workload bar */}
+                                  <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mt-1.5">
+                                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${workloadPct}%` }} />
+                                  </div>
+                                </>
                               )}
                             </div>
                           );
                         })()}
 
-                        {/* Room chips - grouped by checkout then daily */}
+                        {/* Room chips - grouped by floor with labels */}
                         <div className="px-3 py-2.5">
                           {preview.rooms.length === 0 ? (
                             <p className="text-sm text-muted-foreground text-center py-2">No rooms assigned</p>
                           ) : (
                             <div className="space-y-2">
-                              {/* Checkout rooms */}
+                              {/* Checkout rooms grouped by floor */}
                               {(() => {
-                                const checkouts = preview.rooms
-                                  .filter(r => r.is_checkout_room)
-                                  .sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
+                                const checkouts = preview.rooms.filter(r => r.is_checkout_room);
                                 if (checkouts.length === 0) return null;
+                                const floorGroups = groupByFloor(checkouts);
                                 return (
                                   <div>
                                     <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wide">Checkouts</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {checkouts.map(room => renderRoomChip(room, preview))}
+                                    <div className="space-y-1.5">
+                                      {floorGroups.map(({ floor, rooms }) => (
+                                        <div key={`co-${floor}`} className="flex items-start gap-1.5">
+                                          <span className="text-[9px] text-muted-foreground bg-muted px-1 py-0.5 rounded mt-0.5 flex-shrink-0">
+                                            F{floor}
+                                          </span>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {rooms.map(room => renderRoomChip(room, preview))}
+                                          </div>
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
                                 );
                               })()}
-                              {/* Daily rooms */}
+                              {/* Daily rooms grouped by floor */}
                               {(() => {
-                                const dailys = preview.rooms
-                                  .filter(r => !r.is_checkout_room)
-                                  .sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
+                                const dailys = preview.rooms.filter(r => !r.is_checkout_room);
                                 if (dailys.length === 0) return null;
+                                const floorGroups = groupByFloor(dailys);
                                 return (
                                   <div>
                                     <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wide">Daily</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {dailys.map(room => renderRoomChip(room, preview))}
+                                    <div className="space-y-1.5">
+                                      {floorGroups.map(({ floor, rooms }) => (
+                                        <div key={`daily-${floor}`} className="flex items-start gap-1.5">
+                                          <span className="text-[9px] text-muted-foreground bg-muted px-1 py-0.5 rounded mt-0.5 flex-shrink-0">
+                                            F{floor}
+                                          </span>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {rooms.map(room => renderRoomChip(room, preview))}
+                                          </div>
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
                                 );
@@ -795,6 +1002,12 @@ export function AutoRoomAssignment({
           <DialogFooter className="flex-shrink-0 gap-2">
             {step === 'select-staff' && (
               <>
+                {restoredFromSave && (
+                  <Button variant="ghost" size="sm" onClick={handleClearSaved} className="mr-auto text-muted-foreground">
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Clear Saved
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => onOpenChange(false)}>
                   Cancel
                 </Button>
@@ -810,6 +1023,12 @@ export function AutoRoomAssignment({
             
             {step === 'preview' && (
               <>
+                {restoredFromSave && (
+                  <Button variant="ghost" size="sm" onClick={handleClearSaved} className="mr-auto text-muted-foreground">
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Clear Saved
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => setStep('select-staff')}>
                   Back
                 </Button>
