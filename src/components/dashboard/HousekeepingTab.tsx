@@ -116,11 +116,11 @@ export function HousekeepingTab() {
   
   // Set the default active tab based on manager access and PMS upload status
   useEffect(() => {
-    const checkPMSUploadStatus = async () => {
+    const checkDefaultTab = async () => {
       if (hasManagerAccess) {
         // Check if PMS upload has been done today
         const today = new Date().toISOString().split('T')[0];
-        const { data } = await supabase
+        const { data: pmsData } = await supabase
           .from('pms_upload_summary')
           .select('id')
           .gte('upload_date', `${today}T00:00:00`)
@@ -128,11 +128,14 @@ export function HousekeepingTab() {
           .limit(1);
 
         // If no upload today, default to PMS upload tab
-        if (!data || data.length === 0) {
+        if (!pmsData || pmsData.length === 0) {
           setActiveTab('pms-upload');
-        } else {
-          // Otherwise, default to pending approvals
+        } else if (pendingCount > 0) {
+          // If there are pending approvals, show that
           setActiveTab('supervisor');
+        } else {
+          // Otherwise, default to team view
+          setActiveTab('manage');
         }
       } else if (userRole === 'reception') {
         setActiveTab('manage');
@@ -141,8 +144,8 @@ export function HousekeepingTab() {
       }
     };
     
-    checkPMSUploadStatus();
-  }, [hasManagerAccess, userRole]);
+    checkDefaultTab();
+  }, [hasManagerAccess, userRole, pendingCount]);
   
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
   const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'reception'].includes(userRole);

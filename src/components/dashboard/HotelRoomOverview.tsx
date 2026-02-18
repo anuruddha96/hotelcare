@@ -37,6 +37,8 @@ interface AssignmentData {
   assigned_to: string;
   status: string;
   assignment_type: string;
+  started_at: string | null;
+  supervisor_approved: boolean | null;
 }
 
 interface PublicAreaTask {
@@ -93,20 +95,33 @@ function getSizeLabel(sqm: number | null): string | null {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  clean: 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700',
-  dirty: 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-700',
-  in_progress: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700',
-  out_of_order: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700',
-  inspected: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700',
+  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
+  inspected: 'bg-teal-200 text-teal-900 border-teal-500 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-600',
+  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
+  overdue: 'bg-rose-300 text-rose-950 border-rose-600 dark:bg-rose-900/60 dark:text-rose-200 dark:border-rose-500',
 };
 
 const TASK_STATUS_COLORS: Record<string, string> = {
-  assigned: 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-700',
-  in_progress: 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700',
-  completed: 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/40 dark:text-green-300 dark:border-green-700',
+  assigned: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
+  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
 };
 
 const DEFAULT_COLOR = 'bg-muted text-muted-foreground border-border';
+
+// Check if a room assignment is overdue (assigned > 2 hours ago without completion)
+function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): boolean {
+  if (!assignment || assignment.status === 'completed') return false;
+  if (assignment.status === 'in_progress' && startedAt) {
+    const started = new Date(startedAt).getTime();
+    const now = Date.now();
+    return (now - started) > 2 * 60 * 60 * 1000; // 2 hours
+  }
+  return false;
+}
 
 export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
@@ -140,7 +155,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('room_id, assigned_to, status, assignment_type')
+          .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -264,9 +279,27 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   };
 
   const renderRoomChip = (room: RoomData) => {
-    const statusKey = getAssignmentStatus(room.id) === 'in_progress' ? 'in_progress' 
-      : getAssignmentStatus(room.id) === 'completed' ? 'clean' 
-      : room.status || 'dirty';
+    const assignment = assignmentMap.get(room.id);
+    const assignmentStatus = assignment?.status || null;
+    const isPendingApproval = assignmentStatus === 'completed' && assignment?.supervisor_approved === false;
+    const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
+    
+    // Determine color based on enhanced status logic
+    let statusKey: string;
+    if (roomOverdue) {
+      statusKey = 'overdue';
+    } else if (isPendingApproval) {
+      statusKey = 'pending_approval';
+    } else if (assignmentStatus === 'in_progress') {
+      statusKey = 'in_progress';
+    } else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) {
+      statusKey = 'clean'; // Only green if supervisor approved
+    } else if (assignmentStatus === 'completed') {
+      statusKey = 'pending_approval';
+    } else {
+      statusKey = room.status || 'dirty';
+    }
+    
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
     const isDND = room.is_dnd;
     const noShow = isNoShow(room) && !isEarlyCheckout(room);
@@ -285,21 +318,28 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             >
               <div
                 className={`
-                  px-2 py-1 rounded text-xs font-semibold border transition-all min-w-[40px] text-center
+                  px-2 py-1 rounded text-xs font-bold border-2 transition-all min-w-[40px] text-center
                   ${colorClass}
                   ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
                   ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
                   ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+                  ${roomOverdue ? 'animate-pulse' : ''}
                   ${isManagerOrAdmin ? 'hover:scale-110 hover:shadow-md' : ''}
                 `}
               >
                 {room.room_number}
-                {room.bed_type === 'shabath' && <span className="ml-0.5 text-[8px] font-bold text-blue-700 dark:text-blue-300">SH</span>}
-                {room.towel_change_required && <span className="ml-0.5 text-[8px] font-bold text-red-700">T</span>}
-                {room.linen_change_required && <span className="ml-0.5 text-[8px] font-bold text-red-700">RC</span>}
+                {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+                {room.towel_change_required && (
+                  <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">T</span>
+                )}
+                {room.linen_change_required && (
+                  <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">RC</span>
+                )}
                 {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
                 {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
                 {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
+                {isPendingApproval && <span className="ml-0.5 text-[9px]">⏳</span>}
+                {roomOverdue && <span className="ml-0.5 text-[9px]">🔴</span>}
                 {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
               </div>
               {staffName && (
@@ -321,13 +361,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               {room.guest_nights_stayed != null && room.guest_nights_stayed > 0 && (
                 <p>Guest Night: {room.guest_nights_stayed}</p>
               )}
-              {room.towel_change_required && <p className="text-red-600 font-medium">🔄 Towel Change</p>}
-              {room.linen_change_required && <p className="text-red-600 font-medium">🛏️ Room Cleaning (Linen)</p>}
+              {room.towel_change_required && <p className="text-red-600 font-bold">🔄 Towel Change Required</p>}
+              {room.linen_change_required && <p className="text-red-600 font-bold">🛏️ Linen Change Required</p>}
               {isDND && <p className="text-purple-600 font-medium">🚫 Do Not Disturb</p>}
               {noShow && <p className="text-red-600 font-medium">⚠️ No Show</p>}
-              {earlyCheckout && <p className="text-orange-600 font-medium">🔶 Early Checkout</p>}
+              {earlyCheckout && <p className="text-orange-600 font-bold">🔶 Early Checkout</p>}
+              {isPendingApproval && <p className="text-violet-600 font-bold">⏳ Pending Supervisor Approval</p>}
+              {roomOverdue && <p className="text-rose-600 font-bold">🔴 OVERDUE - Check with housekeeper</p>}
               {staffName && <p>Assigned: {staffMap[assignmentMap.get(room.id)?.assigned_to || ''] || staffName}</p>}
-              {getAssignmentStatus(room.id) && <p>Task: {getAssignmentStatus(room.id)}</p>}
+              {assignmentStatus && <p>Task: {assignmentStatus}</p>}
               {room.room_name && <p className="text-[9px] text-muted-foreground">PMS: {room.room_name}</p>}
               {isManagerOrAdmin && <p className="text-primary font-medium">Click to edit room</p>}
             </div>
@@ -482,16 +524,23 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
           {/* Legend */}
           <div className="flex flex-wrap gap-2 mt-1">
             {[
-              { label: 'Clean', cls: 'bg-green-100 border-green-300' },
-              { label: 'Dirty', cls: 'bg-orange-100 border-orange-300' },
-              { label: 'In Progress', cls: 'bg-blue-100 border-blue-300' },
-              { label: 'Out of Order', cls: 'bg-red-100 border-red-300' },
+              { label: 'Approved/Clean', cls: 'bg-emerald-200 border-emerald-500' },
+              { label: 'Dirty/Assigned', cls: 'bg-amber-200 border-amber-500' },
+              { label: 'In Progress', cls: 'bg-sky-200 border-sky-500' },
+              { label: 'Pending Approval', cls: 'bg-violet-200 border-violet-500' },
+              { label: 'Overdue', cls: 'bg-rose-300 border-rose-600' },
+              { label: 'Out of Order', cls: 'bg-red-200 border-red-500' },
               { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted' },
               { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted' },
               { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted' },
+              { label: 'Towel', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T' },
             ].map(item => (
               <div key={item.label} className="flex items-center gap-1">
-                <div className={`w-3 h-3 rounded border ${item.cls}`} />
+                {(item as any).isText ? (
+                  <span className={`rounded ${item.cls}`}>{(item as any).text}</span>
+                ) : (
+                  <div className={`w-3 h-3 rounded border-2 ${item.cls}`} />
+                )}
                 <span className="text-[10px] text-muted-foreground">{item.label}</span>
               </div>
             ))}
@@ -554,8 +603,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                             .eq('assignment_date', selectedDate);
                           if (error) throw error;
                           toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
-                          fetchData();
+                          setRoomSizeDialogOpen(false);
+                          await fetchData();
                         } catch (err) {
+                          console.error('Mark ready error:', err);
                           toast.error('Failed to mark room as ready');
                         } finally {
                           setActionLoading(null);
@@ -592,7 +643,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                           if (assignRes.error) throw assignRes.error;
                           if (roomRes.error) throw roomRes.error;
                           toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
-                          fetchData();
+                          setRoomSizeDialogOpen(false);
+                          await fetchData();
                         } catch (err) {
                           toast.error('Failed to switch room type');
                         } finally {

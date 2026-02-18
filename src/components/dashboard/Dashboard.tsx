@@ -280,9 +280,12 @@ export function Dashboard() {
     
     switch (role) {
       case 'housekeeping':
-        return "housekeeping"; // Always show My Tasks for housekeepers after sign-in
+        // If not signed in, show attendance/sign-in page; otherwise show My Tasks
+        return attendanceStatus === 'checked_in' ? "housekeeping" : "attendance";
       case 'housekeeping_manager':
-        return "housekeeping";
+      case 'manager':
+      case 'admin':
+        return "housekeeping"; // Managers go to housekeeping section (PMS upload / team view logic handled inside)
       case 'maintenance':
         return "maintenance-tasks";
       case 'reception':
