@@ -1,183 +1,162 @@
 
-
-## Plan: Guest Minibar UI Overhaul, Multi-language Support, Cart UX, Reception Fix, and Admin Features
-
-This plan covers 7 feature areas.
+## Plan: Fix Minibar Logo Upload, Redesign Guest Minibar UI, and Add Hotel Information Pages
 
 ---
 
-### 1. Hide Early Sign-Out Approvals for Reception Users
+### 1. Fix: Minibar Logo Upload Not Working
 
-**Root Cause**: `HousekeepingManagerView.tsx` (line 522-527) renders two internal tabs -- "Team View" and "Early Sign-Out Approvals" -- for all users. Reception users see both even though they should only see Team View.
+**Root Cause**: The `hotel-assets` storage bucket does not exist. The upload code in `MinibarTrackingView.tsx` (line 111-113) attempts to upload to `supabase.storage.from('hotel-assets')`, but no migration ever created this bucket.
 
-**Fix**: Pass the user role to `HousekeepingManagerView` (or read it via `useAuth`) and conditionally hide the "Early Sign-Out Approvals" tab for reception users.
+**Fix**: Create a database migration to add the `hotel-assets` storage bucket with public access and appropriate RLS policies.
+
+```sql
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('hotel-assets', 'hotel-assets', true)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE POLICY "Admins can upload hotel assets"
+ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = 'hotel-assets' AND ...admin check...);
+
+CREATE POLICY "Anyone can view hotel assets"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'hotel-assets');
+```
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/HousekeepingManagerView.tsx` | Import `useAuth`, check if role is `reception`. If so, hide the `TabsList` entirely and only render the "team" content directly (no tabs). Otherwise show both tabs as before. |
+| New database migration | Create `hotel-assets` bucket with RLS policies |
 
 ---
 
-### 2. Add Custom Minibar Logo Per Hotel (Admin Setting)
+### 2. Redesign Guest Minibar Page (Wolt-Inspired UI)
 
-The `hotel_configurations` table already has `custom_logo_url`. The guest minibar page already reads it. However, admins need a way to upload/set a minibar-specific logo per hotel. We'll add a "Hotel Minibar Logo" upload field in the Minibar Tracking page settings area.
+Completely rework `GuestMinibar.tsx` to match a Wolt-style product listing:
 
-**Database change**: Add `minibar_logo_url TEXT` column to `hotel_configurations` so hotels can have a separate minibar logo distinct from the main app logo.
+**Product Cards (Wolt-style)**:
+- Each item: product name (bold) on the left, larger image (80x80 rounded) on the right
+- Price displayed below the name in amber/accent color
+- Promoted items show a "Popular" badge
+- When item is in cart: show -/count/+ controls replacing the + button
+- Clean white background, subtle separator between items
+
+**Cart Footer Improvements**:
+- Always show item breakdown with prices (not hidden by default)
+- Each line: item name, quantity, line total
+- Subtotal line
+- Add a polite VAT/tax notice: "All prices include VAT and taxes"
+- Add payment info: "Payment by card (debit/credit) at reception during checkout"
+
+**Welcome Section**:
+- Personalized "Welcome to Hotel Ottofiori" header
+- Subtitle about recording minibar usage
 
 | File | Change |
 |------|--------|
-| Database migration | Add `minibar_logo_url` column to `hotel_configurations` |
-| `src/components/dashboard/MinibarTrackingView.tsx` | Add a "Minibar Branding" section (visible to admins/managers) with an image upload for the hotel minibar logo |
-| `src/pages/GuestMinibar.tsx` | Prefer `minibar_logo_url` over `custom_logo_url` when rendering the header logo |
+| `src/pages/GuestMinibar.tsx` | Complete UI redesign of product cards, cart footer, and layout |
 
 ---
 
-### 3. Improve Guest Minibar UI
+### 3. Add Hotel Information Pages (from Guest Booklet)
 
-Redesign the guest page for a more polished, premium hotel experience:
+Add navigational sections to the guest minibar page for hotel information extracted from the Ottofiori Guest Booklet. These will be collapsible accordion sections placed below the minibar items but above the Discover section, keeping minibar as the primary focus.
 
-- Personalized welcome: "Welcome to Hotel Ottofiori" using the hotel name from branding
-- Better typography and spacing
-- Refined card designs with subtle shadows
-- Footer with hotel branding and "Powered by HotelCare" text
-- Language switcher in the header
+**Sections to add** (as expandable accordions):
+- **About the Hotel** - WiFi info, welcome message, amenities overview
+- **Services** - Daily cleaning, towel replacement, bed linen, breakfast, parking, etc.
+- **Important Information** - Checkout time, smoking policy, room security, emergency info
+- **Things to Know** - Currency tips, taxi services, service charges, safety tips
+- **Explore Budapest** - Danube cruise, Parliament, thermal baths, nightlife, tram line 2
+
+**Implementation**: Add these as a collapsible "Hotel Guide" section using simple show/hide toggles. All text will be translatable via the existing `gt()` system -- add new translation keys for each section.
 
 | File | Change |
 |------|--------|
-| `src/pages/GuestMinibar.tsx` | Complete UI refresh: personalized welcome using `branding.hotel_name`, improved card styling, add footer section at the bottom with hotel logo and powered-by text |
+| `src/pages/GuestMinibar.tsx` | Add collapsible hotel information sections between minibar items and Discover section |
+| `src/lib/guest-minibar-translations.ts` | Add translation keys for hotel info sections, VAT notice, payment info across all 13 languages |
 
 ---
 
-### 4. Multi-language Support for Guest Minibar Page
+### 4. Translation Updates
 
-Add a language switcher to the guest minibar page. Since this is a public page (no auth), we'll use a self-contained translation system with a `useState` for language selection. All static text (welcome, categories, buttons, discover section headers) will be translated. Product names come from the database and won't be translated.
+Add new translation keys to all 13 languages:
 
-**Supported languages**: English, German, French, Italian, Spanish, Portuguese, Hungarian, Czech, Polish, Dutch, Korean, Chinese (Simplified), Hindi
+- `vatIncluded`: "All prices include VAT and taxes"
+- `paymentInfo`: "Payment by card (debit/credit) at reception during checkout"
+- `hotelGuide`: "Hotel Guide"
+- `aboutHotel`: "About the Hotel"
+- `services`: "Services"
+- `importantInfo`: "Important Information"
+- `thingsToKnow`: "Things to Know"
+- `exploreBudapest`: "Explore Budapest"
+- `popular`: "Popular"
+- Various hotel info content strings
 
 | File | Change |
 |------|--------|
-| `src/pages/GuestMinibar.tsx` | Add a `guestTranslations` object with all static strings in all languages. Add a language selector dropdown in the header. Wrap all static text with a `gt()` helper function that reads from the translations object. Store language preference in `localStorage`. |
-
-**Translation keys needed:**
-- `welcome` ("Welcome to your Minibar")
-- `welcomeDesc` ("Enjoyed something from the minibar?...")
-- `featured` ("Featured")
-- `discover` ("Discover Budapest")
-- `discoverDesc` ("Explore the best of Budapest...")
-- `confirmUsage` ("Confirm Usage")
-- `recording` ("Recording...")
-- `items` ("items")
-- `noPayment` ("This simply records what you've enjoyed...")
-- `thankYou` / `recorded` / `enjoyStay` / `recordMore`
-- `invalidQR` / `invalidDesc`
-- `map` ("Map")
-- `error` / `dismiss`
-- Category labels: `snacks`, `beverages`, `alcohols`
-
----
-
-### 5. Enhanced Cart Display with Item Details
-
-Currently the sticky cart footer only shows total count and price. Enhance it to show individual cart items with names, quantities, and per-item prices in a collapsible section.
-
-| File | Change |
-|------|--------|
-| `src/pages/GuestMinibar.tsx` | Add an expandable cart details section above the confirm button. When expanded, shows each cart item with name, quantity (with +/- controls), and line total. Collapsed by default, tap to expand. |
-
----
-
-### 6. Add Levante Budapest and Mitico Budapest to Discover Listings
-
-Insert two new recommendations into the `guest_recommendations` database table.
-
-| Change | Details |
-|--------|---------|
-| Database migration | Insert `Levante Budapest` and `Mitico Budapest` into `guest_recommendations` with appropriate descriptions, types, icons, and map URLs |
-
----
-
-### 7. Add Footer to Guest Minibar Page
-
-Add a branded footer at the bottom of the guest minibar page showing:
-- Hotel logo (if available)
-- Hotel name
-- "Powered by HotelCare" text
-- A subtle divider
-
-| File | Change |
-|------|--------|
-| `src/pages/GuestMinibar.tsx` | Add a footer section after the Discover Budapest section, before the sticky cart. Shows hotel logo, hotel name, and powered-by attribution. |
+| `src/lib/guest-minibar-translations.ts` | Add ~15 new keys across all 13 languages |
 
 ---
 
 ### Technical Details
 
-**Language switcher implementation (GuestMinibar.tsx):**
-```typescript
-const GUEST_LANGUAGES = [
-  { code: 'en', name: 'English', flag: '🇬🇧' },
-  { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
-  { code: 'fr', name: 'Francais', flag: '🇫🇷' },
-  { code: 'it', name: 'Italiano', flag: '🇮🇹' },
-  { code: 'es', name: 'Espanol', flag: '🇪🇸' },
-  { code: 'pt', name: 'Portugues', flag: '🇵🇹' },
-  { code: 'hu', name: 'Magyar', flag: '🇭🇺' },
-  { code: 'cs', name: 'Cestina', flag: '🇨🇿' },
-  { code: 'pl', name: 'Polski', flag: '🇵🇱' },
-  { code: 'nl', name: 'Nederlands', flag: '🇳🇱' },
-  { code: 'ko', name: '한국어', flag: '🇰🇷' },
-  { code: 'zh', name: '中文', flag: '🇨🇳' },
-  { code: 'hi', name: 'हिन्दी', flag: '🇮🇳' },
-];
+**Storage bucket migration:**
+```sql
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('hotel-assets', 'hotel-assets', true)
+ON CONFLICT (id) DO NOTHING;
 
-const [guestLang, setGuestLang] = useState(() => 
-  localStorage.getItem('guest_minibar_lang') || 'en'
+CREATE POLICY "Admins and managers can upload hotel assets"
+ON storage.objects FOR INSERT
+WITH CHECK (
+  bucket_id = 'hotel-assets'
+  AND auth.role() = 'authenticated'
 );
 
-const gt = (key: string) => guestTranslations[guestLang]?.[key] || guestTranslations['en'][key];
+CREATE POLICY "Anyone can view hotel assets"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'hotel-assets');
 ```
 
-**Reception early-signout fix (HousekeepingManagerView.tsx):**
-```typescript
-const { user } = useAuth();
-const userRole = user?.role || '';
-const isReception = userRole === 'reception';
-
-// In the render:
-{isReception ? (
-  // Render team content directly without tabs
-  <div className="space-y-6">...</div>
-) : (
-  <Tabs defaultValue="team">
-    <TabsList>...</TabsList>
-    ...
-  </Tabs>
-)}
-```
-
-**Expandable cart section:**
-```typescript
-const [cartExpanded, setCartExpanded] = useState(false);
-
-// In sticky footer:
-{cartExpanded && (
-  <div className="max-h-40 overflow-y-auto space-y-1 border-b pb-2 mb-2">
-    {cart.map(item => (
-      <div className="flex justify-between text-sm">
-        <span>{item.name} x{item.quantity}</span>
-        <span>EUR {(item.price * item.quantity).toFixed(2)}</span>
-      </div>
-    ))}
+**Wolt-style item card layout:**
+```tsx
+<div className="flex items-center gap-4 py-4 border-b border-stone-100">
+  <div className="flex-1 min-w-0">
+    <p className="font-semibold text-stone-800">{item.name}</p>
+    <p className="text-sm text-amber-600 font-medium mt-0.5">
+      EUR {item.price.toFixed(2)}
+    </p>
+    {item.is_promoted && (
+      <Badge className="bg-amber-100 text-amber-800 text-[10px] mt-1">
+        Popular
+      </Badge>
+    )}
   </div>
-)}
+  {item.image_url && (
+    <img src={item.image_url} alt={item.name}
+      className="w-20 h-20 rounded-xl object-cover flex-shrink-0" />
+  )}
+  {/* +/- controls on the right */}
+</div>
 ```
 
-**New recommendations seed SQL:**
-```sql
-INSERT INTO guest_recommendations (name, type, description, specialty, map_url, icon, sort_order)
-VALUES
-  ('Levante Budapest', 'Restaurant', 'Modern Mediterranean cuisine...', 'Mediterranean dining', 'https://maps.google.com/...', '🍽️', 7),
-  ('Mitico Budapest', 'Restaurant', 'Italian fine dining...', 'Italian cuisine', 'https://maps.google.com/...', '🍝', 8);
+**Hotel info as collapsible sections:**
+```tsx
+const [openSection, setOpenSection] = useState<string | null>(null);
+
+<div className="space-y-2">
+  <button onClick={() => toggle('about')} className="w-full flex justify-between...">
+    <span>About the Hotel</span>
+    <ChevronDown />
+  </button>
+  {openSection === 'about' && (
+    <div className="text-sm text-stone-600 space-y-2 px-4 pb-3">
+      <p>WiFi: OTTOFIORI (Open Network)</p>
+      <p>Free coffee & tea in every room</p>
+      ...
+    </div>
+  )}
+</div>
 ```
 
 ---
@@ -186,8 +165,6 @@ VALUES
 
 | Area | Changes |
 |------|---------|
-| Database migration | Add `minibar_logo_url` to `hotel_configurations`; Insert Levante + Mitico into `guest_recommendations` |
-| `src/pages/GuestMinibar.tsx` | UI overhaul, multi-language support (13 languages), language switcher, expandable cart with item details, footer with branding, personalized welcome |
-| `src/components/dashboard/HousekeepingManagerView.tsx` | Hide Early Sign-Out tab for reception users |
-| `src/components/dashboard/MinibarTrackingView.tsx` | Add minibar logo upload for admins |
-
+| Database migration | Create `hotel-assets` storage bucket with RLS policies |
+| `src/pages/GuestMinibar.tsx` | Wolt-inspired UI redesign: larger product images, price-visible cart breakdown, VAT/payment info, collapsible hotel information sections |
+| `src/lib/guest-minibar-translations.ts` | Add ~15 new translation keys (VAT, payment, hotel guide sections, "Popular" badge) across all 13 languages |
