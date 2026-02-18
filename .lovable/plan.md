@@ -1,162 +1,193 @@
 
-## Plan: Fix Minibar Logo Upload, Redesign Guest Minibar UI, and Add Hotel Information Pages
+
+## Plan: Smart Auto Room Assignment -- Auto-Save, Better Preview UI, and Proximity-Based Distribution
 
 ---
 
-### 1. Fix: Minibar Logo Upload Not Working
+### 1. Auto-Save Housekeeper Selection and Manual Edits
 
-**Root Cause**: The `hotel-assets` storage bucket does not exist. The upload code in `MinibarTrackingView.tsx` (line 111-113) attempts to upload to `supabase.storage.from('hotel-assets')`, but no migration ever created this bucket.
+Currently, when the Auto Room Assignment dialog opens, all state resets (line 98-108). Managers lose their staff selection and manual room moves if they close and reopen the dialog.
 
-**Fix**: Create a database migration to add the `hotel-assets` storage bucket with public access and appropriate RLS policies.
-
-```sql
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('hotel-assets', 'hotel-assets', true)
-ON CONFLICT (id) DO NOTHING;
-
-CREATE POLICY "Admins can upload hotel assets"
-ON storage.objects FOR INSERT
-WITH CHECK (bucket_id = 'hotel-assets' AND ...admin check...);
-
-CREATE POLICY "Anyone can view hotel assets"
-ON storage.objects FOR SELECT
-USING (bucket_id = 'hotel-assets');
-```
+**Fix**: Persist the following to `localStorage` (keyed by hotel + date):
+- Selected staff IDs (step 1)
+- Assignment previews after generation or manual edits (step 2)
+- Restore on dialog open if saved data exists for the same date
 
 | File | Change |
 |------|--------|
-| New database migration | Create `hotel-assets` bucket with RLS policies |
+| `src/components/dashboard/AutoRoomAssignment.tsx` | On staff selection change, save to `localStorage`. On preview generation or room drag/move, save updated previews. On dialog open, check for saved state matching today's date and restore it, skipping to preview step if previews exist. Add a "Clear Saved" button. |
 
 ---
 
-### 2. Redesign Guest Minibar Page (Wolt-Inspired UI)
+### 2. Improved Consolidated Preview UI
 
-Completely rework `GuestMinibar.tsx` to match a Wolt-style product listing:
+The current preview (step 2) shows one card per housekeeper stacked vertically. For 5+ staff, this requires lots of scrolling. The manager needs a bird's-eye view.
 
-**Product Cards (Wolt-style)**:
-- Each item: product name (bold) on the left, larger image (80x80 rounded) on the right
-- Price displayed below the name in amber/accent color
-- Promoted items show a "Popular" badge
-- When item is in cart: show -/count/+ controls replacing the + button
-- Clean white background, subtle separator between items
-
-**Cart Footer Improvements**:
-- Always show item breakdown with prices (not hidden by default)
-- Each line: item name, quantity, line total
-- Subtotal line
-- Add a polite VAT/tax notice: "All prices include VAT and taxes"
-- Add payment info: "Payment by card (debit/credit) at reception during checkout"
-
-**Welcome Section**:
-- Personalized "Welcome to Hotel Ottofiori" header
-- Subtitle about recording minibar usage
+**Improvements**:
+- Add a compact **summary table** at the top showing all housekeepers in one glance: name, checkout count, daily count, towel/linen tasks, estimated time, and a workload bar
+- Each housekeeper card below shows rooms grouped by floor/wing for spatial context
+- Add floor grouping labels within each housekeeper's room chips (e.g., "Floor 1", "Floor 2") so managers can see spatial distribution at a glance
+- Show a **workload balance indicator** (colored bar proportional to max workload) in each card header
 
 | File | Change |
 |------|--------|
-| `src/pages/GuestMinibar.tsx` | Complete UI redesign of product cards, cart footer, and layout |
+| `src/components/dashboard/AutoRoomAssignment.tsx` | Add summary table above the cards. Add floor grouping within each card's room list. Add workload bar visualization. |
 
 ---
 
-### 3. Add Hotel Information Pages (from Guest Booklet)
+### 3. Smarter Room Assignment Algorithm -- Proximity and Sequential Rooms
 
-Add navigational sections to the guest minibar page for hotel information extracted from the Ottofiori Guest Booklet. These will be collapsible accordion sections placed below the minibar items but above the Discover section, keeping minibar as the primary focus.
+The algorithm already groups by wing and uses `WingProximityMap`. Based on the hotel floor map provided:
 
-**Sections to add** (as expandable accordions):
-- **About the Hotel** - WiFi info, welcome message, amenities overview
-- **Services** - Daily cleaning, towel replacement, bed linen, breakfast, parking, etc.
-- **Important Information** - Checkout time, smoking policy, room security, emergency info
-- **Things to Know** - Currency tips, taxi services, service charges, safety tips
-- **Explore Budapest** - Danube cruise, Parliament, thermal baths, nightlife, tram line 2
+**Map analysis** (from the hand-drawn layout):
+- Left corridor: rooms 101, 127 (floor 1) and 201, 215, 217 (floor 2)
+- Center block: 114 (floor 1), 202-210, 212, 216 (floor 2)
+- Bottom corridors: 130-136, 131-147 (floor 1)
+- Right side: 144 (floor 1)
+- Ground floor: 002, 010, 032-036, 034, 044
+- Top floor: 302-308
 
-**Implementation**: Add these as a collapsible "Hotel Guide" section using simple show/hide toggles. All text will be translatable via the existing `gt()` system -- add new translation keys for each section.
+**Improvements to the algorithm**:
+1. **Sequential room number bonus**: When assigning rooms within a split wing, prefer keeping sequential room numbers together (e.g., 101-104 stays with the same housekeeper). Add a "sequence bonus" during the split phase that rewards placing a room next to rooms with adjacent numbers.
+2. **Floor continuity bonus**: Prefer assigning rooms on the same floor to the same housekeeper to minimize elevator trips.
+3. **Better sorting within assignments**: Sort each housekeeper's rooms in optimal cleaning order -- checkouts first (sorted by room number), then daily rooms (sorted by room number), within each category grouped by floor.
 
 | File | Change |
 |------|--------|
-| `src/pages/GuestMinibar.tsx` | Add collapsible hotel information sections between minibar items and Discover section |
-| `src/lib/guest-minibar-translations.ts` | Add translation keys for hotel info sections, VAT notice, payment info across all 13 languages |
+| `src/lib/roomAssignmentAlgorithm.ts` | Add `getSequenceBonus()` function that scores how well a room fits with existing assigned rooms based on room number adjacency. Integrate into the wing-split phase (line 313-327) and rebalancing phase. Update final sort to group by checkout-first then floor then room number. |
 
 ---
 
-### 4. Translation Updates
+### 4. Early Checkout Prioritization for Housekeepers
 
-Add new translation keys to all 13 languages:
+Currently rooms are sorted by room number within checkout/daily groups. Early checkouts (rooms where guests depart early) should appear at the top of the housekeeper's list.
 
-- `vatIncluded`: "All prices include VAT and taxes"
-- `paymentInfo`: "Payment by card (debit/credit) at reception during checkout"
-- `hotelGuide`: "Hotel Guide"
-- `aboutHotel`: "About the Hotel"
-- `services`: "Services"
-- `importantInfo`: "Important Information"
-- `thingsToKnow`: "Things to Know"
-- `exploreBudapest`: "Explore Budapest"
-- `popular`: "Popular"
-- Various hotel info content strings
+**Changes**:
+- In the algorithm's final sort (Step 6, line 427-431), sort checkout rooms before daily rooms, and within checkouts sort by `priority` or `checkout_time` if available
+- In the preview UI, add a note: "Checkouts appear first for housekeepers"
+- When assignments are saved to the database, set `priority` field so checkout rooms have lower priority numbers (higher priority)
 
 | File | Change |
 |------|--------|
-| `src/lib/guest-minibar-translations.ts` | Add ~15 new keys across all 13 languages |
+| `src/lib/roomAssignmentAlgorithm.ts` | Update final sort: checkouts first, then daily. Within each group, sort by floor then room number for optimal walking path. |
+| `src/components/dashboard/AutoRoomAssignment.tsx` | Update priority assignment in `handleConfirmAssignment` -- checkouts get priority 1-N, daily rooms get priority N+1 onwards. Add info text in preview about room order. |
 
 ---
 
 ### Technical Details
 
-**Storage bucket migration:**
-```sql
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('hotel-assets', 'hotel-assets', true)
-ON CONFLICT (id) DO NOTHING;
+**Auto-save localStorage key structure:**
+```typescript
+const SAVE_KEY = `auto_assignment_${profile?.assigned_hotel}_${selectedDate}`;
 
-CREATE POLICY "Admins and managers can upload hotel assets"
-ON storage.objects FOR INSERT
-WITH CHECK (
-  bucket_id = 'hotel-assets'
-  AND auth.role() = 'authenticated'
-);
+// Save on changes
+useEffect(() => {
+  if (selectedStaffIds.size > 0) {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      staffIds: Array.from(selectedStaffIds),
+      previews: assignmentPreviews,
+      savedAt: Date.now()
+    }));
+  }
+}, [selectedStaffIds, assignmentPreviews]);
 
-CREATE POLICY "Anyone can view hotel assets"
-ON storage.objects FOR SELECT
-USING (bucket_id = 'hotel-assets');
+// Restore on open
+useEffect(() => {
+  if (open) {
+    const saved = localStorage.getItem(SAVE_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      // Only restore if less than 12 hours old
+      if (Date.now() - data.savedAt < 12 * 60 * 60 * 1000) {
+        setSelectedStaffIds(new Set(data.staffIds));
+        if (data.previews?.length > 0) {
+          setAssignmentPreviews(data.previews);
+          setStep('preview');
+        }
+      }
+    }
+    fetchData();
+  }
+}, [open]);
 ```
 
-**Wolt-style item card layout:**
-```tsx
-<div className="flex items-center gap-4 py-4 border-b border-stone-100">
-  <div className="flex-1 min-w-0">
-    <p className="font-semibold text-stone-800">{item.name}</p>
-    <p className="text-sm text-amber-600 font-medium mt-0.5">
-      EUR {item.price.toFixed(2)}
-    </p>
-    {item.is_promoted && (
-      <Badge className="bg-amber-100 text-amber-800 text-[10px] mt-1">
-        Popular
-      </Badge>
-    )}
-  </div>
-  {item.image_url && (
-    <img src={item.image_url} alt={item.name}
-      className="w-20 h-20 rounded-xl object-cover flex-shrink-0" />
-  )}
-  {/* +/- controls on the right */}
+**Sequential room number bonus:**
+```typescript
+function getSequenceBonus(roomNumber: string, existingRooms: RoomForAssignment[]): number {
+  const num = parseInt(roomNumber, 10);
+  if (isNaN(num)) return 0;
+  let bonus = 0;
+  for (const existing of existingRooms) {
+    const existingNum = parseInt(existing.room_number, 10);
+    if (isNaN(existingNum)) continue;
+    const diff = Math.abs(num - existingNum);
+    if (diff === 1) bonus += 3;       // Adjacent room - strong bonus
+    else if (diff === 2) bonus += 2;   // Two apart - moderate bonus
+    else if (diff <= 4) bonus += 1;    // Close by - small bonus
+    // Same floor bonus
+    if (Math.floor(num / 100) === Math.floor(existingNum / 100)) bonus += 0.5;
+  }
+  return bonus;
+}
+```
+
+**Improved final sort (checkout-first, floor-grouped, sequential):**
+```typescript
+const sortedRooms = staffRooms.sort((a, b) => {
+  // Checkouts always first
+  if (a.is_checkout_room && !b.is_checkout_room) return -1;
+  if (!a.is_checkout_room && b.is_checkout_room) return 1;
+  // Within same type: sort by floor, then room number
+  const floorA = getFloorFromRoomNumber(a.room_number);
+  const floorB = getFloorFromRoomNumber(b.room_number);
+  if (floorA !== floorB) return floorA - floorB;
+  return parseInt(a.room_number) - parseInt(b.room_number);
+});
+```
+
+**Summary table in preview:**
+```typescript
+<div className="grid grid-cols-[1fr,auto,auto,auto,auto] gap-x-4 gap-y-1 text-xs px-3 py-2 bg-muted/40 rounded-lg">
+  <span className="font-semibold">Staff</span>
+  <span className="font-semibold text-center">CO</span>
+  <span className="font-semibold text-center">Daily</span>
+  <span className="font-semibold text-center">Tasks</span>
+  <span className="font-semibold text-right">Time</span>
+  {assignmentPreviews.filter(p => p.rooms.length > 0).map(p => (
+    <>
+      <span>{p.staffName}</span>
+      <span className="text-center text-amber-600">{p.checkoutCount}</span>
+      <span className="text-center text-blue-600">{p.dailyCount}</span>
+      <span className="text-center text-red-600">
+        {p.rooms.filter(r => r.towel_change_required).length}T
+      </span>
+      <span className="text-right">{formatMinutesToTime(p.totalWithBreak)}</span>
+    </>
+  ))}
 </div>
 ```
 
-**Hotel info as collapsible sections:**
-```tsx
-const [openSection, setOpenSection] = useState<string | null>(null);
-
-<div className="space-y-2">
-  <button onClick={() => toggle('about')} className="w-full flex justify-between...">
-    <span>About the Hotel</span>
-    <ChevronDown />
-  </button>
-  {openSection === 'about' && (
-    <div className="text-sm text-stone-600 space-y-2 px-4 pb-3">
-      <p>WiFi: OTTOFIORI (Open Network)</p>
-      <p>Free coffee & tea in every room</p>
-      ...
-    </div>
-  )}
-</div>
+**Priority assignment fix in handleConfirmAssignment:**
+```typescript
+const assignments = assignmentPreviews.flatMap(preview => {
+  // Sort: checkouts first, then daily, by floor and room number
+  const sorted = [...preview.rooms].sort((a, b) => {
+    if (a.is_checkout_room && !b.is_checkout_room) return -1;
+    if (!a.is_checkout_room && b.is_checkout_room) return 1;
+    return parseInt(a.room_number) - parseInt(b.room_number);
+  });
+  return sorted.map((room, index) => ({
+    room_id: room.id,
+    assigned_to: preview.staffId,
+    assigned_by: user.id,
+    assignment_date: selectedDate,
+    assignment_type: room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning',
+    status: 'assigned',
+    priority: index + 1, // Checkouts get lowest numbers (highest priority)
+    organization_slug: profile?.organization_slug,
+    ready_to_clean: !room.is_checkout_room
+  }));
+});
 ```
 
 ---
@@ -165,6 +196,6 @@ const [openSection, setOpenSection] = useState<string | null>(null);
 
 | Area | Changes |
 |------|---------|
-| Database migration | Create `hotel-assets` storage bucket with RLS policies |
-| `src/pages/GuestMinibar.tsx` | Wolt-inspired UI redesign: larger product images, price-visible cart breakdown, VAT/payment info, collapsible hotel information sections |
-| `src/lib/guest-minibar-translations.ts` | Add ~15 new translation keys (VAT, payment, hotel guide sections, "Popular" badge) across all 13 languages |
+| `src/components/dashboard/AutoRoomAssignment.tsx` | Auto-save/restore staff selection and previews via localStorage. Add summary table at top of preview. Add floor grouping labels in room chips. Improve priority ordering when saving assignments. Add "Clear Saved" button. |
+| `src/lib/roomAssignmentAlgorithm.ts` | Add `getSequenceBonus()` for sequential room number affinity. Integrate into wing-split and rebalancing phases. Update final sort: checkouts first, then by floor and room number. Add floor continuity bonus. |
+
