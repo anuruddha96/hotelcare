@@ -104,6 +104,24 @@ export function getFloorFromRoomNumber(roomNumber: string): number {
   return Math.floor(num / 100);
 }
 
+// Sequential room number bonus: rewards keeping adjacent rooms together
+function getSequenceBonus(roomNumber: string, existingRooms: RoomForAssignment[]): number {
+  const num = parseInt(roomNumber, 10);
+  if (isNaN(num) || existingRooms.length === 0) return 0;
+  let bonus = 0;
+  for (const existing of existingRooms) {
+    const existingNum = parseInt(existing.room_number, 10);
+    if (isNaN(existingNum)) continue;
+    const diff = Math.abs(num - existingNum);
+    if (diff === 1) bonus += 3;       // Adjacent room - strong bonus
+    else if (diff === 2) bonus += 2;   // Two apart - moderate bonus
+    else if (diff <= 4) bonus += 1;    // Close by - small bonus
+    // Same floor bonus (minimizes elevator trips)
+    if (Math.floor(num / 100) === Math.floor(existingNum / 100)) bonus += 0.5;
+  }
+  return bonus;
+}
+
 // Group rooms by wing (falls back to floor if no wing assigned)
 function groupRoomsByWing(rooms: RoomForAssignment[]): Map<string, RoomForAssignment[]> {
   const wingMap = new Map<string, RoomForAssignment[]>();
@@ -230,6 +248,20 @@ function getAffinityLoss(
   return loss;
 }
 
+// Sort rooms optimally: checkouts first, then by floor, then room number
+function sortRoomsOptimally(rooms: RoomForAssignment[]): RoomForAssignment[] {
+  return [...rooms].sort((a, b) => {
+    // Checkouts always first
+    if (a.is_checkout_room && !b.is_checkout_room) return -1;
+    if (!a.is_checkout_room && b.is_checkout_room) return 1;
+    // Within same type: sort by floor, then room number
+    const floorA = getFloorFromRoomNumber(a.room_number);
+    const floorB = getFloorFromRoomNumber(b.room_number);
+    if (floorA !== floorB) return floorA - floorB;
+    return parseInt(a.room_number) - parseInt(b.room_number);
+  });
+}
+
 // Main auto-assignment algorithm: WING-FIRST grouping
 export function autoAssignRooms(
   rooms: RoomForAssignment[],
@@ -309,19 +341,21 @@ export function autoAssignRooms(
 
     // If assigning whole wing would exceed 40% above average and wing has >3 rooms, split it
     if (wouldBe > avgTargetWeight * 1.4 && wingRooms.length > 3) {
-      // Split: distribute rooms one by one, using affinity to prefer keeping learned pairs together
+      // Split: distribute rooms one by one, using affinity + sequence bonus
       const sorted = [...wingRooms].sort((a, b) => calculateRoomWeight(b) - calculateRoomWeight(a));
       for (const room of sorted) {
-        // Find staff with lowest effective weight (weight minus affinity bonus)
-        const candidates = Array.from(staffWeights.entries()).sort((a, b) => {
+        // Find staff with lowest effective weight (weight minus affinity & sequence bonuses)
+        const splitCandidates = Array.from(staffWeights.entries()).sort((a, b) => {
           const aRooms = assignments.get(a[0])!;
           const bRooms = assignments.get(b[0])!;
-          const aBonus = getAffinityBonus(room.room_number, aRooms.map(r => r.room_number), affinityMap);
-          const bBonus = getAffinityBonus(room.room_number, bRooms.map(r => r.room_number), affinityMap);
-          // Lower effective weight = weight - affinityBonus (bonus makes staff more attractive)
-          return (a[1] - aBonus * 2) - (b[1] - bBonus * 2);
+          const aAffinity = getAffinityBonus(room.room_number, aRooms.map(r => r.room_number), affinityMap);
+          const bAffinity = getAffinityBonus(room.room_number, bRooms.map(r => r.room_number), affinityMap);
+          const aSeqBonus = getSequenceBonus(room.room_number, aRooms);
+          const bSeqBonus = getSequenceBonus(room.room_number, bRooms);
+          // Lower effective weight = weight - bonuses (bonuses make staff more attractive)
+          return (a[1] - aAffinity * 2 - aSeqBonus * 0.5) - (b[1] - bAffinity * 2 - bSeqBonus * 0.5);
         });
-        const [bestId, bestWeight] = candidates[0];
+        const [bestId, bestWeight] = splitCandidates[0];
         assignments.get(bestId)!.push(room);
         staffWeights.set(bestId, bestWeight + calculateRoomWeight(room));
       }
@@ -347,7 +381,8 @@ export function autoAssignRooms(
     if (heaviestW - lightestW <= threshold) break;
 
     const heaviestRooms = assignments.get(heaviestId)!;
-    const lightestWings = getStaffWings(assignments.get(lightestId)!);
+    const lightestRooms = assignments.get(lightestId)!;
+    const lightestWings = getStaffWings(lightestRooms);
 
     // Find best room to move: prefer daily rooms from a wing the lightest already has
     let bestRoom: RoomForAssignment | null = null;
@@ -363,10 +398,14 @@ export function autoAssignRooms(
 
       // Affinity penalty: penalize moving room away from high-affinity partners
       const affinityPenalty = getAffinityLoss(room.room_number, heaviestRooms.map(r => r.room_number), affinityMap) * 5;
+      // Sequence penalty: penalize breaking up sequential rooms
+      const seqPenalty = getSequenceBonus(room.room_number, heaviestRooms.filter(r => r.id !== room.id));
+      // Sequence bonus for target: reward if room fits sequentially with lightest's rooms
+      const seqBonusTarget = getSequenceBonus(room.room_number, lightestRooms);
 
       // Score: prefer rooms from wings the lightest already works in (score 0), else penalty (score 10)
       const wingPenalty = lightestWings.has(roomWing) ? 0 : 10;
-      const score = newDiff + wingPenalty + affinityPenalty;
+      const score = newDiff + wingPenalty + affinityPenalty + seqPenalty * 0.5 - seqBonusTarget * 0.3;
       if (score < bestScore) {
         bestScore = score;
         bestRoom = room;
@@ -396,22 +435,26 @@ export function autoAssignRooms(
     if (most.count - least.count <= 2) break;
 
     const mostRooms = assignments.get(most.id)!;
-    const leastWings = getStaffWings(assignments.get(least.id)!);
+    const leastRooms = assignments.get(least.id)!;
+    const leastWings = getStaffWings(leastRooms);
     // Pick lightest daily room, preferring one from a wing the least already has
     const dailyRooms = mostRooms.filter(r => !r.is_checkout_room);
-    const sorted = [...dailyRooms].sort((a, b) => {
+    const sortedDaily = [...dailyRooms].sort((a, b) => {
       const aWing = a.wing || `floor-${a.floor_number ?? getFloorFromRoomNumber(a.room_number)}`;
       const bWing = b.wing || `floor-${b.floor_number ?? getFloorFromRoomNumber(b.room_number)}`;
       const aWingBonus = leastWings.has(aWing) ? 0 : 100;
       const bWingBonus = leastWings.has(bWing) ? 0 : 100;
+      // Sequence bonus: prefer moving rooms that fit well with target
+      const aSeqBonus = getSequenceBonus(a.room_number, leastRooms) * 10;
+      const bSeqBonus = getSequenceBonus(b.room_number, leastRooms) * 10;
       // Add affinity penalty: rooms with high affinity to current group are harder to move
       const aAffinityPenalty = getAffinityLoss(a.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;
       const bAffinityPenalty = getAffinityLoss(b.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;
-      return (calculateRoomWeight(a) + aWingBonus + aAffinityPenalty) - (calculateRoomWeight(b) + bWingBonus + bAffinityPenalty);
+      return (calculateRoomWeight(a) + aWingBonus + aAffinityPenalty - aSeqBonus) - (calculateRoomWeight(b) + bWingBonus + bAffinityPenalty - bSeqBonus);
     });
-    if (sorted.length === 0) break;
+    if (sortedDaily.length === 0) break;
 
-    const room = sorted[0];
+    const room = sortedDaily[0];
     const rw = calculateRoomWeight(room);
     const newLeastW = least.weight + rw;
     if (Math.abs(newLeastW - avgWeight) > avgWeight * 0.3) break; // don't create weight imbalance
@@ -423,12 +466,10 @@ export function autoAssignRooms(
     staffWeights.set(least.id, newLeastW);
   }
 
-  // STEP 6: Build final preview with sorted rooms (checkout first, then by floor/room number)
+  // STEP 6: Build final preview with optimally sorted rooms (checkout first, floor-grouped, sequential)
   return staff.map(s => {
     const staffRooms = assignments.get(s.id) || [];
-    const sortedRooms = staffRooms.sort((a, b) => {
-      return parseInt(a.room_number) - parseInt(b.room_number);
-    });
+    const sortedRooms = sortRoomsOptimally(staffRooms);
 
     const timeEstimate = calculateTimeEstimation(sortedRooms);
 
@@ -474,9 +515,8 @@ export function moveRoom(
   if (room.is_checkout_room) toPreview.checkoutCount++;
   else toPreview.dailyCount++;
   
-  toPreview.rooms.sort((a, b) => {
-    return parseInt(a.room_number) - parseInt(b.room_number);
-  });
+  // Sort optimally: checkouts first, then by floor and room number
+  toPreview.rooms = sortRoomsOptimally(toPreview.rooms);
   
   const fromTimeEstimate = calculateTimeEstimation(fromPreview.rooms);
   const toTimeEstimate = calculateTimeEstimation(toPreview.rooms);
