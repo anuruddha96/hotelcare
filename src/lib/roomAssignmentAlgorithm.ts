@@ -4,6 +4,7 @@
 export const CHECKOUT_MINUTES = 45;
 export const DAILY_MINUTES = 15;
 export const TOWEL_CHANGE_MINUTES = 5;
+export const LINEN_CHANGE_MINUTES = 10;
 export const BREAK_TIME_MINUTES = 30;
 export const STANDARD_SHIFT_MINUTES = 480; // 8 hours
 export const AVAILABLE_WORK_MINUTES = STANDARD_SHIFT_MINUTES - BREAK_TIME_MINUTES; // 450 minutes
@@ -50,6 +51,10 @@ export function calculateRoomTime(room: RoomForAssignment): number {
     return TOWEL_CHANGE_MINUTES;
   }
   let baseTime = room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
+  // Linen change adds extra time for non-checkout rooms
+  if (room.linen_change_required && !room.is_checkout_room) {
+    baseTime += LINEN_CHANGE_MINUTES;
+  }
   const size = room.room_size_sqm || 20;
   if (size >= 40) baseTime += 15;
   else if (size >= 28) baseTime += 10;
@@ -87,6 +92,14 @@ export function calculateRoomWeight(room: RoomForAssignment): number {
     return 0.4;
   }
   let weight = room.is_checkout_room ? 1.5 : 1.0;
+  // Linen change adds workload for non-checkout rooms
+  if (room.linen_change_required && !room.is_checkout_room) {
+    weight += 0.5;
+  }
+  // Towel change adds a small workload bump for daily rooms
+  if (room.towel_change_required && !room.is_checkout_room) {
+    weight += 0.2;
+  }
   const size = room.room_size_sqm || 20;
   if (size >= 40) weight += 1.0;
   else if (size >= 28) weight += 0.6;
@@ -147,6 +160,26 @@ function getStaffWings(rooms: RoomForAssignment[]): Set<string> {
     wings.add(r.wing || `floor-${r.floor_number ?? getFloorFromRoomNumber(r.room_number)}`);
   });
   return wings;
+}
+
+// Get the set of floors assigned to a staff member
+function getStaffFloors(rooms: RoomForAssignment[]): Set<number> {
+  const floors = new Set<number>();
+  rooms.forEach(r => {
+    floors.add(r.floor_number ?? getFloorFromRoomNumber(r.room_number));
+  });
+  return floors;
+}
+
+// Calculate floor-spread penalty: penalizes assigning rooms across many floors
+function getFloorSpreadPenalty(existingRooms: RoomForAssignment[], candidateFloor: number): number {
+  if (existingRooms.length === 0) return 0;
+  const floors = getStaffFloors(existingRooms);
+  // If candidate floor already assigned, no penalty
+  if (floors.has(candidateFloor)) return 0;
+  // Penalty grows with number of distinct floors (exponential discouragement)
+  const newFloorCount = floors.size + 1;
+  return newFloorCount * 5; // Strong penalty for each additional floor
 }
 
 // Wing proximity map type: maps "wingA" -> "wingB" -> distance
@@ -309,18 +342,30 @@ export function autoAssignRooms(
   const avgTargetWeight = totalAllWeight / staff.length;
 
   // STEP 3: Assign entire wing groups to housekeepers
+  // Determine dominant floor for each wing group
   for (const wingEntry of wingEntries) {
     const { rooms: wingRooms, totalWeight, avgProximity } = wingEntry;
+    const wingFloor = wingRooms.length > 0 
+      ? (wingRooms[0].floor_number ?? getFloorFromRoomNumber(wingRooms[0].room_number))
+      : 0;
 
-    // Find best housekeeper: lowest weight, with proximity tie-breaking
+    // Find best housekeeper: lowest effective score (weight + floor penalty + proximity)
     const candidates = Array.from(staffWeights.entries())
       .sort((a, b) => {
-        const weightDiff = a[1] - b[1];
-        // If weights are close (within 1.5), prefer staff already working in nearby wings
-        if (Math.abs(weightDiff) < 1.5) {
-          const aRooms = assignments.get(a[0])!;
-          const bRooms = assignments.get(b[0])!;
-          
+        const aRooms = assignments.get(a[0])!;
+        const bRooms = assignments.get(b[0])!;
+        
+        // Floor-concentration penalty: strongly penalize assigning to new floors
+        const aFloorPenalty = getFloorSpreadPenalty(aRooms, wingFloor);
+        const bFloorPenalty = getFloorSpreadPenalty(bRooms, wingFloor);
+        
+        // Effective score = weight + floor penalty
+        const aScore = a[1] + aFloorPenalty;
+        const bScore = b[1] + bFloorPenalty;
+        
+        const scoreDiff = aScore - bScore;
+        // If scores are close, use proximity tie-breaking
+        if (Math.abs(scoreDiff) < 1.5) {
           // Use map-based distance if available
           if (wingProximityMap) {
             const aMapDist = getMapDistanceToAssignedWings(aRooms, wingEntry.wing, wingProximityMap);
@@ -330,10 +375,9 @@ export function autoAssignRooms(
           
           const aProx = aRooms.length > 0 ? getAvgProximity(aRooms) : 99;
           const bProx = bRooms.length > 0 ? getAvgProximity(bRooms) : 99;
-          // Prefer housekeeper whose current proximity is closer to this wing's proximity
           return Math.abs(aProx - avgProximity) - Math.abs(bProx - avgProximity);
         }
-        return weightDiff;
+        return scoreDiff;
       });
 
     const [lightestId, lightestWeight] = candidates[0];

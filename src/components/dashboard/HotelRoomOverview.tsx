@@ -331,13 +331,34 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 {room.room_number}
                 {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
                 {room.towel_change_required && (
-                  <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">T</span>
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white cursor-help">T</span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">Towel Change Required</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
                 {room.linen_change_required && (
-                  <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">RC</span>
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white cursor-help">RC</span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">Room Change — Full Linen Change Required</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
                 {assignment?.ready_to_clean && (
-                  <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white cursor-help">RTC</span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">Ready to Clean — Guest has checked out, room is available for cleaning</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
                 {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
                 {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
@@ -537,7 +558,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted' },
               { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted' },
               { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted' },
-              { label: 'Towel', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T' },
+              { label: 'Towel Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T' },
+              { label: 'Linen Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC' },
+              { label: 'Ready to Clean', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC' },
             ].map(item => (
               <div key={item.label} className="flex items-center gap-1">
                 {(item as any).isText ? (
