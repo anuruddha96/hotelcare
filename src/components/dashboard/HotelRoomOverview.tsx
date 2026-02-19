@@ -350,7 +350,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                     </Tooltip>
                   </TooltipProvider>
                 )}
-                {assignment?.ready_to_clean && (
+                {assignment?.ready_to_clean && 
+                 (room.is_checkout_room || assignment?.assignment_type === 'checkout_cleaning') &&
+                 !(assignment?.status === 'completed' && assignment?.supervisor_approved) && (
                   <TooltipProvider delayDuration={100}>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -359,6 +361,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                       <TooltipContent side="top" className="text-xs">Ready to Clean — Guest has checked out, room is available for cleaning</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
+                )}
+                {assignment?.status === 'completed' && assignment?.supervisor_approved && (
+                  <span className="ml-0.5 text-[9px]">✅</span>
                 )}
                 {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
                 {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
@@ -560,7 +565,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted' },
               { label: 'Towel Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T' },
               { label: 'Linen Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC' },
-              { label: 'Ready to Clean', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC' },
+              { label: 'Ready to Clean (Checkout)', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC' },
+              { label: 'Approved', cls: 'text-[10px]', isText: true, text: '✅' },
             ].map(item => (
               <div key={item.label} className="flex items-center gap-1">
                 {(item as any).isText ? (
