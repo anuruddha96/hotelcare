@@ -39,6 +39,7 @@ interface AssignmentData {
   assignment_type: string;
   started_at: string | null;
   supervisor_approved: boolean | null;
+  ready_to_clean: boolean | null;
 }
 
 interface PublicAreaTask {
@@ -155,7 +156,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved')
+          .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -334,6 +335,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 )}
                 {room.linen_change_required && (
                   <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">RC</span>
+                )}
+                {assignment?.ready_to_clean && (
+                  <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
                 )}
                 {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
                 {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
@@ -587,21 +591,36 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 <div className="space-y-2 pb-2 border-b">
                   <label className="text-sm font-medium">Quick Actions</label>
                   {/* Mark Ready to Clean */}
-                  {isCheckout && assignment && assignment.status !== 'completed' && (
+                  {isCheckout && (
                     <Button
                       variant="outline"
                       size="sm"
                       className="w-full justify-start gap-2"
-                      disabled={actionLoading === 'ready'}
+                      disabled={actionLoading === 'ready' || (assignment?.ready_to_clean === true)}
                       onClick={async () => {
                         setActionLoading('ready');
                         try {
-                          const { error } = await supabase
-                            .from('room_assignments')
-                            .update({ ready_to_clean: true } as any)
-                            .eq('room_id', selectedRoom.id)
-                            .eq('assignment_date', selectedDate);
-                          if (error) throw error;
+                          if (assignment) {
+                            const { error } = await supabase
+                              .from('room_assignments')
+                              .update({ ready_to_clean: true } as any)
+                              .eq('room_id', selectedRoom.id)
+                              .eq('assignment_date', selectedDate);
+                            if (error) throw error;
+                          } else {
+                            // No assignment exists - update room status directly
+                            const { error } = await supabase
+                              .from('rooms')
+                              .update({ status: 'ready_to_clean' } as any)
+                              .eq('id', selectedRoom.id);
+                            if (error) throw error;
+                          }
+                          // Optimistic local update
+                          if (assignment) {
+                            setAssignments(prev => prev.map(a => 
+                              a.room_id === selectedRoom.id ? { ...a, ready_to_clean: true } : a
+                            ));
+                          }
                           toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
                           setRoomSizeDialogOpen(false);
                           await fetchData();
@@ -614,7 +633,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                       }}
                     >
                       {actionLoading === 'ready' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4 text-green-600" />}
-                      Mark as Ready to Clean
+                      {assignment?.ready_to_clean ? '✅ Already Marked Ready' : 'Mark as Ready to Clean'}
                     </Button>
                   )}
                   {/* Switch Room Type */}
@@ -656,7 +675,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                       Switch to {isCheckout ? 'Daily' : 'Checkout'}
                     </Button>
                   )}
-                  {!assignment && (
+                  {!assignment && !isCheckout && (
                     <p className="text-xs text-muted-foreground">No assignment for today — assign a room first to use quick actions.</p>
                   )}
                 </div>

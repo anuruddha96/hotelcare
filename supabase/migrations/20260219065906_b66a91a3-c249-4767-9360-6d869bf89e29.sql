@@ -1,0 +1,1 @@
+ALTER TABLE public.minibar_items ADD COLUMN IF NOT EXISTS translations jsonb DEFAULT '{}'::jsonb;

@@ -202,6 +202,8 @@ export function SupervisorApprovalView() {
   };
 
   const handleApproveTicket = async (ticketId: string) => {
+    // Optimistic removal
+    setPendingMaintenanceTickets(prev => prev.filter(t => t.id !== ticketId));
     try {
       const { error } = await supabase
         .from('tickets')
@@ -223,6 +225,7 @@ export function SupervisorApprovalView() {
     } catch (error) {
       console.error('Error approving ticket:', error);
       toast.error('Failed to approve ticket');
+      fetchPendingMaintenanceTickets();
     }
   };
 
@@ -346,8 +349,11 @@ export function SupervisorApprovalView() {
   };
 
   const handleApproval = async (assignmentId: string) => {
+    // Optimistic removal
+    const previousAssignments = [...pendingAssignments];
+    setPendingAssignments(prev => prev.filter(a => a.id !== assignmentId));
     try {
-      const assignment = pendingAssignments.find(a => a.id === assignmentId);
+      const assignment = previousAssignments.find(a => a.id === assignmentId);
       
       const updateData: any = {
         supervisor_approved: true,
@@ -418,6 +424,7 @@ export function SupervisorApprovalView() {
     } catch (error) {
       console.error('Error updating assignment approval:', error);
       toast.error('Failed to update approval status');
+      setPendingAssignments(previousAssignments);
     }
   };
 
