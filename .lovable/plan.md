@@ -1,193 +1,129 @@
 
 
-## Plan: Smart Auto Room Assignment -- Auto-Save, Better Preview UI, and Proximity-Based Distribution
+## Plan: Fix Approval List Realtime, Checkout Ready-to-Clean, Minibar Translations, and Footer UI
 
 ---
 
-### 1. Auto-Save Housekeeper Selection and Manual Edits
+### 1. Instant Approval List Clearing (Realtime Fix)
 
-Currently, when the Auto Room Assignment dialog opens, all state resets (line 98-108). Managers lose their staff selection and manual room moves if they close and reopen the dialog.
+**Root Cause**: After approving a room, `handleApproval` in `SupervisorApprovalView.tsx` calls `fetchPendingAssignments()` which makes a full database round-trip. The list stays visible until the refetch completes. The `usePendingApprovals` hook badge count also waits for a Realtime event before updating.
 
-**Fix**: Persist the following to `localStorage` (keyed by hotel + date):
-- Selected staff IDs (step 1)
-- Assignment previews after generation or manual edits (step 2)
-- Restore on dialog open if saved data exists for the same date
+**Fix**:
+- In `SupervisorApprovalView.tsx`: Immediately remove the approved assignment from `pendingAssignments` state (optimistic update) before the DB call finishes. Same for maintenance tickets.
+- In `usePendingApprovals.tsx`: After the Realtime event fires, add a small debounce and also expose a manual `refetch` function so the approval view can force an immediate count update after approving.
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/AutoRoomAssignment.tsx` | On staff selection change, save to `localStorage`. On preview generation or room drag/move, save updated previews. On dialog open, check for saved state matching today's date and restore it, skipping to preview step if previews exist. Add a "Clear Saved" button. |
+| `src/components/dashboard/SupervisorApprovalView.tsx` | Add optimistic state removal: `setPendingAssignments(prev => prev.filter(a => a.id !== assignmentId))` immediately when approval starts. Same for maintenance tickets. |
+| `src/hooks/usePendingApprovals.tsx` | Export a `refetch` function so consumers can trigger an immediate count update. |
 
 ---
 
-### 2. Improved Consolidated Preview UI
+### 2. Fix "Mark as Ready to Clean" for Checkout Rooms
 
-The current preview (step 2) shows one card per housekeeper stacked vertically. For 5+ staff, this requires lots of scrolling. The manager needs a bird's-eye view.
+**Root Cause**: Two issues found in `HotelRoomOverview.tsx`:
 
-**Improvements**:
-- Add a compact **summary table** at the top showing all housekeepers in one glance: name, checkout count, daily count, towel/linen tasks, estimated time, and a workload bar
-- Each housekeeper card below shows rooms grouped by floor/wing for spatial context
-- Add floor grouping labels within each housekeeper's room chips (e.g., "Floor 1", "Floor 2") so managers can see spatial distribution at a glance
-- Show a **workload balance indicator** (colored bar proportional to max workload) in each card header
+1. **`ready_to_clean` not fetched**: The assignment query (line 158) selects `room_id, assigned_to, status, assignment_type, started_at, supervisor_approved` but does NOT include `ready_to_clean`. So even if the update succeeds, the UI never shows it.
+
+2. **No visual indicator**: There is no color or badge in `renderRoomChip` showing that a checkout room has been marked as "ready to clean". Managers can't tell which rooms are already marked.
+
+3. **Button condition too restrictive**: The "Mark as Ready to Clean" button (line 590) requires `assignment.status !== 'completed'`. If the assignment is already completed (cleaned), the button is hidden. But what about rooms with no assignment at all? They also can't be marked.
+
+**Fix**:
+- Add `ready_to_clean` to the assignment select query and the `AssignmentData` interface.
+- Add a visual indicator in `renderRoomChip` for checkout rooms that are marked ready (e.g., a green checkmark or "RTC" badge).
+- Show the "Mark as Ready to Clean" button for checkout rooms even when there's no assignment, by creating an assignment with `ready_to_clean: true` if none exists.
+- After marking ready, show the updated state immediately in the room chip.
 
 | File | Change |
 |------|--------|
-| `src/components/dashboard/AutoRoomAssignment.tsx` | Add summary table above the cards. Add floor grouping within each card's room list. Add workload bar visualization. |
+| `src/components/dashboard/HotelRoomOverview.tsx` | Add `ready_to_clean` to assignment select and interface. Add "RTC" visual badge for ready checkout rooms. Fix button logic to handle rooms without assignments. Update local state optimistically after marking ready. |
 
 ---
 
-### 3. Smarter Room Assignment Algorithm -- Proximity and Sequential Rooms
+### 3. Fix Minibar Guest Page Product Translations
 
-The algorithm already groups by wing and uses `WingProximityMap`. Based on the hotel floor map provided:
+**Root Cause**: Product item names (e.g., "Coca-Cola", "Brownie") come directly from the `minibar_items.name` database column, which is a single string -- not translatable. The `gt()` function only translates UI chrome strings, not product data. When guests switch languages, the UI labels translate but product names stay in the original language.
 
-**Map analysis** (from the hand-drawn layout):
-- Left corridor: rooms 101, 127 (floor 1) and 201, 215, 217 (floor 2)
-- Center block: 114 (floor 1), 202-210, 212, 216 (floor 2)
-- Bottom corridors: 130-136, 131-147 (floor 1)
-- Right side: 144 (floor 1)
-- Ground floor: 002, 010, 032-036, 034, 044
-- Top floor: 302-308
-
-**Improvements to the algorithm**:
-1. **Sequential room number bonus**: When assigning rooms within a split wing, prefer keeping sequential room numbers together (e.g., 101-104 stays with the same housekeeper). Add a "sequence bonus" during the split phase that rewards placing a room next to rooms with adjacent numbers.
-2. **Floor continuity bonus**: Prefer assigning rooms on the same floor to the same housekeeper to minimize elevator trips.
-3. **Better sorting within assignments**: Sort each housekeeper's rooms in optimal cleaning order -- checkouts first (sorted by room number), then daily rooms (sorted by room number), within each category grouped by floor.
+**Fix**: Add a `translations` JSONB column to `minibar_items` to store translated names per language. Example: `{"de": "Schokoladenkuchen", "hu": "Brownie torta"}`. In `GuestMinibar.tsx`, when rendering product names, check `item.translations?.[guestLang]` first, falling back to `item.name`.
 
 | File | Change |
 |------|--------|
-| `src/lib/roomAssignmentAlgorithm.ts` | Add `getSequenceBonus()` function that scores how well a room fits with existing assigned rooms based on room number adjacency. Integrate into the wing-split phase (line 313-327) and rebalancing phase. Update final sort to group by checkout-first then floor then room number. |
+| New database migration | `ALTER TABLE minibar_items ADD COLUMN translations jsonb DEFAULT '{}'::jsonb;` |
+| `src/pages/GuestMinibar.tsx` | Update `renderWoltItem` to use `item.translations?.[guestLang] || item.name` for the product name display. Update `MinibarItem` interface to include `translations`. Update the data fetch to select the `translations` column. |
+
+Note: Admins will need to populate translations for each item via the admin panel. The column defaults to empty `{}` so existing items display their original name until translations are added.
 
 ---
 
-### 4. Early Checkout Prioritization for Housekeepers
+### 4. Fix Footer Empty Space and Logo Size
 
-Currently rooms are sorted by room number within checkout/daily groups. Early checkouts (rooms where guests depart early) should appear at the top of the housekeeper's list.
+**Root Cause**: In `GuestMinibar.tsx` line 501, the footer logo uses `h-7` (28px) which is too small. There's also unnecessary vertical spacing creating empty gaps.
 
-**Changes**:
-- In the algorithm's final sort (Step 6, line 427-431), sort checkout rooms before daily rooms, and within checkouts sort by `priority` or `checkout_time` if available
-- In the preview UI, add a note: "Checkouts appear first for housekeepers"
-- When assignments are saved to the database, set `priority` field so checkout rooms have lower priority numbers (higher priority)
+**Fix**:
+- Increase footer logo from `h-7` to `h-12` (48px).
+- Reduce excess padding/margin in the footer section.
+- Remove the `opacity-40` on the logo to make it more visible.
 
 | File | Change |
 |------|--------|
-| `src/lib/roomAssignmentAlgorithm.ts` | Update final sort: checkouts first, then daily. Within each group, sort by floor then room number for optimal walking path. |
-| `src/components/dashboard/AutoRoomAssignment.tsx` | Update priority assignment in `handleConfirmAssignment` -- checkouts get priority 1-N, daily rooms get priority N+1 onwards. Add info text in preview about room order. |
+| `src/pages/GuestMinibar.tsx` | Footer section: change logo `h-7` to `h-12`, remove `opacity-40`, adjust spacing. |
 
 ---
 
 ### Technical Details
 
-**Auto-save localStorage key structure:**
+**Optimistic approval removal:**
 ```typescript
-const SAVE_KEY = `auto_assignment_${profile?.assigned_hotel}_${selectedDate}`;
-
-// Save on changes
-useEffect(() => {
-  if (selectedStaffIds.size > 0) {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
-      staffIds: Array.from(selectedStaffIds),
-      previews: assignmentPreviews,
-      savedAt: Date.now()
-    }));
+const handleApproval = async (assignmentId: string) => {
+  // Immediately remove from UI
+  setPendingAssignments(prev => prev.filter(a => a.id !== assignmentId));
+  
+  try {
+    // ... existing DB update code ...
+    // Still refetch to ensure consistency
+    fetchPendingAssignments();
+  } catch (error) {
+    // Re-add on error
+    fetchPendingAssignments();
+    toast.error('Failed to update approval status');
   }
-}, [selectedStaffIds, assignmentPreviews]);
-
-// Restore on open
-useEffect(() => {
-  if (open) {
-    const saved = localStorage.getItem(SAVE_KEY);
-    if (saved) {
-      const data = JSON.parse(saved);
-      // Only restore if less than 12 hours old
-      if (Date.now() - data.savedAt < 12 * 60 * 60 * 1000) {
-        setSelectedStaffIds(new Set(data.staffIds));
-        if (data.previews?.length > 0) {
-          setAssignmentPreviews(data.previews);
-          setStep('preview');
-        }
-      }
-    }
-    fetchData();
-  }
-}, [open]);
+};
 ```
 
-**Sequential room number bonus:**
+**Ready-to-clean assignment data fix:**
 ```typescript
-function getSequenceBonus(roomNumber: string, existingRooms: RoomForAssignment[]): number {
-  const num = parseInt(roomNumber, 10);
-  if (isNaN(num)) return 0;
-  let bonus = 0;
-  for (const existing of existingRooms) {
-    const existingNum = parseInt(existing.room_number, 10);
-    if (isNaN(existingNum)) continue;
-    const diff = Math.abs(num - existingNum);
-    if (diff === 1) bonus += 3;       // Adjacent room - strong bonus
-    else if (diff === 2) bonus += 2;   // Two apart - moderate bonus
-    else if (diff <= 4) bonus += 1;    // Close by - small bonus
-    // Same floor bonus
-    if (Math.floor(num / 100) === Math.floor(existingNum / 100)) bonus += 0.5;
-  }
-  return bonus;
+// Add to select
+.select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean')
+
+// Add to interface
+interface AssignmentData {
+  // ... existing fields ...
+  ready_to_clean: boolean | null;
 }
+
+// Visual indicator in renderRoomChip
+{isCheckout && assignment?.ready_to_clean && (
+  <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
+)}
 ```
 
-**Improved final sort (checkout-first, floor-grouped, sequential):**
+**Product translation in GuestMinibar:**
 ```typescript
-const sortedRooms = staffRooms.sort((a, b) => {
-  // Checkouts always first
-  if (a.is_checkout_room && !b.is_checkout_room) return -1;
-  if (!a.is_checkout_room && b.is_checkout_room) return 1;
-  // Within same type: sort by floor, then room number
-  const floorA = getFloorFromRoomNumber(a.room_number);
-  const floorB = getFloorFromRoomNumber(b.room_number);
-  if (floorA !== floorB) return floorA - floorB;
-  return parseInt(a.room_number) - parseInt(b.room_number);
-});
+interface MinibarItem {
+  // ... existing fields ...
+  translations?: Record<string, string> | null;
+}
+
+// In renderWoltItem:
+const displayName = (item as any).translations?.[guestLang] || item.name;
 ```
 
-**Summary table in preview:**
-```typescript
-<div className="grid grid-cols-[1fr,auto,auto,auto,auto] gap-x-4 gap-y-1 text-xs px-3 py-2 bg-muted/40 rounded-lg">
-  <span className="font-semibold">Staff</span>
-  <span className="font-semibold text-center">CO</span>
-  <span className="font-semibold text-center">Daily</span>
-  <span className="font-semibold text-center">Tasks</span>
-  <span className="font-semibold text-right">Time</span>
-  {assignmentPreviews.filter(p => p.rooms.length > 0).map(p => (
-    <>
-      <span>{p.staffName}</span>
-      <span className="text-center text-amber-600">{p.checkoutCount}</span>
-      <span className="text-center text-blue-600">{p.dailyCount}</span>
-      <span className="text-center text-red-600">
-        {p.rooms.filter(r => r.towel_change_required).length}T
-      </span>
-      <span className="text-right">{formatMinutesToTime(p.totalWithBreak)}</span>
-    </>
-  ))}
-</div>
-```
-
-**Priority assignment fix in handleConfirmAssignment:**
-```typescript
-const assignments = assignmentPreviews.flatMap(preview => {
-  // Sort: checkouts first, then daily, by floor and room number
-  const sorted = [...preview.rooms].sort((a, b) => {
-    if (a.is_checkout_room && !b.is_checkout_room) return -1;
-    if (!a.is_checkout_room && b.is_checkout_room) return 1;
-    return parseInt(a.room_number) - parseInt(b.room_number);
-  });
-  return sorted.map((room, index) => ({
-    room_id: room.id,
-    assigned_to: preview.staffId,
-    assigned_by: user.id,
-    assignment_date: selectedDate,
-    assignment_type: room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning',
-    status: 'assigned',
-    priority: index + 1, // Checkouts get lowest numbers (highest priority)
-    organization_slug: profile?.organization_slug,
-    ready_to_clean: !room.is_checkout_room
-  }));
-});
+**Footer fix:**
+```tsx
+{logoUrl && (
+  <img src={logoUrl} alt={branding?.hotel_name} className="h-12 w-auto object-contain opacity-60" />
+)}
 ```
 
 ---
@@ -196,6 +132,9 @@ const assignments = assignmentPreviews.flatMap(preview => {
 
 | Area | Changes |
 |------|---------|
-| `src/components/dashboard/AutoRoomAssignment.tsx` | Auto-save/restore staff selection and previews via localStorage. Add summary table at top of preview. Add floor grouping labels in room chips. Improve priority ordering when saving assignments. Add "Clear Saved" button. |
-| `src/lib/roomAssignmentAlgorithm.ts` | Add `getSequenceBonus()` for sequential room number affinity. Integrate into wing-split and rebalancing phases. Update final sort: checkouts first, then by floor and room number. Add floor continuity bonus. |
+| `src/components/dashboard/SupervisorApprovalView.tsx` | Optimistic removal of approved items from state for instant UI clearing |
+| `src/hooks/usePendingApprovals.tsx` | Expose `refetch` function for manual count updates |
+| `src/components/dashboard/HotelRoomOverview.tsx` | Add `ready_to_clean` to data fetch and interface, add RTC visual badge, fix Mark Ready button for rooms without assignments |
+| New database migration | Add `translations` JSONB column to `minibar_items` table |
+| `src/pages/GuestMinibar.tsx` | Use translated product names, fix footer logo size and spacing |
 
