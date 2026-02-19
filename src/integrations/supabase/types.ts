@@ -1065,6 +1065,7 @@ export type Database = {
           is_promoted: boolean | null
           name: string
           price: number
+          translations: Json | null
           updated_at: string
         }
         Insert: {
@@ -1077,6 +1078,7 @@ export type Database = {
           is_promoted?: boolean | null
           name: string
           price?: number
+          translations?: Json | null
           updated_at?: string
         }
         Update: {
@@ -1089,6 +1091,7 @@ export type Database = {
           is_promoted?: boolean | null
           name?: string
           price?: number
+          translations?: Json | null
           updated_at?: string
         }
         Relationships: []

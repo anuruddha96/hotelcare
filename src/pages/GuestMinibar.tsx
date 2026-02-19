@@ -13,6 +13,7 @@ interface MinibarItem {
   price: number;
   image_url?: string | null;
   is_promoted?: boolean;
+  translations?: Record<string, string> | null;
 }
 
 interface CartItem {
@@ -120,7 +121,7 @@ export default function GuestMinibar() {
 
       const { data: minibarItems } = await supabase
         .from('minibar_items')
-        .select('id, name, category, price, image_url, is_promoted')
+        .select('id, name, category, price, image_url, is_promoted, translations')
         .eq('is_active', true)
         .order('category')
         .order('name');
@@ -279,7 +280,7 @@ export default function GuestMinibar() {
         {/* Text content */}
         <div className="flex-1 min-w-0 pt-0.5">
           <div className="flex items-center gap-1.5">
-            <p className="font-semibold text-[15px] text-stone-800 leading-snug">{item.name}</p>
+            <p className="font-semibold text-[15px] text-stone-800 leading-snug">{item.translations?.[guestLang] || item.name}</p>
           </div>
           <p className="text-sm text-amber-700 font-medium mt-0.5">
             EUR {item.price.toFixed(2)}
@@ -495,12 +496,12 @@ export default function GuestMinibar() {
         )}
 
         {/* Footer */}
-        <div className="border-t border-stone-100 pt-6 pb-4 mt-8">
-          <div className="flex flex-col items-center gap-2 text-center">
+        <div className="border-t border-stone-100 pt-4 pb-3 mt-6">
+          <div className="flex flex-col items-center gap-1.5 text-center">
             {logoUrl && (
-              <img src={logoUrl} alt={branding?.hotel_name} className="h-7 w-auto object-contain opacity-40" />
+              <img src={logoUrl} alt={branding?.hotel_name} className="h-12 w-auto object-contain opacity-60" />
             )}
-            <p className="text-xs text-stone-300">{branding?.hotel_name}</p>
+            <p className="text-xs text-stone-400">{branding?.hotel_name}</p>
             <p className="text-[10px] text-stone-300">{gt('poweredBy')}</p>
           </div>
         </div>

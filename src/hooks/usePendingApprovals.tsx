@@ -1,12 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 export function usePendingApprovals() {
   const [pendingCount, setPendingCount] = useState(0);
   const [maintenanceTicketCount, setMaintenanceTicketCount] = useState(0);
 
-  useEffect(() => {
-    const fetchPendingCount = async () => {
+  const fetchPendingCount = useCallback(async () => {
       try {
         const dateStr = new Date().toISOString().split('T')[0];
         
@@ -100,8 +99,9 @@ export function usePendingApprovals() {
         setPendingCount(0);
         setMaintenanceTicketCount(0);
       }
-    };
+  }, []);
 
+  useEffect(() => {
     fetchPendingCount();
 
     // Set up real-time subscription for pending count
@@ -131,7 +131,11 @@ export function usePendingApprovals() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [fetchPendingCount]);
 
-  return { pendingCount, maintenanceTicketCount, totalCount: pendingCount + maintenanceTicketCount };
+  const refetch = useCallback(() => {
+    fetchPendingCount();
+  }, [fetchPendingCount]);
+
+  return { pendingCount, maintenanceTicketCount, totalCount: pendingCount + maintenanceTicketCount, refetch };
 }
