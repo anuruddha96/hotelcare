@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { MinibarQuickAdd } from './MinibarQuickAdd';
 import { MinibarQRManagement } from './MinibarQRManagement';
 import { MinimBarManagement } from './MinimBarManagement';
+import { PerishablePlacementManager } from './PerishablePlacementManager';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -645,6 +646,12 @@ export function MinibarTrackingView() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Perishable Item Alerts */}
+      <PerishablePlacementManager
+        hotel={profile?.assigned_hotel || ''}
+        organizationSlug={profile?.organization_slug || 'rdhotels'}
+      />
 
       {/* Room-Grouped Cards */}
       <RoomGroupedView

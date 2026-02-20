@@ -1062,6 +1062,7 @@ export type Database = {
           category: string | null
           created_at: string
           display_order: number | null
+          expiry_days: number | null
           id: string
           image_url: string | null
           is_active: boolean | null
@@ -1075,6 +1076,7 @@ export type Database = {
           category?: string | null
           created_at?: string
           display_order?: number | null
+          expiry_days?: number | null
           id?: string
           image_url?: string | null
           is_active?: boolean | null
@@ -1088,6 +1090,7 @@ export type Database = {
           category?: string | null
           created_at?: string
           display_order?: number | null
+          expiry_days?: number | null
           id?: string
           image_url?: string | null
           is_active?: boolean | null
@@ -1098,6 +1101,72 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      minibar_placements: {
+        Row: {
+          collected_at: string | null
+          collected_by: string | null
+          created_at: string
+          expires_at: string
+          hotel: string
+          id: string
+          minibar_item_id: string
+          organization_slug: string | null
+          placed_at: string
+          placed_by: string
+          quantity: number
+          room_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          collected_at?: string | null
+          collected_by?: string | null
+          created_at?: string
+          expires_at: string
+          hotel: string
+          id?: string
+          minibar_item_id: string
+          organization_slug?: string | null
+          placed_at?: string
+          placed_by: string
+          quantity?: number
+          room_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          collected_at?: string | null
+          collected_by?: string | null
+          created_at?: string
+          expires_at?: string
+          hotel?: string
+          id?: string
+          minibar_item_id?: string
+          organization_slug?: string | null
+          placed_at?: string
+          placed_by?: string
+          quantity?: number
+          room_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "minibar_placements_minibar_item_id_fkey"
+            columns: ["minibar_item_id"]
+            isOneToOne: false
+            referencedRelation: "minibar_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "minibar_placements_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notification_preferences: {
         Row: {
