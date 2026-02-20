@@ -1,65 +1,57 @@
 
 
-## Plan: Minibar Tracking Visibility, Guest Item Blocking, Supervisor Refill Flow, and Multi-Day Stay Aggregation
-
-This plan addresses 4 interconnected issues with the minibar system.
+## Plan: Fix Minibar Tracking Visibility, Reception Room Overview, and Auto Stay Detection
 
 ---
 
 ### Problem 1: Minibar Usage Not Appearing in Tracking View
 
-**Root cause**: The `MinibarTrackingView` query filters by the selected date using `startOfDay(selectedDate)` to `endOfDay(selectedDate)`. However, the housekeeper records minibar usage via `RoomDetailDialog`, which sets `usage_date: new Date().toISOString()` -- this uses the current timestamp. If the manager views a different date, or if the `is_cleared` flag was set prematurely (e.g., during PMS upload the previous night), records won't appear.
+**Root cause**: The query in `MinibarTrackingView.tsx` (line 415) filters with `.eq('is_cleared', false)`. However, yesterday's minibar records already have `is_cleared: true` (confirmed by database query). This happens because the PMS upload or "Clear for Checkout" action marks records as cleared. The tracking view should show ALL usage records for the selected date regardless of cleared status -- `is_cleared` is a checkout workflow flag, not a visibility flag.
 
-Additionally, the `RoomDetailDialog` inserts records WITHOUT a `source` field, so they default to `'staff'` in the database. This is correct behavior, but the insert also doesn't set `organization_slug`, which could cause filtering issues.
-
-**Fix in `src/components/dashboard/RoomDetailDialog.tsx`**:
-- Add `source: 'staff'` and `organization_slug` to the minibar usage insert call (line 237-245)
-- This ensures records are properly attributed and visible
-
-**Fix in `src/components/dashboard/MinibarTrackingView.tsx`**:
-- The hotel filtering logic (lines 398-410) does a secondary query to resolve hotel name. This async resolution might fail silently. Simplify it to filter directly using `rooms.hotel` from the joined data, which is already fetched.
+**File: `src/components/dashboard/MinibarTrackingView.tsx`**
+- Remove `.eq('is_cleared', false)` from line 415 in `fetchMinibarData()`
+- This ensures managers, admins, and reception can see ALL minibar usage for any date, whether cleared or not
+- Optionally add a visual indicator (a "Cleared" badge) for records where `is_cleared` is true, so staff know which items have already been billed
 
 ---
 
-### Problem 2: Guest Item Blocking (QR Scanned Items Should Be Locked for Housekeepers)
+### Problem 2: Reception Users See Limited Room Overview
 
-**Current state**: When a guest scans the QR and submits usage, the housekeeper still sees all items as addable in `RoomDetailDialog`. There's no indication that a guest already reported an item.
+**Root cause**: In `Dashboard.tsx` line 660-664, the reception `HotelRoomOverview` is passed `staffMap={{}}` (empty object), so no housekeeper names appear on room chips. The `HotelRoomOverview` component also gates click-to-edit behind `isManagerOrAdmin` (line 142), which correctly excludes reception, but reception should still see all visual info.
 
-**Changes in `src/components/dashboard/RoomDetailDialog.tsx`**:
-- When displaying minibar items, check if each item already has a usage record with `source: 'guest'`
-- If yes, show the item as "already reported by guest" with a distinct visual indicator (amber/locked badge) instead of the +/- buttons
-- The housekeeper can see what the guest reported but cannot double-add it
-- Staff can still override guest records (existing dedup logic handles this)
+**File: `src/components/dashboard/Dashboard.tsx`**
+- For reception users, fetch housekeeping staff profiles (same query as `HousekeepingManagerView` uses) to build a `staffMap` and pass it to `HotelRoomOverview`
+- Add a `useEffect` that fetches profiles with `role = 'housekeeping'` for the user's hotel when `profile.role === 'reception'`
+- Build `staffMap` as `Object.fromEntries(staff.map(s => [s.id, s.full_name]))` and pass it to the component
 
-**Changes in `src/pages/GuestMinibar.tsx`**:
-- Before rendering items, fetch existing usage for this room today (using the room token lookup)
-- Items already recorded (by guest or staff) should show as "Already recorded" with a checkmark, preventing duplicate submissions
-- This gives guests clear feedback that their previous scan was successful
+**File: `src/components/dashboard/HotelRoomOverview.tsx`**
+- No changes needed -- the component already handles read-only mode correctly by gating `handleRoomClick` behind `isManagerOrAdmin`. Reception users will see all color codes, badges (T, RC, RTC), staff names, and tooltips, but cannot click to edit rooms. The Map/List toggle is also gated behind `isManagerOrAdmin`, which is fine.
 
 ---
 
-### Problem 3: Supervisor Approval Triggers Minibar Refill (Reset for Daily Rooms)
+### Problem 3: Auto-Detect Full Stay from PMS Data
 
-**Current state**: When a supervisor approves a completed room, there is no minibar reset logic. For daily rooms (non-checkout), the guest stays another night, and the minibar should be considered "refilled" so the guest can report usage again the next day.
+**Current state**: The "Full Stay" toggle in `MinibarTrackingView` is manual. The PMS upload already writes `guest_nights_stayed` to the `rooms` table. When `guest_nights_stayed > 1`, the system should automatically show the full-stay aggregated minibar data.
 
-**The system already handles this correctly by design**: Each day's usage is filtered by date (`usage_date` within that day's range), so a new day automatically allows new records. The `is_cleared` flag is only set during PMS upload or manual clearing, which handles checkout rooms.
+**File: `src/components/dashboard/MinibarTrackingView.tsx`**
+- Remove the manual "Full Stay" toggle switch
+- Instead, auto-detect: after fetching minibar usage for the selected date, check if any room with usage has `guest_nights_stayed > 1` from the joined `rooms` data
+- For rooms where `guest_nights_stayed > 1`, automatically expand the query window to fetch usage from the past N days (where N = `guest_nights_stayed`)
+- This requires a two-pass approach:
+  1. First fetch: Get today's usage (standard single-day query)
+  2. For rooms with `guest_nights_stayed > 1`, do a second fetch for those room IDs expanding the date range
+  3. Merge results and show a "Full Stay (N nights)" badge on those room cards
+- Show a "Full Stay" badge on room cards that have multi-day data, with the total across all days
 
-However, for the guest QR page, the duplicate check uses `is_cleared: false` for the current day -- if a guest stays multiple days, each new day they can submit again because old records are from previous days. This already works.
-
-**No code change needed** for the refill flow -- the date-based filtering inherently resets availability each day.
-
----
-
-### Problem 4: Multi-Day Stay Aggregation for Reception
-
-**Current state**: The `MinibarTrackingView` only shows a single selected day's data. For guests staying multiple days, reception cannot see the total minibar consumption across the entire stay.
-
-**Changes in `src/components/dashboard/MinibarTrackingView.tsx`**:
-- Add a "Stay View" toggle next to the date picker for reception/manager users
-- When toggled ON, for each room with usage, look up `guest_nights_stayed` from the `rooms` table
-- Expand the date range query to cover the last N days (where N = `guest_nights_stayed`) instead of just the selected date
-- Show aggregate totals per room across the entire stay period with a "Full Stay" badge
-- Reception can then see "Room 205: Guest stayed 3 nights, total minibar: EUR 15.00"
+**Implementation approach:**
+```text
+1. Fetch single-day usage as normal
+2. Extract unique room_ids from results
+3. Check rooms data for guest_nights_stayed > 1
+4. For those rooms, fetch additional usage records going back N days
+5. Merge and deduplicate records
+6. Display "N nights" badge on affected room cards
+```
 
 ---
 
@@ -67,7 +59,6 @@ However, for the guest QR page, the duplicate check uses `is_cleared: false` for
 
 | File | Changes |
 |------|---------|
-| `src/components/dashboard/RoomDetailDialog.tsx` | Add `source: 'staff'` and `organization_slug` to insert. Show guest-reported items as locked/indicated. |
-| `src/components/dashboard/MinibarTrackingView.tsx` | Add "Stay View" toggle for multi-day aggregation. Fix hotel filtering reliability. |
-| `src/pages/GuestMinibar.tsx` | Fetch existing usage for the room; show already-recorded items as checked/locked. |
+| `src/components/dashboard/MinibarTrackingView.tsx` | Remove `is_cleared: false` filter. Remove manual Full Stay toggle. Auto-detect multi-day stays from `guest_nights_stayed` and expand date range for those rooms. Add "Cleared" badge for billed items. Add "Full Stay (N nights)" badge for multi-day rooms. |
+| `src/components/dashboard/Dashboard.tsx` | Fetch housekeeping staff for reception users and pass populated `staffMap` to `HotelRoomOverview`. |
 
