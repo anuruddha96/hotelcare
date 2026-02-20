@@ -5,7 +5,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search, Upload, Image, User, Monitor, ScanLine, Receipt } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search, Upload, Image, User, Monitor, ScanLine, Receipt, Hotel } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { subDays } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -209,12 +212,13 @@ export function MinibarTrackingView() {
   const [searchRoom, setSearchRoom] = useState('');
   const [minibarLogoUrl, setMinibarLogoUrl] = useState('');
   const [minibarLogoUploading, setMinibarLogoUploading] = useState(false);
+  const [stayViewEnabled, setStayViewEnabled] = useState(false);
 
   useEffect(() => {
     fetchUserRole();
     fetchMinibarData();
     fetchMinibarLogo();
-  }, [selectedDate]);
+  }, [selectedDate, stayViewEnabled]);
 
   const fetchUserRole = async () => {
     if (user?.id) {
@@ -360,11 +364,28 @@ export function MinibarTrackingView() {
   const fetchMinibarData = async () => {
     setLoading(true);
     try {
-      const startDate = startOfDay(selectedDate);
-      const endDate = endOfDay(selectedDate);
-
-      // Get user's hotel for filtering
       const userHotel = profile?.assigned_hotel;
+
+      // Resolve hotel name for filtering
+      let hotelNameToFilter = userHotel || '';
+      if (userHotel) {
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name')
+          .eq('hotel_id', userHotel)
+          .single();
+        hotelNameToFilter = hotelConfig?.hotel_name || userHotel;
+      }
+
+      let startDate: Date;
+      let endDate = endOfDay(selectedDate);
+
+      if (stayViewEnabled) {
+        // In stay view, look back up to 30 days to cover long stays
+        startDate = startOfDay(subDays(selectedDate, 30));
+      } else {
+        startDate = startOfDay(selectedDate);
+      }
 
       const { data, error } = await supabase
         .from('room_minibar_usage')
@@ -378,7 +399,8 @@ export function MinibarTrackingView() {
           source,
           rooms (
             room_number,
-            hotel
+            hotel,
+            guest_nights_stayed
           ),
           minibar_items (
             name,
@@ -395,21 +417,40 @@ export function MinibarTrackingView() {
 
       if (error) throw error;
 
-      // Filter by user's assigned hotel
+      // Filter by user's assigned hotel using joined rooms.hotel
       let filteredData = data || [];
       if (userHotel && filteredData.length > 0) {
-        // Get hotel name from ID if needed
-        const { data: hotelConfig } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_name')
-          .eq('hotel_id', userHotel)
-          .single();
-        
-        const hotelNameToFilter = hotelConfig?.hotel_name || userHotel;
-        filteredData = filteredData.filter((record: any) => 
-          record.rooms?.hotel === userHotel || 
+        filteredData = filteredData.filter((record: any) =>
+          record.rooms?.hotel === userHotel ||
           record.rooms?.hotel === hotelNameToFilter
         );
+      }
+
+      // In stay view, filter to only rooms that have usage on the selected date,
+      // then show ALL their usage across the stay period
+      if (stayViewEnabled) {
+        const selectedDayStart = startOfDay(selectedDate);
+        const selectedDayEnd = endOfDay(selectedDate);
+        
+        // Find room_ids that have usage on the selected date
+        const roomsWithUsageToday = new Set(
+          filteredData
+            .filter((r: any) => {
+              const d = new Date(r.usage_date);
+              return d >= selectedDayStart && d <= selectedDayEnd;
+            })
+            .map((r: any) => r.room_id)
+        );
+
+        // Keep only records for those rooms (across all dates in range)
+        // But limit by guest_nights_stayed
+        filteredData = filteredData.filter((record: any) => {
+          if (!roomsWithUsageToday.has(record.room_id)) return false;
+          const nightsStayed = (record.rooms as any)?.guest_nights_stayed || 1;
+          const stayStart = startOfDay(subDays(selectedDate, Math.min(nightsStayed - 1, 30)));
+          const usageDate = new Date(record.usage_date);
+          return usageDate >= stayStart;
+        });
       }
 
       // Transform data
@@ -491,6 +532,17 @@ export function MinibarTrackingView() {
               <AlertTriangle className="h-4 w-4" />
               Clear All Records
             </Button>
+          )}
+          {['admin', 'manager', 'housekeeping_manager', 'reception'].includes(userRole) && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
+              <Hotel className="h-4 w-4 text-muted-foreground" />
+              <Label htmlFor="stay-view" className="text-sm font-medium cursor-pointer">Full Stay</Label>
+              <Switch
+                id="stay-view"
+                checked={stayViewEnabled}
+                onCheckedChange={setStayViewEnabled}
+              />
+            </div>
           )}
           <Popover>
             <PopoverTrigger asChild>

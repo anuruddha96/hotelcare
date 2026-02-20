@@ -43,6 +43,7 @@ const base = {
   cart: 'Cart',
   total: 'Total',
   popular: 'Popular',
+  alreadyRecorded: 'Already recorded',
   vatIncluded: 'All prices include VAT and taxes.',
   paymentInfo: 'Payment by card (debit/credit) at reception during checkout.',
   hotelGuide: 'Hotel Guide',

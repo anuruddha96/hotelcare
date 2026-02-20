@@ -88,6 +88,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
   const [roomSize, setRoomSize] = useState<string>('');
   const [roomCapacity, setRoomCapacity] = useState<string>('');
   const [dndPhotosOpen, setDndPhotosOpen] = useState(false);
+  const [guestReportedItems, setGuestReportedItems] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (open && room) {
@@ -97,8 +98,29 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       fetchMinibarItems();
       fetchMinibarUsage();
       fetchRecentTickets();
+      fetchGuestReportedItems();
     }
   }, [open, room]);
+
+  const fetchGuestReportedItems = async () => {
+    if (!room) return;
+    try {
+      const today = new Date();
+      const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+      const endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999).toISOString();
+      const { data } = await supabase
+        .from('room_minibar_usage')
+        .select('minibar_item_id')
+        .eq('room_id', room.id)
+        .eq('source', 'guest')
+        .eq('is_cleared', false)
+        .gte('usage_date', startDate)
+        .lte('usage_date', endDate);
+      setGuestReportedItems(new Set((data || []).map(d => d.minibar_item_id)));
+    } catch (error) {
+      console.error('Error fetching guest reported items:', error);
+    }
+  };
 
   const fetchMinibarItems = async () => {
     try {
@@ -241,7 +263,9 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
               minibar_item_id: itemId,
               quantity_used: newQuantity,
               usage_date: new Date().toISOString(),
-              recorded_by: profile?.id
+              recorded_by: profile?.id,
+              source: 'staff',
+              organization_slug: profile?.organization_slug || 'rdhotels',
             });
 
           if (error) throw error;
@@ -511,12 +535,20 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
             </CardHeader>
             <CardContent>
               <div className="space-y-2 sm:space-y-3">
-                {minibarItems.map((item) => {
+              {minibarItems.map((item) => {
                   const currentUsage = getCurrentUsage(item.id);
+                  const isGuestReported = guestReportedItems.has(item.id);
                   return (
-                    <div key={item.id} className="flex flex-col gap-3 p-3 border rounded-lg bg-card hover:bg-muted/20 transition-colors sm:flex-row sm:items-center sm:justify-between">
+                    <div key={item.id} className={`flex flex-col gap-3 p-3 border rounded-lg transition-colors sm:flex-row sm:items-center sm:justify-between ${isGuestReported ? 'bg-amber-50 border-amber-200' : 'bg-card hover:bg-muted/20'}`}>
                       <div className="flex-1">
-                        <div className="font-medium text-sm sm:text-base">{item.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm sm:text-base">{item.name}</span>
+                          {isGuestReported && (
+                            <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] gap-1">
+                              <User className="h-3 w-3" /> Guest reported
+                            </Badge>
+                          )}
+                        </div>
                         <div className="text-xs sm:text-sm text-muted-foreground flex flex-wrap items-center gap-2">
                           <span className="capitalize">{item.category}</span>
                           <span className="hidden sm:inline">•</span>
@@ -527,30 +559,37 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                         </div>
                       </div>
                       
-                      <div className="flex items-center gap-2 justify-center">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => updateMinibarUsage(item.id, -1)}
-                          disabled={currentUsage === 0}
-                          className="h-8 w-8 p-0"
-                        >
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        
-                        <span className="w-10 text-center font-semibold text-base sm:text-lg">
-                          {currentUsage}
-                        </span>
-                        
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => updateMinibarUsage(item.id, 1)}
-                          className="h-8 w-8 p-0"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      {isGuestReported ? (
+                        <div className="flex items-center gap-2 justify-center text-amber-700 text-xs font-medium">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Already recorded by guest
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 justify-center">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => updateMinibarUsage(item.id, -1)}
+                            disabled={currentUsage === 0}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          
+                          <span className="w-10 text-center font-semibold text-base sm:text-lg">
+                            {currentUsage}
+                          </span>
+                          
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => updateMinibarUsage(item.id, 1)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
