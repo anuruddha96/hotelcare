@@ -177,9 +177,10 @@ function getFloorSpreadPenalty(existingRooms: RoomForAssignment[], candidateFloo
   const floors = getStaffFloors(existingRooms);
   // If candidate floor already assigned, no penalty
   if (floors.has(candidateFloor)) return 0;
-  // Penalty grows with number of distinct floors (exponential discouragement)
+  // Exponential penalty: 2 floors = 30, 3 floors = 60, 4 floors = 120
   const newFloorCount = floors.size + 1;
-  return newFloorCount * 5; // Strong penalty for each additional floor
+  if (newFloorCount >= 3) return newFloorCount * 40; // Very strong penalty for 3+ floors
+  return newFloorCount * 15; // Strong penalty for each additional floor
 }
 
 // Wing proximity map type: maps "wingA" -> "wingB" -> distance
@@ -388,7 +389,8 @@ export function autoAssignRooms(
       // Split: distribute rooms one by one, using affinity + sequence bonus
       const sorted = [...wingRooms].sort((a, b) => calculateRoomWeight(b) - calculateRoomWeight(a));
       for (const room of sorted) {
-        // Find staff with lowest effective weight (weight minus affinity & sequence bonuses)
+        const roomFloor = room.floor_number ?? getFloorFromRoomNumber(room.room_number);
+        // Find staff with lowest effective weight (weight minus affinity & sequence bonuses + floor penalty)
         const splitCandidates = Array.from(staffWeights.entries()).sort((a, b) => {
           const aRooms = assignments.get(a[0])!;
           const bRooms = assignments.get(b[0])!;
@@ -396,8 +398,10 @@ export function autoAssignRooms(
           const bAffinity = getAffinityBonus(room.room_number, bRooms.map(r => r.room_number), affinityMap);
           const aSeqBonus = getSequenceBonus(room.room_number, aRooms);
           const bSeqBonus = getSequenceBonus(room.room_number, bRooms);
-          // Lower effective weight = weight - bonuses (bonuses make staff more attractive)
-          return (a[1] - aAffinity * 2 - aSeqBonus * 0.5) - (b[1] - bAffinity * 2 - bSeqBonus * 0.5);
+          const aFloorPenalty = getFloorSpreadPenalty(aRooms, roomFloor);
+          const bFloorPenalty = getFloorSpreadPenalty(bRooms, roomFloor);
+          // Lower effective weight = weight - bonuses + floor penalty (bonuses make staff more attractive)
+          return (a[1] + aFloorPenalty - aAffinity * 10 - aSeqBonus * 0.5) - (b[1] + bFloorPenalty - bAffinity * 10 - bSeqBonus * 0.5);
         });
         const [bestId, bestWeight] = splitCandidates[0];
         assignments.get(bestId)!.push(room);
@@ -432,16 +436,22 @@ export function autoAssignRooms(
     let bestRoom: RoomForAssignment | null = null;
     let bestScore = Infinity;
 
+    const lightestFloors = getStaffFloors(lightestRooms);
+    
     for (const room of heaviestRooms) {
       if (room.is_checkout_room) continue; // prefer not moving checkouts
       const roomWing = room.wing || `floor-${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`;
+      const roomFloor = room.floor_number ?? getFloorFromRoomNumber(room.room_number);
       const w = calculateRoomWeight(room);
       const newDiff = Math.abs((heaviestW - w) - (lightestW + w));
       const currentDiff = heaviestW - lightestW;
       if (newDiff >= currentDiff) continue; // must improve balance
 
+      // Floor penalty: strongly discourage adding a 3rd+ floor to the target
+      const floorPenalty = getFloorSpreadPenalty(lightestRooms, roomFloor);
+      
       // Affinity penalty: penalize moving room away from high-affinity partners
-      const affinityPenalty = getAffinityLoss(room.room_number, heaviestRooms.map(r => r.room_number), affinityMap) * 5;
+      const affinityPenalty = getAffinityLoss(room.room_number, heaviestRooms.map(r => r.room_number), affinityMap) * 10;
       // Sequence penalty: penalize breaking up sequential rooms
       const seqPenalty = getSequenceBonus(room.room_number, heaviestRooms.filter(r => r.id !== room.id));
       // Sequence bonus for target: reward if room fits sequentially with lightest's rooms
@@ -449,7 +459,7 @@ export function autoAssignRooms(
 
       // Score: prefer rooms from wings the lightest already works in (score 0), else penalty (score 10)
       const wingPenalty = lightestWings.has(roomWing) ? 0 : 10;
-      const score = newDiff + wingPenalty + affinityPenalty + seqPenalty * 0.5 - seqBonusTarget * 0.3;
+      const score = newDiff + wingPenalty + floorPenalty + affinityPenalty + seqPenalty * 0.5 - seqBonusTarget * 0.3;
       if (score < bestScore) {
         bestScore = score;
         bestRoom = room;
@@ -482,19 +492,25 @@ export function autoAssignRooms(
     const leastRooms = assignments.get(least.id)!;
     const leastWings = getStaffWings(leastRooms);
     // Pick lightest daily room, preferring one from a wing the least already has
+    const leastFloors = getStaffFloors(leastRooms);
     const dailyRooms = mostRooms.filter(r => !r.is_checkout_room);
     const sortedDaily = [...dailyRooms].sort((a, b) => {
       const aWing = a.wing || `floor-${a.floor_number ?? getFloorFromRoomNumber(a.room_number)}`;
       const bWing = b.wing || `floor-${b.floor_number ?? getFloorFromRoomNumber(b.room_number)}`;
+      const aFloor = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
+      const bFloor = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
       const aWingBonus = leastWings.has(aWing) ? 0 : 100;
       const bWingBonus = leastWings.has(bWing) ? 0 : 100;
+      // Floor penalty: strongly discourage moving rooms that would add a 3rd+ floor
+      const aFloorPenalty = getFloorSpreadPenalty(leastRooms, aFloor);
+      const bFloorPenalty = getFloorSpreadPenalty(leastRooms, bFloor);
       // Sequence bonus: prefer moving rooms that fit well with target
       const aSeqBonus = getSequenceBonus(a.room_number, leastRooms) * 10;
       const bSeqBonus = getSequenceBonus(b.room_number, leastRooms) * 10;
       // Add affinity penalty: rooms with high affinity to current group are harder to move
       const aAffinityPenalty = getAffinityLoss(a.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;
       const bAffinityPenalty = getAffinityLoss(b.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;
-      return (calculateRoomWeight(a) + aWingBonus + aAffinityPenalty - aSeqBonus) - (calculateRoomWeight(b) + bWingBonus + bAffinityPenalty - bSeqBonus);
+      return (calculateRoomWeight(a) + aWingBonus + aFloorPenalty + aAffinityPenalty - aSeqBonus) - (calculateRoomWeight(b) + bWingBonus + bFloorPenalty + bAffinityPenalty - bSeqBonus);
     });
     if (sortedDaily.length === 0) break;
 

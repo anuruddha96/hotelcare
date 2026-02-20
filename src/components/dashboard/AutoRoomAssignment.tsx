@@ -521,6 +521,26 @@ export function AutoRoomAssignment({
       }));
   };
 
+  // Convert full room category name to short label
+  const getCategoryShortName = (category: string): string => {
+    const lower = category.toLowerCase();
+    if (lower.includes('single')) return 'Sgl';
+    if (lower.includes('triple')) return 'Trpl';
+    if (lower.includes('quadruple') || lower.includes('quad')) return 'Quad';
+    if (lower.includes('queen')) return 'Queen';
+    if (lower.includes('double or twin') || lower.includes('twin or double')) return 'DB/TW';
+    if (lower.includes('double')) return 'Dbl';
+    if (lower.includes('twin')) return 'Twin';
+    if (lower.includes('suite')) return 'Suite';
+    if (lower.includes('studio')) return 'Studio';
+    if (lower.includes('economy')) return 'Eco';
+    if (lower.includes('comfort')) return 'Comf';
+    if (lower.includes('deluxe')) return 'Dlx';
+    if (lower.includes('superior')) return 'Sup';
+    // Fallback: first 4 chars
+    return category.substring(0, 4);
+  };
+
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const isSelected = selectedRoomForMove?.roomId === room.id;
     const chipColor = room.is_checkout_room
@@ -554,9 +574,12 @@ export function AutoRoomAssignment({
           if (isSelected) setSelectedRoomForMove(null);
           else setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
         }}
-        title={`Room ${room.room_number}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
+        title={`Room ${room.room_number}${room.room_category ? ` · ${room.room_category}` : ''}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
       >
         <span>{room.room_number}</span>
+        {room.room_category && (
+          <span className="text-[9px] opacity-70 font-normal">{getCategoryShortName(room.room_category)}</span>
+        )}
         {room.towel_change_required && (
           <span className="text-[10px] px-0.5 font-bold text-red-600">T</span>
         )}
