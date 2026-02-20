@@ -564,6 +564,7 @@ export type Database = {
           name: string
           sort_order: number | null
           specialty: string | null
+          translations: Json | null
           type: string
         }
         Insert: {
@@ -576,6 +577,7 @@ export type Database = {
           name: string
           sort_order?: number | null
           specialty?: string | null
+          translations?: Json | null
           type: string
         }
         Update: {
@@ -588,6 +590,7 @@ export type Database = {
           name?: string
           sort_order?: number | null
           specialty?: string | null
+          translations?: Json | null
           type?: string
         }
         Relationships: []

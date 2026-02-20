@@ -11,6 +11,7 @@ import { UserManagementDialog } from './UserManagementDialog';
 import { AccessManagementDialog } from './AccessManagementDialog';
 import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
+import { HotelRoomOverview } from './HotelRoomOverview';
 import { CompanySettings } from './CompanySettings';
 import { HousekeepingTab } from './HousekeepingTab';
 import { MinibarTrackingView } from './MinibarTrackingView';
@@ -421,7 +422,7 @@ export function Dashboard() {
                 )}
               </TabsList>
             ) : profile?.role === 'reception' ? (
-              <TabsList className="flex w-full min-w-[400px] max-w-xl h-10 sm:h-12">
+              <TabsList className="flex w-full min-w-[320px] max-w-lg h-10 sm:h-12">
                 <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.tickets')}</span>
@@ -429,10 +430,6 @@ export function Dashboard() {
                 <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <Home className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.rooms')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="housekeeping" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                  <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Team View</span>
                 </TabsTrigger>
                 <TabsTrigger value="minibar" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -659,7 +656,15 @@ export function Dashboard() {
           </TabsContent>
 
           <TabsContent value="rooms" className="space-y-6">
-            <RoomManagement />
+            {profile?.role === 'reception' ? (
+              <HotelRoomOverview 
+                selectedDate={new Date().toISOString().split('T')[0]} 
+                hotelName={profile?.assigned_hotel || ''} 
+                staffMap={{}} 
+              />
+            ) : (
+              <RoomManagement />
+            )}
           </TabsContent>
 
           <TabsContent value="housekeeping" className="space-y-6">
