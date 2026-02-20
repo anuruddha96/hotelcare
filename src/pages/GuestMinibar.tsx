@@ -63,6 +63,8 @@ export default function GuestMinibar() {
   const [categoryOrder, setCategoryOrder] = useState<Record<string, number>>({});
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [openGuideSection, setOpenGuideSection] = useState<string | null>(null);
+  const [alreadyRecordedItems, setAlreadyRecordedItems] = useState<Set<string>>(new Set());
+  const [roomId, setRoomId] = useState<string>('');
   const [guestLang, setGuestLang] = useState(() =>
     localStorage.getItem('guest_minibar_lang') || 'en'
   );
@@ -93,13 +95,29 @@ export default function GuestMinibar() {
     try {
       const { data: room, error: roomErr } = await (supabase
         .from('rooms')
-        .select('room_number, hotel') as any)
+        .select('id, room_number, hotel') as any)
         .eq('minibar_qr_token', roomToken)
         .single();
 
       if (roomErr || !room) { setSubmitState('invalid'); setLoading(false); return; }
 
       setRoomNumber(room.room_number);
+      setRoomId(room.id);
+
+      // Fetch already-recorded items for today
+      const today = new Date();
+      const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+      const dayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999).toISOString();
+      const { data: existingUsage } = await supabase
+        .from('room_minibar_usage')
+        .select('minibar_item_id')
+        .eq('room_id', room.id)
+        .eq('is_cleared', false)
+        .gte('usage_date', dayStart)
+        .lte('usage_date', dayEnd);
+      if (existingUsage) {
+        setAlreadyRecordedItems(new Set(existingUsage.map((u: any) => u.minibar_item_id)));
+      }
 
       const { data: hotelConfig } = await supabase
         .from('hotel_configurations')
@@ -270,11 +288,12 @@ export default function GuestMinibar() {
 
   const renderWoltItem = (item: MinibarItem, featured = false) => {
     const qty = getCartQuantity(item.id);
+    const isAlreadyRecorded = alreadyRecordedItems.has(item.id);
     return (
       <div
         key={item.id}
         className={`flex items-start gap-3 py-3.5 border-b border-stone-100 last:border-b-0 ${
-          qty > 0 ? 'bg-amber-50/30 -mx-4 px-4 rounded-lg' : ''
+          isAlreadyRecorded ? 'opacity-60' : qty > 0 ? 'bg-amber-50/30 -mx-4 px-4 rounded-lg' : ''
         }`}
       >
         {/* Text content */}
@@ -285,11 +304,16 @@ export default function GuestMinibar() {
           <p className="text-sm text-amber-700 font-medium mt-0.5">
             EUR {item.price.toFixed(2)}
           </p>
-          {(featured || item.is_promoted) && (
+          {isAlreadyRecorded ? (
+            <div className="flex items-center gap-1 mt-1.5">
+              <Check className="h-3.5 w-3.5 text-emerald-600" />
+              <span className="text-[11px] text-emerald-700 font-medium">{gt('alreadyRecorded') || 'Already recorded'}</span>
+            </div>
+          ) : (featured || item.is_promoted) ? (
             <Badge className="bg-amber-100 text-amber-800 text-[10px] font-medium mt-1.5 border-0 px-2 py-0.5">
               ⭐ {gt('popular')}
             </Badge>
-          )}
+          ) : null}
         </div>
 
         {/* Image */}
@@ -302,32 +326,40 @@ export default function GuestMinibar() {
         )}
 
         {/* Add/Remove controls */}
-        <div className="flex flex-col items-center justify-center flex-shrink-0 pt-1">
-          {qty === 0 ? (
-            <button
-              onClick={() => addToCart(item)}
-              className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center text-white hover:bg-stone-700 transition-colors shadow-sm"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          ) : (
-            <div className="flex flex-col items-center gap-1">
+        {isAlreadyRecorded ? (
+          <div className="flex items-center justify-center flex-shrink-0 pt-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+              <Check className="h-4 w-4 text-emerald-600" />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center flex-shrink-0 pt-1">
+            {qty === 0 ? (
               <button
                 onClick={() => addToCart(item)}
-                className="w-7 h-7 rounded-full bg-stone-800 flex items-center justify-center text-white hover:bg-stone-700 transition-colors"
+                className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center text-white hover:bg-stone-700 transition-colors shadow-sm"
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Plus className="h-4 w-4" />
               </button>
-              <span className="text-sm font-bold text-stone-800 w-5 text-center">{qty}</span>
-              <button
-                onClick={() => removeFromCart(item.id)}
-                className="w-7 h-7 rounded-full border border-stone-300 flex items-center justify-center text-stone-500 hover:bg-stone-100 transition-colors"
-              >
-                <Minus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="flex flex-col items-center gap-1">
+                <button
+                  onClick={() => addToCart(item)}
+                  className="w-7 h-7 rounded-full bg-stone-800 flex items-center justify-center text-white hover:bg-stone-700 transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+                <span className="text-sm font-bold text-stone-800 w-5 text-center">{qty}</span>
+                <button
+                  onClick={() => removeFromCart(item.id)}
+                  className="w-7 h-7 rounded-full border border-stone-300 flex items-center justify-center text-stone-500 hover:bg-stone-100 transition-colors"
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   };
