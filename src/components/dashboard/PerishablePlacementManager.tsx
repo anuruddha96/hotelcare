@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 import { format, differenceInDays, startOfDay, addDays } from 'date-fns';
-import { AlertTriangle, CheckCircle2, Clock, Plus, Package } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square } from 'lucide-react';
 
 interface PerishableItem {
   id: string;
@@ -44,6 +44,13 @@ interface PerishablePlacementManagerProps {
   organizationSlug: string;
 }
 
+const numericSort = (a: string, b: string) => {
+  const na = parseInt(a, 10);
+  const nb = parseInt(b, 10);
+  if (!isNaN(na) && !isNaN(nb)) return na - nb;
+  return a.localeCompare(b);
+};
+
 export function PerishablePlacementManager({ hotel, organizationSlug }: PerishablePlacementManagerProps) {
   const { profile } = useAuth();
   const [placements, setPlacements] = useState<Placement[]>([]);
@@ -54,12 +61,40 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   const [selectedItemId, setSelectedItemId] = useState('');
   const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [resolvedHotelNames, setResolvedHotelNames] = useState<string[]>([]);
+
+  // Resolve hotel prop to all possible hotel name variants
+  useEffect(() => {
+    if (!hotel) return;
+    const resolve = async () => {
+      const { data } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name')
+        .or(`hotel_id.eq.${hotel},hotel_name.eq.${hotel}`);
+
+      const names = new Set<string>();
+      names.add(hotel);
+      (data || []).forEach(h => {
+        names.add(h.hotel_id);
+        names.add(h.hotel_name);
+      });
+      setResolvedHotelNames(Array.from(names));
+    };
+    resolve();
+  }, [hotel]);
 
   useEffect(() => {
+    if (resolvedHotelNames.length === 0) return;
     fetchPlacements();
-    fetchPerishableItems();
     fetchRooms();
-  }, [hotel]);
+  }, [resolvedHotelNames]);
+
+  useEffect(() => {
+    fetchPerishableItems();
+  }, []);
+
+  const buildHotelFilter = () =>
+    resolvedHotelNames.map(n => `hotel.eq.${n}`).join(',');
 
   const fetchPerishableItems = async () => {
     const { data, error } = await supabase
@@ -73,51 +108,57 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       return;
     }
 
-    setPerishableItems((data || []).filter((i) => (i.expiry_days ?? 0) > 0).map((i) => ({
-      id: i.id,
-      name: i.name,
-      expiry_days: i.expiry_days!,
-      category: i.category || '',
-    })));
+    setPerishableItems(
+      (data || [])
+        .filter(i => (i.expiry_days ?? 0) > 0)
+        .map(i => ({ id: i.id, name: i.name, expiry_days: i.expiry_days!, category: i.category || '' }))
+    );
   };
 
   const fetchRooms = async () => {
-    if (!hotel) return;
+    const filter = buildHotelFilter();
+    if (!filter) return;
+
     const { data } = await supabase
       .from('rooms')
       .select('id, room_number, hotel')
-      .or(`hotel.eq.${hotel}`)
+      .or(filter)
       .order('room_number', { ascending: true });
-    setRooms(data || []);
+
+    const sorted = (data || []).sort((a, b) => numericSort(a.room_number, b.room_number));
+    setRooms(sorted);
   };
 
   const fetchPlacements = async () => {
-    if (!hotel) return;
+    const filter = buildHotelFilter();
+    if (!filter) return;
     setLoading(true);
     try {
       const { data, error } = await (supabase
         .from('minibar_placements' as any)
         .select('*, rooms:room_id(room_number, hotel), minibar_items:minibar_item_id(name)')
-        .or(`hotel.eq.${hotel}`)
+        .or(filter)
         .eq('status', 'active')
         .order('expires_at', { ascending: true }) as any);
 
       if (error) throw error;
 
-      setPlacements(((data as any[]) || []).map((p: any) => ({
-        id: p.id,
-        room_id: p.room_id,
-        minibar_item_id: p.minibar_item_id,
-        placed_at: p.placed_at,
-        expires_at: p.expires_at,
-        quantity: p.quantity,
-        status: p.status,
-        collected_by: p.collected_by,
-        collected_at: p.collected_at,
-        hotel: p.hotel,
-        room_number: p.rooms?.room_number || 'N/A',
-        item_name: p.minibar_items?.name || 'Unknown',
-      })));
+      setPlacements(
+        ((data as any[]) || []).map((p: any) => ({
+          id: p.id,
+          room_id: p.room_id,
+          minibar_item_id: p.minibar_item_id,
+          placed_at: p.placed_at,
+          expires_at: p.expires_at,
+          quantity: p.quantity,
+          status: p.status,
+          collected_by: p.collected_by,
+          collected_at: p.collected_at,
+          hotel: p.hotel,
+          room_number: p.rooms?.room_number || 'N/A',
+          item_name: p.minibar_items?.name || 'Unknown',
+        }))
+      );
     } catch (error) {
       console.error('Error fetching placements:', error);
     } finally {
@@ -152,6 +193,10 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       const item = perishableItems.find(i => i.id === selectedItemId);
       if (!item) return;
 
+      // Use the hotel value from the first room to stay consistent with rooms table
+      const sampleRoom = rooms.find(r => selectedRoomIds.has(r.id));
+      const hotelValue = sampleRoom?.hotel || hotel;
+
       const now = new Date();
       const expiresAt = addDays(startOfDay(now), item.expiry_days);
 
@@ -163,7 +208,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
         expires_at: expiresAt.toISOString(),
         quantity: 1,
         status: 'active',
-        hotel: hotel,
+        hotel: hotelValue,
         organization_slug: organizationSlug,
       }));
 
@@ -191,20 +236,9 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
   const today = startOfDay(new Date());
 
-  const overduePlacements = placements.filter(p => {
-    const expires = startOfDay(new Date(p.expires_at));
-    return differenceInDays(expires, today) < 0;
-  });
-
-  const collectTodayPlacements = placements.filter(p => {
-    const expires = startOfDay(new Date(p.expires_at));
-    return differenceInDays(expires, today) === 0;
-  });
-
-  const upcomingPlacements = placements.filter(p => {
-    const expires = startOfDay(new Date(p.expires_at));
-    return differenceInDays(expires, today) > 0;
-  });
+  const overduePlacements = placements.filter(p => differenceInDays(startOfDay(new Date(p.expires_at)), today) < 0);
+  const collectTodayPlacements = placements.filter(p => differenceInDays(startOfDay(new Date(p.expires_at)), today) === 0);
+  const upcomingPlacements = placements.filter(p => differenceInDays(startOfDay(new Date(p.expires_at)), today) > 0);
 
   const hasAlerts = overduePlacements.length > 0 || collectTodayPlacements.length > 0;
 
@@ -217,11 +251,13 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     });
   };
 
+  const selectAllRooms = () => setSelectedRoomIds(new Set(rooms.map(r => r.id)));
+  const deselectAllRooms = () => setSelectedRoomIds(new Set());
+
   const canPlace = ['admin', 'manager', 'housekeeping_manager', 'reception'].includes(profile?.role || '');
 
   return (
     <>
-      {/* Perishable Alerts Section */}
       {(hasAlerts || upcomingPlacements.length > 0 || (canPlace && perishableItems.length > 0)) && (
         <Card className={hasAlerts ? 'border-amber-300 bg-amber-50/50' : ''}>
           <CardHeader className="pb-3">
@@ -287,7 +323,6 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
         </Card>
       )}
 
-      {/* Bulk Placement Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
@@ -315,7 +350,22 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-medium">Select Rooms</label>
-                  <span className="text-xs text-muted-foreground">{selectedRoomIds.size} selected</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{selectedRoomIds.size}/{rooms.length}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs gap-1"
+                      onClick={selectedRoomIds.size === rooms.length ? deselectAllRooms : selectAllRooms}
+                    >
+                      {selectedRoomIds.size === rooms.length ? (
+                        <><Square className="h-3 w-3" /> Deselect All</>
+                      ) : (
+                        <><CheckSquare className="h-3 w-3" /> Select All</>
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 max-h-[40vh] overflow-y-auto border rounded-lg p-3">
                   {rooms.map(room => (
