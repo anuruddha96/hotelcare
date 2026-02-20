@@ -75,7 +75,7 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
       // Check for duplicates
       const { data: existing } = await supabase
         .from('room_minibar_usage')
-        .select('id, source')
+        .select('id, source, quantity_used')
         .eq('room_id', selectedRoom.id)
         .eq('minibar_item_id', selectedItem)
         .eq('is_cleared', false)
@@ -84,10 +84,26 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
         .limit(1);
 
       if (existing && existing.length > 0) {
-        const existingSource = (existing[0] as any).source || 'staff';
+        const existingRecord = existing[0] as any;
+        if (existingRecord.source === 'guest') {
+          // Staff overrides guest record — update it
+          await supabase
+            .from('room_minibar_usage')
+            .update({ quantity_used: quantity, recorded_by: profile?.id || null, source })
+            .eq('id', existingRecord.id);
+          toast({
+            title: 'Updated',
+            description: `Guest record for Room ${selectedRoom.room_number} confirmed & updated by staff.`,
+          });
+          onRecorded();
+          onOpenChange(false);
+          setSubmitting(false);
+          return;
+        }
+        // Already recorded by staff/reception — block
         toast({
           title: 'Already Recorded',
-          description: `This item was already recorded for Room ${selectedRoom.room_number} today (by ${existingSource}).`,
+          description: `This item was already recorded for Room ${selectedRoom.room_number} today (by ${existingRecord.source || 'staff'}).`,
         });
         setSubmitting(false);
         return;
