@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
       // Check for duplicates (same room, same item, same day)
       const { data: existing } = await supabase
         .from("room_minibar_usage")
-        .select("id, source")
+        .select("id, source, quantity_used")
         .eq("room_id", room.id)
         .eq("minibar_item_id", item.minibar_item_id)
         .eq("is_cleared", false)
@@ -70,7 +70,17 @@ Deno.serve(async (req) => {
         .limit(1);
 
       if (existing && existing.length > 0) {
-        // Already recorded by staff — skip
+        const existingRecord = existing[0];
+        // If staff already recorded, update to the higher quantity
+        if (existingRecord.source === 'staff' || existingRecord.source === 'reception') {
+          if (item.quantity > existingRecord.quantity_used) {
+            await supabase
+              .from("room_minibar_usage")
+              .update({ quantity_used: item.quantity })
+              .eq("id", existingRecord.id);
+          }
+        }
+        // Either way, skip inserting a duplicate
         skipped.push(item.minibar_item_id);
         continue;
       }

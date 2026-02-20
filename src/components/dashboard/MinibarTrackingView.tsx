@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search, Upload, Image } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search, Upload, Image, User, Monitor, ScanLine, Receipt } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -23,14 +23,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 
 interface MinibarUsageRecord {
@@ -46,10 +38,155 @@ interface MinibarUsageRecord {
   source: string;
 }
 
+interface RoomGroup {
+  room_number: string;
+  hotel: string;
+  items: MinibarUsageRecord[];
+  totalPrice: number;
+  totalItems: number;
+}
+
 interface MinibarSummary {
   totalRevenue: number;
   totalItems: number;
   roomsWithUsage: number;
+  avgPerRoom: number;
+}
+function SourceBadge({ source }: { source: string }) {
+  if (source === 'guest') {
+    return (
+      <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 text-xs gap-1">
+        <ScanLine className="h-3 w-3" /> Guest
+      </Badge>
+    );
+  }
+  if (source === 'reception') {
+    return (
+      <Badge variant="outline" className="text-xs gap-1">
+        <Monitor className="h-3 w-3" /> Reception
+      </Badge>
+    );
+  }
+  return (
+    <Badge className="bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100 text-xs gap-1">
+      <User className="h-3 w-3" /> Staff
+    </Badge>
+  );
+}
+
+function RoomGroupedView({
+  records,
+  searchTerm,
+  loading,
+  canDelete,
+  onDeleteRecord,
+  t,
+}: {
+  records: MinibarUsageRecord[];
+  searchTerm: string;
+  loading: boolean;
+  canDelete: boolean;
+  onDeleteRecord: (id: string) => void;
+  t: (key: string) => string;
+}) {
+  const roomGroups = useMemo(() => {
+    const filtered = records.filter(r => {
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      return r.room_number.toLowerCase().includes(term) || r.item_name.toLowerCase().includes(term);
+    });
+
+    const groups = new Map<string, RoomGroup>();
+    for (const record of filtered) {
+      const key = `${record.room_number}-${record.hotel}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          room_number: record.room_number,
+          hotel: record.hotel,
+          items: [],
+          totalPrice: 0,
+          totalItems: 0,
+        });
+      }
+      const group = groups.get(key)!;
+      group.items.push(record);
+      group.totalPrice += record.total_price;
+      group.totalItems += record.quantity_used;
+    }
+
+    return Array.from(groups.values()).sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true }));
+  }, [records, searchTerm]);
+
+  if (loading) {
+    return <div className="text-center py-8 text-muted-foreground">{t('common.loading')}</div>;
+  }
+
+  if (roomGroups.length === 0) {
+    return (
+      <div className="text-center py-12 text-muted-foreground">
+        {searchTerm ? 'No records found matching your search' : t('minibar.noData')}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {roomGroups.map((group) => (
+        <Card key={`${group.room_number}-${group.hotel}`} className="overflow-hidden">
+          <CardHeader className="pb-3 bg-muted/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg">Room {group.room_number}</CardTitle>
+                <p className="text-xs text-muted-foreground">{group.hotel}</p>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold text-primary">€{group.totalPrice.toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground">{group.totalItems} item{group.totalItems !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {group.items.map((record) => (
+                <div key={record.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{record.item_name}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <SourceBadge source={record.source} />
+                      <span className="text-xs text-muted-foreground">
+                        {format(new Date(record.usage_date), 'HH:mm')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 ml-3">
+                    <div className="text-right">
+                      <div className="font-medium">€{record.total_price.toFixed(2)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {record.quantity_used} × €{record.item_price.toFixed(2)}
+                      </div>
+                    </div>
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => onDeleteRecord(record.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-4 py-2 bg-muted/20 border-t">
+              <p className="text-xs text-muted-foreground italic">💡 Add to guest bill at checkout</p>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
 }
 
 export function MinibarTrackingView() {
@@ -61,6 +198,7 @@ export function MinibarTrackingView() {
     totalRevenue: 0,
     totalItems: 0,
     roomsWithUsage: 0,
+    avgPerRoom: 0,
   });
   const [loading, setLoading] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
@@ -237,6 +375,7 @@ export function MinibarTrackingView() {
           room_id,
           recorded_by,
           minibar_item_id,
+          source,
           rooms (
             room_number,
             hotel
@@ -298,6 +437,7 @@ export function MinibarTrackingView() {
         totalRevenue,
         totalItems,
         roomsWithUsage: uniqueRooms,
+        avgPerRoom: uniqueRooms > 0 ? totalRevenue / uniqueRooms : 0,
       });
     } catch (error) {
       console.error('Error fetching minibar data:', error);
@@ -318,10 +458,10 @@ export function MinibarTrackingView() {
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search room..."
+              placeholder="Search room or item..."
               value={searchRoom}
               onChange={(e) => setSearchRoom(e.target.value)}
-              className="pl-8 w-[160px]"
+              className="pl-8 w-[200px]"
             />
           </div>
           {canQuickAdd && (
@@ -372,7 +512,7 @@ export function MinibarTrackingView() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">{t('minibar.totalRevenue')}</CardTitle>
@@ -393,7 +533,7 @@ export function MinibarTrackingView() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.totalItems}</div>
-            <p className="text-xs text-muted-foreground">{t('linen.total')}</p>
+            <p className="text-xs text-muted-foreground">Items consumed</p>
           </CardContent>
         </Card>
 
@@ -404,89 +544,31 @@ export function MinibarTrackingView() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.roomsWithUsage}</div>
-            <p className="text-xs text-muted-foreground">{t('team.rooms')}</p>
+            <p className="text-xs text-muted-foreground">Rooms with charges</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Avg per Room</CardTitle>
+            <Receipt className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">€{summary.avgPerRoom.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">Average spend</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Detailed Records Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('minibar.summary')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-center py-8">{t('common.loading')}</div>
-          ) : (() => {
-            const filteredRecords = usageRecords.filter(record =>
-              !searchRoom || record.room_number.toLowerCase().includes(searchRoom.toLowerCase())
-            );
-            return filteredRecords.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              {searchRoom ? 'No records found for this room' : t('minibar.noData')}
-            </div>
-          ) : (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('common.room')}</TableHead>
-                    <TableHead>{t('common.hotel')}</TableHead>
-                    <TableHead>{t('minibar.items')}</TableHead>
-                    <TableHead className="text-right">{t('linen.count')}</TableHead>
-                    <TableHead className="text-right">{t('pms.processedRooms')}</TableHead>
-                    <TableHead className="text-right">{t('linen.total')}</TableHead>
-                    <TableHead>Recorded By</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Time</TableHead>
-                    {canDelete && <TableHead className="text-right">Actions</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredRecords.map((record) => (
-                    <TableRow key={record.id}>
-                      <TableCell className="font-medium">{record.room_number}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{record.hotel}</Badge>
-                      </TableCell>
-                      <TableCell>{record.item_name}</TableCell>
-                      <TableCell className="text-right">{record.quantity_used}</TableCell>
-                      <TableCell className="text-right">€{record.item_price.toFixed(2)}</TableCell>
-                      <TableCell className="text-right font-semibold">
-                        €{record.total_price.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {record.recorded_by_name}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={record.source === 'guest' ? 'secondary' : record.source === 'reception' ? 'outline' : 'default'} className="text-xs capitalize">
-                          {record.source || 'staff'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {format(new Date(record.usage_date), 'HH:mm')}
-                      </TableCell>
-                      {canDelete && (
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteRecord(record.id)}
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          );
-          })()}
-        </CardContent>
-      </Card>
+      {/* Room-Grouped Cards */}
+      <RoomGroupedView
+        records={usageRecords}
+        searchTerm={searchRoom}
+        loading={loading}
+        canDelete={canDelete}
+        onDeleteRecord={handleDeleteRecord}
+        t={t}
+      />
 
       {/* Minibar Branding Section */}
       {userRole === 'admin' && (
