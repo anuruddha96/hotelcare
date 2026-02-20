@@ -489,7 +489,7 @@ export function MinibarTrackingView() {
       </Card>
 
       {/* Minibar Branding Section */}
-      {canManageItems && (
+      {userRole === 'admin' && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
