@@ -12,6 +12,7 @@ import { FileSpreadsheet, AlertTriangle, CheckCircle, ChevronDown, ChevronUp } f
 interface PMSUploadHistoryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  hotelFilter?: string;
 }
 
 interface UploadSummary {
@@ -29,7 +30,7 @@ interface UploadSummary {
   };
 }
 
-export function PMSUploadHistoryDialog({ open, onOpenChange }: PMSUploadHistoryDialogProps) {
+export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSUploadHistoryDialogProps) {
   const { t } = useTranslation();
   const [summaries, setSummaries] = useState<UploadSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,14 +45,20 @@ export function PMSUploadHistoryDialog({ open, onOpenChange }: PMSUploadHistoryD
   const fetchUploadHistory = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('pms_upload_summary')
         .select(`
           *,
           profiles!uploaded_by (
             full_name
           )
-        `)
+        `);
+      
+      if (hotelFilter) {
+        query = query.eq('hotel_filter', hotelFilter);
+      }
+      
+      const { data, error } = await query
         .order('upload_date', { ascending: false })
         .limit(20);
 

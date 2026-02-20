@@ -159,6 +159,21 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isSyncingPrevio, setIsSyncingPrevio] = useState(false);
   const [previoSyncEnabled, setPrevioSyncEnabled] = useState(false);
+  const [resolvedHotelName, setResolvedHotelName] = useState<string | undefined>(undefined);
+
+  // Resolve hotel slug to full hotel name for filtering
+  useEffect(() => {
+    if (!selectedHotel) return;
+    const resolve = async () => {
+      const { data: hotelConfig } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', selectedHotel)
+        .maybeSingle();
+      setResolvedHotelName(hotelConfig?.hotel_name || selectedHotel);
+    };
+    resolve();
+  }, [selectedHotel]);
 
   // Handle background processing notifications
   useEffect(() => {
@@ -1284,6 +1299,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         <PMSUploadHistoryDialog
           open={historyDialogOpen}
           onOpenChange={setHistoryDialogOpen}
+          hotelFilter={resolvedHotelName || selectedHotel || undefined}
         />
         
         <PMSSyncHistoryDialog
