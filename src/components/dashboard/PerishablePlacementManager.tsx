@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 import { format, differenceInDays, startOfDay, addDays } from 'date-fns';
-import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square, RefreshCw, Package, Trash2 } from 'lucide-react';
 
 interface PerishableItem {
   id: string;
@@ -51,6 +51,8 @@ const numericSort = (a: string, b: string) => {
   return a.localeCompare(b);
 };
 
+type RoomStatus = 'active' | 'expiring_today' | 'overdue' | 'none';
+
 export function PerishablePlacementManager({ hotel, organizationSlug }: PerishablePlacementManagerProps) {
   const { profile } = useAuth();
   const [placements, setPlacements] = useState<Placement[]>([]);
@@ -63,7 +65,14 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   const [submitting, setSubmitting] = useState(false);
   const [resolvedHotelNames, setResolvedHotelNames] = useState<string[]>([]);
 
-  // Resolve hotel prop to all possible hotel name variants
+  // Room action dialog state
+  const [actionDialogOpen, setActionDialogOpen] = useState(false);
+  const [actionRoom, setActionRoom] = useState<RoomOption | null>(null);
+  const [actionPlacements, setActionPlacements] = useState<Placement[]>([]);
+
+  // Selected perishable item for the room grid view
+  const [selectedViewItem, setSelectedViewItem] = useState<string>('');
+
   useEffect(() => {
     if (!hotel) return;
     const resolve = async () => {
@@ -92,6 +101,13 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   useEffect(() => {
     fetchPerishableItems();
   }, []);
+
+  // Auto-select first perishable item for view
+  useEffect(() => {
+    if (!selectedViewItem && perishableItems.length > 0) {
+      setSelectedViewItem(perishableItems[0].id);
+    }
+  }, [perishableItems, selectedViewItem]);
 
   const buildHotelFilter = () =>
     resolvedHotelNames.map(n => `hotel.eq.${n}`).join(',');
@@ -166,6 +182,46 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     }
   };
 
+  const today = startOfDay(new Date());
+
+  // Build a map: roomId -> placement status for the selected item
+  const roomStatusMap = useMemo(() => {
+    const map = new Map<string, { status: RoomStatus; placements: Placement[] }>();
+    const itemPlacements = selectedViewItem
+      ? placements.filter(p => p.minibar_item_id === selectedViewItem)
+      : placements;
+
+    itemPlacements.forEach(p => {
+      const daysUntilExpiry = differenceInDays(startOfDay(new Date(p.expires_at)), today);
+      let status: RoomStatus = 'active';
+      if (daysUntilExpiry < 0) status = 'overdue';
+      else if (daysUntilExpiry === 0) status = 'expiring_today';
+
+      const existing = map.get(p.room_id);
+      if (existing) {
+        // Use worst status
+        const priority: Record<RoomStatus, number> = { overdue: 3, expiring_today: 2, active: 1, none: 0 };
+        if (priority[status] > priority[existing.status]) existing.status = status;
+        existing.placements.push(p);
+      } else {
+        map.set(p.room_id, { status, placements: [p] });
+      }
+    });
+    return map;
+  }, [placements, selectedViewItem, today]);
+
+  // Stats
+  const totalActive = placements.filter(p => selectedViewItem ? p.minibar_item_id === selectedViewItem : true).length;
+  const overdueCount = Array.from(roomStatusMap.values()).filter(v => v.status === 'overdue').length;
+  const expiringTodayCount = Array.from(roomStatusMap.values()).filter(v => v.status === 'expiring_today').length;
+
+  const handleRoomChipClick = (room: RoomOption) => {
+    const info = roomStatusMap.get(room.id);
+    setActionRoom(room);
+    setActionPlacements(info?.placements || []);
+    setActionDialogOpen(true);
+  };
+
   const handleMarkCollected = async (placementId: string) => {
     try {
       const { error } = await (supabase
@@ -180,6 +236,45 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       if (error) throw error;
       toast({ title: 'Collected', description: 'Item marked as collected' });
       fetchPlacements();
+      // Update action dialog placements
+      setActionPlacements(prev => prev.filter(p => p.id !== placementId));
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+
+  const handleRefillRoom = async (room: RoomOption) => {
+    if (!selectedViewItem) {
+      toast({ title: 'No item selected', description: 'Please select a perishable item first', variant: 'destructive' });
+      return;
+    }
+    const item = perishableItems.find(i => i.id === selectedViewItem);
+    if (!item) return;
+
+    try {
+      const now = new Date();
+      const expiresAt = addDays(startOfDay(now), item.expiry_days);
+
+      const { error } = await (supabase
+        .from('minibar_placements' as any)
+        .insert({
+          room_id: room.id,
+          minibar_item_id: selectedViewItem,
+          placed_by: profile?.id,
+          placed_at: now.toISOString(),
+          expires_at: expiresAt.toISOString(),
+          quantity: 1,
+          status: 'active',
+          hotel: room.hotel,
+          organization_slug: organizationSlug,
+        } as any) as any);
+
+      if (error) throw error;
+      toast({
+        title: 'Refilled',
+        description: `${item.name} placed in Room ${room.room_number}. Expires ${format(expiresAt, 'MMM d')}`,
+      });
+      fetchPlacements();
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
@@ -193,7 +288,6 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       const item = perishableItems.find(i => i.id === selectedItemId);
       if (!item) return;
 
-      // Use the hotel value from the first room to stay consistent with rooms table
       const sampleRoom = rooms.find(r => selectedRoomIds.has(r.id));
       const hotelValue = sampleRoom?.hotel || hotel;
 
@@ -220,7 +314,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
       toast({
         title: 'Items Placed',
-        description: `${records.length} ${item.name} placed. Expires ${format(expiresAt, 'MMM d')}`,
+        description: `${records.length} × ${item.name} placed. Expires ${format(expiresAt, 'MMM d')}`,
       });
 
       setDialogOpen(false);
@@ -233,14 +327,6 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       setSubmitting(false);
     }
   };
-
-  const today = startOfDay(new Date());
-
-  const overduePlacements = placements.filter(p => differenceInDays(startOfDay(new Date(p.expires_at)), today) < 0);
-  const collectTodayPlacements = placements.filter(p => differenceInDays(startOfDay(new Date(p.expires_at)), today) === 0);
-  const upcomingPlacements = placements.filter(p => differenceInDays(startOfDay(new Date(p.expires_at)), today) > 0);
-
-  const hasAlerts = overduePlacements.length > 0 || collectTodayPlacements.length > 0;
 
   const toggleRoom = (roomId: string) => {
     setSelectedRoomIds(prev => {
@@ -256,77 +342,224 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
   const canPlace = ['admin', 'manager', 'housekeeping_manager', 'reception'].includes(profile?.role || '');
 
+  const getChipClasses = (roomId: string): string => {
+    const info = roomStatusMap.get(roomId);
+    if (!info) return 'bg-muted text-muted-foreground hover:bg-muted/80 border-transparent';
+    switch (info.status) {
+      case 'overdue':
+        return 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700';
+      case 'expiring_today':
+        return 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
+      case 'active':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700';
+      default:
+        return 'bg-muted text-muted-foreground hover:bg-muted/80 border-transparent';
+    }
+  };
+
+  const getStatusDot = (roomId: string) => {
+    const info = roomStatusMap.get(roomId);
+    if (!info) return null;
+    switch (info.status) {
+      case 'overdue':
+        return <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />;
+      case 'expiring_today':
+        return <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />;
+      case 'active':
+        return <span className="w-2 h-2 rounded-full bg-emerald-500" />;
+      default:
+        return null;
+    }
+  };
+
+  const selectedViewItemName = perishableItems.find(i => i.id === selectedViewItem)?.name || 'Perishable Items';
+
+  // Group rooms by floor
+  const roomsByFloor = useMemo(() => {
+    const floors = new Map<string, RoomOption[]>();
+    rooms.forEach(room => {
+      const floor = room.room_number.length >= 2 ? room.room_number.charAt(0) : '0';
+      const floorKey = `Floor ${floor}`;
+      if (!floors.has(floorKey)) floors.set(floorKey, []);
+      floors.get(floorKey)!.push(room);
+    });
+    return floors;
+  }, [rooms]);
+
   return (
     <>
-      {(hasAlerts || upcomingPlacements.length > 0 || (canPlace && perishableItems.length > 0)) && (
-        <Card className={hasAlerts ? 'border-amber-300 bg-amber-50/50' : ''}>
+      {(perishableItems.length > 0 || placements.length > 0) && (
+        <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <AlertTriangle className={`h-4 w-4 ${hasAlerts ? 'text-amber-600' : 'text-muted-foreground'}`} />
-                Perishable Item Alerts
-              </CardTitle>
-              {canPlace && (
-                <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1">
-                  <Plus className="h-3.5 w-3.5" />
-                  Place Items
-                </Button>
-              )}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Package className="h-4 w-4 text-primary" />
+                  Perishable Item Tracker
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Click any room to manage placement · Colored rooms have active items
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {perishableItems.length > 1 && (
+                  <Select value={selectedViewItem} onValueChange={setSelectedViewItem}>
+                    <SelectTrigger className="w-[200px] h-8 text-xs">
+                      <SelectValue placeholder="Select item..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {perishableItems.map(item => (
+                        <SelectItem key={item.id} value={item.id} className="text-xs">
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {canPlace && (
+                  <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 h-8">
+                    <Plus className="h-3.5 w-3.5" />
+                    Bulk Place
+                  </Button>
+                )}
+              </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {overduePlacements.map(p => (
-              <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-200">
-                <div className="flex items-center gap-2">
-                  <Badge className="bg-red-500 text-white hover:bg-red-600 text-xs">OVERDUE</Badge>
-                  <span className="font-medium text-sm">Room {p.room_number}</span>
-                  <span className="text-sm text-muted-foreground">
-                    {p.item_name} (placed {format(new Date(p.placed_at), 'MMM d')}, expired {format(new Date(p.expires_at), 'MMM d')})
-                  </span>
+
+          <CardContent className="space-y-4">
+            {/* Status summary pills */}
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5 bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                {totalActive - overdueCount - expiringTodayCount} Active
+              </Badge>
+              {expiringTodayCount > 0 && (
+                <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5 bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-400">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  {expiringTodayCount} Collect Today
+                </Badge>
+              )}
+              {overdueCount > 0 && (
+                <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5 bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  {overdueCount} Overdue
+                </Badge>
+              )}
+              <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5">
+                <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
+                {rooms.length - roomStatusMap.size} No Items
+              </Badge>
+            </div>
+
+            {/* Room chips grid by floor */}
+            {Array.from(roomsByFloor.entries()).map(([floorName, floorRooms]) => (
+              <div key={floorName}>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">{floorName}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {floorRooms.map(room => {
+                    const info = roomStatusMap.get(room.id);
+                    return (
+                      <button
+                        key={room.id}
+                        onClick={() => handleRoomChipClick(room)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${getChipClasses(room.id)}`}
+                      >
+                        {getStatusDot(room.id)}
+                        {room.room_number}
+                        {info && info.placements.length > 1 && (
+                          <span className="text-[10px] opacity-70">×{info.placements.length}</span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
-                <Button size="sm" variant="outline" onClick={() => handleMarkCollected(p.id)} className="gap-1 text-xs">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Collected
-                </Button>
               </div>
             ))}
 
-            {collectTodayPlacements.map(p => (
-              <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-amber-50 border border-amber-200">
-                <div className="flex items-center gap-2">
-                  <Badge className="bg-amber-500 text-white hover:bg-amber-600 text-xs">COLLECT TODAY</Badge>
-                  <span className="font-medium text-sm">Room {p.room_number}</span>
-                  <span className="text-sm text-muted-foreground">
-                    {p.item_name} (placed {format(new Date(p.placed_at), 'MMM d')})
-                  </span>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => handleMarkCollected(p.id)} className="gap-1 text-xs">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Collected
-                </Button>
-              </div>
-            ))}
-
-            {upcomingPlacements.length > 0 && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
-                <Clock className="h-4 w-4 text-blue-600" />
-                <span className="text-sm text-blue-800">
-                  {upcomingPlacements.length} item{upcomingPlacements.length !== 1 ? 's' : ''} placed, expiring soon
-                </span>
-              </div>
-            )}
-
-            {placements.length === 0 && !loading && (
-              <div className="text-center py-4 text-sm text-muted-foreground">
-                No active perishable placements
+            {rooms.length === 0 && !loading && (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                No rooms found for this hotel
               </div>
             )}
           </CardContent>
         </Card>
       )}
 
+      {/* Room Action Dialog */}
+      <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Room {actionRoom?.room_number}
+              {actionPlacements.length > 0 && (
+                <Badge variant="secondary" className="text-xs">{actionPlacements.length} item{actionPlacements.length !== 1 ? 's' : ''}</Badge>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {actionPlacements.length > 0 ? (
+              actionPlacements.map(p => {
+                const daysLeft = differenceInDays(startOfDay(new Date(p.expires_at)), today);
+                const isOverdue = daysLeft < 0;
+                const isToday = daysLeft === 0;
+
+                return (
+                  <div key={p.id} className={`p-3 rounded-lg border ${isOverdue ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : isToday ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800' : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium">{p.item_name}</span>
+                      {isOverdue && <Badge className="bg-red-500 text-white text-[10px] px-1.5 py-0">OVERDUE</Badge>}
+                      {isToday && <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0">TODAY</Badge>}
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-2">
+                      Placed {format(new Date(p.placed_at), 'MMM d, HH:mm')} · Expires {format(new Date(p.expires_at), 'MMM d')}
+                      {!isOverdue && !isToday && ` (${daysLeft}d left)`}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={isOverdue || isToday ? 'default' : 'outline'}
+                      className="w-full gap-1 h-7 text-xs"
+                      onClick={() => handleMarkCollected(p.id)}
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      Mark Collected
+                    </Button>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-4 text-sm text-muted-foreground">
+                No active perishable items in this room
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-col gap-2">
+            {canPlace && actionRoom && (
+              <Button
+                className="w-full gap-1.5"
+                onClick={() => {
+                  handleRefillRoom(actionRoom);
+                  setActionDialogOpen(false);
+                }}
+                disabled={!selectedViewItem}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refill {selectedViewItemName.length > 30 ? selectedViewItemName.substring(0, 28) + '...' : selectedViewItemName}
+              </Button>
+            )}
+            <Button variant="outline" className="w-full" onClick={() => setActionDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Place Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>Place Perishable Items</DialogTitle>
+            <DialogTitle>Bulk Place Perishable Items</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 flex-1 overflow-y-auto">
