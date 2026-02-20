@@ -3,7 +3,7 @@
 // Time constants (in minutes)
 export const CHECKOUT_MINUTES = 45;
 export const DAILY_MINUTES = 15;
-export const TOWEL_CHANGE_MINUTES = 5;
+export const TOWEL_CHANGE_MINUTES = 10;
 export const LINEN_CHANGE_MINUTES = 10;
 export const BREAK_TIME_MINUTES = 30;
 export const STANDARD_SHIFT_MINUTES = 480; // 8 hours
@@ -46,19 +46,31 @@ export interface AssignmentPreview {
 
 // Calculate estimated time for a room in minutes
 export function calculateRoomTime(room: RoomForAssignment): number {
-  // Towel-change-only rooms are much faster (5 min vs 15 min)
+  // Towel-change-only rooms are quick (10 min)
   if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
     return TOWEL_CHANGE_MINUTES;
   }
-  let baseTime = room.is_checkout_room ? CHECKOUT_MINUTES : DAILY_MINUTES;
+
+  const size = room.room_size_sqm || 20;
+
+  let baseTime: number;
+  if (room.is_checkout_room) {
+    // Checkout: 45 min (small/med), 55 min (large), 60 min (XL/XXL)
+    if (size >= 40) baseTime = 60;
+    else if (size >= 28) baseTime = 55;
+    else baseTime = 45;
+  } else {
+    // Daily: 15 min (small/med), 18 min (large), 20 min (XL/XXL)
+    if (size >= 40) baseTime = 20;
+    else if (size >= 28) baseTime = 18;
+    else baseTime = 15;
+  }
+
   // Linen change adds extra time for non-checkout rooms
   if (room.linen_change_required && !room.is_checkout_room) {
     baseTime += LINEN_CHANGE_MINUTES;
   }
-  const size = room.room_size_sqm || 20;
-  if (size >= 40) baseTime += 15;
-  else if (size >= 28) baseTime += 10;
-  else if (size >= 22) baseTime += 5;
+
   return baseTime;
 }
 

@@ -722,6 +722,7 @@ export function AutoRoomAssignment({
                       Select Working Housekeepers ({selectedStaffIds.size} selected)
                     </h3>
 
+                    <div className="max-h-[40vh] overflow-y-auto">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {allStaff.map(staff => {
                         const isCheckedIn = checkedInStaff.has(staff.id);
@@ -751,6 +752,7 @@ export function AutoRoomAssignment({
                           </div>
                         );
                       })}
+                    </div>
                     </div>
                   </>
                 )}
