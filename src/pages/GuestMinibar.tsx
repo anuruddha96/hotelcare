@@ -342,7 +342,7 @@ export default function GuestMinibar() {
       <div className="sticky top-0 z-10 bg-white border-b border-stone-100">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
           {logoUrl && (
-            <img src={logoUrl} alt={branding?.hotel_name} className="h-9 w-auto object-contain" />
+            <img src={logoUrl} alt={branding?.hotel_name} className="h-12 w-auto object-contain" />
           )}
           <div className="flex-1 min-w-0">
             <h1 className="font-semibold text-[15px] text-stone-800 truncate">{branding?.hotel_name}</h1>
@@ -388,9 +388,9 @@ export default function GuestMinibar() {
         </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 py-6 space-y-8 pb-64">
+      <div className={`max-w-lg mx-auto px-4 py-6 space-y-8 ${cart.length > 0 ? 'pb-64' : 'pb-8'}`}>
         {/* Welcome */}
-        <div className="space-y-1.5">
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-5 space-y-1.5">
           <h2 className="text-2xl font-bold text-stone-800 tracking-tight">
             {gt('welcomeTo')} {branding?.hotel_name}
           </h2>
@@ -473,10 +473,10 @@ export default function GuestMinibar() {
                 <div key={place.id} className="flex items-start gap-3 py-3 border-b border-stone-100 last:border-0">
                   <span className="text-2xl mt-0.5">{place.icon}</span>
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-semibold text-sm text-stone-800">{place.name}</h4>
-                    <p className="text-xs text-stone-400 mt-0.5">{place.type}</p>
-                    {place.description && <p className="text-xs text-stone-500 mt-1 leading-relaxed">{place.description}</p>}
-                    {place.specialty && <p className="text-xs font-medium text-amber-700 mt-1">{place.specialty}</p>}
+                    <h4 className="font-semibold text-sm text-stone-800">{(place as any).translations?.[guestLang]?.name || place.name}</h4>
+                    <p className="text-xs text-stone-400 mt-0.5">{(place as any).translations?.[guestLang]?.type || place.type}</p>
+                    {((place as any).translations?.[guestLang]?.description || place.description) && <p className="text-xs text-stone-500 mt-1 leading-relaxed">{(place as any).translations?.[guestLang]?.description || place.description}</p>}
+                    {((place as any).translations?.[guestLang]?.specialty || place.specialty) && <p className="text-xs font-medium text-amber-700 mt-1">{(place as any).translations?.[guestLang]?.specialty || place.specialty}</p>}
                   </div>
                   {place.map_url && (
                     <a
@@ -496,12 +496,12 @@ export default function GuestMinibar() {
         )}
 
         {/* Footer */}
-        <div className="border-t border-stone-100 pt-4 pb-3 mt-6">
-          <div className="flex flex-col items-center gap-1.5 text-center">
+        <div className="border-t border-stone-100 pt-6 pb-4 mt-6">
+          <div className="flex flex-col items-center gap-2 text-center">
             {logoUrl && (
-              <img src={logoUrl} alt={branding?.hotel_name} className="h-12 w-auto object-contain opacity-60" />
+              <img src={logoUrl} alt={branding?.hotel_name} className="h-16 w-auto object-contain" />
             )}
-            <p className="text-xs text-stone-400">{branding?.hotel_name}</p>
+            <p className="text-sm text-stone-500 font-medium">{branding?.hotel_name}</p>
             <p className="text-[10px] text-stone-300">{gt('poweredBy')}</p>
           </div>
         </div>

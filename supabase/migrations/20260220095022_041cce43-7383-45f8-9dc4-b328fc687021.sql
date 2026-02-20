@@ -1,0 +1,1 @@
+ALTER TABLE public.guest_recommendations ADD COLUMN translations jsonb DEFAULT '{}'::jsonb;
