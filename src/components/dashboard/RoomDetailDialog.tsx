@@ -89,6 +89,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
   const [roomCapacity, setRoomCapacity] = useState<string>('');
   const [dndPhotosOpen, setDndPhotosOpen] = useState(false);
   const [guestReportedItems, setGuestReportedItems] = useState<Set<string>>(new Set());
+  const [perishableAlerts, setPerishableAlerts] = useState<any[]>([]);
 
   useEffect(() => {
     if (open && room) {
@@ -99,6 +100,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       fetchMinibarUsage();
       fetchRecentTickets();
       fetchGuestReportedItems();
+      fetchPerishableAlerts();
     }
   }, [open, room]);
 
@@ -119,6 +121,49 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       setGuestReportedItems(new Set((data || []).map(d => d.minibar_item_id)));
     } catch (error) {
       console.error('Error fetching guest reported items:', error);
+    }
+  };
+
+  const fetchPerishableAlerts = async () => {
+    if (!room) return;
+    try {
+      const { data } = await (supabase
+        .from('minibar_placements' as any)
+        .select('*, minibar_items:minibar_item_id(name)')
+        .eq('room_id', room.id)
+        .eq('status', 'active')
+        .order('expires_at', { ascending: true }) as any);
+
+      if (data) {
+        const today = new Date();
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const alerts = (data as any[]).filter(p => {
+          const expires = new Date(p.expires_at);
+          return expires <= new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+        });
+        setPerishableAlerts(alerts);
+      }
+    } catch (error) {
+      console.error('Error fetching perishable alerts:', error);
+    }
+  };
+
+  const handleCollectPerishable = async (placementId: string) => {
+    try {
+      const { error } = await (supabase
+        .from('minibar_placements' as any)
+        .update({
+          status: 'collected',
+          collected_by: profile?.id,
+          collected_at: new Date().toISOString(),
+        } as any)
+        .eq('id', placementId) as any);
+
+      if (error) throw error;
+      toast({ title: 'Collected', description: 'Perishable item marked as collected' });
+      fetchPerishableAlerts();
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
   };
 
@@ -503,6 +548,33 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Perishable Item Alerts */}
+          {perishableAlerts.length > 0 && (
+            <Card className="border-amber-300 bg-amber-50/50">
+              <CardContent className="pt-4 space-y-2">
+                {perishableAlerts.map((alert: any) => {
+                  const isOverdue = new Date(alert.expires_at) < new Date(new Date().toDateString());
+                  return (
+                    <div key={alert.id} className={`flex items-center justify-between p-3 rounded-lg border ${isOverdue ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${isOverdue ? 'text-red-600' : 'text-amber-600'}`} />
+                        <span className="text-sm font-medium truncate">
+                          Collect {alert.minibar_items?.name || 'item'} from minibar
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          (placed {new Date(alert.placed_at).toLocaleDateString()}{isOverdue ? ', expired' : ', expires today'})
+                        </span>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => handleCollectPerishable(alert.id)} className="gap-1 text-xs flex-shrink-0 ml-2">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Collected
+                      </Button>
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
           )}

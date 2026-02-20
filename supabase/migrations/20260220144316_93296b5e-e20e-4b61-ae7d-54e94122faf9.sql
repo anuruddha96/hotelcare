@@ -1,0 +1,1 @@
+UPDATE public.minibar_items SET expiry_days = 2 WHERE id = '25323eba-2880-4681-b2a5-2bc3cc12046c';

@@ -40,6 +40,7 @@ interface MinibarItem {
   is_promoted: boolean;
   image_url: string | null;
   created_at: string;
+  expiry_days: number | null;
 }
 
 interface MinimBarManagementProps {
@@ -63,6 +64,7 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
     is_active: true,
     is_promoted: false,
     image_url: null as string | null,
+    expiry_days: '' as string,
   });
 
   useEffect(() => {
@@ -209,6 +211,7 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
         is_active: formData.is_active,
         is_promoted: formData.is_promoted,
         image_url: formData.image_url,
+        expiry_days: formData.expiry_days ? parseInt(formData.expiry_days) : null,
       };
 
       if (editingItem) {
@@ -246,6 +249,7 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
       is_active: item.is_active,
       is_promoted: item.is_promoted || false,
       image_url: item.image_url || null,
+      expiry_days: item.expiry_days?.toString() || '',
     });
   };
 
@@ -266,7 +270,7 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
   };
 
   const resetForm = () => {
-    setFormData({ name: '', category: 'beverage', price: '', is_active: true, is_promoted: false, image_url: null });
+    setFormData({ name: '', category: 'beverage', price: '', is_active: true, is_promoted: false, image_url: null, expiry_days: '' });
     setEditingItem(null);
   };
 
@@ -326,6 +330,11 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
                 <div>
                   <Label htmlFor="price">Price (€)</Label>
                   <Input id="price" type="number" step="0.01" min="0" value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} placeholder="0.00" required className="mt-1" />
+                </div>
+                <div>
+                  <Label htmlFor="expiry_days">Expiry Days</Label>
+                  <Input id="expiry_days" type="number" min="1" value={formData.expiry_days} onChange={(e) => setFormData({...formData, expiry_days: e.target.value})} placeholder="e.g., 2" className="mt-1" />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Leave empty for non-perishable</p>
                 </div>
               </div>
 
@@ -393,6 +402,9 @@ export function MinimBarManagement({ open, onOpenChange }: MinimBarManagementPro
                           </div>
                         </div>
                         <Badge variant={item.is_active ? 'default' : 'secondary'}>{item.is_active ? 'Active' : 'Inactive'}</Badge>
+                        {(item as any).expiry_days && (
+                          <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 ml-1">🕐 {(item as any).expiry_days}d</Badge>
+                        )}
                       </div>
                       <div className="flex gap-2">
                         <Button size="sm" variant="outline" onClick={() => handleEdit(item)} className="flex-1"><Edit className="h-3 w-3 mr-1" /> Edit</Button>
