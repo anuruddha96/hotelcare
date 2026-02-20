@@ -62,18 +62,22 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   }, [hotel]);
 
   const fetchPerishableItems = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('minibar_items')
-      .select('id, name, category')
+      .select('id, name, category, expiry_days')
       .eq('is_active', true)
-      .not('expiry_days' as any, 'is', null);
+      .not('expiry_days', 'is', null);
 
-    // Since expiry_days isn't in generated types yet, cast
-    setPerishableItems(((data as any) || []).filter((i: any) => i.expiry_days > 0).map((i: any) => ({
+    if (error) {
+      console.error('Error fetching perishable items:', error);
+      return;
+    }
+
+    setPerishableItems((data || []).filter((i) => (i.expiry_days ?? 0) > 0).map((i) => ({
       id: i.id,
       name: i.name,
-      expiry_days: i.expiry_days,
-      category: i.category,
+      expiry_days: i.expiry_days!,
+      category: i.category || '',
     })));
   };
 
@@ -218,7 +222,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   return (
     <>
       {/* Perishable Alerts Section */}
-      {(hasAlerts || upcomingPlacements.length > 0) && (
+      {(hasAlerts || upcomingPlacements.length > 0 || (canPlace && perishableItems.length > 0)) && (
         <Card className={hasAlerts ? 'border-amber-300 bg-amber-50/50' : ''}>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -281,14 +285,6 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
             )}
           </CardContent>
         </Card>
-      )}
-
-      {/* Place button when no alerts but items exist */}
-      {!hasAlerts && upcomingPlacements.length === 0 && canPlace && perishableItems.length > 0 && (
-        <Button variant="outline" onClick={() => setDialogOpen(true)} className="gap-2">
-          <Package className="h-4 w-4" />
-          Place Perishable Items
-        </Button>
       )}
 
       {/* Bulk Placement Dialog */}
