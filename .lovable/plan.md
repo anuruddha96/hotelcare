@@ -1,100 +1,89 @@
 
 
-## Plan: Smarter Auto-Assignment Algorithm, Room Category Labels, and Admin-Only Minibar Logo
+## Plan: Fix Minibar "Unknown" Bug, Deduplication, and Receptionist UI Redesign
 
 ---
 
-### Problem Analysis
-
-From the screenshot, **Otgo** has rooms on **4 different floors** (F0: 044, F1: 130-143, F2: 216, F3: 304). The manager (Eva) prefers housekeepers concentrated on 1-2 floors maximum. The current floor penalty (`newFloorCount * 5`) is too weak -- it gets overridden during the split and rebalance phases (STEP 4 and STEP 5) where floor penalties are not enforced at all.
-
-Also, the room chips in the auto-assignment preview show only room numbers -- the user wants short category names like "Queen", "DB/TW", "Triple", "Quad".
-
-Finally, the Minibar Guest Page Logo upload feature is currently visible to `admin`, `manager`, and `housekeeping_manager` roles but should be restricted to `admin` only.
-
----
-
-### 1. Fix Algorithm: Enforce Floor Concentration
-
-**File: `src/lib/roomAssignmentAlgorithm.ts`**
-
-**Root cause**: The floor spread penalty is only applied in STEP 3 (wing assignment), but STEP 4 (weight rebalancing) and STEP 5 (count rebalancing) freely move rooms across floors without any floor penalty. This is how Otgo ends up with rooms on 4 floors.
-
-**Changes:**
-
-A. **Increase floor penalty strength** in `getFloorSpreadPenalty`:
-   - Change from `newFloorCount * 5` to `newFloorCount * 15` (3x stronger)
-   - This makes it much harder for any housekeeper to get assigned a 3rd or 4th floor
-
-B. **Add floor penalty to STEP 3 split phase** (lines 390-405):
-   - When splitting a wing, include `getFloorSpreadPenalty` in the candidate scoring, not just weight + affinity + sequence
-   - This prevents the split from scattering rooms across floors
-
-C. **Add floor guard to STEP 4 rebalancing** (lines 435-457):
-   - Before moving a room, check if it would add a NEW floor to the target housekeeper
-   - If moving to a new floor (3rd+ floor for that housekeeper), apply a very high penalty (50+) to strongly discourage it
-   - Only allow cross-floor moves if the balance improvement is dramatic
-
-D. **Add floor guard to STEP 5 count rebalancing** (lines 486-498):
-   - Add floor penalty to the sorting score when picking which room to move
-   - Skip rooms that would give the target a 3rd+ floor unless absolutely necessary
-
-E. **Increase affinity weight** in split and rebalance phases:
-   - Multiply affinity bonuses by 5x (from `* 2` to `* 10`) so historical manager patterns have stronger influence
-   - This makes the algorithm respect Eva's corrections more aggressively
-
----
-
-### 2. Show Room Category Short Names in Auto-Assignment Preview
-
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`**
-
-Add a helper function to convert full room category names to short labels:
-
-```text
-Category mapping:
-  "Economy Double Room"        -> "Eco"
-  "Deluxe Double or Twin Room" -> "DB/TW"  
-  "Deluxe Queen Room"          -> "Queen"
-  "Deluxe Triple Room"         -> "Triple"
-  "Deluxe Quadruple Room"      -> "Quad"
-  "Comfort Quadruple Room"     -> "Quad"
-  "Comfort Double Room..."     -> "Comfort"
-  "Deluxe Single Room"         -> "Single"
-  "...Synagogue View"          -> "SV" (suffix)
-```
-
-In `renderRoomChip` (line 559), add the short category label after the room number:
-```
-130 DB/TW    instead of just    130
-```
-
-Display it as a smaller, muted text next to the room number.
-
----
-
-### 3. Restrict Minibar Logo Upload to Admin Only
+### 1. Fix "Recorded By" Showing "Unknown"
 
 **File: `src/components/dashboard/MinibarTrackingView.tsx`**
 
-Change the guard on line 492 from:
-```typescript
-{canManageItems && (    // canManageItems = admin, manager, housekeeping_manager
+**Root cause**: The SQL select query (line 233) fetches `id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id` but does NOT include `source`. When the code later checks `(record as any).source === 'guest'` (line 286), it's always `undefined`, so the fallback is always "Unknown" for guest records (which have `recorded_by: null`).
+
+**Fix**: Add `source` to the select query string:
 ```
-To a new admin-only check:
-```typescript
-{userRole === 'admin' && (
+select(`
+  id,
+  quantity_used,
+  usage_date,
+  room_id,
+  recorded_by,
+  minibar_item_id,
+  source,          <-- ADD THIS
+  rooms ( ... ),
+  ...
+`)
 ```
 
-This ensures only admins can see and use the "Minibar Guest Page Logo" upload section. The `canManageItems` permission (which includes managers) remains for other minibar management features.
+Then the existing logic `record.source === 'guest' ? 'Guest (QR Scan)' : 'Unknown'` will work correctly.
 
 ---
 
-### 4. Show Room Category in Hotel Room Overview Tooltip
+### 2. Prevent Duplicate Usage Records
 
-**File: `src/components/dashboard/HotelRoomOverview.tsx`**
+**Current state**: Both the guest edge function and staff QuickAdd check for duplicates independently, but there's a gap:
+- If a guest scans and records "Water Bottle x1" for Room 102, then a housekeeper also records "Water Bottle x1" for Room 102, the staff QuickAdd will block it (good).
+- If staff records first, then guest scans, the edge function blocks it (good).
+- BUT: If quantities differ (guest says 2, staff says 1), the second entry is simply skipped with no way to reconcile.
 
-The tooltip already shows `room.room_category` (line 389). No changes needed here -- the category is already visible in the expanded tooltip.
+**Fix in `supabase/functions/guest-minibar-submit/index.ts`**:
+- When a duplicate is found and the existing record was from staff, update the quantity to the HIGHER value (staff may have undercounted), rather than silently skipping.
+- When a duplicate is found and it was from another guest scan, skip it (already handled).
+
+**Fix in `src/components/dashboard/MinibarQuickAdd.tsx`**:
+- When a duplicate is found and the existing record was from "guest", update it to the staff's quantity and change source to "staff" (staff confirmation overrides guest self-report), rather than blocking the submission entirely.
+- Show a toast indicating the guest record was updated/confirmed by staff.
+
+---
+
+### 3. Redesign Minibar Tracking UI for Receptionists
+
+**File: `src/components/dashboard/MinibarTrackingView.tsx`**
+
+The current flat table with confusing column headers ("Processed Rooms" for price, "Count" for quantity) needs a complete redesign.
+
+**Changes:**
+
+A. **Group records by room** -- Instead of a flat table, show a card per room with all items listed inside. This lets receptionists quickly see "Room 102 owes EUR 10.00 for 2 items" at a glance.
+
+B. **Fix column headers** -- Replace confusing labels:
+   - "Processed Rooms" becomes "Unit Price"
+   - "Count" becomes "Qty"
+   - "Recorded By" stays
+   - "Source" stays but with clearer badges (Guest Scan with a QR icon, Staff with a user icon, Reception with a desk icon)
+
+C. **Room-grouped card layout**:
+```
++--------------------------------------------+
+| Room 102                      Total: EUR10 |
+| Hotel Ottofiori               2 items      |
++--------------------------------------------+
+| Item          Qty  Price  Source  Time      |
+| Water Bottle   1   EUR5   Guest  09:40     |
+| Coca Cola      1   EUR5   Guest  09:40     |
++--------------------------------------------+
+```
+
+D. **Better summary cards** -- Add a 4th summary card: "Average per Room" showing average spend.
+
+E. **Enhanced search** -- Search also filters by item name, not just room number.
+
+F. **Source badges with icons** -- Use distinct colors and small icons:
+   - Guest (QR): amber/yellow badge with QR icon
+   - Staff: blue badge
+   - Reception: slate/gray badge
+
+G. **Receptionist action hint** -- For rooms with usage, show a subtle "Add to guest bill" reminder text.
 
 ---
 
@@ -102,7 +91,7 @@ The tooltip already shows `room.room_category` (line 389). No changes needed her
 
 | File | Changes |
 |------|---------|
-| `src/lib/roomAssignmentAlgorithm.ts` | Increase floor penalty 3x. Add floor guards to STEP 3 split, STEP 4, and STEP 5. Increase affinity weights 5x. |
-| `src/components/dashboard/AutoRoomAssignment.tsx` | Add `getCategoryShortName()` helper. Show short category labels in room chips. |
-| `src/components/dashboard/MinibarTrackingView.tsx` | Change Minibar Logo section guard from `canManageItems` to `userRole === 'admin'`. |
+| `src/components/dashboard/MinibarTrackingView.tsx` | Add `source` to select query. Redesign table to room-grouped cards. Fix column headers. Add item search. Better source badges. |
+| `src/components/dashboard/MinibarQuickAdd.tsx` | When duplicate found from guest source, update existing record instead of blocking. |
+| `supabase/functions/guest-minibar-submit/index.ts` | When duplicate found from staff, update quantity to max(existing, new) instead of skipping. |
 
