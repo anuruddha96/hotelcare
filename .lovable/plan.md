@@ -1,102 +1,65 @@
 
 
-## Plan: PMS Hotel Filter, Auto-Assignment Staff UI Fix, and Room-Size Cleaning Times
+## Plan: Minibar Tracking Visibility, Guest Item Blocking, Supervisor Refill Flow, and Multi-Day Stay Aggregation
+
+This plan addresses 4 interconnected issues with the minibar system.
 
 ---
 
-### 1. PMS Upload History: Filter by Logged-in Hotel
+### Problem 1: Minibar Usage Not Appearing in Tracking View
 
-**File: `src/components/dashboard/PMSUploadHistoryDialog.tsx`**
+**Root cause**: The `MinibarTrackingView` query filters by the selected date using `startOfDay(selectedDate)` to `endOfDay(selectedDate)`. However, the housekeeper records minibar usage via `RoomDetailDialog`, which sets `usage_date: new Date().toISOString()` -- this uses the current timestamp. If the manager views a different date, or if the `is_cleared` flag was set prematurely (e.g., during PMS upload the previous night), records won't appear.
 
-**Problem**: The query on line 47 fetches ALL `pms_upload_summary` records without filtering by hotel. A manager logged into Hotel Ottofiori sees Memories Budapest uploads (71 rooms) instead of only their own hotel's data.
+Additionally, the `RoomDetailDialog` inserts records WITHOUT a `source` field, so they default to `'staff'` in the database. This is correct behavior, but the insert also doesn't set `organization_slug`, which could cause filtering issues.
 
-**Fix**: Pass the user's `assigned_hotel` to the component and filter by it. The `pms_upload_summary` table has a `hotel_filter` column that stores the hotel name.
+**Fix in `src/components/dashboard/RoomDetailDialog.tsx`**:
+- Add `source: 'staff'` and `organization_slug` to the minibar usage insert call (line 237-245)
+- This ensures records are properly attributed and visible
 
-**Changes:**
-- Add `hotelFilter` prop to the component interface
-- Add `.eq('hotel_filter', hotelFilter)` to the query (line 47-56) when `hotelFilter` is provided
-- Also need to pass this prop from the parent component (`PMSUpload.tsx` or wherever it's opened)
-
-**File: `src/components/dashboard/PMSUpload.tsx`** (or parent)
-- Pass `hotelFilter={profile?.assigned_hotel}` to `PMSUploadHistoryDialog`
-- Resolve `assigned_hotel` to hotel name using `hotel_configurations` (same pattern used elsewhere)
+**Fix in `src/components/dashboard/MinibarTrackingView.tsx`**:
+- The hotel filtering logic (lines 398-410) does a secondary query to resolve hotel name. This async resolution might fail silently. Simplify it to filter directly using `rooms.hotel` from the joined data, which is already fetched.
 
 ---
 
-### 2. Auto Room Assignment: Staff Section Scrolling Fix
+### Problem 2: Guest Item Blocking (QR Scanned Items Should Be Locked for Housekeepers)
 
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`**
+**Current state**: When a guest scans the QR and submits usage, the housekeeper still sees all items as addable in `RoomDetailDialog`. There's no indication that a guest already reported an item.
 
-**Problem**: The staff selection grid (lines 725-754) displays housekeepers in a 2-column grid that scrolls the entire dialog. With 8-10 housekeepers, the "Generate Preview" button gets pushed off-screen.
+**Changes in `src/components/dashboard/RoomDetailDialog.tsx`**:
+- When displaying minibar items, check if each item already has a usage record with `source: 'guest'`
+- If yes, show the item as "already reported by guest" with a distinct visual indicator (amber/locked badge) instead of the +/- buttons
+- The housekeeper can see what the guest reported but cannot double-add it
+- Staff can still override guest records (existing dedup logic handles this)
 
-**Fix**: Constrain the staff list to a fixed-height scrollable container so the stats, time info, and action buttons remain visible:
-
-- Wrap the staff grid (line 725) in a container with `max-h-[40vh] overflow-y-auto` 
-- Keep the stats section and time estimation info above it (fixed, no scroll)
-- Keep the footer buttons fixed at the bottom (they already are via `DialogFooter`)
-
-This ensures all housekeepers are accessible via scrolling within the section while the page layout stays stable.
-
----
-
-### 3. Room-Size-Based Cleaning Time Constants
-
-**File: `src/lib/roomAssignmentAlgorithm.ts`**
-
-**Current state**: `calculateRoomTime()` uses flat constants:
-- Checkout: 45 min base + size bonuses (up to +15 min for 40+ sqm)
-- Daily: 15 min base + size bonuses
-
-**User's requirement**: 
-- Small/Medium checkout rooms: 45 min
-- Large/XXL checkout rooms: 60 min
-- Daily cleaning: 15-20 min
-- Towel change: 10 min (currently 5 min)
-
-**Changes to `calculateRoomTime()`:**
-
-```text
-Current logic (lines 48-63):
-  towel-only: 5 min
-  checkout base: 45 min
-  daily base: 15 min
-  size >= 40: +15 min
-  size >= 28: +10 min
-  size >= 22: +5 min
-
-New logic:
-  towel-only: 10 min (was 5)
-  checkout: 
-    small/medium (< 28 sqm): 45 min
-    large (28-39 sqm): 55 min
-    XL/XXL (>= 40 sqm): 60 min
-  daily:
-    small/medium (< 28 sqm): 15 min
-    large (28-39 sqm): 18 min
-    XL/XXL (>= 40 sqm): 20 min
-  linen change: +10 min (unchanged)
-```
-
-Also update `TOWEL_CHANGE_MINUTES` constant from 5 to 10.
-
-This replaces the "base + addon" approach with a cleaner size-bracket system matching the user's specified times.
+**Changes in `src/pages/GuestMinibar.tsx`**:
+- Before rendering items, fetch existing usage for this room today (using the room token lookup)
+- Items already recorded (by guest or staff) should show as "Already recorded" with a checkmark, preventing duplicate submissions
+- This gives guests clear feedback that their previous scan was successful
 
 ---
 
-### 4. Analysis of Eva's Room Assignment Logic (from photo)
+### Problem 3: Supervisor Approval Triggers Minibar Refill (Reset for Daily Rooms)
 
-From the Memories Budapest photo with 5 staff (70 rooms: 35 CO + 35 daily), Eva's pattern:
+**Current state**: When a supervisor approves a completed room, there is no minibar reset logic. For daily rooms (non-checkout), the guest stays another night, and the minibar should be considered "refilled" so the guest can report usage again the next day.
 
-- **Floor concentration**: Each person works on 2 floors max, with most rooms on a primary floor
-- **Sequential grouping**: Adjacent room numbers are always kept together (e.g., 103-106, 132-145)
-- **Balanced counts**: Everyone gets 14 rooms (7co + 7d), with tasks (T/L) distributed evenly
-- **Wing logic**: Rooms in the same range (e.g., 100-120 vs 130-150) go to different people
+**The system already handles this correctly by design**: Each day's usage is filtered by date (`usage_date` within that day's range), so a new day automatically allows new records. The `is_cleared` flag is only set during PMS upload or manual clearing, which handles checkout rooms.
 
-The current algorithm already aims for this. The main gap is:
-- The towel change time (5 min) is too low -- Eva treats it as 10 min work
-- Room size distinction for checkout rooms needs the 45/60 split
+However, for the guest QR page, the duplicate check uses `is_cleared: false` for the current day -- if a guest stays multiple days, each new day they can submit again because old records are from previous days. This already works.
 
-These are addressed by change #3 above. No additional algorithm structural changes needed -- the floor penalties (15x/40x) from the previous update are strong enough.
+**No code change needed** for the refill flow -- the date-based filtering inherently resets availability each day.
+
+---
+
+### Problem 4: Multi-Day Stay Aggregation for Reception
+
+**Current state**: The `MinibarTrackingView` only shows a single selected day's data. For guests staying multiple days, reception cannot see the total minibar consumption across the entire stay.
+
+**Changes in `src/components/dashboard/MinibarTrackingView.tsx`**:
+- Add a "Stay View" toggle next to the date picker for reception/manager users
+- When toggled ON, for each room with usage, look up `guest_nights_stayed` from the `rooms` table
+- Expand the date range query to cover the last N days (where N = `guest_nights_stayed`) instead of just the selected date
+- Show aggregate totals per room across the entire stay period with a "Full Stay" badge
+- Reception can then see "Room 205: Guest stayed 3 nights, total minibar: EUR 15.00"
 
 ---
 
@@ -104,8 +67,7 @@ These are addressed by change #3 above. No additional algorithm structural chang
 
 | File | Changes |
 |------|---------|
-| `src/components/dashboard/PMSUploadHistoryDialog.tsx` | Add `hotelFilter` prop. Filter query by `hotel_filter` column. |
-| `src/components/dashboard/PMSUpload.tsx` | Pass hotel filter prop to history dialog. |
-| `src/components/dashboard/AutoRoomAssignment.tsx` | Add `max-h-[40vh] overflow-y-auto` to staff selection grid container. |
-| `src/lib/roomAssignmentAlgorithm.ts` | Update `TOWEL_CHANGE_MINUTES` to 10. Replace size addon system with bracket-based times (45/55/60 for checkout, 15/18/20 for daily). |
+| `src/components/dashboard/RoomDetailDialog.tsx` | Add `source: 'staff'` and `organization_slug` to insert. Show guest-reported items as locked/indicated. |
+| `src/components/dashboard/MinibarTrackingView.tsx` | Add "Stay View" toggle for multi-day aggregation. Fix hotel filtering reliability. |
+| `src/pages/GuestMinibar.tsx` | Fetch existing usage for the room; show already-recorded items as checked/locked. |
 
