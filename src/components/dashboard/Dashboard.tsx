@@ -71,6 +71,25 @@ export function Dashboard() {
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
   const [hotelDisplayName, setHotelDisplayName] = useState<string | null>(null);
+  const [receptionStaffMap, setReceptionStaffMap] = useState<Record<string, string>>({});
+
+  // Fetch housekeeping staff for reception users
+  useEffect(() => {
+    const fetchStaffForReception = async () => {
+      if (profile?.role !== 'reception' || !profile?.assigned_hotel) return;
+      
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .eq('role', 'housekeeping')
+        .eq('assigned_hotel', profile.assigned_hotel);
+      
+      if (data) {
+        setReceptionStaffMap(Object.fromEntries(data.map(s => [s.id, s.full_name])));
+      }
+    };
+    fetchStaffForReception();
+  }, [profile?.role, profile?.assigned_hotel]);
 
   // Resolve hotel slug to display name
   useEffect(() => {
@@ -660,7 +679,7 @@ export function Dashboard() {
               <HotelRoomOverview 
                 selectedDate={new Date().toISOString().split('T')[0]} 
                 hotelName={profile?.assigned_hotel || ''} 
-                staffMap={{}} 
+                staffMap={receptionStaffMap} 
               />
             ) : (
               <RoomManagement />

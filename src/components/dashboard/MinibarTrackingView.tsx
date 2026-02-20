@@ -39,6 +39,8 @@ interface MinibarUsageRecord {
   usage_date: string;
   recorded_by_name: string;
   source: string;
+  is_cleared: boolean;
+  guest_nights_stayed: number;
 }
 
 interface RoomGroup {
@@ -92,6 +94,15 @@ function RoomGroupedView({
   onDeleteRecord: (id: string) => void;
   t: (key: string) => string;
 }) {
+  // Compute max guest_nights_stayed per room group
+  const roomNightsMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of records) {
+      const key = `${r.room_number}-${r.hotel}`;
+      map.set(key, Math.max(map.get(key) || 1, r.guest_nights_stayed || 1));
+    }
+    return map;
+  }, [records]);
   const roomGroups = useMemo(() => {
     const filtered = records.filter(r => {
       if (!searchTerm) return true;
@@ -140,7 +151,15 @@ function RoomGroupedView({
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-lg">Room {group.room_number}</CardTitle>
-                <p className="text-xs text-muted-foreground">{group.hotel}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-xs text-muted-foreground">{group.hotel}</p>
+                  {(roomNightsMap.get(`${group.room_number}-${group.hotel}`) || 1) > 1 && (
+                    <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 hover:bg-indigo-100 text-[10px] gap-0.5">
+                      <Hotel className="h-2.5 w-2.5" />
+                      Full Stay ({roomNightsMap.get(`${group.room_number}-${group.hotel}`)} nights)
+                    </Badge>
+                  )}
+                </div>
               </div>
               <div className="text-right">
                 <div className="text-lg font-bold text-primary">€{group.totalPrice.toFixed(2)}</div>
@@ -156,6 +175,11 @@ function RoomGroupedView({
                     <div className="font-medium truncate">{record.item_name}</div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <SourceBadge source={record.source} />
+                      {record.is_cleared && (
+                        <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">
+                          ✓ Cleared
+                        </Badge>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {format(new Date(record.usage_date), 'HH:mm')}
                       </span>
@@ -212,13 +236,11 @@ export function MinibarTrackingView() {
   const [searchRoom, setSearchRoom] = useState('');
   const [minibarLogoUrl, setMinibarLogoUrl] = useState('');
   const [minibarLogoUploading, setMinibarLogoUploading] = useState(false);
-  const [stayViewEnabled, setStayViewEnabled] = useState(false);
-
   useEffect(() => {
     fetchUserRole();
     fetchMinibarData();
     fetchMinibarLogo();
-  }, [selectedDate, stayViewEnabled]);
+  }, [selectedDate]);
 
   const fetchUserRole = async () => {
     if (user?.id) {
@@ -377,15 +399,8 @@ export function MinibarTrackingView() {
         hotelNameToFilter = hotelConfig?.hotel_name || userHotel;
       }
 
-      let startDate: Date;
-      let endDate = endOfDay(selectedDate);
-
-      if (stayViewEnabled) {
-        // In stay view, look back up to 30 days to cover long stays
-        startDate = startOfDay(subDays(selectedDate, 30));
-      } else {
-        startDate = startOfDay(selectedDate);
-      }
+      const startDate = startOfDay(selectedDate);
+      const endDate = endOfDay(selectedDate);
 
       const { data, error } = await supabase
         .from('room_minibar_usage')
@@ -397,6 +412,7 @@ export function MinibarTrackingView() {
           recorded_by,
           minibar_item_id,
           source,
+          is_cleared,
           rooms (
             room_number,
             hotel,
@@ -412,7 +428,6 @@ export function MinibarTrackingView() {
         `)
         .gte('usage_date', startDate.toISOString())
         .lte('usage_date', endDate.toISOString())
-        .eq('is_cleared', false)
         .order('usage_date', { ascending: false });
 
       if (error) throw error;
@@ -426,31 +441,58 @@ export function MinibarTrackingView() {
         );
       }
 
-      // In stay view, filter to only rooms that have usage on the selected date,
-      // then show ALL their usage across the stay period
-      if (stayViewEnabled) {
-        const selectedDayStart = startOfDay(selectedDate);
-        const selectedDayEnd = endOfDay(selectedDate);
-        
-        // Find room_ids that have usage on the selected date
-        const roomsWithUsageToday = new Set(
-          filteredData
-            .filter((r: any) => {
-              const d = new Date(r.usage_date);
-              return d >= selectedDayStart && d <= selectedDayEnd;
-            })
-            .map((r: any) => r.room_id)
-        );
+      // Auto-detect multi-day stays: for rooms with guest_nights_stayed > 1,
+      // fetch additional usage records going back N days
+      const multiDayRooms = new Map<string, number>();
+      for (const record of filteredData) {
+        const nights = (record as any).rooms?.guest_nights_stayed || 1;
+        if (nights > 1) {
+          multiDayRooms.set(record.room_id, Math.min(nights, 30));
+        }
+      }
 
-        // Keep only records for those rooms (across all dates in range)
-        // But limit by guest_nights_stayed
-        filteredData = filteredData.filter((record: any) => {
-          if (!roomsWithUsageToday.has(record.room_id)) return false;
-          const nightsStayed = (record.rooms as any)?.guest_nights_stayed || 1;
-          const stayStart = startOfDay(subDays(selectedDate, Math.min(nightsStayed - 1, 30)));
-          const usageDate = new Date(record.usage_date);
-          return usageDate >= stayStart;
-        });
+      let fullStayRecords: any[] = [];
+      if (multiDayRooms.size > 0) {
+        const roomIds = Array.from(multiDayRooms.keys());
+        const maxNights = Math.max(...Array.from(multiDayRooms.values()));
+        const stayStart = startOfDay(subDays(selectedDate, maxNights - 1));
+
+        const { data: stayData } = await supabase
+          .from('room_minibar_usage')
+          .select(`
+            id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+            rooms (room_number, hotel, guest_nights_stayed),
+            minibar_items (name, price),
+            profiles (full_name)
+          `)
+          .in('room_id', roomIds)
+          .gte('usage_date', stayStart.toISOString())
+          .lt('usage_date', startDate.toISOString())
+          .order('usage_date', { ascending: false });
+
+        if (stayData) {
+          // Filter by each room's actual nights stayed
+          fullStayRecords = stayData.filter((r: any) => {
+            const nights = multiDayRooms.get(r.room_id) || 1;
+            const roomStayStart = startOfDay(subDays(selectedDate, nights - 1));
+            return new Date(r.usage_date) >= roomStayStart;
+          });
+          // Apply same hotel filter
+          if (userHotel) {
+            fullStayRecords = fullStayRecords.filter((r: any) =>
+              r.rooms?.hotel === userHotel || r.rooms?.hotel === hotelNameToFilter
+            );
+          }
+        }
+      }
+
+      // Merge today's records with full-stay records, deduplicate by id
+      const allRecordIds = new Set(filteredData.map((r: any) => r.id));
+      for (const r of fullStayRecords) {
+        if (!allRecordIds.has(r.id)) {
+          filteredData.push(r);
+          allRecordIds.add(r.id);
+        }
       }
 
       // Transform data
@@ -465,6 +507,8 @@ export function MinibarTrackingView() {
         usage_date: record.usage_date,
         recorded_by_name: record.profiles?.full_name || ((record as any).source === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
         source: (record as any).source || 'staff',
+        is_cleared: record.is_cleared || false,
+        guest_nights_stayed: record.rooms?.guest_nights_stayed || 1,
       }));
 
       setUsageRecords(records);
@@ -533,17 +577,7 @@ export function MinibarTrackingView() {
               Clear All Records
             </Button>
           )}
-          {['admin', 'manager', 'housekeeping_manager', 'reception'].includes(userRole) && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
-              <Hotel className="h-4 w-4 text-muted-foreground" />
-              <Label htmlFor="stay-view" className="text-sm font-medium cursor-pointer">Full Stay</Label>
-              <Switch
-                id="stay-view"
-                checked={stayViewEnabled}
-                onCheckedChange={setStayViewEnabled}
-              />
-            </div>
-          )}
+          {/* Full Stay toggle removed - auto-detected from PMS data */}
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
