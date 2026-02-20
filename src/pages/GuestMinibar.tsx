@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Minus, ShoppingCart, Check, Wine, Coffee, Package, Loader2, Star, MapPin, ExternalLink, Compass, ChevronUp, ChevronDown, Globe, Info, BookOpen, Shield, Lightbulb, Map } from 'lucide-react';
@@ -64,7 +63,6 @@ export default function GuestMinibar() {
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [openGuideSection, setOpenGuideSection] = useState<string | null>(null);
   const [alreadyRecordedItems, setAlreadyRecordedItems] = useState<Set<string>>(new Set());
-  const [roomId, setRoomId] = useState<string>('');
   const [guestLang, setGuestLang] = useState(() =>
     localStorage.getItem('guest_minibar_lang') || 'en'
   );
@@ -93,77 +91,35 @@ export default function GuestMinibar() {
     if (!roomToken) { setSubmitState('invalid'); setLoading(false); return; }
 
     try {
-      const { data: room, error: roomErr } = await (supabase
-        .from('rooms')
-        .select('id, room_number, hotel') as any)
-        .eq('minibar_qr_token', roomToken)
-        .single();
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/guest-minibar-data?roomToken=${encodeURIComponent(roomToken)}`
+      );
 
-      if (roomErr || !room) { setSubmitState('invalid'); setLoading(false); return; }
-
-      setRoomNumber(room.room_number);
-      setRoomId(room.id);
-
-      // Fetch already-recorded items for today
-      const today = new Date();
-      const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-      const dayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999).toISOString();
-      const { data: existingUsage } = await supabase
-        .from('room_minibar_usage')
-        .select('minibar_item_id')
-        .eq('room_id', room.id)
-        .eq('is_cleared', false)
-        .gte('usage_date', dayStart)
-        .lte('usage_date', dayEnd);
-      if (existingUsage) {
-        setAlreadyRecordedItems(new Set(existingUsage.map((u: any) => u.minibar_item_id)));
+      if (!res.ok) {
+        setSubmitState('invalid');
+        setLoading(false);
+        return;
       }
 
-      const { data: hotelConfig } = await supabase
-        .from('hotel_configurations')
-        .select('hotel_name, custom_logo_url, custom_primary_color, minibar_logo_url' as any)
-        .or(`hotel_id.eq.${room.hotel},hotel_name.eq.${room.hotel}`)
-        .limit(1);
+      const data = await res.json();
 
-      if (hotelConfig && hotelConfig.length > 0) {
-        const cfg = hotelConfig[0] as any;
-        setBranding({
-          hotel_name: cfg.hotel_name,
-          custom_logo_url: cfg.custom_logo_url,
-          minibar_logo_url: cfg.minibar_logo_url,
-          custom_primary_color: cfg.custom_primary_color,
-        });
-      } else {
-        setBranding({ hotel_name: room.hotel });
-      }
+      setRoomNumber(data.room.room_number);
+      setBranding(data.branding);
+      setItems(data.items || []);
+      setRecommendations(data.recommendations || []);
 
-      const { data: minibarItems } = await supabase
-        .from('minibar_items')
-        .select('id, name, category, price, image_url, is_promoted, translations')
-        .eq('is_active', true)
-        .order('category')
-        .order('name');
-
-      setItems((minibarItems as any as MinibarItem[]) || []);
-
-      const { data: catOrder } = await (supabase
-        .from('minibar_category_order' as any)
-        .select('category, sort_order')
-        .order('sort_order') as any);
-
-      if (catOrder) {
+      // Category order
+      if (data.categoryOrder) {
         const orderMap: Record<string, number> = {};
-        (catOrder as any[]).forEach((c: any) => { orderMap[c.category] = c.sort_order; });
+        data.categoryOrder.forEach((c: any) => { orderMap[c.category] = c.sort_order; });
         setCategoryOrder(orderMap);
       }
 
-      const { data: recs } = await (supabase
-        .from('guest_recommendations' as any)
-        .select('*')
-        .eq('is_active', true)
-        .order('sort_order') as any);
-
-      setRecommendations((recs as any as GuestRecommendation[]) || []);
+      // Already recorded items
+      if (data.existingUsage) {
+        setAlreadyRecordedItems(new Set(data.existingUsage.map((u: any) => u.minibar_item_id)));
+      }
     } catch {
       setSubmitState('invalid');
     } finally {
@@ -278,7 +234,7 @@ export default function GuestMinibar() {
           <h2 className="text-xl font-semibold text-stone-800">{gt('thankYou')}</h2>
           <p className="text-sm text-stone-600">{gt('recorded', { room: roomNumber })}</p>
           <p className="text-xs text-stone-400">{gt('enjoyStay', { hotel: branding?.hotel_name || '' })}</p>
-          <Button onClick={() => { setSubmitState('idle'); }} variant="outline" className="mt-4 rounded-full px-6">
+          <Button onClick={() => { setSubmitState('idle'); loadData(); }} variant="outline" className="mt-4 rounded-full px-6">
             {gt('recordMore')}
           </Button>
         </div>
