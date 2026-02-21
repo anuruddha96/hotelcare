@@ -50,11 +50,36 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
   }, [open]);
 
   const fetchData = async () => {
+    const assignedHotel = profile?.assigned_hotel || '';
+    
+    // Resolve hotel name variants (slug vs full name)
+    const { data: hotelConfigs } = await supabase
+      .from('hotel_configurations')
+      .select('hotel_id, hotel_name')
+      .or(`hotel_id.eq.${assignedHotel},hotel_name.eq.${assignedHotel}`);
+
+    const hotelNames = new Set<string>();
+    hotelNames.add(assignedHotel);
+    (hotelConfigs || []).forEach(h => {
+      hotelNames.add(h.hotel_id);
+      hotelNames.add(h.hotel_name);
+    });
+    const hotelFilter = Array.from(hotelNames).map(n => `hotel.eq.${n}`).join(',');
+
     const [roomsRes, itemsRes] = await Promise.all([
-      supabase.from('rooms').select('id, room_number').eq('hotel', profile?.assigned_hotel || '').order('room_number'),
+      supabase.from('rooms').select('id, room_number').or(hotelFilter).order('room_number'),
       supabase.from('minibar_items').select('id, name, price, category').eq('is_active', true).order('name'),
     ]);
-    setRooms(roomsRes.data || []);
+    
+    // Sort rooms numerically
+    const sortedRooms = (roomsRes.data || []).sort((a, b) => {
+      const na = parseInt(a.room_number, 10);
+      const nb = parseInt(b.room_number, 10);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return a.room_number.localeCompare(b.room_number);
+    });
+    
+    setRooms(sortedRooms);
     setItems(itemsRes.data || []);
   };
 

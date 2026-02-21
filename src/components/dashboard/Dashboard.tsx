@@ -310,7 +310,7 @@ export function Dashboard() {
         return "maintenance-tasks";
       case 'reception':
       case 'front_office':
-        return "rooms";
+        return "minibar";
       default:
         return "rooms";
     }
