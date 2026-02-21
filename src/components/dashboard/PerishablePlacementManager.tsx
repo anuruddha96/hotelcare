@@ -5,11 +5,14 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 import { format, differenceInDays, startOfDay, addDays } from 'date-fns';
-import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square, RefreshCw, Package, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square, RefreshCw, Package, Trash2, Wine, Loader2, Receipt } from 'lucide-react';
 
 interface PerishableItem {
   id: string;
@@ -70,6 +73,14 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   const [actionRoom, setActionRoom] = useState<RoomOption | null>(null);
   const [actionPlacements, setActionPlacements] = useState<Placement[]>([]);
 
+  // Live minibar usage state for room chip dialog
+  const [roomUsage, setRoomUsage] = useState<any[]>([]);
+  const [roomUsageLoading, setRoomUsageLoading] = useState(false);
+  const [allMinibarItems, setAllMinibarItems] = useState<{ id: string; name: string; price: number; category: string }[]>([]);
+  const [quickAddItemId, setQuickAddItemId] = useState('');
+  const [quickAddQty, setQuickAddQty] = useState(1);
+  const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
+
   // Selected perishable item for the room grid view
   const [selectedViewItem, setSelectedViewItem] = useState<string>('');
 
@@ -100,6 +111,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
   useEffect(() => {
     fetchPerishableItems();
+    fetchAllMinibarItems();
   }, []);
 
   // Auto-select first perishable item for view
@@ -182,6 +194,57 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     }
   };
 
+  const fetchAllMinibarItems = async () => {
+    const { data } = await supabase
+      .from('minibar_items')
+      .select('id, name, price, category')
+      .eq('is_active', true)
+      .order('name');
+    setAllMinibarItems(data || []);
+  };
+
+  const fetchRoomUsage = async (roomId: string) => {
+    setRoomUsageLoading(true);
+    try {
+      const { data } = await supabase
+        .from('room_minibar_usage')
+        .select('*, minibar_items:minibar_item_id(name, price)')
+        .eq('room_id', roomId)
+        .eq('is_cleared', false)
+        .order('usage_date', { ascending: false });
+      setRoomUsage(data || []);
+    } catch (e) {
+      console.error('Error fetching room usage:', e);
+      setRoomUsage([]);
+    } finally {
+      setRoomUsageLoading(false);
+    }
+  };
+
+  const handleQuickAddUsage = async () => {
+    if (!actionRoom || !quickAddItemId) return;
+    setQuickAddSubmitting(true);
+    try {
+      const { error } = await supabase.from('room_minibar_usage').insert({
+        room_id: actionRoom.id,
+        minibar_item_id: quickAddItemId,
+        quantity_used: quickAddQty,
+        recorded_by: profile?.id || null,
+        source: 'staff',
+        organization_slug: organizationSlug,
+      });
+      if (error) throw error;
+      toast({ title: 'Recorded', description: `Minibar usage added for Room ${actionRoom.room_number}` });
+      setQuickAddItemId('');
+      setQuickAddQty(1);
+      fetchRoomUsage(actionRoom.id);
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setQuickAddSubmitting(false);
+    }
+  };
+
   const today = startOfDay(new Date());
 
   // Build a map: roomId -> placement status for the selected item
@@ -199,7 +262,6 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
       const existing = map.get(p.room_id);
       if (existing) {
-        // Use worst status
         const priority: Record<RoomStatus, number> = { overdue: 3, expiring_today: 2, active: 1, none: 0 };
         if (priority[status] > priority[existing.status]) existing.status = status;
         existing.placements.push(p);
@@ -219,7 +281,10 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     const info = roomStatusMap.get(room.id);
     setActionRoom(room);
     setActionPlacements(info?.placements || []);
+    setQuickAddItemId('');
+    setQuickAddQty(1);
     setActionDialogOpen(true);
+    fetchRoomUsage(room.id);
   };
 
   const handleMarkCollected = async (placementId: string) => {
@@ -485,73 +550,157 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
         </Card>
       )}
 
-      {/* Room Action Dialog */}
+      {/* Enhanced Room Action Dialog */}
       <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              Room {actionRoom?.room_number}
-              {actionPlacements.length > 0 && (
-                <Badge variant="secondary" className="text-xs">{actionPlacements.length} item{actionPlacements.length !== 1 ? 's' : ''}</Badge>
-              )}
+            <DialogTitle className="flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                Room {actionRoom?.room_number}
+              </span>
+              {(() => {
+                const usageTotal = roomUsage.reduce((sum, u) => sum + ((u.minibar_items?.price || 0) * (u.quantity_used || 0)), 0);
+                return usageTotal > 0 ? (
+                  <Badge variant="secondary" className="text-xs gap-1">
+                    <Receipt className="h-3 w-3" />
+                    €{usageTotal.toFixed(2)}
+                  </Badge>
+                ) : null;
+              })()}
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-3">
-            {actionPlacements.length > 0 ? (
-              actionPlacements.map(p => {
-                const daysLeft = differenceInDays(startOfDay(new Date(p.expires_at)), today);
-                const isOverdue = daysLeft < 0;
-                const isToday = daysLeft === 0;
+          <Tabs defaultValue="usage" className="flex-1 overflow-hidden flex flex-col">
+            <TabsList className="grid grid-cols-2 w-full h-9">
+              <TabsTrigger value="usage" className="text-xs gap-1">
+                <Wine className="h-3 w-3" />
+                Minibar Usage ({roomUsage.length})
+              </TabsTrigger>
+              <TabsTrigger value="perishable" className="text-xs gap-1">
+                <Package className="h-3 w-3" />
+                Perishable ({actionPlacements.length})
+              </TabsTrigger>
+            </TabsList>
 
-                return (
-                  <div key={p.id} className={`p-3 rounded-lg border ${isOverdue ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : isToday ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800' : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium">{p.item_name}</span>
-                      {isOverdue && <Badge className="bg-red-500 text-white text-[10px] px-1.5 py-0">OVERDUE</Badge>}
-                      {isToday && <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0">TODAY</Badge>}
+            {/* Minibar Usage Tab */}
+            <TabsContent value="usage" className="flex-1 overflow-y-auto space-y-3 mt-2">
+              {roomUsageLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : roomUsage.length > 0 ? (
+                <div className="space-y-2">
+                  {roomUsage.map((u: any) => (
+                    <div key={u.id} className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/30 text-sm">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm">{u.minibar_items?.name || 'Unknown'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Qty: {u.quantity_used} · {u.source === 'guest' ? 'Guest (QR)' : 'Staff'} · {format(new Date(u.usage_date), 'MMM d, HH:mm')}
+                        </p>
+                      </div>
+                      <span className="text-sm font-semibold text-foreground">
+                        €{((u.minibar_items?.price || 0) * (u.quantity_used || 0)).toFixed(2)}
+                      </span>
                     </div>
-                    <div className="text-xs text-muted-foreground mb-2">
-                      Placed {format(new Date(p.placed_at), 'MMM d, HH:mm')} · Expires {format(new Date(p.expires_at), 'MMM d')}
-                      {!isOverdue && !isToday && ` (${daysLeft}d left)`}
-                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-sm text-muted-foreground">
+                  No minibar usage recorded
+                </div>
+              )}
+
+              {/* Quick Add Usage */}
+              {canPlace && (
+                <div className="border-t pt-3 space-y-2">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Record Usage</Label>
+                  <Select value={quickAddItemId} onValueChange={setQuickAddItemId}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select item..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allMinibarItems.map(item => (
+                        <SelectItem key={item.id} value={item.id} className="text-xs">
+                          {item.name} — €{item.price.toFixed(2)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={quickAddQty}
+                      onChange={e => setQuickAddQty(Math.min(20, Math.max(1, parseInt(e.target.value) || 1)))}
+                      className="h-8 w-20 text-xs"
+                      placeholder="Qty"
+                    />
                     <Button
                       size="sm"
-                      variant={isOverdue || isToday ? 'default' : 'outline'}
-                      className="w-full gap-1 h-7 text-xs"
-                      onClick={() => handleMarkCollected(p.id)}
+                      className="flex-1 h-8 text-xs gap-1"
+                      disabled={!quickAddItemId || quickAddSubmitting}
+                      onClick={handleQuickAddUsage}
                     >
-                      <CheckCircle2 className="h-3 w-3" />
-                      Mark Collected
+                      {quickAddSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                      Add
                     </Button>
                   </div>
-                );
-              })
-            ) : (
-              <div className="text-center py-4 text-sm text-muted-foreground">
-                No active perishable items in this room
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </TabsContent>
 
-          <DialogFooter className="flex-col sm:flex-col gap-2">
-            {canPlace && actionRoom && (
-              <Button
-                className="w-full gap-1.5"
-                onClick={() => {
-                  handleRefillRoom(actionRoom);
-                  setActionDialogOpen(false);
-                }}
-                disabled={!selectedViewItem}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Refill {selectedViewItemName.length > 30 ? selectedViewItemName.substring(0, 28) + '...' : selectedViewItemName}
-              </Button>
-            )}
-            <Button variant="outline" className="w-full" onClick={() => setActionDialogOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
+            {/* Perishable Tab */}
+            <TabsContent value="perishable" className="flex-1 overflow-y-auto space-y-3 mt-2">
+              {actionPlacements.length > 0 ? (
+                actionPlacements.map(p => {
+                  const daysLeft = differenceInDays(startOfDay(new Date(p.expires_at)), today);
+                  const isOverdue = daysLeft < 0;
+                  const isToday = daysLeft === 0;
+
+                  return (
+                    <div key={p.id} className={`p-3 rounded-lg border ${isOverdue ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : isToday ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800' : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium">{p.item_name}</span>
+                        {isOverdue && <Badge className="bg-red-500 text-white text-[10px] px-1.5 py-0">OVERDUE</Badge>}
+                        {isToday && <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0">TODAY</Badge>}
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Placed {format(new Date(p.placed_at), 'MMM d, HH:mm')} · Expires {format(new Date(p.expires_at), 'MMM d')}
+                        {!isOverdue && !isToday && ` (${daysLeft}d left)`}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={isOverdue || isToday ? 'default' : 'outline'}
+                        className="w-full gap-1 h-7 text-xs"
+                        onClick={() => handleMarkCollected(p.id)}
+                      >
+                        <CheckCircle2 className="h-3 w-3" />
+                        Mark Collected
+                      </Button>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-4 text-sm text-muted-foreground">
+                  No active perishable items
+                </div>
+              )}
+
+              {canPlace && actionRoom && (
+                <Button
+                  className="w-full gap-1.5"
+                  onClick={() => {
+                    handleRefillRoom(actionRoom);
+                  }}
+                  disabled={!selectedViewItem}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Refill {selectedViewItemName.length > 30 ? selectedViewItemName.substring(0, 28) + '...' : selectedViewItemName}
+                </Button>
+              )}
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 

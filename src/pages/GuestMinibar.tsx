@@ -127,27 +127,19 @@ export default function GuestMinibar() {
     }
   };
 
-  const addToCart = (item: MinibarItem) => {
+  const toggleCartItem = (item: MinibarItem) => {
     setCart(prev => {
       const existing = prev.find(c => c.minibar_item_id === item.id);
       if (existing) {
-        return prev.map(c => c.minibar_item_id === item.id ? { ...c, quantity: Math.min(c.quantity + 1, 20) } : c);
+        // Remove from cart (toggle off)
+        return prev.filter(c => c.minibar_item_id !== item.id);
       }
+      // Add with quantity 1 (toggle on)
       return [...prev, { minibar_item_id: item.id, name: item.name, quantity: 1, price: item.price }];
     });
   };
 
-  const removeFromCart = (itemId: string) => {
-    setCart(prev => {
-      const existing = prev.find(c => c.minibar_item_id === itemId);
-      if (existing && existing.quantity > 1) {
-        return prev.map(c => c.minibar_item_id === itemId ? { ...c, quantity: c.quantity - 1 } : c);
-      }
-      return prev.filter(c => c.minibar_item_id !== itemId);
-    });
-  };
-
-  const getCartQuantity = (itemId: string) => cart.find(c => c.minibar_item_id === itemId)?.quantity || 0;
+  const isInCart = (itemId: string) => cart.some(c => c.minibar_item_id === itemId);
 
   const cartTotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0);
@@ -243,13 +235,13 @@ export default function GuestMinibar() {
   }
 
   const renderWoltItem = (item: MinibarItem, featured = false) => {
-    const qty = getCartQuantity(item.id);
+    const selected = isInCart(item.id);
     const isAlreadyRecorded = alreadyRecordedItems.has(item.id);
     return (
       <div
         key={item.id}
         className={`flex items-start gap-3 py-3.5 border-b border-stone-100 last:border-b-0 ${
-          isAlreadyRecorded ? 'opacity-60' : qty > 0 ? 'bg-amber-50/30 -mx-4 px-4 rounded-lg' : ''
+          isAlreadyRecorded ? 'opacity-60' : selected ? 'bg-amber-50/30 -mx-4 px-4 rounded-lg' : ''
         }`}
       >
         {/* Text content */}
@@ -281,7 +273,7 @@ export default function GuestMinibar() {
           />
         )}
 
-        {/* Add/Remove controls */}
+        {/* Select/Deselect toggle */}
         {isAlreadyRecorded ? (
           <div className="flex items-center justify-center flex-shrink-0 pt-3">
             <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -289,31 +281,17 @@ export default function GuestMinibar() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center flex-shrink-0 pt-1">
-            {qty === 0 ? (
-              <button
-                onClick={() => addToCart(item)}
-                className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center text-white hover:bg-stone-700 transition-colors shadow-sm"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            ) : (
-              <div className="flex flex-col items-center gap-1">
-                <button
-                  onClick={() => addToCart(item)}
-                  className="w-7 h-7 rounded-full bg-stone-800 flex items-center justify-center text-white hover:bg-stone-700 transition-colors"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-                <span className="text-sm font-bold text-stone-800 w-5 text-center">{qty}</span>
-                <button
-                  onClick={() => removeFromCart(item.id)}
-                  className="w-7 h-7 rounded-full border border-stone-300 flex items-center justify-center text-stone-500 hover:bg-stone-100 transition-colors"
-                >
-                  <Minus className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
+          <div className="flex items-center justify-center flex-shrink-0 pt-1">
+            <button
+              onClick={() => toggleCartItem(item)}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm ${
+                selected
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-stone-800 text-white hover:bg-stone-700'
+              }`}
+            >
+              {selected ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            </button>
           </div>
         )}
       </div>
@@ -499,29 +477,20 @@ export default function GuestMinibar() {
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 shadow-[0_-2px_16px_rgba(0,0,0,0.06)] z-20">
           <div className="max-w-lg mx-auto px-4 py-3 space-y-2">
-            {/* Cart item breakdown - always visible */}
+            {/* Cart items - simple list with remove */}
             <div className="max-h-36 overflow-y-auto space-y-1.5">
               {cart.map(item => (
                 <div key={item.minibar_item_id} className="flex items-center justify-between text-sm">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <button
-                        onClick={() => removeFromCart(item.minibar_item_id)}
-                        className="h-5 w-5 rounded-full border border-stone-300 flex items-center justify-center text-stone-400 hover:bg-stone-100"
-                      >
-                        <Minus className="h-2.5 w-2.5" />
-                      </button>
-                      <span className="w-4 text-center text-xs font-semibold text-stone-700">{item.quantity}</span>
-                      <button
-                        onClick={() => addToCart({ id: item.minibar_item_id, name: item.name, category: '', price: item.price } as MinibarItem)}
-                        className="h-5 w-5 rounded-full bg-stone-800 flex items-center justify-center text-white hover:bg-stone-700"
-                      >
-                        <Plus className="h-2.5 w-2.5" />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => toggleCartItem({ id: item.minibar_item_id, name: item.name, category: '', price: item.price } as MinibarItem)}
+                      className="h-5 w-5 rounded-full border border-stone-300 flex items-center justify-center text-stone-400 hover:bg-stone-100 flex-shrink-0"
+                    >
+                      <Minus className="h-2.5 w-2.5" />
+                    </button>
                     <span className="text-stone-600 truncate text-xs">{item.name}</span>
                   </div>
-                  <span className="text-xs font-medium text-stone-700 flex-shrink-0 ml-2">€{(item.price * item.quantity).toFixed(2)}</span>
+                  <span className="text-xs font-medium text-stone-700 flex-shrink-0 ml-2">€{item.price.toFixed(2)}</span>
                 </div>
               ))}
             </div>
