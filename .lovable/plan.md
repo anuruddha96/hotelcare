@@ -1,77 +1,93 @@
 
 
-## Plan: Minibar System Improvements
+## Plan: Enhanced Perishable Item Tracker with Room Types, Expiry Dates, and Improved UI
 
-This plan addresses 5 areas: reception default page, room list bug fix, guest QR quantity limit, enhanced room chip actions, and multi-day usage handling.
-
----
-
-### 1. Reception Users Default to Minibar Tab
-
-**File: `src/components/dashboard/Dashboard.tsx`**
-
-Change `getDefaultTab` so the `reception` case returns `"minibar"` instead of `"rooms"`.
+### Current State
+- 9 rooms have brownie boxes that expired yesterday (Feb 21) and show as amber "Collect Today" but should show as **red/overdue**
+- Room chips don't indicate whether a room is a checkout or daily room
+- The room chip dialog is functional but could be more user-friendly
+- No option to set a custom expiry date when placing/refilling items
+- Housekeepers can't easily see which rooms need collection
 
 ---
 
-### 2. Fix Empty Room List in "Record Minibar Usage" Dialog
+### Changes
 
-**File: `src/components/dashboard/MinibarQuickAdd.tsx`**
-
-The room query uses `.eq('hotel', profile?.assigned_hotel)` but the `rooms` table may store the full hotel name (e.g., "Hotel Ottofiori") while `profile.assigned_hotel` holds the short slug (e.g., "ottofiori"). 
-
-Fix: resolve the hotel name from `hotel_configurations` first (same pattern used elsewhere), then query rooms with `.or(`hotel.eq.${slug},hotel.eq.${fullName}`)`.
-
----
-
-### 3. Guest QR Page: Limit to Quantity 1 Per Item
-
-**File: `src/pages/GuestMinibar.tsx`**
-
-Currently guests can add multiple quantities via +/- buttons. Since each minibar has only one of each product:
-- Remove the +/- quantity controls from the guest UI
-- Change `addToCart` to only allow quantity = 1 (toggle: add or remove)
-- Each item becomes a simple "Select" / "Selected" toggle button
-- Cart items always have quantity 1
-- Already-recorded items remain disabled with a checkmark
-
----
-
-### 4. Enhanced Room Chips with Live Minibar Status and Quick Actions
-
+#### 1. Room Chips: Show Checkout vs Daily Room Type
 **File: `src/components/dashboard/PerishablePlacementManager.tsx`**
 
-When clicking a room chip, the dialog currently only shows perishable placement info. Enhance it to show a comprehensive minibar view:
+- Fetch `is_checkout_room` and `guest_nights_stayed` alongside room data
+- Add a small icon/label on each room chip:
+  - "C/O" badge for checkout rooms
+  - "D" or nights count for daily/stay rooms (e.g., "D3" for 3-night stay)
+- This helps managers quickly understand room context when managing brownies
 
-- **Live minibar usage**: Fetch today's `room_minibar_usage` records for the clicked room and display them (item name, quantity, source, price)
-- **Quick add usage**: Add a mini "Record Usage" form directly in the room chip dialog (item dropdown + submit) so managers can record minibar consumption without opening a separate dialog
-- **Perishable status**: Keep existing placement info (active, expiring, overdue) with collect/refill actions
-- **Room summary header**: Show room number, total minibar charges for today, and perishable status at a glance
+#### 2. Custom Expiry Date Selection
+**File: `src/components/dashboard/PerishablePlacementManager.tsx`**
 
-This gives managers a single click to see everything about a room's minibar and take action.
+- In the **Bulk Place** dialog and the **Refill** action, add a date picker so managers can set a custom expiry date instead of relying solely on the item's default `expiry_days`
+- Default pre-fills to `today + expiry_days` but can be overridden
+- This handles situations where items were placed at different times or have varying freshness
+
+#### 3. Improved Room Chip Dialog UI
+**File: `src/components/dashboard/PerishablePlacementManager.tsx`**
+
+Redesign the room action dialog for better usability:
+- **Header**: Show room number, room type (Checkout/Daily + nights), and total minibar charges
+- **Perishable section**: Show placement status with clear expiry countdown, "Mark Collected" and "Refill" actions prominently
+- **Minibar Usage section**: Show live uncleared usage with inline quick-add form
+- Make "Mark Collected + Refill" a combined one-tap action for efficiency (collect old, place new)
+- Better visual hierarchy with color-coded status cards
+
+#### 4. Overdue Visibility for Housekeepers and Managers
+**File: `src/components/dashboard/PerishablePlacementManager.tsx`**
+
+- The 9 expired brownie rooms (expires Feb 21, today is Feb 22) must show as **red/overdue**, not amber
+- Add an **alert banner** at the top when overdue items exist: "9 rooms have expired items that need collection"
+- Ensure the status summary badges always show overdue count prominently with a warning icon
+
+#### 5. Status Summary Improvements
+- Always show the overdue badge (even currently it may hide with conditional rendering)
+- Add a quick-action: "Collect All Overdue" button that marks all overdue placements as collected in one click (for supervisors)
+- Add "Collect and Refill All" button that collects overdue items and places fresh ones simultaneously
 
 ---
 
-### 5. Multi-Day Usage and Guest Stay Duration Handling
+### Technical Details
 
-**File: `src/components/dashboard/MinibarTrackingView.tsx`**
+**Room data model expansion** in `fetchRooms`:
+```
+.select('id, room_number, hotel, is_checkout_room, guest_nights_stayed')
+```
 
-The existing multi-day aggregation logic already uses `guest_nights_stayed` from PMS data. No major changes needed here -- the system already:
-- Detects rooms with `guest_nights_stayed > 1`
-- Fetches usage records going back N days
-- Shows a "Full Stay (N nights)" badge
+**RoomOption interface update**:
+```typescript
+interface RoomOption {
+  id: string;
+  room_number: string;
+  hotel: string;
+  is_checkout_room: boolean;
+  guest_nights_stayed: number;
+}
+```
 
-The room chip dialog (change 4 above) will also respect this by showing all uncleared usage for a room, not just today's -- giving a complete picture during long stays. The query for the room chip will use `.eq('is_cleared', false)` without date filtering to show the full accumulation.
+**Room chip rendering** - each chip gets a small type indicator:
+- Checkout rooms: small "C/O" text or luggage icon
+- Daily rooms: "Dn" where n = nights stayed
 
----
+**Expiry date picker** - uses the existing Shadcn Calendar/Popover pattern with `pointer-events-auto` on the calendar. Defaults to `today + expiry_days` but allows override.
 
-### Technical Summary
+**Collect and Refill All** - batch operation:
+1. Update all overdue placements to `status: 'collected'`
+2. Insert new placements for the same rooms with fresh expiry dates
 
-| Change | File | Effort |
-|--------|------|--------|
-| Reception default tab to minibar | `Dashboard.tsx` | Small (1 line) |
-| Fix MinibarQuickAdd room query | `MinibarQuickAdd.tsx` | Small (add hotel resolution) |
-| Guest QR: quantity 1 only | `GuestMinibar.tsx` | Medium (simplify cart UI) |
-| Enhanced room chip dialog | `PerishablePlacementManager.tsx` | Large (add usage fetch, quick-add form) |
-| Multi-day usage in chip dialog | `PerishablePlacementManager.tsx` | Included in above |
+| Change | Effort |
+|--------|--------|
+| Room type badges on chips | Small |
+| Custom expiry date picker | Medium |
+| Improved room dialog UI | Medium |
+| Overdue alert banner + bulk actions | Medium |
+| Status summary fixes | Small |
+
+All changes are in `src/components/dashboard/PerishablePlacementManager.tsx`.
 
