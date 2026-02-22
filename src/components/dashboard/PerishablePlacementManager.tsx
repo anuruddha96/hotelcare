@@ -8,11 +8,15 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 import { format, differenceInDays, startOfDay, addDays } from 'date-fns';
-import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square, RefreshCw, Package, Trash2, Wine, Loader2, Receipt } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square, RefreshCw, Package, Trash2, Wine, Loader2, Receipt, CalendarIcon, Luggage, Home, ArrowRightLeft } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface PerishableItem {
   id: string;
@@ -40,6 +44,8 @@ interface RoomOption {
   id: string;
   room_number: string;
   hotel: string;
+  is_checkout_room: boolean;
+  guest_nights_stayed: number;
 }
 
 interface PerishablePlacementManagerProps {
@@ -68,10 +74,14 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   const [submitting, setSubmitting] = useState(false);
   const [resolvedHotelNames, setResolvedHotelNames] = useState<string[]>([]);
 
+  // Custom expiry date for bulk place
+  const [customExpiryDate, setCustomExpiryDate] = useState<Date | undefined>(undefined);
+
   // Room action dialog state
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [actionRoom, setActionRoom] = useState<RoomOption | null>(null);
   const [actionPlacements, setActionPlacements] = useState<Placement[]>([]);
+  const [refillExpiryDate, setRefillExpiryDate] = useState<Date | undefined>(undefined);
 
   // Live minibar usage state for room chip dialog
   const [roomUsage, setRoomUsage] = useState<any[]>([]);
@@ -83,6 +93,9 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
   // Selected perishable item for the room grid view
   const [selectedViewItem, setSelectedViewItem] = useState<string>('');
+
+  // Collecting all overdue
+  const [collectingAll, setCollectingAll] = useState(false);
 
   useEffect(() => {
     if (!hotel) return;
@@ -121,6 +134,16 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     }
   }, [perishableItems, selectedViewItem]);
 
+  // Update custom expiry date default when item changes in bulk dialog
+  useEffect(() => {
+    if (selectedItemId) {
+      const item = perishableItems.find(i => i.id === selectedItemId);
+      if (item) {
+        setCustomExpiryDate(addDays(startOfDay(new Date()), item.expiry_days));
+      }
+    }
+  }, [selectedItemId, perishableItems]);
+
   const buildHotelFilter = () =>
     resolvedHotelNames.map(n => `hotel.eq.${n}`).join(',');
 
@@ -149,12 +172,18 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
     const { data } = await supabase
       .from('rooms')
-      .select('id, room_number, hotel')
+      .select('id, room_number, hotel, is_checkout_room, guest_nights_stayed')
       .or(filter)
       .order('room_number', { ascending: true });
 
     const sorted = (data || []).sort((a, b) => numericSort(a.room_number, b.room_number));
-    setRooms(sorted);
+    setRooms(sorted.map(r => ({
+      id: r.id,
+      room_number: r.room_number,
+      hotel: r.hotel,
+      is_checkout_room: r.is_checkout_room ?? false,
+      guest_nights_stayed: r.guest_nights_stayed ?? 0,
+    })));
   };
 
   const fetchPlacements = async () => {
@@ -277,12 +306,28 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   const overdueCount = Array.from(roomStatusMap.values()).filter(v => v.status === 'overdue').length;
   const expiringTodayCount = Array.from(roomStatusMap.values()).filter(v => v.status === 'expiring_today').length;
 
+  // Get all overdue placements for bulk actions
+  const overduePlacements = useMemo(() => {
+    const result: Placement[] = [];
+    roomStatusMap.forEach(v => {
+      if (v.status === 'overdue') {
+        result.push(...v.placements.filter(p => differenceInDays(startOfDay(new Date(p.expires_at)), today) < 0));
+      }
+    });
+    return result;
+  }, [roomStatusMap, today]);
+
   const handleRoomChipClick = (room: RoomOption) => {
     const info = roomStatusMap.get(room.id);
     setActionRoom(room);
     setActionPlacements(info?.placements || []);
     setQuickAddItemId('');
     setQuickAddQty(1);
+    // Set default refill expiry
+    if (selectedViewItem) {
+      const item = perishableItems.find(i => i.id === selectedViewItem);
+      if (item) setRefillExpiryDate(addDays(today, item.expiry_days));
+    }
     setActionDialogOpen(true);
     fetchRoomUsage(room.id);
   };
@@ -301,8 +346,47 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       if (error) throw error;
       toast({ title: 'Collected', description: 'Item marked as collected' });
       fetchPlacements();
-      // Update action dialog placements
       setActionPlacements(prev => prev.filter(p => p.id !== placementId));
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+
+  const handleCollectAndRefill = async (placement: Placement) => {
+    if (!selectedViewItem || !actionRoom) return;
+    const item = perishableItems.find(i => i.id === selectedViewItem);
+    if (!item) return;
+
+    try {
+      // Mark as collected
+      await (supabase
+        .from('minibar_placements' as any)
+        .update({
+          status: 'collected',
+          collected_by: profile?.id,
+          collected_at: new Date().toISOString(),
+        } as any)
+        .eq('id', placement.id) as any);
+
+      // Place new one
+      const expiresAt = refillExpiryDate || addDays(today, item.expiry_days);
+      await (supabase
+        .from('minibar_placements' as any)
+        .insert({
+          room_id: actionRoom.id,
+          minibar_item_id: selectedViewItem,
+          placed_by: profile?.id,
+          placed_at: new Date().toISOString(),
+          expires_at: expiresAt.toISOString(),
+          quantity: 1,
+          status: 'active',
+          hotel: actionRoom.hotel,
+          organization_slug: organizationSlug,
+        } as any) as any);
+
+      toast({ title: 'Collected & Refilled', description: `New ${item.name} placed, expires ${format(expiresAt, 'MMM d')}` });
+      fetchPlacements();
+      setActionPlacements(prev => prev.filter(p => p.id !== placement.id));
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
@@ -317,8 +401,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     if (!item) return;
 
     try {
-      const now = new Date();
-      const expiresAt = addDays(startOfDay(now), item.expiry_days);
+      const expiresAt = refillExpiryDate || addDays(today, item.expiry_days);
 
       const { error } = await (supabase
         .from('minibar_placements' as any)
@@ -326,7 +409,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
           room_id: room.id,
           minibar_item_id: selectedViewItem,
           placed_by: profile?.id,
-          placed_at: now.toISOString(),
+          placed_at: new Date().toISOString(),
           expires_at: expiresAt.toISOString(),
           quantity: 1,
           status: 'active',
@@ -345,6 +428,86 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     }
   };
 
+  const handleCollectAllOverdue = async () => {
+    if (overduePlacements.length === 0) return;
+    setCollectingAll(true);
+    try {
+      const ids = overduePlacements.map(p => p.id);
+      const { error } = await (supabase
+        .from('minibar_placements' as any)
+        .update({
+          status: 'collected',
+          collected_by: profile?.id,
+          collected_at: new Date().toISOString(),
+        } as any)
+        .in('id', ids) as any);
+
+      if (error) throw error;
+      toast({ title: 'All Overdue Collected', description: `${ids.length} items marked as collected` });
+      fetchPlacements();
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setCollectingAll(false);
+    }
+  };
+
+  const handleCollectAndRefillAllOverdue = async () => {
+    if (overduePlacements.length === 0 || !selectedViewItem) return;
+    const item = perishableItems.find(i => i.id === selectedViewItem);
+    if (!item) return;
+
+    setCollectingAll(true);
+    try {
+      const ids = overduePlacements.map(p => p.id);
+      // Mark all as collected
+      const { error: collectError } = await (supabase
+        .from('minibar_placements' as any)
+        .update({
+          status: 'collected',
+          collected_by: profile?.id,
+          collected_at: new Date().toISOString(),
+        } as any)
+        .in('id', ids) as any);
+
+      if (collectError) throw collectError;
+
+      // Insert fresh placements
+      const expiresAt = addDays(today, item.expiry_days);
+      const uniqueRoomIds = [...new Set(overduePlacements.map(p => p.room_id))];
+      const newPlacements = uniqueRoomIds.map(roomId => {
+        const room = rooms.find(r => r.id === roomId);
+        return {
+          room_id: roomId,
+          minibar_item_id: selectedViewItem,
+          placed_by: profile?.id,
+          placed_at: new Date().toISOString(),
+          expires_at: expiresAt.toISOString(),
+          quantity: 1,
+          status: 'active',
+          hotel: room?.hotel || hotel,
+          organization_slug: organizationSlug,
+        };
+      });
+
+      const { error: insertError } = await (supabase
+        .from('minibar_placements' as any)
+        .insert(newPlacements as any) as any);
+
+      if (insertError) throw insertError;
+
+      toast({
+        title: 'Collected & Refilled All',
+        description: `${ids.length} collected, ${newPlacements.length} fresh items placed. Expires ${format(expiresAt, 'MMM d')}`,
+      });
+      fetchPlacements();
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setCollectingAll(false);
+    }
+  };
+
   const handleBulkPlace = async () => {
     if (!selectedItemId || selectedRoomIds.size === 0) return;
 
@@ -357,7 +520,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       const hotelValue = sampleRoom?.hotel || hotel;
 
       const now = new Date();
-      const expiresAt = addDays(startOfDay(now), item.expiry_days);
+      const expiresAt = customExpiryDate || addDays(startOfDay(now), item.expiry_days);
 
       const records = Array.from(selectedRoomIds).map(roomId => ({
         room_id: roomId,
@@ -385,6 +548,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       setDialogOpen(false);
       setSelectedItemId('');
       setSelectedRoomIds(new Set());
+      setCustomExpiryDate(undefined);
       fetchPlacements();
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -437,6 +601,24 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     }
   };
 
+  const getRoomTypeBadge = (room: RoomOption) => {
+    if (room.is_checkout_room) {
+      return (
+        <span className="text-[9px] font-bold bg-orange-200 text-orange-700 dark:bg-orange-800/40 dark:text-orange-300 rounded px-1 leading-tight">
+          C/O
+        </span>
+      );
+    }
+    if (room.guest_nights_stayed > 0) {
+      return (
+        <span className="text-[9px] font-bold bg-blue-200 text-blue-700 dark:bg-blue-800/40 dark:text-blue-300 rounded px-1 leading-tight">
+          D{room.guest_nights_stayed}
+        </span>
+      );
+    }
+    return null;
+  };
+
   const selectedViewItemName = perishableItems.find(i => i.id === selectedViewItem)?.name || 'Perishable Items';
 
   // Group rooms by floor
@@ -463,7 +645,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                   Perishable Item Tracker
                 </CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Click any room to manage placement · Colored rooms have active items
+                  Click any room to manage · <span className="inline-flex items-center gap-0.5"><span className="text-[9px] font-bold bg-orange-200 text-orange-700 rounded px-0.5">C/O</span> = Checkout</span> · <span className="inline-flex items-center gap-0.5"><span className="text-[9px] font-bold bg-blue-200 text-blue-700 rounded px-0.5">D3</span> = Daily (nights)</span>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -492,24 +674,57 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
           </CardHeader>
 
           <CardContent className="space-y-4">
+            {/* Overdue Alert Banner */}
+            {overdueCount > 0 && (
+              <Alert variant="destructive" className="border-red-300 bg-red-50 dark:bg-red-900/20">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="font-medium">
+                    {overdueCount} room{overdueCount !== 1 ? 's have' : ' has'} expired items that need collection!
+                  </span>
+                  {canPlace && (
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1 border-red-300 text-red-700 hover:bg-red-100"
+                        onClick={handleCollectAllOverdue}
+                        disabled={collectingAll}
+                      >
+                        {collectingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                        Collect All
+                      </Button>
+                      {selectedViewItem && (
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 text-white"
+                          onClick={handleCollectAndRefillAllOverdue}
+                          disabled={collectingAll}
+                        >
+                          {collectingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRightLeft className="h-3 w-3" />}
+                          Collect & Refill All
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Status summary pills */}
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5 bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 {totalActive - overdueCount - expiringTodayCount} Active
               </Badge>
-              {expiringTodayCount > 0 && (
-                <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5 bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-400">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  {expiringTodayCount} Collect Today
-                </Badge>
-              )}
-              {overdueCount > 0 && (
-                <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5 bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                  {overdueCount} Overdue
-                </Badge>
-              )}
+              <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5 bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-400">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                {expiringTodayCount} Collect Today
+              </Badge>
+              <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5 bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
+                <AlertTriangle className="h-3 w-3" />
+                {overdueCount} Overdue
+              </Badge>
               <Badge variant="outline" className="gap-1.5 text-xs py-1 px-2.5">
                 <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
                 {rooms.length - roomStatusMap.size} No Items
@@ -527,10 +742,11 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                       <button
                         key={room.id}
                         onClick={() => handleRoomChipClick(room)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${getChipClasses(room.id)}`}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${getChipClasses(room.id)}`}
                       >
                         {getStatusDot(room.id)}
                         {room.room_number}
+                        {getRoomTypeBadge(room)}
                         {info && info.placements.length > 1 && (
                           <span className="text-[10px] opacity-70">×{info.placements.length}</span>
                         )}
@@ -557,6 +773,21 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
             <DialogTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
                 Room {actionRoom?.room_number}
+                {actionRoom && (
+                  <span className="flex items-center gap-1">
+                    {actionRoom.is_checkout_room ? (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-orange-300 text-orange-700 bg-orange-50">
+                        <Luggage className="h-2.5 w-2.5" />
+                        Checkout
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-blue-300 text-blue-700 bg-blue-50">
+                        <Home className="h-2.5 w-2.5" />
+                        Daily{actionRoom.guest_nights_stayed > 0 ? ` · ${actionRoom.guest_nights_stayed}n` : ''}
+                      </Badge>
+                    )}
+                  </span>
+                )}
               </span>
               {(() => {
                 const usageTotal = roomUsage.reduce((sum, u) => sum + ((u.minibar_items?.price || 0) * (u.quantity_used || 0)), 0);
@@ -570,17 +801,112 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
             </DialogTitle>
           </DialogHeader>
 
-          <Tabs defaultValue="usage" className="flex-1 overflow-hidden flex flex-col">
+          <Tabs defaultValue="perishable" className="flex-1 overflow-hidden flex flex-col">
             <TabsList className="grid grid-cols-2 w-full h-9">
-              <TabsTrigger value="usage" className="text-xs gap-1">
-                <Wine className="h-3 w-3" />
-                Minibar Usage ({roomUsage.length})
-              </TabsTrigger>
               <TabsTrigger value="perishable" className="text-xs gap-1">
                 <Package className="h-3 w-3" />
                 Perishable ({actionPlacements.length})
               </TabsTrigger>
+              <TabsTrigger value="usage" className="text-xs gap-1">
+                <Wine className="h-3 w-3" />
+                Minibar ({roomUsage.length})
+              </TabsTrigger>
             </TabsList>
+
+            {/* Perishable Tab - now first */}
+            <TabsContent value="perishable" className="flex-1 overflow-y-auto space-y-3 mt-2">
+              {actionPlacements.length > 0 ? (
+                actionPlacements.map(p => {
+                  const daysLeft = differenceInDays(startOfDay(new Date(p.expires_at)), today);
+                  const isOverdue = daysLeft < 0;
+                  const isToday = daysLeft === 0;
+
+                  return (
+                    <div key={p.id} className={`p-3 rounded-lg border ${isOverdue ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : isToday ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800' : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium">{p.item_name}</span>
+                        {isOverdue && (
+                          <Badge className="bg-red-500 text-white text-[10px] px-1.5 py-0 gap-1">
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {Math.abs(daysLeft)}d OVERDUE
+                          </Badge>
+                        )}
+                        {isToday && <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0">COLLECT TODAY</Badge>}
+                        {!isOverdue && !isToday && (
+                          <Badge className="bg-emerald-500 text-white text-[10px] px-1.5 py-0">{daysLeft}d left</Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Placed {format(new Date(p.placed_at), 'MMM d, HH:mm')} · Expires {format(new Date(p.expires_at), 'MMM d')}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 gap-1 h-7 text-xs"
+                          onClick={() => handleMarkCollected(p.id)}
+                        >
+                          <CheckCircle2 className="h-3 w-3" />
+                          Collect
+                        </Button>
+                        {canPlace && selectedViewItem && (
+                          <Button
+                            size="sm"
+                            className={`flex-1 gap-1 h-7 text-xs ${isOverdue || isToday ? 'bg-primary' : ''}`}
+                            onClick={() => handleCollectAndRefill(p)}
+                          >
+                            <ArrowRightLeft className="h-3 w-3" />
+                            Collect & Refill
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-4 text-sm text-muted-foreground">
+                  No active perishable items
+                </div>
+              )}
+
+              {canPlace && actionRoom && (
+                <div className="border-t pt-3 space-y-2">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Refill with new item</Label>
+                  
+                  {/* Expiry date picker for refill */}
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs whitespace-nowrap">Expires:</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className={cn("h-8 flex-1 justify-start text-left text-xs font-normal", !refillExpiryDate && "text-muted-foreground")}>
+                          <CalendarIcon className="mr-1.5 h-3 w-3" />
+                          {refillExpiryDate ? format(refillExpiryDate, 'MMM d, yyyy') : 'Pick date'}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={refillExpiryDate}
+                          onSelect={setRefillExpiryDate}
+                          initialFocus
+                          className={cn("p-3 pointer-events-auto")}
+                          disabled={(date) => date < today}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  
+                  <Button
+                    className="w-full gap-1.5 h-9"
+                    onClick={() => handleRefillRoom(actionRoom)}
+                    disabled={!selectedViewItem}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Refill {selectedViewItemName.length > 25 ? selectedViewItemName.substring(0, 23) + '...' : selectedViewItemName}
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
 
             {/* Minibar Usage Tab */}
             <TabsContent value="usage" className="flex-1 overflow-y-auto space-y-3 mt-2">
@@ -649,57 +975,6 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                 </div>
               )}
             </TabsContent>
-
-            {/* Perishable Tab */}
-            <TabsContent value="perishable" className="flex-1 overflow-y-auto space-y-3 mt-2">
-              {actionPlacements.length > 0 ? (
-                actionPlacements.map(p => {
-                  const daysLeft = differenceInDays(startOfDay(new Date(p.expires_at)), today);
-                  const isOverdue = daysLeft < 0;
-                  const isToday = daysLeft === 0;
-
-                  return (
-                    <div key={p.id} className={`p-3 rounded-lg border ${isOverdue ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : isToday ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800' : 'bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium">{p.item_name}</span>
-                        {isOverdue && <Badge className="bg-red-500 text-white text-[10px] px-1.5 py-0">OVERDUE</Badge>}
-                        {isToday && <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0">TODAY</Badge>}
-                      </div>
-                      <div className="text-xs text-muted-foreground mb-2">
-                        Placed {format(new Date(p.placed_at), 'MMM d, HH:mm')} · Expires {format(new Date(p.expires_at), 'MMM d')}
-                        {!isOverdue && !isToday && ` (${daysLeft}d left)`}
-                      </div>
-                      <Button
-                        size="sm"
-                        variant={isOverdue || isToday ? 'default' : 'outline'}
-                        className="w-full gap-1 h-7 text-xs"
-                        onClick={() => handleMarkCollected(p.id)}
-                      >
-                        <CheckCircle2 className="h-3 w-3" />
-                        Mark Collected
-                      </Button>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-center py-4 text-sm text-muted-foreground">
-                  No active perishable items
-                </div>
-              )}
-
-              {canPlace && actionRoom && (
-                <Button
-                  className="w-full gap-1.5"
-                  onClick={() => {
-                    handleRefillRoom(actionRoom);
-                  }}
-                  disabled={!selectedViewItem}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Refill {selectedViewItemName.length > 30 ? selectedViewItemName.substring(0, 28) + '...' : selectedViewItemName}
-                </Button>
-              )}
-            </TabsContent>
           </Tabs>
         </DialogContent>
       </Dialog>
@@ -727,6 +1002,31 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Custom Expiry Date */}
+            {selectedItemId && (
+              <div>
+                <label className="text-sm font-medium">Expiry Date</label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("w-full mt-1 justify-start text-left font-normal", !customExpiryDate && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {customExpiryDate ? format(customExpiryDate, 'PPP') : 'Pick expiry date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={customExpiryDate}
+                      onSelect={setCustomExpiryDate}
+                      initialFocus
+                      className={cn("p-3 pointer-events-auto")}
+                      disabled={(date) => date < today}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
 
             {selectedItemId && (
               <div>
@@ -762,6 +1062,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                         onCheckedChange={() => toggleRoom(room.id)}
                       />
                       <span className="text-sm font-medium">{room.room_number}</span>
+                      {getRoomTypeBadge(room)}
                     </label>
                   ))}
                 </div>
@@ -773,7 +1074,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                 <p className="font-medium">Summary</p>
                 <p className="text-muted-foreground">
                   {selectedRoomIds.size} × {perishableItems.find(i => i.id === selectedItemId)?.name} → expires{' '}
-                  {format(addDays(startOfDay(new Date()), perishableItems.find(i => i.id === selectedItemId)?.expiry_days || 2), 'MMM d, yyyy')}
+                  {customExpiryDate ? format(customExpiryDate, 'MMM d, yyyy') : format(addDays(startOfDay(new Date()), perishableItems.find(i => i.id === selectedItemId)?.expiry_days || 2), 'MMM d, yyyy')}
                 </p>
               </div>
             )}
