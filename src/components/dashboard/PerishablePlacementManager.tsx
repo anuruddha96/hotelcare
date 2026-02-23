@@ -15,7 +15,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 import { format, differenceInDays, startOfDay, addDays } from 'date-fns';
-import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square, RefreshCw, Package, Trash2, Wine, Loader2, Receipt, CalendarIcon, Luggage, Home, ArrowRightLeft } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square, RefreshCw, Package, Trash2, Wine, Loader2, Receipt, CalendarIcon, Luggage, Home, ArrowRightLeft, BellOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface PerishableItem {
@@ -46,6 +46,7 @@ interface RoomOption {
   hotel: string;
   is_checkout_room: boolean;
   guest_nights_stayed: number;
+  is_dnd: boolean;
 }
 
 interface PerishablePlacementManagerProps {
@@ -172,7 +173,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
     const { data } = await supabase
       .from('rooms')
-      .select('id, room_number, hotel, is_checkout_room, guest_nights_stayed')
+      .select('id, room_number, hotel, is_checkout_room, guest_nights_stayed, is_dnd')
       .or(filter)
       .order('room_number', { ascending: true });
 
@@ -183,6 +184,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       hotel: r.hotel,
       is_checkout_room: r.is_checkout_room ?? false,
       guest_nights_stayed: r.guest_nights_stayed ?? 0,
+      is_dnd: r.is_dnd ?? false,
     })));
   };
 
@@ -276,6 +278,11 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
   const today = startOfDay(new Date());
 
+  // Check if a room already has an active placement for the selected item
+  const roomHasActivePlacement = (roomId: string, itemId: string): boolean => {
+    return placements.some(p => p.room_id === roomId && p.minibar_item_id === itemId);
+  };
+
   // Build a map: roomId -> placement status for the selected item
   const roomStatusMap = useMemo(() => {
     const map = new Map<string, { status: RoomStatus; placements: Placement[] }>();
@@ -344,9 +351,10 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
         .eq('id', placementId) as any);
 
       if (error) throw error;
-      toast({ title: 'Collected', description: 'Item marked as collected' });
+      toast({ title: '✅ Collected Successfully', description: 'Item has been marked as collected.' });
       fetchPlacements();
-      setActionPlacements(prev => prev.filter(p => p.id !== placementId));
+      // Close dialog and return to tracker
+      setActionDialogOpen(false);
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
@@ -384,9 +392,10 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
           organization_slug: organizationSlug,
         } as any) as any);
 
-      toast({ title: 'Collected & Refilled', description: `New ${item.name} placed, expires ${format(expiresAt, 'MMM d')}` });
+      toast({ title: '✅ Collected & Refilled', description: `New ${item.name} placed in Room ${actionRoom.room_number}. Expires ${format(expiresAt, 'MMM d')}` });
       fetchPlacements();
-      setActionPlacements(prev => prev.filter(p => p.id !== placement.id));
+      // Close dialog and return to tracker
+      setActionDialogOpen(false);
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
@@ -397,6 +406,17 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       toast({ title: 'No item selected', description: 'Please select a perishable item first', variant: 'destructive' });
       return;
     }
+
+    // Prevent duplicate: check if room already has active placement for this item
+    if (roomHasActivePlacement(room.id, selectedViewItem)) {
+      toast({
+        title: '⚠️ Already Active',
+        description: `This room already has an active ${perishableItems.find(i => i.id === selectedViewItem)?.name || 'item'}. Collect the existing one first.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const item = perishableItems.find(i => i.id === selectedViewItem);
     if (!item) return;
 
@@ -419,10 +439,12 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
       if (error) throw error;
       toast({
-        title: 'Refilled',
+        title: '✅ Refilled',
         description: `${item.name} placed in Room ${room.room_number}. Expires ${format(expiresAt, 'MMM d')}`,
       });
       fetchPlacements();
+      // Close dialog and return to tracker
+      setActionDialogOpen(false);
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
@@ -443,7 +465,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
         .in('id', ids) as any);
 
       if (error) throw error;
-      toast({ title: 'All Overdue Collected', description: `${ids.length} items marked as collected` });
+      toast({ title: '✅ All Overdue Collected', description: `${ids.length} items marked as collected` });
       fetchPlacements();
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -497,7 +519,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       if (insertError) throw insertError;
 
       toast({
-        title: 'Collected & Refilled All',
+        title: '✅ Collected & Refilled All',
         description: `${ids.length} collected, ${newPlacements.length} fresh items placed. Expires ${format(expiresAt, 'MMM d')}`,
       });
       fetchPlacements();
@@ -516,13 +538,27 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
       const item = perishableItems.find(i => i.id === selectedItemId);
       if (!item) return;
 
-      const sampleRoom = rooms.find(r => selectedRoomIds.has(r.id));
+      // Filter out rooms that already have an active placement for this item
+      const roomsToPlace = Array.from(selectedRoomIds).filter(roomId => !roomHasActivePlacement(roomId, selectedItemId));
+      const skippedCount = selectedRoomIds.size - roomsToPlace.length;
+
+      if (roomsToPlace.length === 0) {
+        toast({
+          title: '⚠️ All Rooms Skipped',
+          description: `All ${selectedRoomIds.size} selected rooms already have active ${item.name}. Collect existing items first.`,
+          variant: 'destructive',
+        });
+        setSubmitting(false);
+        return;
+      }
+
+      const sampleRoom = rooms.find(r => roomsToPlace.includes(r.id));
       const hotelValue = sampleRoom?.hotel || hotel;
 
       const now = new Date();
       const expiresAt = customExpiryDate || addDays(startOfDay(now), item.expiry_days);
 
-      const records = Array.from(selectedRoomIds).map(roomId => ({
+      const records = roomsToPlace.map(roomId => ({
         room_id: roomId,
         minibar_item_id: selectedItemId,
         placed_by: profile?.id,
@@ -540,9 +576,10 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
 
       if (error) throw error;
 
+      const skippedMsg = skippedCount > 0 ? ` (${skippedCount} skipped - already active)` : '';
       toast({
-        title: 'Items Placed',
-        description: `${records.length} × ${item.name} placed. Expires ${format(expiresAt, 'MMM d')}`,
+        title: '✅ Items Placed',
+        description: `${records.length} × ${item.name} placed. Expires ${format(expiresAt, 'MMM d')}${skippedMsg}`,
       });
 
       setDialogOpen(false);
@@ -619,7 +656,19 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
     return null;
   };
 
+  const getDndBadge = (room: RoomOption) => {
+    if (!room.is_dnd) return null;
+    return (
+      <span className="text-[9px] font-bold bg-purple-200 text-purple-700 dark:bg-purple-800/40 dark:text-purple-300 rounded px-1 leading-tight">
+        DND
+      </span>
+    );
+  };
+
   const selectedViewItemName = perishableItems.find(i => i.id === selectedViewItem)?.name || 'Perishable Items';
+
+  // Check if the room already has an active placement for selected item (for room dialog)
+  const actionRoomHasActive = actionRoom && selectedViewItem ? roomHasActivePlacement(actionRoom.id, selectedViewItem) : false;
 
   // Group rooms by floor
   const roomsByFloor = useMemo(() => {
@@ -645,7 +694,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                   Perishable Item Tracker
                 </CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Click any room to manage · <span className="inline-flex items-center gap-0.5"><span className="text-[9px] font-bold bg-orange-200 text-orange-700 rounded px-0.5">C/O</span> = Checkout</span> · <span className="inline-flex items-center gap-0.5"><span className="text-[9px] font-bold bg-blue-200 text-blue-700 rounded px-0.5">D3</span> = Daily (nights)</span>
+                  Click any room to manage · <span className="inline-flex items-center gap-0.5"><span className="text-[9px] font-bold bg-orange-200 text-orange-700 rounded px-0.5">C/O</span> = Checkout</span> · <span className="inline-flex items-center gap-0.5"><span className="text-[9px] font-bold bg-blue-200 text-blue-700 rounded px-0.5">D3</span> = Daily</span> · <span className="inline-flex items-center gap-0.5"><span className="text-[9px] font-bold bg-purple-200 text-purple-700 rounded px-0.5">DND</span> = Do Not Disturb</span>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -747,6 +796,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                         {getStatusDot(room.id)}
                         {room.room_number}
                         {getRoomTypeBadge(room)}
+                        {getDndBadge(room)}
                         {info && info.placements.length > 1 && (
                           <span className="text-[10px] opacity-70">×{info.placements.length}</span>
                         )}
@@ -784,6 +834,12 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                       <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-blue-300 text-blue-700 bg-blue-50">
                         <Home className="h-2.5 w-2.5" />
                         Daily{actionRoom.guest_nights_stayed > 0 ? ` · ${actionRoom.guest_nights_stayed}n` : ''}
+                      </Badge>
+                    )}
+                    {actionRoom.is_dnd && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-purple-300 text-purple-700 bg-purple-50">
+                        <BellOff className="h-2.5 w-2.5" />
+                        DND
                       </Badge>
                     )}
                   </span>
@@ -869,7 +925,8 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                 </div>
               )}
 
-              {canPlace && actionRoom && (
+              {/* Only show refill section if NO active placement exists for this item */}
+              {canPlace && actionRoom && !actionRoomHasActive && (
                 <div className="border-t pt-3 space-y-2">
                   <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Refill with new item</Label>
                   
@@ -904,6 +961,15 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                     <RefreshCw className="h-3.5 w-3.5" />
                     Refill {selectedViewItemName.length > 25 ? selectedViewItemName.substring(0, 23) + '...' : selectedViewItemName}
                   </Button>
+                </div>
+              )}
+
+              {/* Show message when item already active */}
+              {canPlace && actionRoom && actionRoomHasActive && actionPlacements.length > 0 && (
+                <div className="border-t pt-3">
+                  <p className="text-xs text-muted-foreground text-center italic">
+                    ℹ️ Active {selectedViewItemName} exists. Collect it first to refill.
+                  </p>
                 </div>
               )}
             </TabsContent>
@@ -1050,21 +1116,28 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 max-h-[40vh] overflow-y-auto border rounded-lg p-3">
-                  {rooms.map(room => (
-                    <label
-                      key={room.id}
-                      className={`flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors ${
-                        selectedRoomIds.has(room.id) ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted/50 border border-transparent'
-                      }`}
-                    >
-                      <Checkbox
-                        checked={selectedRoomIds.has(room.id)}
-                        onCheckedChange={() => toggleRoom(room.id)}
-                      />
-                      <span className="text-sm font-medium">{room.room_number}</span>
-                      {getRoomTypeBadge(room)}
-                    </label>
-                  ))}
+                  {rooms.map(room => {
+                    const hasActive = roomHasActivePlacement(room.id, selectedItemId);
+                    return (
+                      <label
+                        key={room.id}
+                        className={`flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors ${
+                          hasActive
+                            ? 'bg-muted/50 opacity-50 cursor-not-allowed'
+                            : selectedRoomIds.has(room.id) ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted/50 border border-transparent'
+                        }`}
+                      >
+                        <Checkbox
+                          checked={selectedRoomIds.has(room.id)}
+                          onCheckedChange={() => !hasActive && toggleRoom(room.id)}
+                          disabled={hasActive}
+                        />
+                        <span className="text-sm font-medium">{room.room_number}</span>
+                        {getRoomTypeBadge(room)}
+                        {hasActive && <span className="text-[9px] text-amber-600 font-medium">Active</span>}
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             )}

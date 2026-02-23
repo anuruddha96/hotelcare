@@ -308,13 +308,46 @@ function sortRoomsOptimally(rooms: RoomForAssignment[]): RoomForAssignment[] {
   });
 }
 
+// Hotel-specific tuning configuration
+export interface HotelAssignmentConfig {
+  floorPenaltyMultiplier?: number;    // default 1.0
+  affinityBonusMultiplier?: number;   // default 15 (increased from 10)
+  checkoutFirstGrouping?: boolean;    // default true
+  roomProximityWeight?: number;       // default 1.0, for hotels without wing data
+}
+
+const DEFAULT_CONFIG: HotelAssignmentConfig = {
+  floorPenaltyMultiplier: 1.0,
+  affinityBonusMultiplier: 15,
+  checkoutFirstGrouping: true,
+  roomProximityWeight: 1.0,
+};
+
+// Room number proximity bonus for hotels without wing data
+function getRoomProximityBonus(roomNumber: string, existingRooms: RoomForAssignment[], weight: number): number {
+  const num = parseInt(roomNumber, 10);
+  if (isNaN(num) || existingRooms.length === 0) return 0;
+  let bonus = 0;
+  for (const existing of existingRooms) {
+    const existingNum = parseInt(existing.room_number, 10);
+    if (isNaN(existingNum)) continue;
+    const diff = Math.abs(num - existingNum);
+    if (diff <= 2) bonus += 4 * weight;
+    else if (diff <= 5) bonus += 2 * weight;
+    else if (diff <= 10) bonus += 1 * weight;
+  }
+  return bonus;
+}
+
 // Main auto-assignment algorithm: WING-FIRST grouping
 export function autoAssignRooms(
   rooms: RoomForAssignment[],
   staff: StaffForAssignment[],
   wingProximityMap?: WingProximityMap,
-  affinityMap?: RoomAffinityMap
+  affinityMap?: RoomAffinityMap,
+  hotelConfig?: HotelAssignmentConfig
 ): AssignmentPreview[] {
+  const config = { ...DEFAULT_CONFIG, ...hotelConfig };
   if (staff.length === 0 || rooms.length === 0) {
     return staff.map(s => ({
       staffId: s.id,
@@ -338,8 +371,19 @@ export function autoAssignRooms(
     staffWeights.set(s.id, 0);
   });
 
-  // STEP 1: Group ALL rooms (checkout + daily) by wing
-  const allByWing = groupRoomsByWing(rooms);
+  // STEP 1: Optionally separate checkouts first for checkout-first grouping
+  let roomsToAssign = [...rooms];
+  if (config.checkoutFirstGrouping) {
+    // Sort checkouts before dailies so they get assigned first in wing groups
+    roomsToAssign.sort((a, b) => {
+      if (a.is_checkout_room && !b.is_checkout_room) return -1;
+      if (!a.is_checkout_room && b.is_checkout_room) return 1;
+      return 0;
+    });
+  }
+
+  // STEP 1b: Group ALL rooms (checkout + daily) by wing
+  const allByWing = groupRoomsByWing(roomsToAssign);
 
   // STEP 2: Sort wing groups by total weight (heaviest first for better distribution)
   const wingEntries = Array.from(allByWing.entries())
@@ -403,6 +447,9 @@ export function autoAssignRooms(
       for (const room of sorted) {
         const roomFloor = room.floor_number ?? getFloorFromRoomNumber(room.room_number);
         // Find staff with lowest effective weight (weight minus affinity & sequence bonuses + floor penalty)
+        const affinityMult = config.affinityBonusMultiplier!;
+        const proxWeight = config.roomProximityWeight!;
+        const hasWings = rooms.some(r => r.wing);
         const splitCandidates = Array.from(staffWeights.entries()).sort((a, b) => {
           const aRooms = assignments.get(a[0])!;
           const bRooms = assignments.get(b[0])!;
@@ -410,10 +457,12 @@ export function autoAssignRooms(
           const bAffinity = getAffinityBonus(room.room_number, bRooms.map(r => r.room_number), affinityMap);
           const aSeqBonus = getSequenceBonus(room.room_number, aRooms);
           const bSeqBonus = getSequenceBonus(room.room_number, bRooms);
-          const aFloorPenalty = getFloorSpreadPenalty(aRooms, roomFloor);
-          const bFloorPenalty = getFloorSpreadPenalty(bRooms, roomFloor);
-          // Lower effective weight = weight - bonuses + floor penalty (bonuses make staff more attractive)
-          return (a[1] + aFloorPenalty - aAffinity * 10 - aSeqBonus * 0.5) - (b[1] + bFloorPenalty - bAffinity * 10 - bSeqBonus * 0.5);
+          const aFloorPenalty = getFloorSpreadPenalty(aRooms, roomFloor) * config.floorPenaltyMultiplier!;
+          const bFloorPenalty = getFloorSpreadPenalty(bRooms, roomFloor) * config.floorPenaltyMultiplier!;
+          // Room proximity bonus for hotels without wing data
+          const aProxBonus = !hasWings ? getRoomProximityBonus(room.room_number, aRooms, proxWeight) : 0;
+          const bProxBonus = !hasWings ? getRoomProximityBonus(room.room_number, bRooms, proxWeight) : 0;
+          return (a[1] + aFloorPenalty - aAffinity * affinityMult - aSeqBonus * 0.5 - aProxBonus) - (b[1] + bFloorPenalty - bAffinity * affinityMult - bSeqBonus * 0.5 - bProxBonus);
         });
         const [bestId, bestWeight] = splitCandidates[0];
         assignments.get(bestId)!.push(room);
@@ -463,7 +512,7 @@ export function autoAssignRooms(
       const floorPenalty = getFloorSpreadPenalty(lightestRooms, roomFloor);
       
       // Affinity penalty: penalize moving room away from high-affinity partners
-      const affinityPenalty = getAffinityLoss(room.room_number, heaviestRooms.map(r => r.room_number), affinityMap) * 10;
+      const affinityPenalty = getAffinityLoss(room.room_number, heaviestRooms.map(r => r.room_number), affinityMap) * config.affinityBonusMultiplier!;
       // Sequence penalty: penalize breaking up sequential rooms
       const seqPenalty = getSequenceBonus(room.room_number, heaviestRooms.filter(r => r.id !== room.id));
       // Sequence bonus for target: reward if room fits sequentially with lightest's rooms
