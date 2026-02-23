@@ -55,7 +55,23 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
         `);
       
       if (hotelFilter) {
-        query = query.eq('hotel_filter', hotelFilter);
+        // Resolve hotel slug from hotel_configurations since DB stores slugs
+        // but parent may pass full hotel name
+        const { data: hotelConfig } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_id, hotel_name')
+          .or(`hotel_id.eq.${hotelFilter},hotel_name.eq.${hotelFilter}`)
+          .limit(1);
+        
+        const possibleValues = new Set<string>();
+        possibleValues.add(hotelFilter);
+        if (hotelConfig && hotelConfig.length > 0) {
+          possibleValues.add(hotelConfig[0].hotel_id);
+          possibleValues.add(hotelConfig[0].hotel_name);
+        }
+        
+        const orFilter = Array.from(possibleValues).map(v => `hotel_filter.eq.${v}`).join(',');
+        query = query.or(orFilter);
       }
       
       const { data, error } = await query

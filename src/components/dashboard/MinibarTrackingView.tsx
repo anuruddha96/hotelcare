@@ -208,7 +208,7 @@ function RoomGroupedView({
               ))}
             </div>
             <div className="px-4 py-2 bg-muted/20 border-t">
-              <p className="text-xs text-muted-foreground italic">💡 Add to guest bill at checkout</p>
+              <p className="text-xs text-muted-foreground italic">💡 {t('minibar.addToGuestBill') || 'Add to guest bill at checkout'}</p>
             </div>
           </CardContent>
         </Card>
@@ -544,7 +544,7 @@ export function MinibarTrackingView() {
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search room or item..."
+              placeholder={t('minibar.searchRoomOrItem') || "Search room or item..."}
               value={searchRoom}
               onChange={(e) => setSearchRoom(e.target.value)}
               className="pl-8 w-[200px]"
@@ -553,19 +553,19 @@ export function MinibarTrackingView() {
           {canQuickAdd && (
             <Button onClick={() => setQuickAddOpen(true)} className="gap-2">
               <Plus className="h-4 w-4" />
-              Record Usage
+              {t('minibar.recordUsage') || 'Record Usage'}
             </Button>
           )}
           {canManageQR && (
             <Button variant="outline" onClick={() => setQrManagementOpen(true)} className="gap-2">
               <QrCode className="h-4 w-4" />
-              QR Codes
+              {t('minibar.qrCodes') || 'QR Codes'}
             </Button>
           )}
           {canManageItems && (
             <Button variant="outline" onClick={() => setManageItemsOpen(true)} className="gap-2">
               <Settings className="h-4 w-4" />
-              Manage Items
+              {t('minibar.manageItems') || 'Manage Items'}
             </Button>
           )}
           {canClearAll && (
@@ -575,7 +575,7 @@ export function MinibarTrackingView() {
               className="gap-2"
             >
               <AlertTriangle className="h-4 w-4" />
-              Clear All Records
+              {t('minibar.clearAllRecords') || 'Clear All Records'}
             </Button>
           )}
           {/* Full Stay toggle removed - auto-detected from PMS data */}
@@ -620,7 +620,7 @@ export function MinibarTrackingView() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.totalItems}</div>
-            <p className="text-xs text-muted-foreground">Items consumed</p>
+            <p className="text-xs text-muted-foreground">{t('minibar.itemsConsumed') || 'Items consumed'}</p>
           </CardContent>
         </Card>
 
@@ -631,18 +631,18 @@ export function MinibarTrackingView() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.roomsWithUsage}</div>
-            <p className="text-xs text-muted-foreground">Rooms with charges</p>
+            <p className="text-xs text-muted-foreground">{t('minibar.roomsWithCharges') || 'Rooms with charges'}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg per Room</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('minibar.avgPerRoom') || 'Avg per Room'}</CardTitle>
             <Receipt className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">€{summary.avgPerRoom.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Average spend</p>
+            <p className="text-xs text-muted-foreground">{t('minibar.averageSpend') || 'Average spend'}</p>
           </CardContent>
         </Card>
       </div>
