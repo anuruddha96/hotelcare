@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2 } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
@@ -140,6 +140,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const isReception = profile?.role === 'reception';
+  const canViewFullOverview = isManagerOrAdmin || isReception;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  };
 
   useEffect(() => {
     fetchData();
@@ -539,7 +548,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            {isManagerOrAdmin && (
+            {canViewFullOverview && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -550,6 +559,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 {viewMode === 'list' ? 'Map' : 'List'}
               </Button>
             )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`h-3 w-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? '' : 'Refresh'}
+            </Button>
           </CardTitle>
           {/* Legend */}
           <div className="flex flex-wrap gap-2 mt-1">
