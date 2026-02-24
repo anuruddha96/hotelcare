@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search, Upload, Image, User, Monitor, ScanLine, Receipt, Hotel } from 'lucide-react';
+import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search, Upload, Image, User, Monitor, ScanLine, Receipt, Hotel, RefreshCw, Eye, CalendarDays } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { subDays } from 'date-fns';
@@ -87,6 +87,8 @@ function RoomGroupedView({
   canDelete,
   onDeleteRecord,
   t,
+  viewMode,
+  selectedDate,
 }: {
   records: MinibarUsageRecord[];
   searchTerm: string;
@@ -94,6 +96,8 @@ function RoomGroupedView({
   canDelete: boolean;
   onDeleteRecord: (id: string) => void;
   t: (key: string) => string;
+  viewMode: 'current' | 'date';
+  selectedDate: Date;
 }) {
   // Compute max guest_nights_stayed per room group
   const roomNightsMap = useMemo(() => {
@@ -146,19 +150,35 @@ function RoomGroupedView({
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {roomGroups.map((group) => (
+      {roomGroups.map((group) => {
+        const nights = roomNightsMap.get(`${group.room_number}-${group.hotel}`) || 1;
+        const checkInDate = nights > 1 ? subDays(selectedDate, nights - 1) : selectedDate;
+        
+        // Group items by day for multi-day stays
+        const itemsByDay = new Map<string, MinibarUsageRecord[]>();
+        for (const item of group.items) {
+          const dayKey = format(new Date(item.usage_date), 'yyyy-MM-dd');
+          if (!itemsByDay.has(dayKey)) itemsByDay.set(dayKey, []);
+          itemsByDay.get(dayKey)!.push(item);
+        }
+        const sortedDays = Array.from(itemsByDay.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+        return (
         <Card key={`${group.room_number}-${group.hotel}`} className="overflow-hidden">
           <CardHeader className="pb-3 bg-muted/30">
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-lg">Room {group.room_number}</CardTitle>
-                <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <p className="text-xs text-muted-foreground">{group.hotel}</p>
-                  {(roomNightsMap.get(`${group.room_number}-${group.hotel}`) || 1) > 1 && (
+                  {nights > 1 && (
                     <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 hover:bg-indigo-100 text-[10px] gap-0.5">
                       <Hotel className="h-2.5 w-2.5" />
-                      Full Stay ({roomNightsMap.get(`${group.room_number}-${group.hotel}`)} nights)
+                      {t('minibar.checkIn')}: {format(checkInDate, 'MMM d')} — {format(selectedDate, 'MMM d')} ({nights} {nights === 1 ? t('minibar.nightStay') : t('minibar.nightsStay')})
                     </Badge>
+                  )}
+                  {nights === 1 && viewMode === 'current' && (
+                    <Badge variant="outline" className="text-[10px]">1 {t('minibar.nightStay')}</Badge>
                   )}
                 </div>
               </div>
@@ -170,7 +190,51 @@ function RoomGroupedView({
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y">
-              {group.items.map((record) => (
+              {nights > 1 && sortedDays.length > 1 ? (
+                // Group by day for multi-day stays
+                sortedDays.map(([dayKey, dayItems]) => (
+                  <div key={dayKey}>
+                    <div className="px-4 py-1.5 bg-muted/20 text-xs font-medium text-muted-foreground">
+                      {format(new Date(dayKey), 'EEE, MMM d')}
+                    </div>
+                    {dayItems.map((record) => (
+                      <div key={record.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{record.item_name}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <SourceBadge source={record.source} />
+                            {record.is_cleared && (
+                              <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">
+                                ✓ Cleared
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 ml-3">
+                          <div className="text-right">
+                            <div className="font-medium">€{record.total_price.toFixed(2)}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {record.quantity_used} × €{record.item_price.toFixed(2)}
+                            </div>
+                          </div>
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => onDeleteRecord(record.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              ) : (
+                // Single day or single-day stay
+                group.items.map((record) => (
                 <div key={record.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{record.item_name}</div>
@@ -205,14 +269,16 @@ function RoomGroupedView({
                     )}
                   </div>
                 </div>
-              ))}
+              ))
+              )}
             </div>
             <div className="px-4 py-2 bg-muted/20 border-t">
-              <p className="text-xs text-muted-foreground italic">💡 {t('minibar.addToGuestBill') || 'Add to guest bill at checkout'}</p>
+              <p className="text-xs text-muted-foreground italic">💡 {t('minibar.addToGuestBill')}</p>
             </div>
           </CardContent>
         </Card>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -237,11 +303,20 @@ export function MinibarTrackingView() {
   const [searchRoom, setSearchRoom] = useState('');
   const [minibarLogoUrl, setMinibarLogoUrl] = useState('');
   const [minibarLogoUploading, setMinibarLogoUploading] = useState(false);
+  const [viewMode, setViewMode] = useState<'current' | 'date'>('current');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchMinibarData();
+    setRefreshing(false);
+  };
+
   useEffect(() => {
     fetchUserRole();
     fetchMinibarData();
     fetchMinibarLogo();
-  }, [selectedDate]);
+  }, [selectedDate, viewMode]);
 
   const fetchUserRole = async () => {
     if (user?.id) {
@@ -400,65 +475,11 @@ export function MinibarTrackingView() {
         hotelNameToFilter = hotelConfig?.hotel_name || userHotel;
       }
 
-      const startDate = startOfDay(selectedDate);
-      const endDate = endOfDay(selectedDate);
+      let filteredData: any[] = [];
 
-      const { data, error } = await supabase
-        .from('room_minibar_usage')
-        .select(`
-          id,
-          quantity_used,
-          usage_date,
-          room_id,
-          recorded_by,
-          minibar_item_id,
-          source,
-          is_cleared,
-          rooms (
-            room_number,
-            hotel,
-            guest_nights_stayed
-          ),
-          minibar_items (
-            name,
-            price
-          ),
-          profiles (
-            full_name
-          )
-        `)
-        .gte('usage_date', startDate.toISOString())
-        .lte('usage_date', endDate.toISOString())
-        .order('usage_date', { ascending: false });
-
-      if (error) throw error;
-
-      // Filter by user's assigned hotel using joined rooms.hotel
-      let filteredData = data || [];
-      if (userHotel && filteredData.length > 0) {
-        filteredData = filteredData.filter((record: any) =>
-          record.rooms?.hotel === userHotel ||
-          record.rooms?.hotel === hotelNameToFilter
-        );
-      }
-
-      // Auto-detect multi-day stays: for rooms with guest_nights_stayed > 1,
-      // fetch additional usage records going back N days
-      const multiDayRooms = new Map<string, number>();
-      for (const record of filteredData) {
-        const nights = (record as any).rooms?.guest_nights_stayed || 1;
-        if (nights > 1) {
-          multiDayRooms.set(record.room_id, Math.min(nights, 30));
-        }
-      }
-
-      let fullStayRecords: any[] = [];
-      if (multiDayRooms.size > 0) {
-        const roomIds = Array.from(multiDayRooms.keys());
-        const maxNights = Math.max(...Array.from(multiDayRooms.values()));
-        const stayStart = startOfDay(subDays(selectedDate, maxNights - 1));
-
-        const { data: stayData } = await supabase
+      if (viewMode === 'current') {
+        // Current Stays mode: fetch ALL uncleared records
+        const { data, error } = await supabase
           .from('room_minibar_usage')
           .select(`
             id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
@@ -466,33 +487,86 @@ export function MinibarTrackingView() {
             minibar_items (name, price),
             profiles (full_name)
           `)
-          .in('room_id', roomIds)
-          .gte('usage_date', stayStart.toISOString())
-          .lt('usage_date', startDate.toISOString())
+          .eq('is_cleared', false)
           .order('usage_date', { ascending: false });
 
-        if (stayData) {
-          // Filter by each room's actual nights stayed
-          fullStayRecords = stayData.filter((r: any) => {
-            const nights = multiDayRooms.get(r.room_id) || 1;
-            const roomStayStart = startOfDay(subDays(selectedDate, nights - 1));
-            return new Date(r.usage_date) >= roomStayStart;
-          });
-          // Apply same hotel filter
-          if (userHotel) {
-            fullStayRecords = fullStayRecords.filter((r: any) =>
-              r.rooms?.hotel === userHotel || r.rooms?.hotel === hotelNameToFilter
-            );
-          }
-        }
+        if (error) throw error;
+        filteredData = data || [];
+      } else {
+        // By Date mode: existing date-based logic
+        const startDate = startOfDay(selectedDate);
+        const endDate = endOfDay(selectedDate);
+
+        const { data, error } = await supabase
+          .from('room_minibar_usage')
+          .select(`
+            id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+            rooms (room_number, hotel, guest_nights_stayed),
+            minibar_items (name, price),
+            profiles (full_name)
+          `)
+          .gte('usage_date', startDate.toISOString())
+          .lte('usage_date', endDate.toISOString())
+          .order('usage_date', { ascending: false });
+
+        if (error) throw error;
+        filteredData = data || [];
       }
 
-      // Merge today's records with full-stay records, deduplicate by id
-      const allRecordIds = new Set(filteredData.map((r: any) => r.id));
-      for (const r of fullStayRecords) {
-        if (!allRecordIds.has(r.id)) {
-          filteredData.push(r);
-          allRecordIds.add(r.id);
+      // Filter by user's assigned hotel using joined rooms.hotel
+      if (userHotel && filteredData.length > 0) {
+        filteredData = filteredData.filter((record: any) =>
+          record.rooms?.hotel === userHotel ||
+          record.rooms?.hotel === hotelNameToFilter
+        );
+      }
+
+      // For "By Date" mode, auto-detect multi-day stays and fetch additional records
+      if (viewMode === 'date') {
+        const multiDayRooms = new Map<string, number>();
+        for (const record of filteredData) {
+          const nights = (record as any).rooms?.guest_nights_stayed || 1;
+          if (nights > 1) {
+            multiDayRooms.set(record.room_id, Math.min(nights, 30));
+          }
+        }
+
+        if (multiDayRooms.size > 0) {
+          const roomIds = Array.from(multiDayRooms.keys());
+          const maxNights = Math.max(...Array.from(multiDayRooms.values()));
+          const startDate = startOfDay(selectedDate);
+          const stayStart = startOfDay(subDays(selectedDate, maxNights - 1));
+
+          const { data: stayData } = await supabase
+            .from('room_minibar_usage')
+            .select(`
+              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+              rooms (room_number, hotel, guest_nights_stayed),
+              minibar_items (name, price),
+              profiles (full_name)
+            `)
+            .in('room_id', roomIds)
+            .gte('usage_date', stayStart.toISOString())
+            .lt('usage_date', startDate.toISOString())
+            .order('usage_date', { ascending: false });
+
+          if (stayData) {
+            const fullStayRecords = stayData.filter((r: any) => {
+              const nights = multiDayRooms.get(r.room_id) || 1;
+              const roomStayStart = startOfDay(subDays(selectedDate, nights - 1));
+              return new Date(r.usage_date) >= roomStayStart;
+            }).filter((r: any) =>
+              !userHotel || r.rooms?.hotel === userHotel || r.rooms?.hotel === hotelNameToFilter
+            );
+
+            const allRecordIds = new Set(filteredData.map((r: any) => r.id));
+            for (const r of fullStayRecords) {
+              if (!allRecordIds.has(r.id)) {
+                filteredData.push(r);
+                allRecordIds.add(r.id);
+              }
+            }
+          }
         }
       }
 
@@ -578,23 +652,55 @@ export function MinibarTrackingView() {
               {t('minibar.clearAllRecords') || 'Clear All Records'}
             </Button>
           )}
-          {/* Full Stay toggle removed - auto-detected from PMS data */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {format(selectedDate, 'PPP')}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="end">
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={(date) => date && setSelectedDate(date)}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
+          {/* View mode toggle */}
+          <div className="flex items-center border rounded-lg overflow-hidden">
+            <Button
+              variant={viewMode === 'current' ? 'default' : 'ghost'}
+              size="sm"
+              className="rounded-none gap-1.5 h-9"
+              onClick={() => setViewMode('current')}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              {t('minibar.currentStays')}
+            </Button>
+            <Button
+              variant={viewMode === 'date' ? 'default' : 'ghost'}
+              size="sm"
+              className="rounded-none gap-1.5 h-9"
+              onClick={() => setViewMode('date')}
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              {t('minibar.byDate')}
+            </Button>
+          </div>
+          {viewMode === 'date' && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {format(selectedDate, 'PPP')}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 pointer-events-auto" align="end">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={(date) => date && setSelectedDate(date)}
+                  initialFocus
+                  className="p-3 pointer-events-auto"
+                />
+              </PopoverContent>
+            </Popover>
+          )}
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
       </div>
 
@@ -653,6 +759,11 @@ export function MinibarTrackingView() {
         organizationSlug={profile?.organization_slug || 'rdhotels'}
       />
 
+      {/* Stay info subtitle */}
+      {viewMode === 'current' && (
+        <p className="text-sm text-muted-foreground -mt-2">{t('minibar.stayInfo')}</p>
+      )}
+
       {/* Room-Grouped Cards */}
       <RoomGroupedView
         records={usageRecords}
@@ -661,6 +772,8 @@ export function MinibarTrackingView() {
         canDelete={canDelete}
         onDeleteRecord={handleDeleteRecord}
         t={t}
+        viewMode={viewMode}
+        selectedDate={selectedDate}
       />
 
       {/* Minibar Branding Section */}
