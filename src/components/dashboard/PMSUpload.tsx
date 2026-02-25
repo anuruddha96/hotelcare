@@ -68,7 +68,7 @@ function buildColumnMap(headers: string[]): ColumnMap {
     Departure: ['departure', 'távozás', 'elutazás', 'elutazas', 'elutaz', 'odjezd', 'salida', 'abreise', 'checkout', 'check-out', 'check out', 'partenza', 'dep', 'odchod', 'výjezd', 'co time', 'co-time'],
     Arrival: ['arrival', 'érkezés', 'příjezd', 'llegada', 'anreise', 'checkin', 'check-in', 'check in', 'arrivo', 'arr', 'příchod'],
     People: ['people', 'személy', 'osoby', 'personas', 'personen', 'guests', 'fő', 'persone', 'ospiti', 'pax', 'pers', 'vendégek', 'vendeg', 'guest'],
-    NightTotal: ['night', 'éjszaka', 'noc', 'noche', 'nacht', 'total', 'notte', 'notti'],
+    NightTotal: ['night', 'éjszaka', 'éj', 'noc', 'noche', 'nacht', 'total', 'összes', 'osszes', 'notte', 'notti'],
     Note: ['note', 'megjegyzés', 'poznámka', 'nota', 'bemerkung', 'comment', 'remark', 'poznámky'],
     Nationality: ['nationality', 'nemzetiség', 'národnost', 'nacionalidad', 'nationalität', 'nazionalità', 'nazione'],
     Defect: ['defect', 'hiba', 'závada', 'defecto', 'mangel', 'difetto', 'guasto'],
@@ -87,7 +87,7 @@ function buildColumnMap(headers: string[]): ColumnMap {
 
   // Fallback: try exact match with common variants
   if (!map.NightTotal) {
-    const nightTotalVariants = ['Night / Total', 'Night/Total', 'Night/ Total', 'Night /Total'];
+    const nightTotalVariants = ['Night / Total', 'Night/Total', 'Night/ Total', 'Night /Total', 'Éj / Összes', 'Éj/Összes', 'Ej / Osszes', 'Ej/Osszes'];
     for (const header of headers) {
       if (nightTotalVariants.includes(header.trim())) {
         map.NightTotal = header;
@@ -131,6 +131,33 @@ function isOccupiedNo(val: any): boolean {
   if (val === undefined || val === null) return false;
   const s = String(val).trim().toLowerCase();
   return ['no', 'nem', 'ne', 'nein', 'false', '0'].includes(s);
+}
+
+function parseNightTotal(val: any): { currentNight: number; totalNights: number } | null {
+  if (val === undefined || val === null) return null;
+
+  const raw = String(val).trim();
+  if (!raw) return null;
+
+  const slashMatch = raw.match(/(\d+)\s*[\/\\-]\s*(\d+)/);
+  if (slashMatch) {
+    const currentNight = Number.parseInt(slashMatch[1], 10);
+    const totalNights = Number.parseInt(slashMatch[2], 10);
+    if (Number.isFinite(currentNight) && Number.isFinite(totalNights) && currentNight > 0 && totalNights > 0) {
+      return { currentNight, totalNights };
+    }
+  }
+
+  const numberParts = raw.match(/\d+/g);
+  if (numberParts && numberParts.length >= 2) {
+    const currentNight = Number.parseInt(numberParts[0], 10);
+    const totalNights = Number.parseInt(numberParts[1], 10);
+    if (Number.isFinite(currentNight) && Number.isFinite(totalNights) && currentNight > 0 && totalNights > 0) {
+      return { currentNight, totalNights };
+    }
+  }
+
+  return null;
 }
 
 interface PMSUploadProps {
@@ -564,36 +591,36 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
           // Parse Night/Total column for guest stay information
           const nightTotalVal = getField(row, columnMap, 'NightTotal');
-          if (nightTotalVal && String(nightTotalVal).trim() !== '') {
-            const nightTotal = String(nightTotalVal).trim();
-            // Format could be "2/3" meaning 2nd night out of 3 total nights
-            const match = nightTotal.match(/(\d+)\/(\d+)/);
-            if (match) {
-              guestNightsStayed = parseInt(match[1], 10);
-              totalNights = parseInt(match[2], 10);
-              
-              // Early checkout: guest is on their last night (e.g. 3/3)
-              if (guestNightsStayed === totalNights && totalNights > 0) {
-                isEarlyCheckout = true;
-              }
-              
-              // Cleaning cycle: T, T, RC repeating every 6 days from day 3
-              // Day 3: T, Day 5: T, Day 7: RC, Day 9: T, Day 11: T, Day 13: RC, ...
-              if (guestNightsStayed >= 3) {
-                const cyclePosition = (guestNightsStayed - 3) % 6;
-                if (cyclePosition === 0 || cyclePosition === 2) {
-                  // Towel Change days: 3, 5, 9, 11, 15, 17...
-                  towelChangeRequired = true;
-                  linenChangeRequired = false;
-                } else if (cyclePosition === 4) {
-                  // Room Cleaning days: 7, 13, 19...
-                  linenChangeRequired = true;
-                  towelChangeRequired = false;
-                }
-              }
-              
-              console.log(`[PMS] Room ${roomNumber}: Guest stayed ${guestNightsStayed}/${totalNights} nights. Early checkout: ${isEarlyCheckout}. Towel change: ${towelChangeRequired}, Linen change: ${linenChangeRequired}`);
+          const nightTotalRaw = nightTotalVal === null || nightTotalVal === undefined
+            ? null
+            : String(nightTotalVal).trim();
+          const parsedNightTotal = parseNightTotal(nightTotalVal);
+
+          if (parsedNightTotal) {
+            guestNightsStayed = parsedNightTotal.currentNight;
+            totalNights = parsedNightTotal.totalNights;
+
+            // Early checkout: guest is on their last night (e.g. 3/3)
+            if (guestNightsStayed === totalNights && totalNights > 0) {
+              isEarlyCheckout = true;
             }
+
+            // Cleaning cycle: T, T, RC repeating every 6 days from day 3
+            // Day 3: T, Day 5: T, Day 7: RC, Day 9: T, Day 11: T, Day 13: RC, ...
+            if (guestNightsStayed >= 3) {
+              const cyclePosition = (guestNightsStayed - 3) % 6;
+              if (cyclePosition === 0 || cyclePosition === 2) {
+                // Towel Change days: 3, 5, 9, 11, 15, 17...
+                towelChangeRequired = true;
+                linenChangeRequired = false;
+              } else if (cyclePosition === 4) {
+                // Room Cleaning days: 7, 13, 19...
+                linenChangeRequired = true;
+                towelChangeRequired = false;
+              }
+            }
+
+            console.log(`[PMS] Room ${roomNumber}: Guest stayed ${guestNightsStayed}/${totalNights} nights. Early checkout: ${isEarlyCheckout}. Towel change: ${towelChangeRequired}, Linen change: ${linenChangeRequired}`);
           }
 
           const departureVal = getField(row, columnMap, 'Departure');
@@ -625,6 +652,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               departureTime: departureParsed,
               guestCount: peopleVal || 0,
               status: checkoutStatus,
+              currentNight: guestNightsStayed > 0 ? guestNightsStayed : null,
+              totalNights: totalNights > 0 ? totalNights : null,
+              nightTotal: nightTotalRaw,
               notes: checkoutNotePrefix ? `${checkoutNotePrefix} - ${noteVal || ''}`.trim() : noteVal
             });
           } else if (isOccupiedYes(occupiedVal) && departureParsed === null) {
@@ -639,6 +669,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               roomType: room.room_type,
               guestCount: peopleVal || 0,
               status: 'daily_cleaning',
+              currentNight: guestNightsStayed > 0 ? guestNightsStayed : null,
+              totalNights: totalNights > 0 ? totalNights : null,
+              nightTotal: nightTotalRaw,
               notes: noteVal
             });
           } else if (isOccupiedNo(occupiedVal) && String(statusVal).toLowerCase().includes('untidy') && arrivalVal) {

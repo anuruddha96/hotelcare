@@ -4,11 +4,10 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { addDays, endOfDay, format, startOfDay, subDays } from 'date-fns';
 import { Calendar as CalendarIcon, DollarSign, Package, TrendingUp, Trash2, AlertTriangle, Plus, QrCode, Settings, Search, Upload, Image, User, Monitor, ScanLine, Receipt, Hotel, RefreshCw, Eye, CalendarDays } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { subDays } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -42,6 +41,7 @@ interface MinibarUsageRecord {
   source: string;
   is_cleared: boolean;
   guest_nights_stayed: number;
+  guest_total_nights?: number | null;
 }
 
 interface RoomGroup {
@@ -58,6 +58,34 @@ interface MinibarSummary {
   roomsWithUsage: number;
   avgPerRoom: number;
 }
+
+const parseNightTotalValue = (value: unknown): { currentNight: number; totalNights: number } | null => {
+  if (value === null || value === undefined) return null;
+
+  const stringValue = String(value).trim();
+  if (!stringValue) return null;
+
+  const slashMatch = stringValue.match(/(\d+)\s*[\/\\-]\s*(\d+)/);
+  if (slashMatch) {
+    const currentNight = Number.parseInt(slashMatch[1], 10);
+    const totalNights = Number.parseInt(slashMatch[2], 10);
+    if (Number.isFinite(currentNight) && Number.isFinite(totalNights) && currentNight > 0 && totalNights > 0) {
+      return { currentNight, totalNights };
+    }
+  }
+
+  const numericParts = stringValue.match(/\d+/g);
+  if (numericParts && numericParts.length >= 2) {
+    const currentNight = Number.parseInt(numericParts[0], 10);
+    const totalNights = Number.parseInt(numericParts[1], 10);
+    if (Number.isFinite(currentNight) && Number.isFinite(totalNights) && currentNight > 0 && totalNights > 0) {
+      return { currentNight, totalNights };
+    }
+  }
+
+  return null;
+};
+
 function SourceBadge({ source }: { source: string }) {
   if (source === 'guest') {
     return (
@@ -89,6 +117,7 @@ function RoomGroupedView({
   t,
   viewMode,
   selectedDate,
+  currentStayReferenceDate,
 }: {
   records: MinibarUsageRecord[];
   searchTerm: string;
@@ -98,16 +127,26 @@ function RoomGroupedView({
   t: (key: string) => string;
   viewMode: 'current' | 'date';
   selectedDate: Date;
+  currentStayReferenceDate?: Date;
 }) {
-  // Compute max guest_nights_stayed per room group
-  const roomNightsMap = useMemo(() => {
-    const map = new Map<string, number>();
+  const roomStayMap = useMemo(() => {
+    const map = new Map<string, { currentNight: number; totalNights: number | null }>();
+
     for (const r of records) {
       const key = `${r.room_number}-${r.hotel}`;
-      map.set(key, Math.max(map.get(key) || 1, r.guest_nights_stayed || 1));
+      const existing = map.get(key);
+
+      const currentNight = Math.max(existing?.currentNight ?? 1, r.guest_nights_stayed || 1);
+      const totalNights = r.guest_total_nights && r.guest_total_nights > 0
+        ? Math.max(existing?.totalNights ?? 0, r.guest_total_nights)
+        : existing?.totalNights ?? null;
+
+      map.set(key, { currentNight, totalNights });
     }
+
     return map;
   }, [records]);
+
   const roomGroups = useMemo(() => {
     const filtered = records.filter(r => {
       if (!searchTerm) return true;
@@ -151,9 +190,15 @@ function RoomGroupedView({
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {roomGroups.map((group) => {
-        const nights = roomNightsMap.get(`${group.room_number}-${group.hotel}`) || 1;
-        const checkInDate = nights > 1 ? subDays(selectedDate, nights - 1) : selectedDate;
-        
+        const stayMeta = roomStayMap.get(`${group.room_number}-${group.hotel}`);
+        const currentNight = stayMeta?.currentNight || 1;
+        const totalNights = stayMeta?.totalNights || null;
+        const displayEndDate = viewMode === 'current' ? (currentStayReferenceDate || selectedDate) : selectedDate;
+        const checkInDate = currentNight > 1 ? subDays(displayEndDate, currentNight - 1) : displayEndDate;
+        const projectedCheckoutDate = totalNights && totalNights >= currentNight
+          ? addDays(checkInDate, totalNights)
+          : null;
+
         // Group items by day for multi-day stays
         const itemsByDay = new Map<string, MinibarUsageRecord[]>();
         for (const item of group.items) {
@@ -171,13 +216,15 @@ function RoomGroupedView({
                 <CardTitle className="text-lg">Room {group.room_number}</CardTitle>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <p className="text-xs text-muted-foreground">{group.hotel}</p>
-                  {nights > 1 && (
+                  {currentNight > 1 && (
                     <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 hover:bg-indigo-100 text-[10px] gap-0.5">
                       <Hotel className="h-2.5 w-2.5" />
-                      {t('minibar.checkIn')}: {format(checkInDate, 'MMM d')} — {format(selectedDate, 'MMM d')} ({nights} {nights === 1 ? t('minibar.nightStay') : t('minibar.nightsStay')})
+                      {projectedCheckoutDate
+                        ? `${t('minibar.checkIn')}: ${format(checkInDate, 'MMM d')} — ${format(projectedCheckoutDate, 'MMM d')} (Night ${currentNight}/${totalNights})`
+                        : `${t('minibar.checkIn')}: ${format(checkInDate, 'MMM d')} — ${format(displayEndDate, 'MMM d')} (${currentNight} ${currentNight === 1 ? t('minibar.nightStay') : t('minibar.nightsStay')})`}
                     </Badge>
                   )}
-                  {nights === 1 && viewMode === 'current' && (
+                  {currentNight === 1 && viewMode === 'current' && (
                     <Badge variant="outline" className="text-[10px]">1 {t('minibar.nightStay')}</Badge>
                   )}
                 </div>
@@ -190,7 +237,7 @@ function RoomGroupedView({
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y">
-              {nights > 1 && sortedDays.length > 1 ? (
+              {currentNight > 1 && sortedDays.length > 1 ? (
                 // Group by day for multi-day stays
                 sortedDays.map(([dayKey, dayItems]) => (
                   <div key={dayKey}>
@@ -298,6 +345,7 @@ export function MinibarTrackingView() {
   const [minibarLogoUploading, setMinibarLogoUploading] = useState(false);
   const [viewMode, setViewMode] = useState<'current' | 'date'>('current');
   const [refreshing, setRefreshing] = useState(false);
+  const [currentStayReferenceDate, setCurrentStayReferenceDate] = useState<Date>(new Date());
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -468,11 +516,63 @@ export function MinibarTrackingView() {
         hotelNameToFilter = hotelConfig?.hotel_name || userHotel;
       }
 
+      const pmsStayByRoom = new Map<string, { currentNight: number; totalNights: number }>();
+      let currentModeReferenceDate = new Date();
       let filteredData: any[] = [];
 
       if (viewMode === 'current') {
+        const summaryHotelFilters = [userHotel, hotelNameToFilter].filter(Boolean) as string[];
+        if (summaryHotelFilters.length > 0) {
+          const uniqueHotelFilters = Array.from(new Set(summaryHotelFilters));
+          const { data: latestPmsUpload } = await supabase
+            .from('pms_upload_summary')
+            .select('upload_date, created_at, checkout_rooms, daily_cleaning_rooms')
+            .in('hotel_filter', uniqueHotelFilters)
+            .order('upload_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          const rawReferenceDate = latestPmsUpload?.upload_date || latestPmsUpload?.created_at;
+          if (rawReferenceDate) {
+            const parsedReference = new Date(rawReferenceDate);
+            if (!Number.isNaN(parsedReference.getTime())) {
+              currentModeReferenceDate = parsedReference;
+            }
+          }
+
+          const summaryEntries = [
+            ...(Array.isArray((latestPmsUpload as any)?.checkout_rooms) ? (latestPmsUpload as any).checkout_rooms : []),
+            ...(Array.isArray((latestPmsUpload as any)?.daily_cleaning_rooms) ? (latestPmsUpload as any).daily_cleaning_rooms : []),
+          ];
+
+          for (const entry of summaryEntries) {
+            const roomNumber = String(entry?.roomNumber ?? entry?.room_number ?? '').trim();
+            if (!roomNumber) continue;
+
+            const currentNightRaw = Number(entry?.currentNight ?? entry?.current_night);
+            const totalNightsRaw = Number(entry?.totalNights ?? entry?.total_nights);
+            const parsedFromRaw = Number.isFinite(currentNightRaw) && Number.isFinite(totalNightsRaw) && currentNightRaw > 0 && totalNightsRaw > 0
+              ? { currentNight: currentNightRaw, totalNights: totalNightsRaw }
+              : null;
+
+            const parsedFromText = parseNightTotalValue(
+              entry?.nightTotal ?? entry?.night_total ?? entry?.nightTotalRaw ?? entry?.night_total_raw ?? entry?.notes
+            );
+
+            const parsed = parsedFromRaw || parsedFromText;
+            if (!parsed) continue;
+
+            const existing = pmsStayByRoom.get(roomNumber);
+            if (!existing || parsed.currentNight >= existing.currentNight) {
+              pmsStayByRoom.set(roomNumber, parsed);
+            }
+          }
+        }
+
+        setCurrentStayReferenceDate(currentModeReferenceDate);
+
         // Current Stays mode: fetch ALL usage for rooms with active guests
-        // Step 1: Get all rooms with active guests (guest_nights_stayed > 0)
         const { data: activeRooms } = await supabase
           .from('rooms')
           .select('id, room_number, hotel, guest_nights_stayed, is_checkout_room')
@@ -488,11 +588,14 @@ export function MinibarTrackingView() {
 
         if (hotelFilteredRooms.length > 0) {
           const roomIds = hotelFilteredRooms.map(r => r.id);
-          // Calculate earliest possible check-in across all rooms
-          const maxNights = Math.max(...hotelFilteredRooms.map(r => r.guest_nights_stayed || 1));
-          const earliestCheckIn = startOfDay(subDays(new Date(), maxNights));
+          const maxNights = Math.max(
+            ...hotelFilteredRooms.map(r => {
+              const pmsNight = pmsStayByRoom.get(r.room_number)?.currentNight;
+              return pmsNight || r.guest_nights_stayed || 1;
+            })
+          );
+          const earliestCheckIn = startOfDay(subDays(currentModeReferenceDate, Math.max(maxNights - 1, 0)));
 
-          // Step 2: Fetch ALL usage during active stays (regardless of is_cleared)
           const { data, error } = await supabase
             .from('room_minibar_usage')
             .select(`
@@ -507,16 +610,18 @@ export function MinibarTrackingView() {
 
           if (error) throw error;
 
-          // Step 3: Filter per-room to only include usage within that room's stay period
           filteredData = (data || []).filter((record: any) => {
             const room = hotelFilteredRooms.find(r => r.id === record.room_id);
             if (!room) return false;
-            const stayStart = startOfDay(subDays(new Date(), (room.guest_nights_stayed || 1) - 1));
+            const pmsNight = pmsStayByRoom.get(room.room_number)?.currentNight;
+            const resolvedNights = pmsNight || room.guest_nights_stayed || 1;
+            const stayStart = startOfDay(subDays(currentModeReferenceDate, Math.max(resolvedNights - 1, 0)));
             return new Date(record.usage_date) >= stayStart;
           });
         }
       } else {
-        // By Date mode: existing date-based logic
+        setCurrentStayReferenceDate(new Date());
+
         const startDate = startOfDay(selectedDate);
         const endDate = endOfDay(selectedDate);
 
@@ -536,7 +641,6 @@ export function MinibarTrackingView() {
         filteredData = data || [];
       }
 
-      // Filter by user's assigned hotel using joined rooms.hotel
       if (userHotel && filteredData.length > 0) {
         filteredData = filteredData.filter((record: any) =>
           record.rooms?.hotel === userHotel ||
@@ -544,7 +648,6 @@ export function MinibarTrackingView() {
         );
       }
 
-      // For "By Date" mode, auto-detect multi-day stays and fetch additional records
       if (viewMode === 'date') {
         const multiDayRooms = new Map<string, number>();
         for (const record of filteredData) {
@@ -593,25 +696,29 @@ export function MinibarTrackingView() {
         }
       }
 
-      // Transform data
-      const records: MinibarUsageRecord[] = filteredData.map((record: any) => ({
-        id: record.id,
-        room_number: record.rooms?.room_number || 'N/A',
-        hotel: record.rooms?.hotel || 'N/A',
-        item_name: record.minibar_items?.name || 'Unknown',
-        quantity_used: record.quantity_used,
-        item_price: record.minibar_items?.price || 0,
-        total_price: (record.minibar_items?.price || 0) * record.quantity_used,
-        usage_date: record.usage_date,
-        recorded_by_name: record.profiles?.full_name || ((record as any).source === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
-        source: (record as any).source || 'staff',
-        is_cleared: record.is_cleared || false,
-        guest_nights_stayed: record.rooms?.guest_nights_stayed || 1,
-      }));
+      const records: MinibarUsageRecord[] = filteredData.map((record: any) => {
+        const roomNumber = record.rooms?.room_number || 'N/A';
+        const pmsStayMeta = pmsStayByRoom.get(roomNumber);
+
+        return {
+          id: record.id,
+          room_number: roomNumber,
+          hotel: record.rooms?.hotel || 'N/A',
+          item_name: record.minibar_items?.name || 'Unknown',
+          quantity_used: record.quantity_used,
+          item_price: record.minibar_items?.price || 0,
+          total_price: (record.minibar_items?.price || 0) * record.quantity_used,
+          usage_date: record.usage_date,
+          recorded_by_name: record.profiles?.full_name || ((record as any).source === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
+          source: (record as any).source || 'staff',
+          is_cleared: record.is_cleared || false,
+          guest_nights_stayed: pmsStayMeta?.currentNight || record.rooms?.guest_nights_stayed || 1,
+          guest_total_nights: pmsStayMeta?.totalNights || null,
+        };
+      });
 
       setUsageRecords(records);
 
-      // Calculate summary
       const totalRevenue = records.reduce((sum, record) => sum + record.total_price, 0);
       const totalItems = records.reduce((sum, record) => sum + record.quantity_used, 0);
       const uniqueRooms = new Set(records.map(r => r.room_number)).size;
@@ -797,6 +904,7 @@ export function MinibarTrackingView() {
         t={t}
         viewMode={viewMode}
         selectedDate={selectedDate}
+        currentStayReferenceDate={currentStayReferenceDate}
       />
 
       {/* Minibar Branding Section */}
