@@ -478,20 +478,50 @@ export function MinibarTrackingView() {
       let filteredData: any[] = [];
 
       if (viewMode === 'current') {
-        // Current Stays mode: fetch ALL uncleared records
-        const { data, error } = await supabase
-          .from('room_minibar_usage')
-          .select(`
-            id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
-            rooms (room_number, hotel, guest_nights_stayed),
-            minibar_items (name, price),
-            profiles (full_name)
-          `)
-          .eq('is_cleared', false)
-          .order('usage_date', { ascending: false });
+        // Current Stays mode: fetch ALL usage for rooms with active guests
+        // Step 1: Get all rooms with active guests (guest_nights_stayed > 0)
+        const { data: activeRooms } = await supabase
+          .from('rooms')
+          .select('id, room_number, hotel, guest_nights_stayed, is_checkout_room')
+          .gt('guest_nights_stayed', 0);
 
-        if (error) throw error;
-        filteredData = data || [];
+        // Filter active rooms by user's hotel
+        let hotelFilteredRooms = activeRooms || [];
+        if (userHotel && hotelFilteredRooms.length > 0) {
+          hotelFilteredRooms = hotelFilteredRooms.filter(r =>
+            r.hotel === userHotel || r.hotel === hotelNameToFilter
+          );
+        }
+
+        if (hotelFilteredRooms.length > 0) {
+          const roomIds = hotelFilteredRooms.map(r => r.id);
+          // Calculate earliest possible check-in across all rooms
+          const maxNights = Math.max(...hotelFilteredRooms.map(r => r.guest_nights_stayed || 1));
+          const earliestCheckIn = startOfDay(subDays(new Date(), maxNights));
+
+          // Step 2: Fetch ALL usage during active stays (regardless of is_cleared)
+          const { data, error } = await supabase
+            .from('room_minibar_usage')
+            .select(`
+              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+              rooms (room_number, hotel, guest_nights_stayed),
+              minibar_items (name, price),
+              profiles (full_name)
+            `)
+            .in('room_id', roomIds)
+            .gte('usage_date', earliestCheckIn.toISOString())
+            .order('usage_date', { ascending: false });
+
+          if (error) throw error;
+
+          // Step 3: Filter per-room to only include usage within that room's stay period
+          filteredData = (data || []).filter((record: any) => {
+            const room = hotelFilteredRooms.find(r => r.id === record.room_id);
+            if (!room) return false;
+            const stayStart = startOfDay(subDays(new Date(), (room.guest_nights_stayed || 1) - 1));
+            return new Date(record.usage_date) >= stayStart;
+          });
+        }
       } else {
         // By Date mode: existing date-based logic
         const startDate = startOfDay(selectedDate);
