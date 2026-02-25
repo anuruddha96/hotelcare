@@ -203,11 +203,9 @@ function RoomGroupedView({
                           <div className="font-medium truncate">{record.item_name}</div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <SourceBadge source={record.source} />
-                            {record.is_cleared && (
-                              <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">
-                                ✓ Cleared
-                              </Badge>
-                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(record.usage_date), 'MMM d, HH:mm')}
+                            </span>
                           </div>
                         </div>
                         <div className="flex items-center gap-3 ml-3">
@@ -238,15 +236,10 @@ function RoomGroupedView({
                 <div key={record.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{record.item_name}</div>
-                    <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-2 mt-0.5">
                       <SourceBadge source={record.source} />
-                      {record.is_cleared && (
-                        <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">
-                          ✓ Cleared
-                        </Badge>
-                      )}
                       <span className="text-xs text-muted-foreground">
-                        {format(new Date(record.usage_date), 'HH:mm')}
+                        {format(new Date(record.usage_date), 'MMM d, HH:mm')}
                       </span>
                     </div>
                   </div>
