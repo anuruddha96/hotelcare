@@ -631,108 +631,270 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             <DialogTitle>Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {/* Room Actions */}
+            {/* Room Status */}
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
               const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room;
+              const roomStatus = selectedRoom.status;
               return (
-                <div className="space-y-2 pb-2 border-b">
-                  <label className="text-sm font-medium">Quick Actions</label>
-                  {/* Mark Ready to Clean */}
-                  {isCheckout && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full justify-start gap-2"
-                      disabled={actionLoading === 'ready' || (assignment?.ready_to_clean === true)}
-                      onClick={async () => {
-                        setActionLoading('ready');
-                        try {
-                          if (assignment) {
-                            const { error } = await supabase
-                              .from('room_assignments')
-                              .update({ ready_to_clean: true } as any)
-                              .eq('room_id', selectedRoom.id)
-                              .eq('assignment_date', selectedDate);
-                            if (error) throw error;
-                          } else {
-                            // No assignment exists - update room status directly
+                <>
+                  {/* Room Status Section */}
+                  <div className="space-y-2 pb-3 border-b">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Room Status</label>
+                    <div className="flex gap-2">
+                      {roomStatus === 'clean' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                          disabled={actionLoading === 'dirty'}
+                          onClick={async () => {
+                            setActionLoading('dirty');
+                            try {
+                              const { error } = await supabase
+                                .from('rooms')
+                                .update({ status: 'dirty' } as any)
+                                .eq('id', selectedRoom.id);
+                              if (error) throw error;
+                              setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'dirty' } : r));
+                              toast.success(`Room ${selectedRoom.room_number} marked as dirty`);
+                              setRoomSizeDialogOpen(false);
+                              await fetchData();
+                            } catch (err) {
+                              toast.error('Failed to update room status');
+                            } finally {
+                              setActionLoading(null);
+                            }
+                          }}
+                        >
+                          {actionLoading === 'dirty' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          Mark as Dirty
+                        </Button>
+                      )}
+                      {(roomStatus === 'dirty' || roomStatus === 'in_progress') && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
+                          disabled={actionLoading === 'clean'}
+                          onClick={async () => {
+                            setActionLoading('clean');
+                            try {
+                              const { error } = await supabase
+                                .from('rooms')
+                                .update({ status: 'clean' } as any)
+                                .eq('id', selectedRoom.id);
+                              if (error) throw error;
+                              setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'clean' } : r));
+                              toast.success(`Room ${selectedRoom.room_number} marked as clean`);
+                              setRoomSizeDialogOpen(false);
+                              await fetchData();
+                            } catch (err) {
+                              toast.error('Failed to update room status');
+                            } finally {
+                              setActionLoading(null);
+                            }
+                          }}
+                        >
+                          {actionLoading === 'clean' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                          Mark as Clean
+                        </Button>
+                      )}
+                      {roomStatus === 'dirty' && assignment?.status === 'assigned' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 gap-1.5 border-sky-300 text-sky-700 hover:bg-sky-50 dark:border-sky-600 dark:text-sky-300 dark:hover:bg-sky-900/30"
+                          disabled={actionLoading === 'start'}
+                          onClick={async () => {
+                            setActionLoading('start');
+                            try {
+                              const { error } = await supabase
+                                .from('room_assignments')
+                                .update({ status: 'in_progress', started_at: new Date().toISOString() } as any)
+                                .eq('room_id', selectedRoom.id)
+                                .eq('assignment_date', selectedDate);
+                              if (error) throw error;
+                              setAssignments(prev => prev.map(a => a.room_id === selectedRoom.id ? { ...a, status: 'in_progress', started_at: new Date().toISOString() } : a));
+                              setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'in_progress' } : r));
+                              toast.success(`Room ${selectedRoom.room_number} cleaning started`);
+                              setRoomSizeDialogOpen(false);
+                              await fetchData();
+                            } catch (err) {
+                              toast.error('Failed to start cleaning');
+                            } finally {
+                              setActionLoading(null);
+                            }
+                          }}
+                        >
+                          {actionLoading === 'start' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          Start Cleaning
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Special Instructions Section */}
+                  <div className="space-y-2 pb-3 border-b">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Special Instructions</label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant={selectedRoom.towel_change_required ? "default" : "outline"}
+                        size="sm"
+                        className={`flex-1 gap-1.5 ${selectedRoom.towel_change_required 
+                          ? 'bg-red-600 hover:bg-red-700 text-white' 
+                          : 'border-border hover:bg-accent'}`}
+                        disabled={actionLoading === 'towel'}
+                        onClick={async () => {
+                          setActionLoading('towel');
+                          const newVal = !selectedRoom.towel_change_required;
+                          try {
                             const { error } = await supabase
                               .from('rooms')
-                              .update({ status: 'ready_to_clean' } as any)
+                              .update({ towel_change_required: newVal } as any)
                               .eq('id', selectedRoom.id);
                             if (error) throw error;
+                            setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, towel_change_required: newVal } : r));
+                            setSelectedRoom(prev => prev ? { ...prev, towel_change_required: newVal } : prev);
+                            toast.success(`Towel change ${newVal ? 'enabled' : 'disabled'} for room ${selectedRoom.room_number}`);
+                          } catch (err) {
+                            toast.error('Failed to toggle towel change');
+                          } finally {
+                            setActionLoading(null);
                           }
-                          // Optimistic local update
-                          if (assignment) {
-                            setAssignments(prev => prev.map(a => 
-                              a.room_id === selectedRoom.id ? { ...a, ready_to_clean: true } : a
-                            ));
-                          }
-                          toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
-                          setRoomSizeDialogOpen(false);
-                          await fetchData();
-                        } catch (err) {
-                          console.error('Mark ready error:', err);
-                          toast.error('Failed to mark room as ready');
-                        } finally {
-                          setActionLoading(null);
-                        }
-                      }}
-                    >
-                      {actionLoading === 'ready' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4 text-green-600" />}
-                      {assignment?.ready_to_clean ? '✅ Already Marked Ready' : 'Mark as Ready to Clean'}
-                    </Button>
-                  )}
-                  {/* Switch Room Type */}
-                  {assignment && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full justify-start gap-2"
-                      disabled={actionLoading === 'switch'}
-                      onClick={async () => {
-                        setActionLoading('switch');
-                        const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
-                        const newIsCheckout = !isCheckout;
-                        try {
-                          const [assignRes, roomRes] = await Promise.all([
-                            supabase
-                              .from('room_assignments')
-                              .update({ assignment_type: newType } as any)
-                              .eq('room_id', selectedRoom.id)
-                              .eq('assignment_date', selectedDate),
-                            supabase
+                        }}
+                      >
+                        {actionLoading === 'towel' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        🔄 Towel {selectedRoom.towel_change_required ? 'ON' : 'OFF'}
+                      </Button>
+                      <Button
+                        variant={selectedRoom.linen_change_required ? "default" : "outline"}
+                        size="sm"
+                        className={`flex-1 gap-1.5 ${selectedRoom.linen_change_required 
+                          ? 'bg-red-600 hover:bg-red-700 text-white' 
+                          : 'border-border hover:bg-accent'}`}
+                        disabled={actionLoading === 'linen'}
+                        onClick={async () => {
+                          setActionLoading('linen');
+                          const newVal = !selectedRoom.linen_change_required;
+                          try {
+                            const { error } = await supabase
                               .from('rooms')
-                              .update({ is_checkout_room: newIsCheckout } as any)
-                              .eq('id', selectedRoom.id),
-                          ]);
-                          if (assignRes.error) throw assignRes.error;
-                          if (roomRes.error) throw roomRes.error;
-                          toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
-                          setRoomSizeDialogOpen(false);
-                          await fetchData();
-                        } catch (err) {
-                          toast.error('Failed to switch room type');
-                        } finally {
-                          setActionLoading(null);
-                        }
-                      }}
-                    >
-                      {actionLoading === 'switch' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-blue-600" />}
-                      Switch to {isCheckout ? 'Daily' : 'Checkout'}
-                    </Button>
-                  )}
-                  {!assignment && !isCheckout && (
-                    <p className="text-xs text-muted-foreground">No assignment for today — assign a room first to use quick actions.</p>
-                  )}
-                </div>
+                              .update({ linen_change_required: newVal } as any)
+                              .eq('id', selectedRoom.id);
+                            if (error) throw error;
+                            setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, linen_change_required: newVal } : r));
+                            setSelectedRoom(prev => prev ? { ...prev, linen_change_required: newVal } : prev);
+                            toast.success(`Linen change ${newVal ? 'enabled' : 'disabled'} for room ${selectedRoom.room_number}`);
+                          } catch (err) {
+                            toast.error('Failed to toggle linen change');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'linen' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        🛏️ Linen {selectedRoom.linen_change_required ? 'ON' : 'OFF'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Quick Actions Section */}
+                  <div className="space-y-2 pb-3 border-b">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quick Actions</label>
+                    {/* Mark Ready to Clean */}
+                    {isCheckout && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start gap-2"
+                        disabled={actionLoading === 'ready' || (assignment?.ready_to_clean === true)}
+                        onClick={async () => {
+                          setActionLoading('ready');
+                          try {
+                            if (assignment) {
+                              const { error } = await supabase
+                                .from('room_assignments')
+                                .update({ ready_to_clean: true } as any)
+                                .eq('room_id', selectedRoom.id)
+                                .eq('assignment_date', selectedDate);
+                              if (error) throw error;
+                            } else {
+                              const { error } = await supabase
+                                .from('rooms')
+                                .update({ status: 'ready_to_clean' } as any)
+                                .eq('id', selectedRoom.id);
+                              if (error) throw error;
+                            }
+                            if (assignment) {
+                              setAssignments(prev => prev.map(a => 
+                                a.room_id === selectedRoom.id ? { ...a, ready_to_clean: true } : a
+                              ));
+                            }
+                            toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
+                            setRoomSizeDialogOpen(false);
+                            await fetchData();
+                          } catch (err) {
+                            toast.error('Failed to mark room as ready');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'ready' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4 text-green-600" />}
+                        {assignment?.ready_to_clean ? '✅ Already Marked Ready' : 'Mark as Ready to Clean'}
+                      </Button>
+                    )}
+                    {/* Switch Room Type */}
+                    {assignment && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start gap-2"
+                        disabled={actionLoading === 'switch'}
+                        onClick={async () => {
+                          setActionLoading('switch');
+                          const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
+                          const newIsCheckout = !isCheckout;
+                          try {
+                            const [assignRes, roomRes] = await Promise.all([
+                              supabase
+                                .from('room_assignments')
+                                .update({ assignment_type: newType } as any)
+                                .eq('room_id', selectedRoom.id)
+                                .eq('assignment_date', selectedDate),
+                              supabase
+                                .from('rooms')
+                                .update({ is_checkout_room: newIsCheckout } as any)
+                                .eq('id', selectedRoom.id),
+                            ]);
+                            if (assignRes.error) throw assignRes.error;
+                            if (roomRes.error) throw roomRes.error;
+                            toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+                            setRoomSizeDialogOpen(false);
+                            await fetchData();
+                          } catch (err) {
+                            toast.error('Failed to switch room type');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'switch' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-blue-600" />}
+                        Switch to {isCheckout ? 'Daily' : 'Checkout'}
+                      </Button>
+                    )}
+                    {!assignment && !isCheckout && (
+                      <p className="text-xs text-muted-foreground">No assignment for today — assign a room first to use quick actions.</p>
+                    )}
+                  </div>
+                </>
               );
             })()}
 
-            <p className="text-sm text-muted-foreground">
-              Set the room size and category. Size affects auto-assignment workload balancing.
-            </p>
+            {/* Room Settings Section */}
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Room Settings</label>
+            <p className="text-xs text-muted-foreground">Size affects auto-assignment workload balancing.</p>
             <div className="space-y-2">
               <label className="text-sm font-medium">Room Size</label>
               <Select value={selectedSize} onValueChange={setSelectedSize}>
