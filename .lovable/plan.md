@@ -1,75 +1,51 @@
 
 
-## Plan: Fix Current Stays Minibar Logic to Show All Active Guest Usage
+## Plan: Fix Auto Room Assignment Algorithm Balance
 
-### Root Cause
+### Problem Analysis
 
-The "Current Stays" view filters by `is_cleared = false`, but all usage records for Room 302 (and others) are already marked `is_cleared = true`. The guest in Room 302 is still staying (checkout 02/27, 4 nights stayed), and their brownie box usage from 02/23 should be visible for billing — but it's hidden.
+Comparing the manager's preferred assignment (BEFORE) with the current algorithm output (AFTER):
 
-**14 rooms currently have active guests** with `guest_nights_stayed > 0`. Several have minibar usage that's all marked cleared but guests haven't checked out yet.
+**BEFORE (preferred):** All 5 staff have 6-7 checkouts, times range 7h-7h25m (tight balance)
+**AFTER (current):** Khulan gets 10 checkouts (8h45m, over shift), Tran Van Linh also over shift. Severe checkout imbalance.
 
-### The Fix
+Root causes in `src/lib/roomAssignmentAlgorithm.ts`:
+1. **Rebalancing step (STEP 4, line 502-503) refuses to move checkouts**: `if (room.is_checkout_room) continue` — this hard block prevents fixing checkout imbalance
+2. **No checkout equalization step** — weight-based rebalancing doesn't account for checkout count specifically
+3. **Wing-split threshold too permissive** — a 12-room wing gets assigned to one person before splitting kicks in
 
-**File: `src/components/dashboard/MinibarTrackingView.tsx`**
+### Changes
 
-Replace the "Current Stays" logic entirely. Instead of filtering by `is_cleared = false`:
+**File: `src/lib/roomAssignmentAlgorithm.ts`**
 
-1. **Step 1**: Fetch all rooms for the user's hotel that have active guests (`guest_nights_stayed > 0`)
-2. **Step 2**: For each room, calculate the stay start date: `today - guest_nights_stayed + 1`
-3. **Step 3**: Fetch ALL `room_minibar_usage` records for those room IDs where `usage_date >= stay_start_date`, regardless of `is_cleared` status
-4. **Step 4**: Display these records grouped by room, showing both cleared and uncleared items
+**1. Allow checkout moves during rebalancing when checkout imbalance is severe (STEP 4, ~line 500-503)**
 
-**Specific code change in `fetchMinibarData`** (lines 480-494):
+Replace the hard `if (room.is_checkout_room) continue` with a conditional check:
+- Calculate max and min checkout counts across all staff
+- If the difference exceeds 2, allow moving checkouts from the heaviest-checkout staff
+- Only skip checkout moves when the checkout distribution is already balanced (diff ≤ 2)
 
-```typescript
-if (viewMode === 'current') {
-  // Step 1: Get all rooms with active guests
-  const { data: activeRooms } = await supabase
-    .from('rooms')
-    .select('id, room_number, hotel, guest_nights_stayed, is_checkout_room')
-    .or(`hotel.eq.${userHotel},hotel.eq.${hotelNameToFilter}`)
-    .gt('guest_nights_stayed', 0);
+**2. Add a new STEP 4b: Checkout Equalization Pass (after STEP 4, before STEP 5)**
 
-  if (activeRooms && activeRooms.length > 0) {
-    const roomIds = activeRooms.map(r => r.id);
-    // Calculate earliest possible check-in across all rooms
-    const maxNights = Math.max(...activeRooms.map(r => r.guest_nights_stayed));
-    const earliestCheckIn = startOfDay(subDays(new Date(), maxNights - 1));
+Insert a dedicated checkout-balancing loop:
+- While (maxCheckouts - minCheckouts > 2): move one checkout room from the staff with the most checkouts to the staff with the fewest
+- When choosing which checkout to move, prefer rooms on floors the target staff already works on (use existing `getFloorSpreadPenalty` + `getSequenceBonus`)
+- Cap at 15 iterations to prevent infinite loops
 
-    // Step 2: Fetch ALL usage during active stays
-    const { data, error } = await supabase
-      .from('room_minibar_usage')
-      .select(`...same fields...`)
-      .in('room_id', roomIds)
-      .gte('usage_date', earliestCheckIn.toISOString())
-      .order('usage_date', { ascending: false });
+**3. Lower the wing-split threshold (line 444)**
 
-    // Step 3: Filter per-room to only include usage within that room's stay period
-    filteredData = (data || []).filter(record => {
-      const room = activeRooms.find(r => r.id === record.room_id);
-      if (!room) return false;
-      const stayStart = startOfDay(subDays(new Date(), room.guest_nights_stayed - 1));
-      return new Date(record.usage_date) >= stayStart;
-    });
-  }
-}
-```
+Change from `avgTargetWeight * 1.4` to `avgTargetWeight * 1.25` — this makes the algorithm split large wings sooner, preventing one housekeeper from being overloaded by a single large wing (like the 12-room Wing D).
 
-This means:
-- Room 302 (4-night stay, check-in ~Feb 22) will show the brownie box from Feb 23 even though it's cleared
-- All rooms with active guests and any minibar usage during their stay will appear
-- Both cleared and uncleared items are visible for accurate billing at checkout
+**4. Reduce the checkout-skip bias in count rebalancing (STEP 5, line 557)**
 
-### UI Adjustments
-
-In the room cards, items already show a "Cleared" badge when `is_cleared === true`. No UI changes needed — the existing display handles both states correctly.
+Currently STEP 5 only moves daily rooms (`mostRooms.filter(r => !r.is_checkout_room)`). Change this to allow checkout room moves when the room-count difference exceeds 3, using the same floor-concentration and affinity scoring.
 
 ### Summary
 
-| What | Detail |
-|------|--------|
-| Problem | `is_cleared = false` filter hides all usage for active guests |
-| Fix | Query by active rooms + stay dates instead of cleared status |
-| File | `src/components/dashboard/MinibarTrackingView.tsx` |
-| Scope | ~30 lines changed in `fetchMinibarData` function |
+| Change | Location | Impact |
+|--------|----------|--------|
+| Allow checkout moves in weight rebalancing | STEP 4, line ~502 | Fixes checkout concentration |
+| Add checkout equalization pass | New STEP 4b | Ensures max 2 checkout difference |
+| Lower wing-split threshold | Line 444 | Prevents overloading from large wings |
+| Allow checkout moves in count rebalancing | STEP 5, line ~557 | Better room count distribution |
 
