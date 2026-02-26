@@ -441,7 +441,7 @@ export function autoAssignRooms(
     const wouldBe = lightestWeight + totalWeight;
 
     // If assigning whole wing would exceed 40% above average and wing has >3 rooms, split it
-    if (wouldBe > avgTargetWeight * 1.4 && wingRooms.length > 3) {
+    if (wouldBe > avgTargetWeight * 1.25 && wingRooms.length > 3) {
       // Split: distribute rooms one by one, using affinity + sequence bonus
       const sorted = [...wingRooms].sort((a, b) => calculateRoomWeight(b) - calculateRoomWeight(a));
       for (const room of sorted) {
@@ -499,8 +499,18 @@ export function autoAssignRooms(
 
     const lightestFloors = getStaffFloors(lightestRooms);
     
+    // Calculate checkout imbalance across all staff to decide if checkout moves are allowed
+    const allCheckoutCounts = Array.from(assignments.entries()).map(([id, r]) => r.filter(rm => rm.is_checkout_room).length);
+    const maxCheckouts = Math.max(...allCheckoutCounts);
+    const minCheckouts = Math.min(...allCheckoutCounts);
+    const checkoutImbalanced = maxCheckouts - minCheckouts > 2;
+    const heaviestCheckoutCount = heaviestRooms.filter(r => r.is_checkout_room).length;
+    const lightestCheckoutCount = lightestRooms.filter(r => r.is_checkout_room).length;
+
     for (const room of heaviestRooms) {
-      if (room.is_checkout_room) continue; // prefer not moving checkouts
+      // Allow checkout moves only when checkout distribution is severely imbalanced
+      // and this staff has the most checkouts
+      if (room.is_checkout_room && !(checkoutImbalanced && heaviestCheckoutCount > lightestCheckoutCount + 1)) continue;
       const roomWing = room.wing || `floor-${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`;
       const roomFloor = room.floor_number ?? getFloorFromRoomNumber(room.room_number);
       const w = calculateRoomWeight(room);
@@ -538,6 +548,45 @@ export function autoAssignRooms(
     staffWeights.set(lightestId, lightestW + w);
   }
 
+  // STEP 4b: Checkout Equalization Pass - ensure no staff has >2 more checkouts than another
+  let checkoutEqIter = 0;
+  while (checkoutEqIter < 15) {
+    checkoutEqIter++;
+    const checkoutCounts = Array.from(assignments.entries()).map(([id, r]) => ({
+      id,
+      checkouts: r.filter(rm => rm.is_checkout_room).length
+    })).sort((a, b) => b.checkouts - a.checkouts);
+    
+    const mostCO = checkoutCounts[0];
+    const leastCO = checkoutCounts[checkoutCounts.length - 1];
+    if (mostCO.checkouts - leastCO.checkouts <= 2) break;
+
+    const mostRooms = assignments.get(mostCO.id)!;
+    const leastRooms = assignments.get(leastCO.id)!;
+    const checkoutRooms = mostRooms.filter(r => r.is_checkout_room);
+    if (checkoutRooms.length === 0) break;
+
+    // Pick the best checkout to move: prefer rooms on floors the target already works on
+    const leastFloors = getStaffFloors(leastRooms);
+    const scored = checkoutRooms.map(room => {
+      const roomFloor = room.floor_number ?? getFloorFromRoomNumber(room.room_number);
+      const floorPenalty = getFloorSpreadPenalty(leastRooms, roomFloor);
+      const seqBonus = getSequenceBonus(room.room_number, leastRooms);
+      const affinityBonus = getAffinityBonus(room.room_number, leastRooms.map(r => r.room_number), affinityMap);
+      const affinityLoss = getAffinityLoss(room.room_number, mostRooms.map(r => r.room_number), affinityMap);
+      return { room, score: floorPenalty + affinityLoss * 10 - seqBonus - affinityBonus * 10 };
+    }).sort((a, b) => a.score - b.score);
+
+    const bestMove = scored[0];
+    const room = bestMove.room;
+    const rw = calculateRoomWeight(room);
+    const idx = mostRooms.indexOf(room);
+    mostRooms.splice(idx, 1);
+    leastRooms.push(room);
+    staffWeights.set(mostCO.id, staffWeights.get(mostCO.id)! - rw);
+    staffWeights.set(leastCO.id, staffWeights.get(leastCO.id)! + rw);
+  }
+
   // STEP 5: Room count rebalancing (max diff of 2)
   let countIter = 0;
   while (countIter < 15) {
@@ -552,33 +601,31 @@ export function autoAssignRooms(
     const mostRooms = assignments.get(most.id)!;
     const leastRooms = assignments.get(least.id)!;
     const leastWings = getStaffWings(leastRooms);
-    // Pick lightest daily room, preferring one from a wing the least already has
     const leastFloors = getStaffFloors(leastRooms);
-    const dailyRooms = mostRooms.filter(r => !r.is_checkout_room);
-    const sortedDaily = [...dailyRooms].sort((a, b) => {
+    // Allow checkout moves when room count diff > 3
+    const countDiff = most.count - least.count;
+    const movableRooms = countDiff > 3 ? mostRooms : mostRooms.filter(r => !r.is_checkout_room);
+    const sortedMovable = [...movableRooms].sort((a, b) => {
       const aWing = a.wing || `floor-${a.floor_number ?? getFloorFromRoomNumber(a.room_number)}`;
       const bWing = b.wing || `floor-${b.floor_number ?? getFloorFromRoomNumber(b.room_number)}`;
       const aFloor = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
       const bFloor = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
       const aWingBonus = leastWings.has(aWing) ? 0 : 100;
       const bWingBonus = leastWings.has(bWing) ? 0 : 100;
-      // Floor penalty: strongly discourage moving rooms that would add a 3rd+ floor
       const aFloorPenalty = getFloorSpreadPenalty(leastRooms, aFloor);
       const bFloorPenalty = getFloorSpreadPenalty(leastRooms, bFloor);
-      // Sequence bonus: prefer moving rooms that fit well with target
       const aSeqBonus = getSequenceBonus(a.room_number, leastRooms) * 10;
       const bSeqBonus = getSequenceBonus(b.room_number, leastRooms) * 10;
-      // Add affinity penalty: rooms with high affinity to current group are harder to move
       const aAffinityPenalty = getAffinityLoss(a.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;
       const bAffinityPenalty = getAffinityLoss(b.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;
       return (calculateRoomWeight(a) + aWingBonus + aFloorPenalty + aAffinityPenalty - aSeqBonus) - (calculateRoomWeight(b) + bWingBonus + bFloorPenalty + bAffinityPenalty - bSeqBonus);
     });
-    if (sortedDaily.length === 0) break;
+    if (sortedMovable.length === 0) break;
 
-    const room = sortedDaily[0];
+    const room = sortedMovable[0];
     const rw = calculateRoomWeight(room);
     const newLeastW = least.weight + rw;
-    if (Math.abs(newLeastW - avgWeight) > avgWeight * 0.3) break; // don't create weight imbalance
+    if (Math.abs(newLeastW - avgWeight) > avgWeight * 0.3) break;
 
     const idx = mostRooms.indexOf(room);
     mostRooms.splice(idx, 1);
