@@ -1,51 +1,60 @@
 
 
-## Plan: Fix Auto Room Assignment Algorithm Balance
+## Plan: Enhanced Room Chip Dialog with Quick Actions
 
-### Problem Analysis
+### Current State
+The room chip click opens a dialog with: Mark Ready to Clean, Switch Daily/Checkout, Room Size, and Room Category. No way to toggle towel/linen change or change room status (clean↔dirty).
 
-Comparing the manager's preferred assignment (BEFORE) with the current algorithm output (AFTER):
+### Changes — Single File: `src/components/dashboard/HotelRoomOverview.tsx`
 
-**BEFORE (preferred):** All 5 staff have 6-7 checkouts, times range 7h-7h25m (tight balance)
-**AFTER (current):** Khulan gets 10 checkouts (8h45m, over shift), Tran Van Linh also over shift. Severe checkout imbalance.
+**1. Add new quick actions to the room edit dialog (lines 634-731):**
 
-Root causes in `src/lib/roomAssignmentAlgorithm.ts`:
-1. **Rebalancing step (STEP 4, line 502-503) refuses to move checkouts**: `if (room.is_checkout_room) continue` — this hard block prevents fixing checkout imbalance
-2. **No checkout equalization step** — weight-based rebalancing doesn't account for checkout count specifically
-3. **Wing-split threshold too permissive** — a 12-room wing gets assigned to one person before splitting kicks in
+- **Toggle Towel Change**: Button that sets `rooms.towel_change_required = true/false`. Shows current state (✅ if active). Updates DB + optimistic local state.
+- **Toggle Linen Change**: Same pattern for `rooms.linen_change_required = true/false`.
+- **Set Room Status — Clean → Dirty**: If room status is `clean`, show button "Mark as Dirty". Updates `rooms.status = 'dirty'`.
+- **Set Room Status — Dirty → In Progress**: If room has an assignment with status `assigned`, show button "Start Cleaning" that updates assignment status to `in_progress`.
+- **Set Room Status — Clean Room to Dirty**: Updates `rooms.status = 'dirty'` on the rooms table.
 
-### Changes
+All actions: update DB → optimistic local state update → close dialog → refetch.
 
-**File: `src/lib/roomAssignmentAlgorithm.ts`**
+**2. Reorganize dialog layout for usability:**
 
-**1. Allow checkout moves during rebalancing when checkout imbalance is severe (STEP 4, ~line 500-503)**
+- Group actions into labeled sections: "Room Status", "Special Instructions", "Room Settings"
+- Use colored toggle-style buttons for towel/linen (red when active, outline when inactive)
+- Keep room size/category in a collapsible or lower section since they're used less frequently
 
-Replace the hard `if (room.is_checkout_room) continue` with a conditional check:
-- Calculate max and min checkout counts across all staff
-- If the difference exceeds 2, allow moving checkouts from the heaviest-checkout staff
-- Only skip checkout moves when the checkout distribution is already balanced (diff ≤ 2)
+**3. Housekeeper visibility (already works):**
 
-**2. Add a new STEP 4b: Checkout Equalization Pass (after STEP 4, before STEP 5)**
+The `towel_change_required` and `linen_change_required` fields are on the `rooms` table and already displayed in:
+- `AssignedRoomCard.tsx` — shows badges to housekeepers
+- `HotelRoomOverview.tsx` room chips — shows T and RC badges
+- Tooltip on room chips — shows text descriptions
 
-Insert a dedicated checkout-balancing loop:
-- While (maxCheckouts - minCheckouts > 2): move one checkout room from the staff with the most checkouts to the staff with the fewest
-- When choosing which checkout to move, prefer rooms on floors the target staff already works on (use existing `getFloorSpreadPenalty` + `getSequenceBonus`)
-- Cap at 15 iterations to prevent infinite loops
+No additional changes needed for housekeeper visibility — toggling these fields from the dialog will automatically reflect everywhere.
 
-**3. Lower the wing-split threshold (line 444)**
+### Implementation Details
 
-Change from `avgTargetWeight * 1.4` to `avgTargetWeight * 1.25` — this makes the algorithm split large wings sooner, preventing one housekeeper from being overloaded by a single large wing (like the 12-room Wing D).
+```
+Dialog Layout:
+┌─────────────────────────────────┐
+│ Room 302 (Wing D)               │
+├─────────────────────────────────┤
+│ Room Status                     │
+│ [Mark as Dirty] [Mark as Clean] │
+├─────────────────────────────────┤
+│ Special Instructions            │
+│ [🔄 Towel Change: ON/OFF]      │
+│ [🛏️ Linen Change: ON/OFF]      │
+├─────────────────────────────────┤
+│ Quick Actions                   │
+│ [Ready to Clean] [Switch Type]  │
+├─────────────────────────────────┤
+│ Room Settings                   │
+│ Size: [S/M/L/XL]               │
+│ Category: [dropdown]            │
+│            [Cancel] [Save]      │
+└─────────────────────────────────┘
+```
 
-**4. Reduce the checkout-skip bias in count rebalancing (STEP 5, line 557)**
-
-Currently STEP 5 only moves daily rooms (`mostRooms.filter(r => !r.is_checkout_room)`). Change this to allow checkout room moves when the room-count difference exceeds 3, using the same floor-concentration and affinity scoring.
-
-### Summary
-
-| Change | Location | Impact |
-|--------|----------|--------|
-| Allow checkout moves in weight rebalancing | STEP 4, line ~502 | Fixes checkout concentration |
-| Add checkout equalization pass | New STEP 4b | Ensures max 2 checkout difference |
-| Lower wing-split threshold | Line 444 | Prevents overloading from large wings |
-| Allow checkout moves in count rebalancing | STEP 5, line ~557 | Better room count distribution |
+All DB updates use existing `supabase.from('rooms').update(...)` and `supabase.from('room_assignments').update(...)` patterns already in the file.
 
