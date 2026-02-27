@@ -279,12 +279,6 @@ export function useNotifications() {
       }
     }
 
-    // Dispatch custom event for visual notification fallback
-    if (title) {
-      window.dispatchEvent(new CustomEvent('visual-notification', {
-        detail: { title, message, type }
-      }));
-    }
   }, [playNotificationSound, showBrowserNotification, notificationPermission, requestNotificationPermission]);
 
   // Listen for new assignments, break requests, and pending approvals

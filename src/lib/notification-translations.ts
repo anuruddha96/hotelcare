@@ -37,6 +37,9 @@ export const notificationTranslations: { [lang: string]: { [key: string]: string
     'notifications.gotIt': 'Got It',
     'notifications.dismiss': 'Dismiss',
     'notifications.recheckPermission': 'Re-check Browser Permission',
+    'notifications.assignmentStarted': 'Your room cleaning has started',
+    'notifications.assignmentCompleted': 'Room cleaning completed, awaiting approval',
+    'notifications.assignmentStatusChanged': 'Assignment status updated',
   },
   
   hu: {
@@ -76,6 +79,9 @@ export const notificationTranslations: { [lang: string]: { [key: string]: string
     'notifications.gotIt': 'Rendben',
     'notifications.dismiss': 'Elvetés',
     'notifications.recheckPermission': 'Böngésző Engedély Ellenőrzése',
+    'notifications.assignmentStarted': 'A szoba takarítása elkezdődött',
+    'notifications.assignmentCompleted': 'Szoba takarítása befejezve, jóváhagyásra vár',
+    'notifications.assignmentStatusChanged': 'Hozzárendelés állapota frissítve',
   },
   
   es: {
@@ -115,6 +121,9 @@ export const notificationTranslations: { [lang: string]: { [key: string]: string
     'notifications.gotIt': 'Entendido',
     'notifications.dismiss': 'Descartar',
     'notifications.recheckPermission': 'Verificar Permiso del Navegador',
+    'notifications.assignmentStarted': 'La limpieza de la habitación ha comenzado',
+    'notifications.assignmentCompleted': 'Limpieza completada, esperando aprobación',
+    'notifications.assignmentStatusChanged': 'Estado de asignación actualizado',
   },
   
   vi: {
@@ -154,6 +163,9 @@ export const notificationTranslations: { [lang: string]: { [key: string]: string
     'notifications.gotIt': 'Đã Hiểu',
     'notifications.dismiss': 'Bỏ Qua',
     'notifications.recheckPermission': 'Kiểm Tra Lại Quyền Trình Duyệt',
+    'notifications.assignmentStarted': 'Việc dọn phòng đã bắt đầu',
+    'notifications.assignmentCompleted': 'Dọn phòng hoàn tất, đang chờ phê duyệt',
+    'notifications.assignmentStatusChanged': 'Trạng thái phân công đã cập nhật',
   },
   
   mn: {
@@ -193,6 +205,9 @@ export const notificationTranslations: { [lang: string]: { [key: string]: string
     'notifications.gotIt': 'Ойлголоо',
     'notifications.dismiss': 'Хаах',
     'notifications.recheckPermission': 'Хөтчийн Зөвшөөрлийг Дахин Шалгах',
+    'notifications.assignmentStarted': 'Өрөөний цэвэрлэгээ эхэлсэн',
+    'notifications.assignmentCompleted': 'Цэвэрлэгээ дууссан, зөвшөөрөл хүлээж байна',
+    'notifications.assignmentStatusChanged': 'Хуваарилалтын төлөв шинэчлэгдсэн',
   },
 };
 

@@ -14,44 +14,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
 
     // Set up comprehensive real-time notifications
     const channels = [
-      // Room assignments for housekeepers
-      supabase
-        .channel('room-assignments-notifications')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'room_assignments',
-            filter: `assigned_to=eq.${user.id}`
-          },
-          (payload) => {
-            showNotification(
-              t('notifications.newAssignment'),
-              'info',
-              'New Room Assignment'
-            );
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'room_assignments',
-            filter: `assigned_to=eq.${user.id}`
-          },
-          (payload) => {
-            if (payload.new.status !== payload.old.status) {
-              showNotification(
-                `Assignment status changed to ${payload.new.status}`,
-                'info',
-                'Assignment Update'
-              );
-            }
-          }
-        )
-        .subscribe(),
+    // Manager-only channels (room assignment notifications are handled by useNotifications hook)
 
       // Break requests for managers
       ...(profile?.role && ['manager', 'housekeeping_manager', 'admin'].includes(profile.role) ? [

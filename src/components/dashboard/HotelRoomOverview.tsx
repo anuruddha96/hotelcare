@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
@@ -206,11 +207,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
     }
   };
 
+  const canInteractWithRooms = isManagerOrAdmin || isReception;
+  const [roomNotes, setRoomNotes] = useState('');
+
   const handleRoomClick = (room: RoomData) => {
-    if (!isManagerOrAdmin) return;
+    if (!canInteractWithRooms) return;
     setSelectedRoom(room);
     setSelectedSize(String(room.room_size_sqm || 25));
     setSelectedCategory(room.room_category || '');
+    setRoomNotes(room.notes || '');
     setRoomSizeDialogOpen(true);
   };
 
@@ -324,7 +329,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             <div 
               className="flex flex-col items-center gap-0.5"
               onClick={() => handleRoomClick(room)}
-              style={{ cursor: isManagerOrAdmin ? 'pointer' : 'default' }}
+              style={{ cursor: canInteractWithRooms ? 'pointer' : 'default' }}
             >
               <div
                 className={`
@@ -334,7 +339,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
                   ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
                   ${roomOverdue ? 'animate-pulse' : ''}
-                  ${isManagerOrAdmin ? 'hover:scale-110 hover:shadow-md' : ''}
+                  ${canInteractWithRooms ? 'hover:scale-110 hover:shadow-md' : ''}
                 `}
               >
                 {room.room_number}
@@ -604,7 +609,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               rooms={rooms}
               assignments={assignmentMap}
               staffMap={staffMap}
-              onRoomClick={isManagerOrAdmin ? handleRoomClick : undefined}
+              onRoomClick={canInteractWithRooms ? handleRoomClick : undefined}
               hotelName={hotelName}
               isAdmin={profile?.role === 'admin'}
             />
@@ -799,6 +804,44 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                     </div>
                   </div>
 
+                  {/* Manager Notes Section - only for managers/admins */}
+                  {isManagerOrAdmin && (
+                    <div className="space-y-2 pb-3 border-b">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Manager Notes</label>
+                      <Textarea
+                        value={roomNotes}
+                        onChange={(e) => setRoomNotes(e.target.value)}
+                        placeholder="Add notes for housekeepers..."
+                        className="min-h-[60px] text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        disabled={actionLoading === 'notes'}
+                        onClick={async () => {
+                          setActionLoading('notes');
+                          try {
+                            const { error } = await supabase
+                              .from('rooms')
+                              .update({ notes: roomNotes || null } as any)
+                              .eq('id', selectedRoom.id);
+                            if (error) throw error;
+                            setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, notes: roomNotes || null } : r));
+                            toast.success(`Notes saved for room ${selectedRoom.room_number}`);
+                          } catch (err) {
+                            toast.error('Failed to save notes');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'notes' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                        Save Notes
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Quick Actions Section */}
                   <div className="space-y-2 pb-3 border-b">
                     <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quick Actions</label>
@@ -892,48 +935,59 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               );
             })()}
 
-            {/* Room Settings Section */}
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Room Settings</label>
-            <p className="text-xs text-muted-foreground">Size affects auto-assignment workload balancing.</p>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Room Size</label>
-              <Select value={selectedSize} onValueChange={setSelectedSize}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select size" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ROOM_SIZE_OPTIONS.map(opt => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.fullLabel}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Room Category</label>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {(HOTEL_ROOM_CATEGORIES[hotelName] || HOTEL_ROOM_CATEGORIES.default).map(cat => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setRoomSizeDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSaveSize} disabled={savingSize}>
-                {savingSize ? 'Saving...' : 'Save'}
-              </Button>
-            </div>
+            {/* Room Settings Section - only for managers/admins */}
+            {isManagerOrAdmin && (
+              <>
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Room Settings</label>
+                <p className="text-xs text-muted-foreground">Size affects auto-assignment workload balancing.</p>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Room Size</label>
+                  <Select value={selectedSize} onValueChange={setSelectedSize}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select size" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ROOM_SIZE_OPTIONS.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.fullLabel}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Room Category</label>
+                  <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {(HOTEL_ROOM_CATEGORIES[hotelName] || HOTEL_ROOM_CATEGORIES.default).map(cat => (
+                        <SelectItem key={cat} value={cat}>
+                          {cat}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setRoomSizeDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSaveSize} disabled={savingSize}>
+                    {savingSize ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              </>
+            )}
+            {!isManagerOrAdmin && (
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setRoomSizeDialogOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

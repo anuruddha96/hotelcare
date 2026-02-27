@@ -69,6 +69,7 @@ interface AssignedRoomCardProps {
       towel_change_required?: boolean;
       linen_change_required?: boolean;
       checkout_time?: string | null;
+      notes?: string | null;
     } | null;
   };
   onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => void;
@@ -685,6 +686,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       </CardHeader>
 
       <CardContent className="space-y-6">
+        {/* Manager Notes for Housekeepers */}
+        {assignment.rooms?.notes && (
+          <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+            <div className="flex items-start gap-2">
+              <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">{t('roomCard.managerNotes') || 'Manager Notes'}</p>
+                <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">{assignment.rooms.notes}</p>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Room Details */}
         <div className="grid grid-cols-2 gap-4">
           <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
