@@ -20,7 +20,7 @@ import { MaintenanceStaffView } from './MaintenanceStaffView';
 import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
-import { VisualNotificationOverlay, useVisualNotifications } from './VisualNotificationOverlay';
+
 import { AdminTabs } from '@/components/admin/AdminTabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -56,7 +56,7 @@ export function Dashboard() {
   const { profile } = useAuth();
   const { t } = useTranslation();
   const { organization, hotels } = useTenant();
-  const { notifications, addNotification, removeNotification } = useVisualNotifications();
+  
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -109,17 +109,6 @@ export function Dashboard() {
     resolveHotelName();
   }, [profile?.assigned_hotel]);
 
-  useEffect(() => {
-    const handleVisualNotification = (event: CustomEvent) => {
-      const { title, message, type } = event.detail;
-      addNotification(title, message, type);
-    };
-
-    window.addEventListener('visual-notification', handleVisualNotification as EventListener);
-    return () => {
-      window.removeEventListener('visual-notification', handleVisualNotification as EventListener);
-    };
-  }, [addNotification]);
 
   const canCreateTickets = profile?.role && [
     'housekeeping', 'reception', 'manager', 'admin', 'maintenance',
@@ -341,10 +330,6 @@ export function Dashboard() {
     <div className="min-h-screen bg-background">
       <AutoAssignmentService />
       <NotificationPermissionBanner />
-      <VisualNotificationOverlay 
-        notifications={notifications}
-        onDismiss={removeNotification}
-      />
       
       {/* Organization Info Banner - Super Admin & Admin only */}
       {(profile?.role === 'admin' || profile?.is_super_admin) && organization && (

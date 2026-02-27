@@ -129,7 +129,8 @@ export function HousekeepingStaffView() {
             bed_type,
             guest_nights_stayed,
             towel_change_required,
-            linen_change_required
+            linen_change_required,
+            notes
           )
         `)
         .eq('assigned_to', user.id)
