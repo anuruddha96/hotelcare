@@ -631,9 +631,20 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
 
       {/* Room Edit Dialog */}
       <Dialog open={roomSizeDialogOpen} onOpenChange={setRoomSizeDialogOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}
+              {selectedRoom && (
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                  selectedRoom.status === 'clean' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
+                  selectedRoom.status === 'in_progress' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' :
+                  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                }`}>
+                  {selectedRoom.status === 'in_progress' ? 'In Progress' : selectedRoom.status === 'clean' ? 'Clean' : 'Dirty'}
+                </span>
+              )}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {/* Room Status */}
@@ -645,7 +656,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 <>
                   {/* Room Status Section */}
                   <div className="space-y-2 pb-3 border-b">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Room Status</label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">🔄 Change Room Status</label>
+                    <p className="text-[11px] text-muted-foreground -mt-1">Manually update this room's cleaning status</p>
                     <div className="flex gap-2">
                       {roomStatus === 'clean' && (
                         <Button
@@ -741,7 +753,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
 
                   {/* Special Instructions Section */}
                   <div className="space-y-2 pb-3 border-b">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Special Instructions</label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">🧺 Towel & Linen Change</label>
                     <div className="flex gap-2">
                       <Button
                         variant={selectedRoom.towel_change_required ? "default" : "outline"}
@@ -770,7 +782,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                         }}
                       >
                         {actionLoading === 'towel' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                        🔄 Towel {selectedRoom.towel_change_required ? 'ON' : 'OFF'}
+                        🔄 Towel: {selectedRoom.towel_change_required ? 'Required' : 'Not Required'}
                       </Button>
                       <Button
                         variant={selectedRoom.linen_change_required ? "default" : "outline"}
@@ -799,7 +811,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                         }}
                       >
                         {actionLoading === 'linen' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                        🛏️ Linen {selectedRoom.linen_change_required ? 'ON' : 'OFF'}
+                        🛏️ Linen: {selectedRoom.linen_change_required ? 'Required' : 'Not Required'}
                       </Button>
                     </div>
                   </div>
@@ -807,7 +819,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   {/* Manager Notes Section - only for managers/admins */}
                   {isManagerOrAdmin && (
                     <div className="space-y-2 pb-3 border-b">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Manager Notes</label>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">📝 Manager Notes</label>
                       <Textarea
                         value={roomNotes}
                         onChange={(e) => setRoomNotes(e.target.value)}
@@ -844,7 +856,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
 
                   {/* Quick Actions Section */}
                   <div className="space-y-2 pb-3 border-b">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quick Actions</label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">⚡ Quick Actions</label>
                     {/* Mark Ready to Clean */}
                     {isCheckout && (
                       <Button
@@ -938,7 +950,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             {/* Room Settings Section - only for managers/admins */}
             {isManagerOrAdmin && (
               <>
-                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Room Settings</label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">⚙️ Room Settings</label>
                 <p className="text-xs text-muted-foreground">Size affects auto-assignment workload balancing.</p>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Room Size</label>
