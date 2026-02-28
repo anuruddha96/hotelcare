@@ -36,6 +36,7 @@ interface Assignment {
     room_name: string | null;
     floor_number: number | null;
     bed_type?: string | null;
+    bed_configuration?: string | null;
   } | null;
 }
 
@@ -127,6 +128,7 @@ export function HousekeepingStaffView() {
             room_name,
             floor_number,
             bed_type,
+            bed_configuration,
             guest_nights_stayed,
             towel_change_required,
             linen_change_required,
@@ -156,7 +158,7 @@ export function HousekeepingStaffView() {
       if (missingRoomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, guest_nights_stayed, towel_change_required, linen_change_required')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, guest_nights_stayed, towel_change_required, linen_change_required')
           .in('id', missingRoomIds);
         if (!roomsError && roomRows) {
           const roomMap = Object.fromEntries(roomRows.map((r: any) => [r.id, r]));
@@ -170,38 +172,29 @@ export function HousekeepingStaffView() {
       // Show ALL assignments including checkout rooms not ready
       // Checkout rooms will display a "waiting for checkout" indicator
 
-      // Sort with smart prioritization: in_progress > manual priority > checkout (by floor) > daily (by floor)
+      // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
       assignmentsData.sort((a, b) => {
-        const statusPriority: Record<string, number> = {
-          'in_progress': 1,
-          'assigned': 2,
-          'completed': 3,
-          'cancelled': 4,
+        // Helper to get sort bucket
+        const getBucket = (x: any): number => {
+          if (x.status === 'in_progress') return 0;
+          if (x.status === 'completed') return 5;
+          if (x.status === 'cancelled') return 6;
+          // assigned status
+          if ((x.priority ?? 1) >= 3) return 1; // high priority
+          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2; // ready checkout
+          if (x.assignment_type === 'daily_cleaning') return 3; // daily
+          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4; // waiting checkout
+          return 3; // default to daily bucket
         };
 
-        // 1. In-progress rooms ALWAYS at the top
-        const statusDiff = (statusPriority[a.status] ?? 99) - (statusPriority[b.status] ?? 99);
-        if (statusDiff !== 0) return statusDiff;
+        const bucketDiff = getBucket(a) - getBucket(b);
+        if (bucketDiff !== 0) return bucketDiff;
 
-        // 2. Manual priority (only for assigned/in_progress)
-        const aPriority = (a.priority ?? 1);
-        const bPriority = (b.priority ?? 1);
-        const priorityDiff = bPriority - aPriority;
-        if (priorityDiff !== 0) return priorityDiff;
-
-        // 3. Checkout rooms before daily rooms
-        const aIsCheckout = a.assignment_type === 'checkout_cleaning' && a.ready_to_clean;
-        const bIsCheckout = b.assignment_type === 'checkout_cleaning' && b.ready_to_clean;
-        if (aIsCheckout && !bIsCheckout) return -1;
-        if (!aIsCheckout && bIsCheckout) return 1;
-
-        // 4. Within same type, group by floor
+        // Within same bucket, group by floor then room number
         const aFloor = a.rooms?.floor_number ?? 999;
         const bFloor = b.rooms?.floor_number ?? 999;
-        const floorDiff = aFloor - bFloor;
-        if (floorDiff !== 0) return floorDiff;
+        if (aFloor !== bFloor) return aFloor - bFloor;
 
-        // 5. Within same floor, sort by room number
         const aRoomNum = parseInt(a.rooms?.room_number?.replace(/\D/g, '') || '999');
         const bRoomNum = parseInt(b.rooms?.room_number?.replace(/\D/g, '') || '999');
         return aRoomNum - bRoomNum;

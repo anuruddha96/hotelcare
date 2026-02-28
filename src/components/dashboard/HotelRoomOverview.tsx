@@ -983,6 +983,41 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                     </SelectContent>
                   </Select>
                 </div>
+                {/* Bed Configuration */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">🛏️ Bed Configuration</label>
+                  <p className="text-xs text-muted-foreground">Set the current guest bed requirement</p>
+                  <Select
+                    value={(selectedRoom as any)?.bed_configuration || 'none'}
+                    onValueChange={async (val) => {
+                      const newVal = val === 'none' ? null : val;
+                      try {
+                        const { error } = await supabase
+                          .from('rooms')
+                          .update({ bed_configuration: newVal } as any)
+                          .eq('id', selectedRoom!.id);
+                        if (error) throw error;
+                        setRooms(prev => prev.map(r => r.id === selectedRoom!.id ? { ...r, bed_configuration: newVal } : r));
+                        setSelectedRoom((prev: any) => prev ? { ...prev, bed_configuration: newVal } : prev);
+                        toast.success(`Bed configuration updated for room ${selectedRoom!.room_number}`);
+                      } catch (err) {
+                        toast.error('Failed to update bed configuration');
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select bed configuration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="Double Bed">Double Bed</SelectItem>
+                      <SelectItem value="Twin Beds">Twin Beds</SelectItem>
+                      <SelectItem value="Twin Beds Separated">Twin Beds Separated</SelectItem>
+                      <SelectItem value="Single Bed">Single Bed</SelectItem>
+                      <SelectItem value="Extra Cot Added">Extra Cot Added</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex gap-2 justify-end">
                   <Button variant="outline" onClick={() => setRoomSizeDialogOpen(false)}>
                     Cancel

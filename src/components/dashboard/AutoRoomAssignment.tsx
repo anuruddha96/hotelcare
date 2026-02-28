@@ -232,7 +232,7 @@ export function AutoRoomAssignment({
       // Fetch dirty rooms that don't have assignments for today
       const { data: roomsData } = await supabase
         .from('rooms')
-        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category')
+        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration')
         .eq('hotel', hotelName)
         .eq('status', 'dirty');
 
@@ -586,6 +586,9 @@ export function AutoRoomAssignment({
         {room.linen_change_required && (
           <span className="text-[10px] px-0.5 font-bold text-red-600">L</span>
         )}
+        {room.bed_configuration && (
+          <span className="text-[9px] px-0.5 opacity-70">🛏️{room.bed_configuration.length > 8 ? room.bed_configuration.substring(0, 8) : room.bed_configuration}</span>
+        )}
       </div>
     );
   };
@@ -754,6 +757,65 @@ export function AutoRoomAssignment({
                       })}
                     </div>
                     </div>
+
+                    {/* Pre-Assignment Towel Change Settings */}
+                    {dirtyRooms.length > 0 && (
+                      <div className="mt-4 border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors text-sm font-medium"
+                          onClick={() => {
+                            const el = document.getElementById('towel-toggle-section');
+                            if (el) el.classList.toggle('hidden');
+                          }}
+                        >
+                          <span className="flex items-center gap-2">
+                            🧺 Pre-Assignment: Towel Change ({dirtyRooms.filter(r => r.towel_change_required).length}/{dirtyRooms.length})
+                          </span>
+                          <span className="text-xs text-muted-foreground">Click to expand</span>
+                        </button>
+                        <div id="towel-toggle-section" className="hidden p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-muted-foreground">Toggle towel change for rooms before generating preview</p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs h-7"
+                              onClick={async () => {
+                                const allSet = dirtyRooms.every(r => r.towel_change_required);
+                                const newVal = !allSet;
+                                const roomIds = dirtyRooms.map(r => r.id);
+                                await supabase.from('rooms').update({ towel_change_required: newVal } as any).in('id', roomIds);
+                                setDirtyRooms(prev => prev.map(r => ({ ...r, towel_change_required: newVal })));
+                                toast.success(newVal ? 'All rooms set to towel change' : 'All towel changes removed');
+                              }}
+                            >
+                              {dirtyRooms.every(r => r.towel_change_required) ? 'Deselect All' : 'Select All'}
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {dirtyRooms.map(room => (
+                              <button
+                                key={room.id}
+                                type="button"
+                                className={`px-2 py-1 rounded-md text-xs font-medium transition-all border ${
+                                  room.towel_change_required
+                                    ? 'bg-yellow-100 border-yellow-400 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 dark:border-yellow-600'
+                                    : 'bg-muted border-border text-muted-foreground hover:bg-muted/80'
+                                }`}
+                                onClick={async () => {
+                                  const newVal = !room.towel_change_required;
+                                  await supabase.from('rooms').update({ towel_change_required: newVal } as any).eq('id', room.id);
+                                  setDirtyRooms(prev => prev.map(r => r.id === room.id ? { ...r, towel_change_required: newVal } : r));
+                                }}
+                              >
+                                {room.room_number} {room.towel_change_required ? '🧺' : ''}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
