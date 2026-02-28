@@ -1792,6 +1792,7 @@ export type Database = {
       }
       rooms: {
         Row: {
+          bed_configuration: string | null
           bed_type: string | null
           checkout_time: string | null
           created_at: string
@@ -1825,6 +1826,7 @@ export type Database = {
           wing: string | null
         }
         Insert: {
+          bed_configuration?: string | null
           bed_type?: string | null
           checkout_time?: string | null
           created_at?: string
@@ -1858,6 +1860,7 @@ export type Database = {
           wing?: string | null
         }
         Update: {
+          bed_configuration?: string | null
           bed_type?: string | null
           checkout_time?: string | null
           created_at?: string

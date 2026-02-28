@@ -23,6 +23,7 @@ export interface RoomForAssignment {
   wing?: string | null;
   elevator_proximity?: number | null;
   room_category?: string | null;
+  bed_configuration?: string | null;
 }
 
 export interface StaffForAssignment {

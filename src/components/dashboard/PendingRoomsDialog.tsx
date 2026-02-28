@@ -83,8 +83,18 @@ export function PendingRoomsDialog({
         notes: item.notes,
       }));
 
-      // Sort assignments by room number numerically
+      // Sort with unified priority matching housekeeper view
       const sortedAssignments = pendingAssignments.sort((a, b) => {
+        const getBucket = (x: PendingAssignment): number => {
+          if ((x.priority ?? 1) >= 3) return 0; // high priority first
+          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 1; // ready checkouts
+          if (x.assignment_type === 'daily_cleaning') return 2; // daily
+          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 3; // waiting checkouts
+          return 2;
+        };
+        const bucketDiff = getBucket(a) - getBucket(b);
+        if (bucketDiff !== 0) return bucketDiff;
+        // Same bucket: sort by room number
         const roomA = parseInt(a.room_number) || 0;
         const roomB = parseInt(b.room_number) || 0;
         return roomA - roomB;
