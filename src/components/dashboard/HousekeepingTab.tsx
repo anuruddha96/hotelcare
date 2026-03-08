@@ -255,15 +255,17 @@ export function HousekeepingTab() {
                   )}
                 </>
               )}
-              <TabsTrigger
-                value="assignments" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-                data-training="my-tasks-tab"
-              >
-                <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
-                <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
-              </TabsTrigger>
+              <HelpTooltip hint={UI_HINTS["hk.myTasks"]}>
+                <TabsTrigger
+                  value="assignments" 
+                  className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+                  data-training="my-tasks-tab"
+                >
+                  <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
+                  <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
+                </TabsTrigger>
+              </HelpTooltip>
             </>
           )}
         </TabsList>
