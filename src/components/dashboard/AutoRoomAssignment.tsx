@@ -13,7 +13,7 @@ import { Progress } from '@/components/ui/progress';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move, MapPin, Trash2, Info } from 'lucide-react';
+import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move, MapPin, Trash2, Info, Undo2, Printer, EyeOff, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
   autoAssignRooms, 
@@ -86,9 +86,15 @@ export function AutoRoomAssignment({
   const [dirtyRooms, setDirtyRooms] = useState<RoomForAssignment[]>([]);
   const [checkedInStaff, setCheckedInStaff] = useState<Set<string>>(new Set());
   
+  // Room exclusion
+  const [excludedRoomIds, setExcludedRoomIds] = useState<Set<string>>(new Set());
+  
   // Preview
   const [assignmentPreviews, setAssignmentPreviews] = useState<AssignmentPreview[]>([]);
   const [selectedRoomForMove, setSelectedRoomForMove] = useState<{roomId: string; fromStaffId: string} | null>(null);
+  
+  // Undo history
+  const [previewHistory, setPreviewHistory] = useState<AssignmentPreview[][]>([]);
   
   // Drag and drop
   const [dragOverStaffId, setDragOverStaffId] = useState<string | null>(null);
@@ -110,6 +116,30 @@ export function AutoRoomAssignment({
   const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map());
 
   const saveKey = getSaveKey(profile?.assigned_hotel, selectedDate);
+
+  // Undo support with Ctrl+Z
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && step === 'preview' && previewHistory.length > 0) {
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [step, previewHistory]);
+
+  const pushHistory = (previews: AssignmentPreview[]) => {
+    setPreviewHistory(prev => [...prev.slice(-19), previews]);
+  };
+
+  const handleUndo = () => {
+    if (previewHistory.length === 0) return;
+    const previous = previewHistory[previewHistory.length - 1];
+    setPreviewHistory(prev => prev.slice(0, -1));
+    setAssignmentPreviews(previous);
+    toast.success(t('autoAssign.undoSuccess'));
+  };
 
   // Auto-save: persist staff selection and previews
   useEffect(() => {
@@ -136,7 +166,9 @@ export function AutoRoomAssignment({
     setSelectedStaffIds(new Set());
     setAssignmentPreviews([]);
     setSelectedRoomForMove(null);
-    toast.success('Saved assignment data cleared');
+    setExcludedRoomIds(new Set());
+    setPreviewHistory([]);
+    toast.success(t('autoAssign.savedCleared'));
   };
 
   // Reset state when dialog opens - restore from localStorage if available
@@ -145,6 +177,8 @@ export function AutoRoomAssignment({
       setSelectedRoomForMove(null);
       setShowOverAllocationDialog(false);
       setPublicAreaAssignments(new Map());
+      setExcludedRoomIds(new Set());
+      setPreviewHistory([]);
 
       // Try to restore from localStorage
       try {
@@ -192,7 +226,7 @@ export function AutoRoomAssignment({
       // Get manager's hotel
       const hotelName = await getManagerHotel();
       if (!hotelName) {
-        toast.error('No hotel assigned');
+        toast.error(t('autoAssign.noHotelAssigned'));
         return;
       }
 
@@ -280,7 +314,7 @@ export function AutoRoomAssignment({
 
     } catch (error) {
       console.error('Error fetching data:', error);
-      toast.error('Failed to load data');
+      toast.error(t('autoAssign.failedToLoad'));
     } finally {
       setLoading(false);
     }
@@ -309,16 +343,28 @@ export function AutoRoomAssignment({
     setSelectedStaffIds(newSelection);
   };
 
+  const toggleRoomExclusion = (roomId: string) => {
+    setExcludedRoomIds(prev => {
+      const next = new Set(prev);
+      if (next.has(roomId)) next.delete(roomId);
+      else next.add(roomId);
+      return next;
+    });
+  };
+
   const handleGeneratePreview = () => {
     const selectedStaff = allStaff.filter(s => selectedStaffIds.has(s.id));
-    const previews = autoAssignRooms(dirtyRooms, selectedStaff, wingProximity, roomAffinity);
+    const roomsToAssign = dirtyRooms.filter(r => !excludedRoomIds.has(r.id));
+    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity);
     setAssignmentPreviews(previews);
+    setPreviewHistory([]);
     setStep('preview');
   };
 
   const handleMoveRoom = (toStaffId: string) => {
     if (!selectedRoomForMove) return;
     
+    pushHistory(assignmentPreviews);
     const newPreviews = moveRoom(
       assignmentPreviews,
       selectedRoomForMove.roomId,
@@ -365,14 +411,14 @@ export function AutoRoomAssignment({
           assignment_date: selectedDate,
           assignment_type: (room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
           status: 'assigned' as const,
-          priority: index + 1, // Checkouts get lowest numbers (highest priority)
+          priority: index + 1,
           organization_slug: profile?.organization_slug,
           ready_to_clean: !room.is_checkout_room
         }));
       });
 
       if (assignments.length === 0) {
-        toast.error('No rooms to assign');
+        toast.error(t('autoAssign.noRoomsToAssign'));
         return;
       }
 
@@ -424,7 +470,7 @@ export function AutoRoomAssignment({
       const totalRooms = assignments.length;
       const staffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
       
-      toast.success(`Assigned ${totalRooms} rooms to ${staffCount} housekeepers`);
+      toast.success(`${t('autoAssign.assigned')} ${totalRooms} ${t('autoAssign.roomsTo')} ${staffCount} ${t('autoAssign.housekeepers')}`);
       onAssignmentCreated(totalRooms, staffCount);
       
       // Move to public areas step instead of closing
@@ -432,7 +478,7 @@ export function AutoRoomAssignment({
 
     } catch (error) {
       console.error('Error creating assignments:', error);
-      toast.error('Failed to create assignments');
+      toast.error(t('autoAssign.failedToAssign'));
     } finally {
       setSubmitting(false);
     }
@@ -468,12 +514,12 @@ export function AutoRoomAssignment({
       const { error } = await supabase.from('general_tasks').insert(tasks);
       if (error) throw error;
 
-      toast.success(`Assigned ${tasks.length} public area(s)`);
+      toast.success(`${t('autoAssign.assigned')} ${tasks.length} ${t('autoAssign.publicAreas')}`);
       onAssignmentCreated(tasks.length, 0);
       onOpenChange(false);
     } catch (error) {
       console.error('Error assigning public areas:', error);
-      toast.error('Failed to assign public areas');
+      toast.error(t('autoAssign.failedToAssignAreas'));
     } finally {
       setSubmitting(false);
     }
@@ -541,6 +587,75 @@ export function AutoRoomAssignment({
     return category.substring(0, 4);
   };
 
+  // Print assignment sheets
+  const handlePrintAssignments = () => {
+    const activePreviews = assignmentPreviews.filter(p => p.rooms.length > 0);
+    if (activePreviews.length === 0) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error(t('autoAssign.popupBlocked'));
+      return;
+    }
+
+    const html = `<!DOCTYPE html>
+<html><head><title>${t('autoAssign.assignmentSheets')} - ${selectedDate}</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+  .page { page-break-after: always; padding: 20px; }
+  .page:last-child { page-break-after: auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 14px; color: #666; margin: 0 0 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 12px; }
+  th { background: #f5f5f5; font-weight: 600; }
+  .type-co { background: #fef3c7; }
+  .type-daily { background: #dbeafe; }
+  .summary { font-size: 13px; margin-bottom: 12px; color: #333; }
+  .special { color: #dc2626; font-weight: 600; }
+  @media print { body { padding: 0; } }
+</style></head><body>
+${activePreviews.map(preview => {
+  const checkouts = preview.rooms.filter(r => r.is_checkout_room);
+  const daily = preview.rooms.filter(r => !r.is_checkout_room);
+  const sortByRoom = (rooms: RoomForAssignment[]) => 
+    [...rooms].sort((a, b) => {
+      const fa = getFloorFromRoomNumber(a.room_number);
+      const fb = getFloorFromRoomNumber(b.room_number);
+      return fa !== fb ? fa - fb : parseInt(a.room_number) - parseInt(b.room_number);
+    });
+
+  return `<div class="page">
+    <h1>${preview.staffName}</h1>
+    <h2>${selectedDate} · ${preview.rooms.length} ${t('autoAssign.rooms')} · ${formatMinutesToTime(preview.totalWithBreak)}</h2>
+    <div class="summary">${t('autoAssign.checkouts')}: ${checkouts.length} · ${t('autoAssign.daily')}: ${daily.length}</div>
+    <table>
+      <tr><th>#</th><th>${t('autoAssign.room')}</th><th>${t('autoAssign.type')}</th><th>${t('autoAssign.floor')}</th><th>${t('autoAssign.category')}</th><th>${t('autoAssign.special')}</th></tr>
+      ${sortByRoom(preview.rooms).map((room, i) => {
+        const specials: string[] = [];
+        if (room.towel_change_required) specials.push('🧺 Towel');
+        if (room.linen_change_required) specials.push('🛏️ Linen');
+        if (room.bed_configuration) specials.push(`Bed: ${room.bed_configuration}`);
+        return `<tr class="${room.is_checkout_room ? 'type-co' : 'type-daily'}">
+          <td>${i + 1}</td>
+          <td><strong>${room.room_number}</strong></td>
+          <td>${room.is_checkout_room ? 'Checkout' : 'Daily'}</td>
+          <td>F${getFloorFromRoomNumber(room.room_number)}</td>
+          <td>${room.room_category || '—'}</td>
+          <td class="${specials.length > 0 ? 'special' : ''}">${specials.join(', ') || '—'}</td>
+        </tr>`;
+      }).join('')}
+    </table>
+  </div>`;
+}).join('')}
+</body></html>`;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 300);
+  };
+
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const isSelected = selectedRoomForMove?.roomId === room.id;
     const chipColor = room.is_checkout_room
@@ -574,7 +689,7 @@ export function AutoRoomAssignment({
           if (isSelected) setSelectedRoomForMove(null);
           else setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
         }}
-        title={`Room ${room.room_number}${room.room_category ? ` · ${room.room_category}` : ''}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
+        title={`${t('autoAssign.room')} ${room.room_number}${room.room_category ? ` · ${room.room_category}` : ''}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
       >
         <span>{room.room_number}</span>
         {room.room_category && (
@@ -602,12 +717,12 @@ export function AutoRoomAssignment({
       <div className="rounded-lg border bg-card overflow-hidden">
         <div className="grid grid-cols-[1fr,auto,auto,auto,auto,1fr] gap-x-3 gap-y-0 text-xs">
           {/* Header */}
-          <div className="px-3 py-2 bg-muted/60 font-semibold">Staff</div>
+          <div className="px-3 py-2 bg-muted/60 font-semibold">{t('autoAssign.staff')}</div>
           <div className="px-2 py-2 bg-muted/60 font-semibold text-center">CO</div>
-          <div className="px-2 py-2 bg-muted/60 font-semibold text-center">Daily</div>
-          <div className="px-2 py-2 bg-muted/60 font-semibold text-center">Tasks</div>
-          <div className="px-2 py-2 bg-muted/60 font-semibold text-right">Time</div>
-          <div className="px-3 py-2 bg-muted/60 font-semibold">Workload</div>
+          <div className="px-2 py-2 bg-muted/60 font-semibold text-center">{t('autoAssign.daily')}</div>
+          <div className="px-2 py-2 bg-muted/60 font-semibold text-center">{t('autoAssign.tasks')}</div>
+          <div className="px-2 py-2 bg-muted/60 font-semibold text-right">{t('autoAssign.time')}</div>
+          <div className="px-3 py-2 bg-muted/60 font-semibold">{t('autoAssign.workload')}</div>
           
           {/* Rows */}
           {activePreviews.map((p, i) => {
@@ -649,6 +764,9 @@ export function AutoRoomAssignment({
     );
   };
 
+  // Effective rooms (after exclusion)
+  const effectiveRooms = dirtyRooms.filter(r => !excludedRoomIds.has(r.id));
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -656,10 +774,10 @@ export function AutoRoomAssignment({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wand2 className="h-5 w-5" />
-              Auto Room Assignment
+              {t('autoAssign.title')}
               {restoredFromSave && (
                 <Badge variant="outline" className="text-xs text-green-600 border-green-300 ml-2">
-                  Restored
+                  {t('autoAssign.restored')}
                 </Badge>
               )}
             </DialogTitle>
@@ -667,13 +785,13 @@ export function AutoRoomAssignment({
 
           {/* Step Indicator */}
           <div className="flex items-center justify-center gap-1.5 py-2 flex-wrap">
-            <Badge variant={step === 'select-staff' ? 'default' : 'secondary'} className="text-xs">1. Staff</Badge>
+            <Badge variant={step === 'select-staff' ? 'default' : 'secondary'} className="text-xs">1. {t('autoAssign.stepStaff')}</Badge>
             <ArrowRight className="h-3 w-3 text-muted-foreground" />
-            <Badge variant={step === 'preview' ? 'default' : 'secondary'} className="text-xs">2. Preview</Badge>
+            <Badge variant={step === 'preview' ? 'default' : 'secondary'} className="text-xs">2. {t('autoAssign.stepPreview')}</Badge>
             <ArrowRight className="h-3 w-3 text-muted-foreground" />
-            <Badge variant={step === 'confirm' ? 'default' : 'secondary'} className="text-xs">3. Confirm</Badge>
+            <Badge variant={step === 'confirm' ? 'default' : 'secondary'} className="text-xs">3. {t('autoAssign.stepConfirm')}</Badge>
             <ArrowRight className="h-3 w-3 text-muted-foreground" />
-            <Badge variant={step === 'public-areas' ? 'default' : 'secondary'} className="text-xs">4. Public Areas</Badge>
+            <Badge variant={step === 'public-areas' ? 'default' : 'secondary'} className="text-xs">4. {t('autoAssign.stepPublicAreas')}</Badge>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-1">
@@ -686,20 +804,25 @@ export function AutoRoomAssignment({
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-4 p-4 bg-muted rounded-lg">
                   <div className="text-center">
-                    <p className="text-2xl font-bold">{dirtyRooms.length}</p>
-                    <p className="text-sm text-muted-foreground">Total Rooms</p>
+                    <p className="text-2xl font-bold">{effectiveRooms.length}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {t('autoAssign.totalRooms')}
+                      {excludedRoomIds.size > 0 && (
+                        <span className="text-xs text-destructive ml-1">(-{excludedRoomIds.size})</span>
+                      )}
+                    </p>
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-amber-600">
-                      {dirtyRooms.filter(r => r.is_checkout_room).length}
+                      {effectiveRooms.filter(r => r.is_checkout_room).length}
                     </p>
-                    <p className="text-sm text-muted-foreground">Checkouts</p>
+                    <p className="text-sm text-muted-foreground">{t('autoAssign.checkouts')}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-blue-600">
-                      {dirtyRooms.filter(r => !r.is_checkout_room).length}
+                      {effectiveRooms.filter(r => !r.is_checkout_room).length}
                     </p>
-                    <p className="text-sm text-muted-foreground">Daily</p>
+                    <p className="text-sm text-muted-foreground">{t('autoAssign.daily')}</p>
                   </div>
                 </div>
 
@@ -707,22 +830,22 @@ export function AutoRoomAssignment({
                 <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-sm">
                   <Clock className="h-4 w-4 text-blue-600" />
                   <span>
-                    Checkout rooms: <strong>{CHECKOUT_MINUTES} min</strong> | 
-                    Daily rooms: <strong>{DAILY_MINUTES} min</strong> | 
-                    Break: <strong>{BREAK_TIME_MINUTES} min</strong>
+                    {t('autoAssign.checkoutRooms')}: <strong>{CHECKOUT_MINUTES} min</strong> | 
+                    {t('autoAssign.dailyRooms')}: <strong>{DAILY_MINUTES} min</strong> | 
+                    {t('autoAssign.break')}: <strong>{BREAK_TIME_MINUTES} min</strong>
                   </span>
                 </div>
 
                 {dirtyRooms.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No dirty rooms available for assignment</p>
+                    <p>{t('autoAssign.noDirtyRooms')}</p>
                   </div>
                 ) : (
                   <>
                     <h3 className="font-medium flex items-center gap-2">
                       <Users className="h-4 w-4" />
-                      Select Working Housekeepers ({selectedStaffIds.size} selected)
+                      {t('autoAssign.selectHousekeepers')} ({selectedStaffIds.size} {t('autoAssign.selected')})
                     </h3>
 
                     <div className="max-h-[40vh] overflow-y-auto">
@@ -749,7 +872,7 @@ export function AutoRoomAssignment({
                             {isCheckedIn && (
                               <Badge variant="outline" className="text-green-600 border-green-600">
                                 <Check className="h-3 w-3 mr-1" />
-                                Checked In
+                                {t('autoAssign.checkedIn')}
                               </Badge>
                             )}
                           </div>
@@ -758,9 +881,63 @@ export function AutoRoomAssignment({
                     </div>
                     </div>
 
-                    {/* Pre-Assignment Towel Change Settings */}
+                    {/* Pre-Assignment: Room Exclusion */}
                     {dirtyRooms.length > 0 && (
                       <div className="mt-4 border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors text-sm font-medium"
+                          onClick={() => {
+                            const el = document.getElementById('room-exclusion-section');
+                            if (el) el.classList.toggle('hidden');
+                          }}
+                        >
+                          <span className="flex items-center gap-2">
+                            <EyeOff className="h-4 w-4" />
+                            {t('autoAssign.excludeRooms')} ({excludedRoomIds.size}/{dirtyRooms.length})
+                          </span>
+                          <span className="text-xs text-muted-foreground">{t('autoAssign.clickToExpand')}</span>
+                        </button>
+                        <div id="room-exclusion-section" className="hidden p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-muted-foreground">{t('autoAssign.excludeRoomsDesc')}</p>
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-7"
+                                onClick={() => setExcludedRoomIds(new Set())}
+                              >
+                                {t('autoAssign.includeAll')}
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {dirtyRooms.map(room => {
+                              const isExcluded = excludedRoomIds.has(room.id);
+                              return (
+                                <button
+                                  key={room.id}
+                                  type="button"
+                                  className={`px-2 py-1 rounded-md text-xs font-medium transition-all border ${
+                                    isExcluded
+                                      ? 'bg-red-100 border-red-400 text-red-800 line-through dark:bg-red-900/40 dark:text-red-300 dark:border-red-600'
+                                      : 'bg-muted border-border text-foreground hover:bg-muted/80'
+                                  }`}
+                                  onClick={() => toggleRoomExclusion(room.id)}
+                                >
+                                  {room.room_number} {isExcluded ? '✕' : ''}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pre-Assignment Towel Change Settings */}
+                    {dirtyRooms.length > 0 && (
+                      <div className="border rounded-lg overflow-hidden">
                         <button
                           type="button"
                           className="w-full flex items-center justify-between px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors text-sm font-medium"
@@ -770,13 +947,13 @@ export function AutoRoomAssignment({
                           }}
                         >
                           <span className="flex items-center gap-2">
-                            🧺 Pre-Assignment: Towel Change ({dirtyRooms.filter(r => r.towel_change_required).length}/{dirtyRooms.length})
+                            🧺 {t('autoAssign.towelChange')} ({dirtyRooms.filter(r => r.towel_change_required).length}/{dirtyRooms.length})
                           </span>
-                          <span className="text-xs text-muted-foreground">Click to expand</span>
+                          <span className="text-xs text-muted-foreground">{t('autoAssign.clickToExpand')}</span>
                         </button>
                         <div id="towel-toggle-section" className="hidden p-3 space-y-2">
                           <div className="flex items-center justify-between">
-                            <p className="text-xs text-muted-foreground">Toggle towel change for rooms before generating preview</p>
+                            <p className="text-xs text-muted-foreground">{t('autoAssign.towelChangeDesc')}</p>
                             <Button
                               size="sm"
                               variant="outline"
@@ -787,10 +964,10 @@ export function AutoRoomAssignment({
                                 const roomIds = dirtyRooms.map(r => r.id);
                                 await supabase.from('rooms').update({ towel_change_required: newVal } as any).in('id', roomIds);
                                 setDirtyRooms(prev => prev.map(r => ({ ...r, towel_change_required: newVal })));
-                                toast.success(newVal ? 'All rooms set to towel change' : 'All towel changes removed');
+                                toast.success(newVal ? t('autoAssign.allTowelSet') : t('autoAssign.allTowelRemoved'));
                               }}
                             >
-                              {dirtyRooms.every(r => r.towel_change_required) ? 'Deselect All' : 'Select All'}
+                              {dirtyRooms.every(r => r.towel_change_required) ? t('autoAssign.deselectAll') : t('autoAssign.selectAll')}
                             </Button>
                           </div>
                           <div className="flex flex-wrap gap-1.5">
@@ -816,6 +993,65 @@ export function AutoRoomAssignment({
                         </div>
                       </div>
                     )}
+
+                    {/* Pre-Assignment Linen Change Settings */}
+                    {dirtyRooms.length > 0 && (
+                      <div className="border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between px-3 py-2 bg-muted/40 hover:bg-muted/60 transition-colors text-sm font-medium"
+                          onClick={() => {
+                            const el = document.getElementById('linen-toggle-section');
+                            if (el) el.classList.toggle('hidden');
+                          }}
+                        >
+                          <span className="flex items-center gap-2">
+                            🛏️ {t('autoAssign.linenChange')} ({dirtyRooms.filter(r => r.linen_change_required).length}/{dirtyRooms.length})
+                          </span>
+                          <span className="text-xs text-muted-foreground">{t('autoAssign.clickToExpand')}</span>
+                        </button>
+                        <div id="linen-toggle-section" className="hidden p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-muted-foreground">{t('autoAssign.linenChangeDesc')}</p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs h-7"
+                              onClick={async () => {
+                                const allSet = dirtyRooms.every(r => r.linen_change_required);
+                                const newVal = !allSet;
+                                const roomIds = dirtyRooms.map(r => r.id);
+                                await supabase.from('rooms').update({ linen_change_required: newVal } as any).in('id', roomIds);
+                                setDirtyRooms(prev => prev.map(r => ({ ...r, linen_change_required: newVal })));
+                                toast.success(newVal ? t('autoAssign.allLinenSet') : t('autoAssign.allLinenRemoved'));
+                              }}
+                            >
+                              {dirtyRooms.every(r => r.linen_change_required) ? t('autoAssign.deselectAll') : t('autoAssign.selectAll')}
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {dirtyRooms.map(room => (
+                              <button
+                                key={room.id}
+                                type="button"
+                                className={`px-2 py-1 rounded-md text-xs font-medium transition-all border ${
+                                  room.linen_change_required
+                                    ? 'bg-purple-100 border-purple-400 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-600'
+                                    : 'bg-muted border-border text-muted-foreground hover:bg-muted/80'
+                                }`}
+                                onClick={async () => {
+                                  const newVal = !room.linen_change_required;
+                                  await supabase.from('rooms').update({ linen_change_required: newVal } as any).eq('id', room.id);
+                                  setDirtyRooms(prev => prev.map(r => r.id === room.id ? { ...r, linen_change_required: newVal } : r));
+                                }}
+                              >
+                                {room.room_number} {room.linen_change_required ? '🛏️' : ''}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -824,13 +1060,16 @@ export function AutoRoomAssignment({
                 {/* Summary bar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-muted/40 rounded-lg text-sm">
                   <p>
-                    <strong>{dirtyRooms.length}</strong> rooms → <strong>{assignmentPreviews.filter(p => p.rooms.length > 0).length}</strong> staff
+                    <strong>{assignmentPreviews.reduce((sum, p) => sum + p.rooms.length, 0)}</strong> {t('autoAssign.rooms')} → <strong>{assignmentPreviews.filter(p => p.rooms.length > 0).length}</strong> {t('autoAssign.staff')}
+                    {excludedRoomIds.size > 0 && (
+                      <span className="text-xs text-destructive ml-2">({excludedRoomIds.size} {t('autoAssign.excluded')})</span>
+                    )}
                   </p>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-200 border border-amber-400"></span>Checkout</span>
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-200 border border-blue-400"></span>Daily</span>
-                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">T</span>Towel</span>
-                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">L</span>Linen</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-200 border border-amber-400"></span>{t('autoAssign.checkout')}</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-200 border border-blue-400"></span>{t('autoAssign.daily')}</span>
+                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">T</span>{t('autoAssign.towel')}</span>
+                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">L</span>{t('autoAssign.linen')}</span>
                   </div>
                 </div>
 
@@ -875,6 +1114,7 @@ export function AutoRoomAssignment({
                           const roomId = e.dataTransfer.getData('roomId');
                           const fromStaffId = e.dataTransfer.getData('fromStaffId');
                           if (roomId && fromStaffId && fromStaffId !== preview.staffId) {
+                            pushHistory(assignmentPreviews);
                             const newPreviews = moveRoom(assignmentPreviews, roomId, fromStaffId, preview.staffId);
                             setAssignmentPreviews(newPreviews);
                             setJustDroppedStaffId(preview.staffId);
@@ -909,7 +1149,7 @@ export function AutoRoomAssignment({
                           {/* Checkouts */}
                           {checkoutRooms.length > 0 && (
                             <div>
-                              <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5 px-0.5">Checkouts</p>
+                              <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5 px-0.5">{t('autoAssign.checkouts')}</p>
                               {groupByFloor(checkoutRooms).map(({ floor, rooms }) => (
                                 <div key={`co-${floor}`} className="flex items-start gap-1 mb-1">
                                   <span className="text-[8px] text-muted-foreground bg-muted px-0.5 rounded mt-0.5 flex-shrink-0">F{floor}</span>
@@ -923,7 +1163,7 @@ export function AutoRoomAssignment({
                           {/* Daily */}
                           {dailyRooms.length > 0 && (
                             <div>
-                              <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5 px-0.5">Daily</p>
+                              <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5 px-0.5">{t('autoAssign.daily')}</p>
                               {groupByFloor(dailyRooms).map(({ floor, rooms }) => (
                                 <div key={`d-${floor}`} className="flex items-start gap-1 mb-1">
                                   <span className="text-[8px] text-muted-foreground bg-muted px-0.5 rounded mt-0.5 flex-shrink-0">F{floor}</span>
@@ -938,12 +1178,12 @@ export function AutoRoomAssignment({
                           {/* Drop indicator */}
                           {isDropTarget && !isDragOver && (
                             <div className="p-1 border border-dashed border-primary rounded text-center text-[10px] text-primary">
-                              Tap to move here
+                              {t('autoAssign.tapToMoveHere')}
                             </div>
                           )}
                           {isDragOver && (
                             <div className="p-1 border border-dashed border-blue-500 rounded text-center text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950/30">
-                              Drop here
+                              {t('autoAssign.dropHere')}
                             </div>
                           )}
                         </div>
@@ -955,15 +1195,15 @@ export function AutoRoomAssignment({
                 {/* Info about room order */}
                 <div className="flex items-start gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-[11px] text-blue-800 dark:text-blue-300">
                   <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                  <span>Checkouts appear first. Rooms ordered by floor → room number. {isMobile ? 'Tap room → tap column to move.' : 'Drag rooms between columns to reassign.'}</span>
+                  <span>{t('autoAssign.previewInfo')} {isMobile ? t('autoAssign.tapToMove') : t('autoAssign.dragToReassign')}</span>
                 </div>
               </div>
             ) : step === 'confirm' ? (
               <div className="space-y-4 text-center py-8">
                 <Check className="h-16 w-16 mx-auto text-green-600" />
-                <h3 className="text-xl font-semibold">Ready to Assign</h3>
+                <h3 className="text-xl font-semibold">{t('autoAssign.readyToAssign')}</h3>
                 <p className="text-muted-foreground">
-                  {dirtyRooms.length} rooms will be assigned to {assignmentPreviews.filter(p => p.rooms.length > 0).length} housekeepers.
+                  {assignmentPreviews.reduce((sum, p) => sum + p.rooms.length, 0)} {t('autoAssign.roomsWillBeAssigned')} {assignmentPreviews.filter(p => p.rooms.length > 0).length} {t('autoAssign.housekeepers')}.
                 </p>
                 
                 {/* Summary of assignments */}
@@ -973,7 +1213,7 @@ export function AutoRoomAssignment({
                       <div key={preview.staffId} className="flex items-center justify-between p-2 bg-muted rounded">
                         <span className="font-medium">{preview.staffName}</span>
                         <div className="flex items-center gap-2">
-                          <Badge variant="outline">{preview.rooms.length} rooms</Badge>
+                          <Badge variant="outline">{preview.rooms.length} {t('autoAssign.rooms')}</Badge>
                           <span className={`text-sm ${preview.exceedsShift ? 'text-destructive' : 'text-green-600'}`}>
                             {formatMinutesToTime(preview.totalWithBreak)}
                           </span>
@@ -987,8 +1227,8 @@ export function AutoRoomAssignment({
               <div className="space-y-4">
                 <div className="text-center">
                   <Check className="h-12 w-12 mx-auto text-green-600 mb-2" />
-                  <h3 className="text-lg font-semibold">Rooms Assigned Successfully!</h3>
-                  <p className="text-sm text-muted-foreground">Now optionally assign public areas to your team.</p>
+                  <h3 className="text-lg font-semibold">{t('autoAssign.roomsAssignedSuccess')}</h3>
+                  <p className="text-sm text-muted-foreground">{t('autoAssign.assignPublicAreasDesc')}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -1011,10 +1251,10 @@ export function AutoRoomAssignment({
                           }}
                         >
                           <SelectTrigger className="w-[160px]">
-                            <SelectValue placeholder="Not assigned" />
+                            <SelectValue placeholder={t('autoAssign.notAssigned')} />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">Not assigned</SelectItem>
+                            <SelectItem value="none">{t('autoAssign.notAssigned')}</SelectItem>
                             {allStaff.filter(s => selectedStaffIds.has(s.id)).map(s => (
                               <SelectItem key={s.id} value={s.id}>
                                 {s.full_name}
@@ -1029,7 +1269,7 @@ export function AutoRoomAssignment({
 
                 {publicAreaAssignments.size > 0 && (
                   <div className="p-3 bg-primary/5 rounded-lg text-sm">
-                    <p className="font-medium">{publicAreaAssignments.size} area(s) will be assigned</p>
+                    <p className="font-medium">{publicAreaAssignments.size} {t('autoAssign.areasWillBeAssigned')}</p>
                   </div>
                 )}
               </div>
@@ -1042,17 +1282,17 @@ export function AutoRoomAssignment({
                 {restoredFromSave && (
                   <Button variant="ghost" size="sm" onClick={handleClearSaved} className="mr-auto text-muted-foreground">
                     <Trash2 className="h-3.5 w-3.5 mr-1" />
-                    Clear Saved
+                    {t('autoAssign.clearSaved')}
                   </Button>
                 )}
                 <Button variant="outline" onClick={() => onOpenChange(false)}>
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button 
                   onClick={handleGeneratePreview}
-                  disabled={selectedStaffIds.size === 0 || dirtyRooms.length === 0}
+                  disabled={selectedStaffIds.size === 0 || effectiveRooms.length === 0}
                 >
-                  Generate Preview
+                  {t('autoAssign.generatePreview')}
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               </>
@@ -1063,21 +1303,27 @@ export function AutoRoomAssignment({
                 {restoredFromSave && (
                   <Button variant="ghost" size="sm" onClick={handleClearSaved} className="mr-auto text-muted-foreground">
                     <Trash2 className="h-3.5 w-3.5 mr-1" />
-                    Clear Saved
+                    {t('autoAssign.clearSaved')}
+                  </Button>
+                )}
+                {previewHistory.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={handleUndo} className="text-muted-foreground">
+                    <Undo2 className="h-3.5 w-3.5 mr-1" />
+                    {t('autoAssign.undo')} ({previewHistory.length})
                   </Button>
                 )}
                 <Button variant="outline" onClick={() => setStep('select-staff')}>
-                  Back
+                  {t('autoAssign.back')}
                 </Button>
                 <Button 
                   variant="outline"
                   onClick={handleGeneratePreview}
                 >
                   <RefreshCw className="h-4 w-4 mr-2" />
-                  Regenerate
+                  {t('autoAssign.regenerate')}
                 </Button>
                 <Button onClick={handleProceedToConfirm}>
-                  Proceed to Confirm
+                  {t('autoAssign.proceedToConfirm')}
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               </>
@@ -1086,7 +1332,11 @@ export function AutoRoomAssignment({
             {step === 'confirm' && (
               <>
                 <Button variant="outline" onClick={() => setStep('preview')}>
-                  Back
+                  {t('autoAssign.back')}
+                </Button>
+                <Button variant="outline" onClick={handlePrintAssignments}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  {t('autoAssign.print')}
                 </Button>
                 <Button 
                   onClick={handleConfirmAssignment}
@@ -1095,12 +1345,12 @@ export function AutoRoomAssignment({
                   {submitting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Assigning...
+                      {t('autoAssign.assigning')}
                     </>
                   ) : (
                     <>
                       <Check className="h-4 w-4 mr-2" />
-                      Confirm & Assign
+                      {t('autoAssign.confirmAndAssign')}
                     </>
                   )}
                 </Button>
@@ -1110,7 +1360,7 @@ export function AutoRoomAssignment({
             {step === 'public-areas' && (
               <>
                 <Button variant="outline" onClick={() => onOpenChange(false)}>
-                  Skip & Close
+                  {t('autoAssign.skipAndClose')}
                 </Button>
                 <Button
                   onClick={handleAssignPublicAreas}
@@ -1119,12 +1369,12 @@ export function AutoRoomAssignment({
                   {submitting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Assigning...
+                      {t('autoAssign.assigning')}
                     </>
                   ) : (
                     <>
                       <MapPin className="h-4 w-4 mr-2" />
-                      Assign {publicAreaAssignments.size} Area(s)
+                      {t('autoAssign.assignAreas')} ({publicAreaAssignments.size})
                     </>
                   )}
                 </Button>
@@ -1140,36 +1390,27 @@ export function AutoRoomAssignment({
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5" />
-              Shift Hours Exceeded
+              {t('autoAssign.shiftExceeded')}
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-3">
-              <p>The following housekeepers have been allocated more work than the standard 8-hour shift:</p>
+              <p>{t('autoAssign.shiftExceededDesc')}</p>
               <div className="space-y-2 mt-2">
                 {overAllocatedStaff.map(staff => (
                   <div key={staff.staffId} className="flex justify-between items-center p-2 bg-destructive/10 rounded">
                     <span className="font-medium">{staff.staffName}</span>
                     <span className="text-destructive font-semibold">
                       {formatMinutesToTime(staff.totalWithBreak)} 
-                      <span className="text-sm ml-1">(+{formatMinutesToTime(staff.overageMinutes)})</span>
                     </span>
                   </div>
                 ))}
               </div>
-              <p className="text-sm">
-                You can go back and adjust the assignments, or proceed with the current allocation.
-              </p>
+              <p className="text-sm">{t('autoAssign.continueAnyway')}</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Go Back & Adjust</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={() => {
-                setShowOverAllocationDialog(false);
-                setStep('confirm');
-              }}
-              className="bg-destructive hover:bg-destructive/90"
-            >
-              Proceed Anyway
+            <AlertDialogCancel>{t('autoAssign.goBackAndAdjust')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setShowOverAllocationDialog(false); setStep('confirm'); }}>
+              {t('autoAssign.proceedAnyway')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
