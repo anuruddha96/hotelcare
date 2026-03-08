@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown } from 'lucide-react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
@@ -140,6 +140,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showLegend, setShowLegend] = useState(false);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
@@ -586,15 +587,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             </TooltipProvider>
           </div>
 
-          {/* Row 3: Collapsible Legend */}
-          <Collapsible>
-            <CollapsibleTrigger asChild>
-              <button className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-                <ChevronDown className="h-3 w-3" />
-                Legend
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
+          {/* Row 3: Toggle Legend */}
+          <div>
+            <button
+              onClick={() => setShowLegend(prev => !prev)}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronDown className={`h-3 w-3 transition-transform ${showLegend ? 'rotate-180' : ''}`} />
+              Legend
+            </button>
+            {showLegend && (
               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                 {[
                   { label: 'Approved/Clean', cls: 'bg-emerald-200 border-emerald-500' },
@@ -621,8 +623,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   </div>
                 ))}
               </div>
-            </CollapsibleContent>
-          </Collapsible>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
           {viewMode === 'map' ? (
