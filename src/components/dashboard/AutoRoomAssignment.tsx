@@ -425,7 +425,7 @@ export function AutoRoomAssignment({
       const staffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
       
       toast.success(`Assigned ${totalRooms} rooms to ${staffCount} housekeepers`);
-      onAssignmentCreated();
+      onAssignmentCreated(totalRooms, staffCount);
       
       // Move to public areas step instead of closing
       setStep('public-areas');
