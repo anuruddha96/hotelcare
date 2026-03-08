@@ -657,15 +657,25 @@ export function SupervisorApprovalView() {
             </div>
             <div className="flex items-center gap-2">
               {speedIndicator && (
-                <Badge variant="outline" className={`text-xs ${speedIndicator.color}`}>
-                  <SpeedIcon className="h-3 w-3 mr-1" />
-                  {speedIndicator.label}
-                </Badge>
+                <HelpTooltip hint={
+                  speedIndicator.severity === 'warning' && durationMins < 10
+                    ? UI_HINTS["approval.speedFast"]
+                    : speedIndicator.severity === 'warning'
+                    ? UI_HINTS["approval.speedSlow"]
+                    : UI_HINTS["approval.speedNormal"]
+                }>
+                  <Badge variant="outline" className={`text-xs ${speedIndicator.color}`}>
+                    <SpeedIcon className="h-3 w-3 mr-1" />
+                    {speedIndicator.label}
+                  </Badge>
+                </HelpTooltip>
               )}
               {waitingMins > 30 && (
-                <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
-                  ⏰ {waitingMins}m waiting
-                </Badge>
+                <HelpTooltip hint={UI_HINTS["approval.waiting"]}>
+                  <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
+                    ⏰ {waitingMins}m waiting
+                  </Badge>
+                </HelpTooltip>
               )}
             </div>
           </div>
