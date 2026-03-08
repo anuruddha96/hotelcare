@@ -34,23 +34,24 @@ interface TabConfig {
   label: string;
   icon: React.ReactNode;
   colorClass?: string;
+  hintKey?: string;
 }
 
 const TAB_CONFIGS: { [key: string]: TabConfig } = {
-  'staff-management': { id: 'staff-management', label: 'housekeeping.tabs.staffManagement', icon: <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'supervisor': { id: 'supervisor', label: 'housekeeping.tabs.pendingApprovals', icon: <Shield className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'manage': { id: 'manage', label: 'housekeeping.tabs.teamView', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'performance': { id: 'performance', label: 'housekeeping.tabs.performance', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'pms-upload': { id: 'pms-upload', label: 'housekeeping.tabs.pmsUpload', icon: <Upload className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'completion-photos': { id: 'completion-photos', label: 'housekeeping.tabs.roomPhotos', icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-green-500' },
-  'dnd-photos': { id: 'dnd-photos', label: 'housekeeping.tabs.dndPhotos', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-yellow-500' },
-  'maintenance-photos': { id: 'maintenance-photos', label: 'housekeeping.tabs.maintenance', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-red-500' },
-  'lost-and-found': { id: 'lost-and-found', label: 'housekeeping.tabs.lostFound', icon: <Package className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-blue-500' },
-  'dirty-linen': { id: 'dirty-linen', label: 'housekeeping.tabs.dirtyLinen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-purple-500' },
+  'staff-management': { id: 'staff-management', label: 'housekeeping.tabs.staffManagement', icon: <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.staffManagement' },
+  'supervisor': { id: 'supervisor', label: 'housekeeping.tabs.pendingApprovals', icon: <Shield className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.pendingApprovals' },
+  'manage': { id: 'manage', label: 'housekeeping.tabs.teamView', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.teamView' },
+  'performance': { id: 'performance', label: 'housekeeping.tabs.performance', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.performance' },
+  'pms-upload': { id: 'pms-upload', label: 'housekeeping.tabs.pmsUpload', icon: <Upload className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.pmsUpload' },
+  'completion-photos': { id: 'completion-photos', label: 'housekeeping.tabs.roomPhotos', icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-green-500', hintKey: 'hk.roomPhotos' },
+  'dnd-photos': { id: 'dnd-photos', label: 'housekeeping.tabs.dndPhotos', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-yellow-500', hintKey: 'hk.dndPhotos' },
+  'maintenance-photos': { id: 'maintenance-photos', label: 'housekeeping.tabs.maintenance', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-red-500', hintKey: 'hk.maintenance' },
+  'lost-and-found': { id: 'lost-and-found', label: 'housekeeping.tabs.lostFound', icon: <Package className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-blue-500', hintKey: 'hk.lostFound' },
+  'dirty-linen': { id: 'dirty-linen', label: 'housekeeping.tabs.dirtyLinen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-purple-500', hintKey: 'hk.dirtyLinen' },
   
-  'attendance': { id: 'attendance', label: 'housekeeping.tabs.hrManagement', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'minibar': { id: 'minibar', label: 'housekeeping.tabs.minibarTracking', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'tab-order': { id: 'tab-order', label: 'housekeeping.tabs.tabSettings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500' },
+  'attendance': { id: 'attendance', label: 'housekeeping.tabs.hrManagement', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.hrManagement' },
+  'minibar': { id: 'minibar', label: 'housekeeping.tabs.minibarTracking', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.minibar' },
+  'tab-order': { id: 'tab-order', label: 'housekeeping.tabs.tabSettings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500', hintKey: 'hk.tabSettings' },
 };
 
 export function HousekeepingTab() {
