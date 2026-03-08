@@ -646,7 +646,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               )}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Room Status */}
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
