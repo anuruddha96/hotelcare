@@ -127,7 +127,8 @@ export function HousekeepingManagerView() {
   const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
   const [managerHotelName, setManagerHotelName] = useState<string>('');
-
+  const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
+  const [successAnimation, setSuccessAnimation] = useState<{ show: boolean; roomCount: number; staffCount: number }>({ show: false, roomCount: 0, staffCount: 0 });
   useEffect(() => {
     fetchHousekeepingStaff();
     fetchTeamAssignments();
