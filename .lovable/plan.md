@@ -1,95 +1,72 @@
 
 
-## Plan: Auto-Assign Towel Change, Custom Bed Types, Improved Sorting, and Housekeeper Card Visibility
+## Plan: Comprehensive Translation Coverage Across All Pages
 
-### Summary of Changes (4 areas)
+### Problem
+Many pages and components contain hardcoded English strings instead of using the `t()` translation function. This affects:
+- **Auth page** (~40 hardcoded strings: labels, placeholders, toast messages, button text)
+- **Front Desk** (~15 strings: stats labels, section titles, empty states, buttons)
+- **Reservations** (~20 strings: table headers, status labels, filters, buttons)
+- **Guests** (~20 strings: table headers, form labels, dialog text, empty states)
+- **Guest Detail** (~15 strings: card titles, field labels, empty states)
+- **Reservation Detail** (~25 strings: card titles, field labels, action buttons, folio section)
+- **Channel Manager** (~20 strings: tab labels, section titles, buttons, placeholder text)
+- **CheckIn/CheckOut Dialogs** (~10 strings each: titles, labels, buttons, toasts)
+- **CreateReservationDialog** (~15 strings: labels, placeholders, source options, buttons)
+- **PMSNavigation** (~5 strings: nav item labels)
+- **NotFound page** (~3 strings)
+- **GuestSearchSelect** (labels/placeholders)
 
----
+### Solution
+1. **Add ~200 new translation keys** to `src/hooks/useTranslation.tsx` covering all PMS, auth, and utility strings — in all 5 languages (en, hu, mn, es, vi)
+2. **Update all affected pages/components** to use `t()` instead of hardcoded strings
 
-### 1. Auto-Assign: Manual Towel Change Toggle Before Assignment
+### Translation Keys to Add (grouped by area)
 
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`**
+**Auth** (`auth.*`): `emailOrUsername`, `password`, `enterEmail`, `enterPassword`, `forgotPassword`, `resetPassword`, `sendVerificationCode`, `sendResetLink`, `sendSMSCode`, `sendLoginLink`, `sending`, `verificationCode`, `newPassword`, `enterNewPassword`, `resetting`, `back`, `welcomeBack`, `accountCreated`, `passwordResetSent`, `loginLinkSent`, `otpSent`, `smsCodeSent`, `resetSuccess`, `invalidOtp`, `passwordTooShort`, `hotelManagement`, `manageOperations`, `emailOTP`, `smsOTP`, `emailLink`, `loginLink`, `enterVerificationCode`, `codeSentTo`, `phoneNumber`, `enterPhone`
 
-In Step 1 (select-staff), after the staff grid, add a new section "Pre-Assignment Room Settings" that lists all dirty rooms and allows managers to toggle `towel_change_required` for each room before generating the preview. This lets managers plan towel changes in the morning.
+**PMS / Front Desk** (`pms.*`): `frontDesk`, `reservations`, `guests`, `channelManager`, `operations`, `arrivals`, `departures`, `inHouse`, `available`, `todaysArrivals`, `todaysDepartures`, `inHouseGuests`, `noArrivalsToday`, `noDeparturesToday`, `noGuestsInHouse`, `checkIn`, `checkOut`, `notes`, `searchGuestReservation`
 
-- Add a collapsible section below staff selection showing all `dirtyRooms` in a compact grid
-- Each room chip has a small towel icon toggle button (T) that updates the local state and the DB `rooms.towel_change_required`
-- When toggled, the room's towel status flows into the algorithm (already supported via `calculateRoomTime` and `calculateRoomWeight`)
-- Also add a "Select All Towel Change" button for bulk toggling
+**Reservations** (`pms.reservations.*`): `title`, `newReservation`, `reservationNumber`, `guest`, `checkInDate`, `checkOutDate`, `nights`, `status`, `source`, `amount`, `loadingReservations`, `noReservationsFound`, `allStatus`, `pending`, `confirmed`, `checkedIn`, `checkedOut`, `cancelled`, `noShow`, `search`, `createReservation`, `creating`
 
----
+**Guests** (`pms.guests.*`): `directory`, `addGuest`, `searchGuests`, `name`, `email`, `phone`, `nationality`, `vip`, `company`, `noGuestsFound`, `addNewGuest`, `firstName`, `lastName`, `idType`, `idNumber`, `createGuest`, `guestCreated`, `firstLastRequired`, `failedToCreate`, `noEmail`, `noPhone`
 
-### 2. Custom Bed Requirements (Budapest Hotel Use Case)
+**Guest Detail** (`pms.guestDetail.*`): `personalInfo`, `businessInfo`, `stayHistory`, `dateOfBirth`, `idDocument`, `address`, `ntakRegNumber`, `taxId`, `totalStays`, `noReservationsFound`, `guestNotFound`
 
-**Database Migration:** Add a `bed_configuration` text column to `rooms` table (nullable). This stores the specific bed arrangement set by managers (e.g., "Twin beds separated", "Double bed", "Extra cot"). The existing `bed_type` column has limited values (`single`, `double`, `queen`, `triple`, `shabath`) — this new column stores the **current guest requirement** which can change per stay.
+**Reservation Detail** (`pms.reservationDetail.*`): `guestInfo`, `stayDetails`, `financialSummary`, `notesRequests`, `guestFolio`, `ratePerNight`, `total`, `payment`, `balance`, `specialRequests`, `internalNotes`, `noCharges`, `confirm`, `cancel`, `noGuestLinked`, `notSpecified`, `adults`, `children`, `actualCheckIn`, `actualCheckOut`, `created`, `reservationNotFound`, `backToReservations`, `statusUpdated`, `failedToUpdate`
 
-```sql
-ALTER TABLE rooms ADD COLUMN IF NOT EXISTS bed_configuration text DEFAULT NULL;
-```
+**Check-in/out** (`pms.checkIn.*`, `pms.checkOut.*`): `checkInGuest`, `assignRoom`, `selectCleanRoom`, `pleaseSelectRoom`, `failedCheckIn`, `processing`, `checkOutGuest`, `checkedIn`, `createHousekeepingAssignment`, `failedCheckOut`
 
-**File: `src/components/dashboard/HotelRoomOverview.tsx`** — In the room chip dialog, add a "Bed Configuration" field (text input or dropdown with common options + custom) under Room Settings. Only managers/admins can set it. Options: "Double Bed", "Twin Beds", "Twin Beds Separated", "Extra Cot Added", "Single Bed", or custom text.
+**Create Reservation** (`pms.createReservation.*`): `newReservation`, `checkInDate`, `checkOutDate`, `adults`, `children`, `roomType`, `ratePerNight`, `source`, `specialRequests`, `guestPreferences`, `staffNotes`, `guestCheckInOutRequired`, `checkOutAfterCheckIn`, `reservationCreated`, `failedToCreate`
 
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`** — Fetch `bed_configuration` in the rooms query. Show it on room chips in the preview (small icon/label like "🛏️ Twin Sep").
+**Channel Manager** (`pms.channels.*`): `title`, `channels`, `ratePush`, `availability`, `syncLog`, `connectedChannels`, `availableChannels`, `noChannelsYet`, `addChannelToStart`, `active`, `inactive`, `lastSync`, `sync`, `configure`, `add`, `ratePushGrid`, `configureRatePlans`, `comingSoon`, `availabilityGrid`, `manageAvailability`, `openCloseRooms`, `syncHistory`, `viewHistory`, `failedToAdd`, `channelAdded`
 
-**File: `src/components/dashboard/AssignedRoomCard.tsx`** — Display `bed_configuration` prominently in a dedicated info row (alongside floor number) so housekeepers clearly see what bed arrangement the guest needs. Show it with a bed icon and distinct styling.
+**NotFound** (`notFound.*`): `title`, `message`, `returnHome`
 
-**File: `src/components/dashboard/MobileHousekeepingView.tsx`** — Include `bed_configuration` in the rooms query.
-
-**File: `src/components/dashboard/HousekeepingStaffView.tsx`** — Include `bed_configuration` in the rooms query.
-
-**File: `src/lib/roomAssignmentAlgorithm.ts`** — Add `bed_configuration` to `RoomForAssignment` interface.
-
----
-
-### 3. Fix Room Priority/Sorting Order
-
-Current sorting logic in `HousekeepingStaffView.tsx` and `MobileHousekeepingView.tsx` is almost correct but has issues:
-- Checkout rooms waiting for guest (`ready_to_clean=false`) should sort AFTER daily rooms that are ready
-- Ready-to-clean checkout rooms should be first
-- Same floor rooms should be grouped together
-- High priority rooms should always be at top (after in-progress)
-
-**New sort order (all 3 files + PendingRoomsDialog):**
-
-1. `in_progress` always first
-2. High priority rooms (`priority >= 3`) — regardless of type
-3. Ready checkout rooms (`checkout_cleaning` + `ready_to_clean=true`)
-4. Daily rooms — grouped by floor, then room number
-5. Checkout rooms waiting (`checkout_cleaning` + `ready_to_clean=false`) — at bottom
-6. Completed rooms last
-
-**Files to update sorting:**
-- `src/components/dashboard/HousekeepingStaffView.tsx` (lines 174-208)
-- `src/components/dashboard/MobileHousekeepingView.tsx` (lines 189-223)
-- `src/components/dashboard/PendingRoomsDialog.tsx` (lines 86-91) — replace simple numeric sort with the same priority logic
-
----
-
-### 4. Redesign AssignedRoomCard Special Instructions Visibility
-
-**File: `src/components/dashboard/AssignedRoomCard.tsx`**
-
-Currently, towel/linen badges are small badges in the header. Bed configuration doesn't exist yet. Manager notes are shown but could be more prominent. Redesign the top of the card to have a **"Special Instructions" banner** that consolidates:
-
-- Towel change required → prominent yellow banner with icon
-- Linen change required → prominent purple banner with icon  
-- Bed configuration → prominent blue banner with bed icon and the configuration text
-- Manager notes → already amber banner (keep as-is)
-
-Move these from small header badges to a dedicated, unmissable section right after the card header, before room details. Use larger text and bolder styling.
-
----
-
-### Files Changed Summary
+### Files to Edit
 
 | File | Changes |
 |------|---------|
-| **Migration** | Add `bed_configuration` column to `rooms` |
-| `AutoRoomAssignment.tsx` | Add towel change toggle section in Step 1, fetch `bed_configuration`, show on preview chips |
-| `HotelRoomOverview.tsx` | Add bed configuration selector in room chip dialog |
-| `AssignedRoomCard.tsx` | Redesign special instructions section with prominent banners for towel/linen/bed config |
-| `HousekeepingStaffView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `MobileHousekeepingView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `PendingRoomsDialog.tsx` | Fix sorting to match housekeeper priority order, fetch `bed_configuration` and show it |
-| `roomAssignmentAlgorithm.ts` | Add `bed_configuration` to `RoomForAssignment` interface |
+| `src/hooks/useTranslation.tsx` | Add ~200 keys in all 5 language blocks (en, hu, mn, es, vi) |
+| `src/pages/Auth.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/pages/FrontDesk.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/pages/Reservations.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/pages/Guests.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/pages/GuestDetail.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/pages/ReservationDetail.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/pages/ChannelManager.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/pages/NotFound.tsx` | Replace hardcoded strings with `t()` calls |
+| `src/components/frontdesk/CheckInDialog.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/components/frontdesk/CheckOutDialog.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/components/reservations/CreateReservationDialog.tsx` | Replace all hardcoded strings with `t()` calls |
+| `src/components/layout/PMSNavigation.tsx` | Replace nav labels with `t()` calls |
+| `src/components/guests/GuestSearchSelect.tsx` | Replace labels with `t()` calls |
+
+### Implementation Order
+1. Add all translation keys to `useTranslation.tsx` (en + hu + mn + es + vi)
+2. Update Auth page
+3. Update PMS pages (FrontDesk, Reservations, Guests, GuestDetail, ReservationDetail, ChannelManager)
+4. Update dialogs (CheckIn, CheckOut, CreateReservation)
+5. Update PMSNavigation and NotFound
+6. Update GuestSearchSelect
 
