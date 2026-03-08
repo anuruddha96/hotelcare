@@ -32,7 +32,10 @@ import {
   TrendingDown,
   Timer,
   CheckCheck,
-  Layers
+  Layers,
+  BedDouble,
+  DoorClosed,
+  Image
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -42,6 +45,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { format } from 'date-fns';
 import { CompletionDataView } from './CompletionDataView';
 import { ApprovalHistoryView } from './ApprovalHistoryView';
+
+interface LinenSummaryItem {
+  display_name: string;
+  count: number;
+}
 
 interface PendingAssignment {
   id: string;
@@ -56,6 +64,7 @@ interface PendingAssignment {
   supervisor_approved: boolean;
   assigned_to: string;
   assignment_date: string;
+  completion_photos?: string[] | null;
   rooms: {
     room_number: string;
     hotel: string;
@@ -65,6 +74,9 @@ interface PendingAssignment {
     towel_change_required?: boolean;
     linen_change_required?: boolean;
     guest_nights_stayed?: number;
+    bed_configuration?: string | null;
+    is_dnd?: boolean;
+    dnd_marked_at?: string | null;
   } | null;
   profiles: {
     full_name: string;
@@ -121,6 +133,8 @@ export function SupervisorApprovalView() {
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
   const [earlySignoutRequests, setEarlySignoutRequests] = useState<any[]>([]);
   const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
+  const [completionPhotoUrls, setCompletionPhotoUrls] = useState<{ [assignmentId: string]: string[] }>({});
+  const [linenSummaries, setLinenSummaries] = useState<{ [assignmentId: string]: LinenSummaryItem[] }>({});
   const [bulkApproving, setBulkApproving] = useState<string | null>(null);
   const [bulkProgress, setBulkProgress] = useState(0);
   const [collapsedHotels, setCollapsedHotels] = useState<Set<string>>(new Set());
@@ -368,7 +382,10 @@ export function SupervisorApprovalView() {
             floor_number,
             towel_change_required,
             linen_change_required,
-            guest_nights_stayed
+            guest_nights_stayed,
+            bed_configuration,
+            is_dnd,
+            dnd_marked_at
           ),
           profiles!assigned_to (
             full_name,
@@ -404,11 +421,55 @@ export function SupervisorApprovalView() {
       
       setPendingAssignments(assignmentData || []);
       setEarlySignoutRequests(earlySignoutData || []);
+
+      // Load completion photo thumbnails and dirty linen summaries
+      if (assignmentData && assignmentData.length > 0) {
+        loadCompletionPhotos(assignmentData);
+        loadLinenSummaries(assignmentData, dateStr);
+      }
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
       toast.error('Failed to fetch pending assignments');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCompletionPhotos = async (assignments: any[]) => {
+    const urlsMap: { [id: string]: string[] } = {};
+    for (const a of assignments) {
+      if (a.completion_photos && a.completion_photos.length > 0) {
+        const signed = await getSignedPhotoUrls(a.completion_photos, 'room-photos');
+        if (signed.length > 0) urlsMap[a.id] = signed;
+      }
+    }
+    setCompletionPhotoUrls(prev => ({ ...prev, ...urlsMap }));
+  };
+
+  const loadLinenSummaries = async (assignments: any[], dateStr: string) => {
+    try {
+      const roomIds = assignments.map((a: any) => a.room_id);
+      const { data, error } = await supabase
+        .from('dirty_linen_counts')
+        .select('room_id, count, dirty_linen_items(display_name)')
+        .in('room_id', roomIds)
+        .eq('work_date', dateStr);
+      
+      if (error || !data) return;
+
+      const summaryMap: { [assignmentId: string]: LinenSummaryItem[] } = {};
+      for (const a of assignments) {
+        const roomCounts = data.filter((d: any) => d.room_id === a.room_id && d.count > 0);
+        if (roomCounts.length > 0) {
+          summaryMap[a.id] = roomCounts.map((d: any) => ({
+            display_name: (d.dirty_linen_items as any)?.display_name || 'Unknown',
+            count: d.count
+          }));
+        }
+      }
+      setLinenSummaries(prev => ({ ...prev, ...summaryMap }));
+    } catch (e) {
+      console.error('Error loading linen summaries:', e);
     }
   };
 
@@ -654,6 +715,18 @@ export function SupervisorApprovalView() {
               <Badge variant="outline" className="bg-muted text-foreground border-border text-xs">
                 {getAssignmentTypeLabel(assignment.assignment_type)}
               </Badge>
+              {assignment.rooms?.is_dnd && (
+                <Badge className="text-xs bg-orange-100 text-orange-800 border border-orange-300">
+                  <DoorClosed className="h-3 w-3 mr-1" />
+                  DND
+                </Badge>
+              )}
+              {assignment.rooms?.bed_configuration && (
+                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                  <BedDouble className="h-3 w-3 mr-1" />
+                  {assignment.rooms.bed_configuration}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {speedIndicator && (
@@ -742,6 +815,40 @@ export function SupervisorApprovalView() {
                   <p className="text-sm text-amber-800">{assignment.notes}</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Inline Photo Thumbnails */}
+          {completionPhotoUrls[assignment.id] && completionPhotoUrls[assignment.id].length > 0 && (
+            <div className="flex items-center gap-2">
+              <Image className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="flex items-center gap-1.5">
+                {completionPhotoUrls[assignment.id].slice(0, 4).map((url, idx) => (
+                  <img
+                    key={idx}
+                    src={url}
+                    alt={`Completion photo ${idx + 1}`}
+                    className="h-12 w-12 rounded-md object-cover border border-border"
+                  />
+                ))}
+                {completionPhotoUrls[assignment.id].length > 4 && (
+                  <div className="h-12 w-12 rounded-md bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground border border-border">
+                    +{completionPhotoUrls[assignment.id].length - 4}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Inline Dirty Linen Summary */}
+          {linenSummaries[assignment.id] && linenSummaries[assignment.id].length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-muted-foreground">🧺 Linen:</span>
+              {linenSummaries[assignment.id].map((item, idx) => (
+                <Badge key={idx} variant="outline" className="text-xs bg-muted/50">
+                  {item.display_name}: {item.count}
+                </Badge>
+              ))}
             </div>
           )}
 
