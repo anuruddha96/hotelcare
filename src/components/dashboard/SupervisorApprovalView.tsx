@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { UI_HINTS } from '@/lib/ui-hints';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
