@@ -604,28 +604,30 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {showLegend && (
               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                 {[
-                  { label: 'Approved/Clean', cls: 'bg-emerald-200 border-emerald-500' },
-                  { label: 'Dirty/Assigned', cls: 'bg-amber-200 border-amber-500' },
-                  { label: 'In Progress', cls: 'bg-sky-200 border-sky-500' },
-                  { label: 'Pending Approval', cls: 'bg-violet-200 border-violet-500' },
-                  { label: 'Overdue', cls: 'bg-rose-300 border-rose-600' },
-                  { label: 'Out of Order', cls: 'bg-red-200 border-red-500' },
-                  { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted' },
-                  { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted' },
-                  { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted' },
-                  { label: 'Towel Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T' },
-                  { label: 'Linen Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC' },
-                  { label: 'Ready to Clean', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC' },
-                  { label: 'Approved', cls: 'text-[10px]', isText: true, text: '✅' },
+                  { label: 'Approved/Clean', cls: 'bg-emerald-200 border-emerald-500', hint: 'Room has been cleaned and approved by supervisor' },
+                  { label: 'Dirty/Assigned', cls: 'bg-amber-200 border-amber-500', hint: 'Room needs cleaning — assigned to a housekeeper' },
+                  { label: 'In Progress', cls: 'bg-sky-200 border-sky-500', hint: 'Housekeeper is currently cleaning this room' },
+                  { label: 'Pending Approval', cls: 'bg-violet-200 border-violet-500', hint: UI_HINTS["room.pendingApproval"] },
+                  { label: 'Overdue', cls: 'bg-rose-300 border-rose-600', hint: UI_HINTS["room.overdue"] },
+                  { label: 'Out of Order', cls: 'bg-red-200 border-red-500', hint: 'Room is out of service and unavailable' },
+                  { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted', hint: UI_HINTS["room.dnd"] },
+                  { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted', hint: UI_HINTS["room.noShow"] },
+                  { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted', hint: UI_HINTS["room.earlyCheckout"] },
+                  { label: 'Towel Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
+                  { label: 'Linen Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: UI_HINTS["room.linenChange"] },
+                  { label: 'Ready to Clean', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
+                  { label: 'Approved', cls: 'text-[10px]', isText: true, text: '✅', hint: 'Supervisor has approved this cleaning' },
                 ].map(item => (
-                  <div key={item.label} className="flex items-center gap-1">
-                    {(item as any).isText ? (
-                      <span className={`rounded ${item.cls}`}>{(item as any).text}</span>
-                    ) : (
-                      <div className={`w-3 h-3 rounded border-2 ${item.cls}`} />
-                    )}
-                    <span className="text-[10px] text-muted-foreground">{item.label}</span>
-                  </div>
+                  <HelpTooltip key={item.label} hint={(item as any).hint}>
+                    <div className="flex items-center gap-1 cursor-help">
+                      {(item as any).isText ? (
+                        <span className={`rounded ${item.cls}`}>{(item as any).text}</span>
+                      ) : (
+                        <div className={`w-3 h-3 rounded border-2 ${item.cls}`} />
+                      )}
+                      <span className="text-[10px] text-muted-foreground">{item.label}</span>
+                    </div>
+                  </HelpTooltip>
                 ))}
               </div>
             )}

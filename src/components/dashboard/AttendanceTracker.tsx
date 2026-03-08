@@ -17,6 +17,8 @@ import { SwipeToEndBreak } from './SwipeToEndBreak';
 import { BreakRequestDialog } from './BreakRequestDialog';
 import { SwipeAction } from '@/components/ui/swipe-action';
 import { PendingRoomsSignoutDialog } from './PendingRoomsSignoutDialog';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { UI_HINTS } from '@/lib/ui-hints';
 
 interface AttendanceRecord {
   id: string;
