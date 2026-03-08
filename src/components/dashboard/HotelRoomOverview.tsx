@@ -156,7 +156,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   useEffect(() => {
     fetchData();
-  }, [selectedDate, hotelName]);
+  }, [selectedDate, hotelName, refreshKey]);
 
   const fetchData = async () => {
     setLoading(true);
