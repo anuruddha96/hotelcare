@@ -586,15 +586,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
             </TooltipProvider>
           </div>
 
-          {/* Row 3: Collapsible Legend */}
-          <Collapsible>
-            <CollapsibleTrigger asChild>
-              <button className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-                <ChevronDown className="h-3 w-3" />
-                Legend
-              </button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
+          {/* Row 3: Toggle Legend */}
+          <div>
+            <button
+              onClick={() => setShowLegend(prev => !prev)}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronDown className={`h-3 w-3 transition-transform ${showLegend ? 'rotate-180' : ''}`} />
+              Legend
+            </button>
+            {showLegend && (
               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                 {[
                   { label: 'Approved/Clean', cls: 'bg-emerald-200 border-emerald-500' },
@@ -621,8 +622,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   </div>
                 ))}
               </div>
-            </CollapsibleContent>
-          </Collapsible>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
           {viewMode === 'map' ? (
