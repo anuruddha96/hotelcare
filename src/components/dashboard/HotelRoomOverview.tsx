@@ -549,16 +549,18 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {viewMode === 'list' ? 'Map' : 'List'}
                 </Button>
               )}
-              <Button
-                variant="default"
-                size="sm"
-                className="h-7 px-3 text-xs font-semibold shadow-sm"
-                onClick={handleRefresh}
-                disabled={refreshing}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-                {refreshing ? 'Refreshing...' : '🔄 Refresh'}
-              </Button>
+              <HelpTooltip hint={UI_HINTS["room.refresh"]}>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-7 px-3 text-xs font-semibold shadow-sm"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+                  {refreshing ? 'Refreshing...' : '🔄 Refresh'}
+                </Button>
+              </HelpTooltip>
             </div>
           </div>
 
