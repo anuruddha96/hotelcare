@@ -469,7 +469,7 @@ export function AutoRoomAssignment({
       if (error) throw error;
 
       toast.success(`Assigned ${tasks.length} public area(s)`);
-      onAssignmentCreated();
+      onAssignmentCreated(tasks.length, 0);
       onOpenChange(false);
     } catch (error) {
       console.error('Error assigning public areas:', error);
