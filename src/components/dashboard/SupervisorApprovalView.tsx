@@ -32,7 +32,10 @@ import {
   TrendingDown,
   Timer,
   CheckCheck,
-  Layers
+  Layers,
+  BedDouble,
+  DoorClosed,
+  Image
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -42,6 +45,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { format } from 'date-fns';
 import { CompletionDataView } from './CompletionDataView';
 import { ApprovalHistoryView } from './ApprovalHistoryView';
+
+interface LinenSummaryItem {
+  display_name: string;
+  count: number;
+}
 
 interface PendingAssignment {
   id: string;
@@ -56,6 +64,7 @@ interface PendingAssignment {
   supervisor_approved: boolean;
   assigned_to: string;
   assignment_date: string;
+  completion_photos?: string[] | null;
   rooms: {
     room_number: string;
     hotel: string;
@@ -65,6 +74,9 @@ interface PendingAssignment {
     towel_change_required?: boolean;
     linen_change_required?: boolean;
     guest_nights_stayed?: number;
+    bed_configuration?: string | null;
+    is_dnd?: boolean;
+    dnd_marked_at?: string | null;
   } | null;
   profiles: {
     full_name: string;
