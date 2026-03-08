@@ -10,7 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { MapPin, User, Clock, Calendar, LogOut } from 'lucide-react';
 
 interface RoomAssignmentDialogProps {
-  onAssignmentCreated: () => void;
+  onAssignmentCreated: (roomCount?: number, staffCount?: number) => void;
   selectedDate: string;
 }
 
