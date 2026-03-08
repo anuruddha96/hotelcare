@@ -49,13 +49,12 @@ export default function Auth() {
     const emailOrUsername = formData.get('email') as string;
     const password = formData.get('password') as string;
 
-    // For now, just use direct sign in - username functionality can be added later
     const { error } = await signIn(emailOrUsername, password);
     
     if (error) {
-      toast.error(error.message || 'Invalid login credentials');
+      toast.error(error.message || t('auth.invalidCredentials'));
     } else {
-      toast.success('Welcome back!');
+      toast.success(t('auth.welcomeBack'));
     }
     
     setIsLoading(false);
@@ -73,9 +72,9 @@ export default function Auth() {
     const { error } = await signUp(email, password, fullName);
     
     if (error) {
-      toast.error(error.message || 'Could not create account');
+      toast.error(error.message || t('auth.couldNotCreate'));
     } else {
-      toast.success('Account created! Please check your email to verify your account.');
+      toast.success(t('auth.accountCreated'));
     }
     
     setIsLoading(false);
@@ -93,9 +92,9 @@ export default function Auth() {
     });
     
     if (error) {
-      toast.error(error.message || 'Failed to send reset email');
+      toast.error(error.message || t('auth.failedReset'));
     } else {
-      toast.success('Password reset email sent! Check your inbox.');
+      toast.success(t('auth.passwordResetSent'));
       setForgotPasswordOpen(false);
     }
     
@@ -114,9 +113,9 @@ export default function Auth() {
     });
     
     if (error) {
-      toast.error(error.message || 'Failed to send OTP');
+      toast.error(error.message || t('auth.failedOtp'));
     } else {
-      toast.success('Verification code sent! Check your email.');
+      toast.success(t('auth.otpSent'));
       setOtpEmail(email);
       setOtpStep(true);
     }
@@ -129,13 +128,13 @@ export default function Auth() {
     setResetLoading(true);
     
     if (!otpCode || otpCode.length !== 6) {
-      toast.error('Please enter a valid 6-digit code');
+      toast.error(t('auth.invalidOtp'));
       setResetLoading(false);
       return;
     }
 
     if (!newPassword || newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters long');
+      toast.error(t('auth.passwordTooShort'));
       setResetLoading(false);
       return;
     }
@@ -149,9 +148,9 @@ export default function Auth() {
     });
     
     if (error) {
-      toast.error(error.message || 'Failed to reset password');
+      toast.error(error.message || t('auth.failedResetPassword'));
     } else {
-      toast.success('Password reset successful! You can now log in with your new password.');
+      toast.success(t('auth.resetSuccess'));
       setForgotPasswordOpen(false);
       setOtpStep(false);
       setOtpCode('');
@@ -174,10 +173,10 @@ export default function Auth() {
     });
     
     if (error) {
-      toast.error(error.message || 'Failed to send SMS code');
+      toast.error(error.message || t('auth.failedSms'));
     } else {
-      toast.success('Verification code sent to your phone!');
-      setOtpEmail(phone); // Store phone number for verification
+      toast.success(t('auth.smsCodeSent'));
+      setOtpEmail(phone);
       setOtpStep(true);
     }
     
@@ -196,9 +195,9 @@ export default function Auth() {
     });
     
     if (error) {
-      toast.error(error.message || 'Failed to send login link');
+      toast.error(error.message || t('auth.failedLoginLink'));
     } else {
-      toast.success('Login link sent! Check your email.');
+      toast.success(t('auth.loginLinkSent'));
       setForgotPasswordOpen(false);
     }
     
@@ -217,37 +216,37 @@ export default function Auth() {
             />
           </div>
           <CardTitle className="text-xl sm:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
-            Hotel Management Dashboard
+            {t('auth.hotelManagement')}
           </CardTitle>
           <CardDescription className="text-sm sm:text-base px-2 sm:px-0">
-            Manage all hotel operations - rooms, maintenance, housekeeping, and service tickets
+            {t('auth.manageOperations')}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 sm:px-6">
           <div className="w-full">
-            <h3 className="text-lg font-semibold text-center mb-4">Sign In</h3>
+            <h3 className="text-lg font-semibold text-center mb-4">{t('auth.signIn')}</h3>
             
             <form onSubmit={handleSignIn} className="space-y-3 sm:space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="signin-email" className="text-sm">Email or Username</Label>
+                <Label htmlFor="signin-email" className="text-sm">{t('auth.emailOrUsername')}</Label>
                 <Input
                   id="signin-email"
                   name="email"
                   type="text"
                   required
-                  placeholder="Enter your email or username"
+                  placeholder={t('auth.enterEmail')}
                   className="h-9 sm:h-10"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="signin-password" className="text-sm">Password</Label>
+                <Label htmlFor="signin-password" className="text-sm">{t('auth.password')}</Label>
                 <div className="relative">
                   <Input
                     id="signin-password"
                     name="password"
                     type={showPassword ? "text" : "password"}
                     required
-                    placeholder="Enter your password"
+                    placeholder={t('auth.enterPassword')}
                     className="h-9 sm:h-10 pr-10"
                   />
                   <Button
@@ -276,39 +275,39 @@ export default function Auth() {
               <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
                 <DialogTrigger asChild>
                   <Button variant="ghost" size="sm" className="w-full mt-2 h-8 text-xs sm:text-sm">
-                    Forgot Password / Resend Verification
+                    {t('auth.forgotPassword')}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="w-[95vw] max-w-sm sm:max-w-md">
                   <DialogHeader>
-                    <DialogTitle className="text-lg sm:text-xl">Reset Password or Resend Verification</DialogTitle>
+                    <DialogTitle className="text-lg sm:text-xl">{t('auth.resetOrResend')}</DialogTitle>
                     <DialogDescription className="text-sm">
-                      Choose an option to reset your password or resend email verification.
+                      {t('auth.resetOrResendDesc')}
                     </DialogDescription>
                   </DialogHeader>
                   {!otpStep ? (
                     <Tabs defaultValue="otp" className="w-full">
                       <TabsList className="grid w-full grid-cols-4 h-8 sm:h-10">
-                        <TabsTrigger value="otp" className="text-xs sm:text-sm">Email OTP</TabsTrigger>
-                        <TabsTrigger value="sms" className="text-xs sm:text-sm">SMS OTP</TabsTrigger>
-                        <TabsTrigger value="email" className="text-xs sm:text-sm">Email Link</TabsTrigger>
-                        <TabsTrigger value="login-link" className="text-xs sm:text-sm">Login Link</TabsTrigger>
+                        <TabsTrigger value="otp" className="text-xs sm:text-sm">{t('auth.emailOTP')}</TabsTrigger>
+                        <TabsTrigger value="sms" className="text-xs sm:text-sm">{t('auth.smsOTP')}</TabsTrigger>
+                        <TabsTrigger value="email" className="text-xs sm:text-sm">{t('auth.emailLink')}</TabsTrigger>
+                        <TabsTrigger value="login-link" className="text-xs sm:text-sm">{t('auth.loginLink')}</TabsTrigger>
                       </TabsList>
                       
                       <TabsContent value="otp">
                         <form onSubmit={handleSendOTP} className="space-y-4">
                           <div className="space-y-2">
-                            <Label htmlFor="otp-email">Email</Label>
+                            <Label htmlFor="otp-email">{t('auth.email')}</Label>
                             <Input
                               id="otp-email"
                               name="otp-email"
                               type="email"
                               required
-                              placeholder="Enter your email"
+                              placeholder={t('auth.enterYourEmail')}
                             />
                           </div>
                           <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Send Verification Code'}
+                            {resetLoading ? t('auth.sending') : t('auth.sendVerificationCode')}
                           </Button>
                         </form>
                       </TabsContent>
@@ -316,17 +315,17 @@ export default function Auth() {
                       <TabsContent value="email">
                         <form onSubmit={handleForgotPassword} className="space-y-4">
                           <div className="space-y-2">
-                            <Label htmlFor="reset-email">Email</Label>
+                            <Label htmlFor="reset-email">{t('auth.email')}</Label>
                             <Input
                               id="reset-email"
                               name="reset-email"
                               type="email"
                               required
-                              placeholder="Enter your email"
+                              placeholder={t('auth.enterYourEmail')}
                             />
                           </div>
                           <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Send Reset Link'}
+                            {resetLoading ? t('auth.sending') : t('auth.sendResetLink')}
                           </Button>
                         </form>
                       </TabsContent>
@@ -334,17 +333,17 @@ export default function Auth() {
                       <TabsContent value="sms">
                         <form onSubmit={handleSendSMSOTP} className="space-y-4">
                           <div className="space-y-2">
-                            <Label htmlFor="sms-phone">Phone Number</Label>
+                            <Label htmlFor="sms-phone">{t('auth.phoneNumber')}</Label>
                             <Input
                               id="sms-phone"
                               name="sms-phone"
                               type="tel"
                               required
-                              placeholder="Enter your phone number"
+                              placeholder={t('auth.enterPhone')}
                             />
                           </div>
                           <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Send SMS Code'}
+                            {resetLoading ? t('auth.sending') : t('auth.sendSMSCode')}
                           </Button>
                         </form>
                       </TabsContent>
@@ -352,17 +351,17 @@ export default function Auth() {
                       <TabsContent value="login-link">
                         <form onSubmit={handleSendLoginLink} className="space-y-4">
                           <div className="space-y-2">
-                            <Label htmlFor="login-email">Email</Label>
+                            <Label htmlFor="login-email">{t('auth.email')}</Label>
                             <Input
                               id="login-email"
                               name="login-email"
                               type="email"
                               required
-                              placeholder="Enter your email"
+                              placeholder={t('auth.enterYourEmail')}
                             />
                           </div>
                           <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Sending...' : 'Send Login Link'}
+                            {resetLoading ? t('auth.sending') : t('auth.sendLoginLink')}
                           </Button>
                         </form>
                       </TabsContent>
@@ -370,15 +369,15 @@ export default function Auth() {
                   ) : (
                     <div className="space-y-4">
                       <div className="text-center">
-                        <h4 className="font-medium mb-2">Enter Verification Code</h4>
+                        <h4 className="font-medium mb-2">{t('auth.enterVerificationCode')}</h4>
                         <p className="text-sm text-muted-foreground mb-4">
-                          We sent a 6-digit code to {otpEmail}
+                          {t('auth.codeSentTo')} {otpEmail}
                         </p>
                       </div>
                       
                       <form onSubmit={handleVerifyOTP} className="space-y-4">
                         <div className="space-y-2">
-                          <Label htmlFor="otp-code">Verification Code</Label>
+                          <Label htmlFor="otp-code">{t('auth.verificationCode')}</Label>
                           <div className="flex justify-center">
                             <InputOTP 
                               maxLength={6} 
@@ -398,7 +397,7 @@ export default function Auth() {
                         </div>
                         
                         <div className="space-y-2">
-                          <Label htmlFor="new-password">New Password</Label>
+                          <Label htmlFor="new-password">{t('auth.newPassword')}</Label>
                           <div className="relative">
                             <Input
                               id="new-password"
@@ -406,7 +405,7 @@ export default function Auth() {
                               value={newPassword}
                               onChange={(e) => setNewPassword(e.target.value)}
                               required
-                              placeholder="Enter new password"
+                              placeholder={t('auth.enterNewPassword')}
                               className="pr-10"
                               minLength={6}
                             />
@@ -437,10 +436,10 @@ export default function Auth() {
                               setNewPassword('');
                             }}
                           >
-                            Back
+                            {t('auth.back')}
                           </Button>
                           <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? 'Resetting...' : 'Reset Password'}
+                            {resetLoading ? t('auth.resetting') : t('auth.resetPassword')}
                           </Button>
                         </div>
                       </form>

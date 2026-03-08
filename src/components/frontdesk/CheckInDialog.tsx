@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { LogIn } from 'lucide-react';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface CheckInDialogProps {
   reservation: any;
@@ -21,31 +22,31 @@ interface CheckInDialogProps {
 
 export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: CheckInDialogProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [rooms, setRooms] = useState<any[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<string>(reservation.room_id || '');
   const [submitting, setSubmitting] = useState(false);
+  const [roomsFetched, setRoomsFetched] = useState(false);
 
-  useEffect(() => {
-    if (open) fetchAvailableRooms();
-  }, [open]);
-
-  const fetchAvailableRooms = async () => {
-    const { data } = await supabase
+  if (open && !roomsFetched) {
+    supabase
       .from('rooms')
       .select('id, room_number, room_type, status')
       .eq('status', 'clean')
-      .order('room_number');
-    if (data) setRooms(data);
-  };
+      .order('room_number')
+      .then(({ data }) => {
+        if (data) setRooms(data);
+        setRoomsFetched(true);
+      });
+  }
 
   const handleCheckIn = async () => {
     if (!selectedRoom) {
-      toast.error('Please select a room');
+      toast.error(t('pms.checkIn.pleaseSelectRoom'));
       return;
     }
     setSubmitting(true);
 
-    // Update reservation
     const { error: resError } = await supabase
       .from('reservations')
       .update({
@@ -56,18 +57,17 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
       .eq('id', reservation.id);
 
     if (resError) {
-      toast.error('Failed to check in guest');
+      toast.error(t('pms.checkIn.failedCheckIn'));
       setSubmitting(false);
       return;
     }
 
-    // Mark room as occupied
     await supabase
       .from('rooms')
       .update({ status: 'occupied', updated_at: new Date().toISOString() })
       .eq('id', selectedRoom);
 
-    toast.success(`${reservation.guests?.first_name} ${reservation.guests?.last_name} checked in`);
+    toast.success(`${reservation.guests?.first_name} ${reservation.guests?.last_name} ${t('pms.checkIn.checkedIn')}`);
     setSubmitting(false);
     onSuccess();
   };
@@ -77,7 +77,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <LogIn className="h-5 w-5 text-primary" /> Check In Guest
+            <LogIn className="h-5 w-5 text-primary" /> {t('pms.checkIn.checkInGuest')}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
@@ -93,10 +93,10 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           </div>
 
           <div>
-            <Label>Assign Room</Label>
+            <Label>{t('pms.checkIn.assignRoom')}</Label>
             <Select value={selectedRoom} onValueChange={setSelectedRoom}>
               <SelectTrigger>
-                <SelectValue placeholder="Select a clean room..." />
+                <SelectValue placeholder={t('pms.checkIn.selectCleanRoom')} />
               </SelectTrigger>
               <SelectContent>
                 {rooms.map((room) => (
@@ -109,9 +109,9 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button onClick={handleCheckIn} disabled={submitting} className="gap-1">
-            <LogIn className="h-4 w-4" /> {submitting ? 'Processing...' : 'Check In'}
+            <LogIn className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : t('pms.checkIn')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -23,10 +23,12 @@ import {
 import { toast } from 'sonner';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const FrontDesk = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const { t } = useTranslation();
   const [reservations, setReservations] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -115,19 +117,19 @@ const FrontDesk = () => {
           {reservation.special_requests && (
             <span className="text-amber-600 flex items-center gap-0.5">
               <AlertCircle className="h-3 w-3" />
-              Notes
+              {t('pms.notes')}
             </span>
           )}
         </div>
       </div>
       {showAction === 'checkin' && (
         <Button size="sm" onClick={() => setCheckInReservation(reservation)} className="shrink-0 gap-1">
-          <LogIn className="h-3.5 w-3.5" /> Check In
+          <LogIn className="h-3.5 w-3.5" /> {t('pms.checkIn')}
         </Button>
       )}
       {showAction === 'checkout' && (
         <Button size="sm" variant="outline" onClick={() => setCheckOutReservation(reservation)} className="shrink-0 gap-1">
-          <LogOut className="h-3.5 w-3.5" /> Check Out
+          <LogOut className="h-3.5 w-3.5" /> {t('pms.checkOut')}
         </Button>
       )}
     </div>
@@ -141,10 +143,10 @@ const FrontDesk = () => {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Arrivals', count: arrivals.length, icon: LogIn, color: 'text-primary' },
-            { label: 'Departures', count: departures.length, icon: LogOut, color: 'text-amber-600' },
-            { label: 'In-House', count: inHouse.length, icon: Users, color: 'text-green-600' },
-            { label: 'Available', count: '-', icon: BedDouble, color: 'text-muted-foreground' },
+            { label: t('pms.arrivals'), count: arrivals.length, icon: LogIn, color: 'text-primary' },
+            { label: t('pms.departures'), count: departures.length, icon: LogOut, color: 'text-amber-600' },
+            { label: t('pms.inHouse'), count: inHouse.length, icon: Users, color: 'text-green-600' },
+            { label: t('pms.available'), count: '-', icon: BedDouble, color: 'text-muted-foreground' },
           ].map((stat) => (
             <Card key={stat.label} className="relative overflow-hidden">
               <CardContent className="p-4">
@@ -164,7 +166,7 @@ const FrontDesk = () => {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by guest name, reservation number..."
+            placeholder={t('pms.searchGuestReservation')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -178,15 +180,15 @@ const FrontDesk = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <LogIn className="h-4 w-4 text-primary" />
-                Today's Arrivals
+                {t('pms.todaysArrivals')}
                 <Badge variant="secondary" className="ml-auto">{arrivals.length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 max-h-[60vh] overflow-y-auto">
               {loadingData ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>
+                <div className="text-center py-8 text-muted-foreground text-sm">{t('pms.loading')}</div>
               ) : filtered(arrivals).length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">No arrivals today</div>
+                <div className="text-center py-8 text-muted-foreground text-sm">{t('pms.noArrivalsToday')}</div>
               ) : (
                 filtered(arrivals).map((r) => (
                   <ReservationRow key={r.id} reservation={r} showAction="checkin" />
@@ -200,15 +202,15 @@ const FrontDesk = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <LogOut className="h-4 w-4 text-amber-600" />
-                Today's Departures
+                {t('pms.todaysDepartures')}
                 <Badge variant="secondary" className="ml-auto">{departures.length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 max-h-[60vh] overflow-y-auto">
               {loadingData ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>
+                <div className="text-center py-8 text-muted-foreground text-sm">{t('pms.loading')}</div>
               ) : filtered(departures).length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">No departures today</div>
+                <div className="text-center py-8 text-muted-foreground text-sm">{t('pms.noDeparturesToday')}</div>
               ) : (
                 filtered(departures).map((r) => (
                   <ReservationRow key={r.id} reservation={r} showAction="checkout" />
@@ -222,15 +224,15 @@ const FrontDesk = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Users className="h-4 w-4 text-green-600" />
-                In-House Guests
+                {t('pms.inHouseGuests')}
                 <Badge variant="secondary" className="ml-auto">{inHouse.length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 max-h-[60vh] overflow-y-auto">
               {loadingData ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">Loading...</div>
+                <div className="text-center py-8 text-muted-foreground text-sm">{t('pms.loading')}</div>
               ) : filtered(inHouse).length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">No guests in-house</div>
+                <div className="text-center py-8 text-muted-foreground text-sm">{t('pms.noGuestsInHouse')}</div>
               ) : (
                 filtered(inHouse).map((r) => (
                   <ReservationRow key={r.id} reservation={r} showAction="none" />

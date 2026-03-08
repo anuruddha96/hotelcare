@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { LogOut } from 'lucide-react';
 import { getLocalDateString } from '@/lib/utils';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface CheckOutDialogProps {
   reservation: any;
@@ -19,13 +20,13 @@ interface CheckOutDialogProps {
 
 export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: CheckOutDialogProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [triggerHousekeeping, setTriggerHousekeeping] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const handleCheckOut = async () => {
     setSubmitting(true);
 
-    // Update reservation
     const { error: resError } = await supabase
       .from('reservations')
       .update({
@@ -35,12 +36,11 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
       .eq('id', reservation.id);
 
     if (resError) {
-      toast.error('Failed to check out guest');
+      toast.error(t('pms.checkOut.failedCheckOut'));
       setSubmitting(false);
       return;
     }
 
-    // Mark room as dirty
     if (reservation.room_id) {
       await supabase
         .from('rooms')
@@ -51,12 +51,11 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
         })
         .eq('id', reservation.room_id);
 
-      // Create housekeeping assignment for checkout cleaning
       if (triggerHousekeeping && profile) {
         await supabase.from('room_assignments').insert({
           room_id: reservation.room_id,
           assigned_by: profile.id,
-          assigned_to: profile.id, // Will be reassigned by housekeeping manager
+          assigned_to: profile.id,
           assignment_type: 'checkout_cleaning',
           assignment_date: getLocalDateString(),
           status: 'assigned',
@@ -67,7 +66,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
       }
     }
 
-    toast.success(`${reservation.guests?.first_name} ${reservation.guests?.last_name} checked out`);
+    toast.success(`${reservation.guests?.first_name} ${reservation.guests?.last_name} ${t('pms.checkOut.checkedOut')}`);
     setSubmitting(false);
     onSuccess();
   };
@@ -77,7 +76,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <LogOut className="h-5 w-5 text-amber-600" /> Check Out Guest
+            <LogOut className="h-5 w-5 text-amber-600" /> {t('pms.checkOut.checkOutGuest')}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
@@ -85,7 +84,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
             <p className="font-semibold">{reservation.guests?.first_name} {reservation.guests?.last_name}</p>
             <p className="text-sm text-muted-foreground">{reservation.reservation_number}</p>
             <p className="text-sm text-muted-foreground">
-              Checked in: {reservation.actual_check_in ? new Date(reservation.actual_check_in).toLocaleDateString() : reservation.check_in_date}
+              {t('pms.checkOut.checkedInDate')}: {reservation.actual_check_in ? new Date(reservation.actual_check_in).toLocaleDateString() : reservation.check_in_date}
             </p>
           </div>
 
@@ -96,14 +95,14 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
               onCheckedChange={(checked) => setTriggerHousekeeping(!!checked)}
             />
             <label htmlFor="housekeeping" className="text-sm">
-              Create housekeeping checkout cleaning assignment
+              {t('pms.checkOut.createHousekeepingAssignment')}
             </label>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button onClick={handleCheckOut} disabled={submitting} variant="default" className="gap-1">
-            <LogOut className="h-4 w-4" /> {submitting ? 'Processing...' : 'Check Out'}
+            <LogOut className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : t('pms.checkOut')}
           </Button>
         </DialogFooter>
       </DialogContent>
