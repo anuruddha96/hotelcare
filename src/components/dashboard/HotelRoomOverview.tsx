@@ -593,8 +593,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               onClick={() => setShowLegend(prev => !prev)}
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              <ChevronDown className={`h-3 w-3 transition-transform ${showLegend ? 'rotate-180' : ''}`} />
-              Legend
+              <ChevronDown className={`h-3 w-3 transition-transform ${showLegend ? '' : '-rotate-90'}`} />
+              {showLegend ? 'Hide Legend' : 'Show Legend'}
             </button>
             {showLegend && (
               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
