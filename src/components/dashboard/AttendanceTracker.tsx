@@ -635,16 +635,18 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                     </HelpTooltip>
                   </div>
                   
-                  <Button
-                    onClick={handleCheckOut}
-                    variant="outline"
-                    className="w-full text-sm"
-                    disabled={isLoading}
-                    data-training="sign-out-button"
-                  >
-                    <LogOut className="h-3 w-3 mr-2" />
-                    {t('attendance.endShift')}
-                  </Button>
+                  <HelpTooltip hint={UI_HINTS["attendance.endShift"]}>
+                    <Button
+                      onClick={handleCheckOut}
+                      variant="outline"
+                      className="w-full text-sm"
+                      disabled={isLoading}
+                      data-training="sign-out-button"
+                    >
+                      <LogOut className="h-3 w-3 mr-2" />
+                      {t('attendance.endShift')}
+                    </Button>
+                  </HelpTooltip>
                 </>
               )}
 
