@@ -528,6 +528,7 @@ export function HousekeepingManagerView() {
   const isReception = profile?.role === 'reception';
 
   return (
+    <>
     <Tabs defaultValue="team" className="space-y-6">
       {!isReception && (
         <TabsList className="grid w-full grid-cols-2">
