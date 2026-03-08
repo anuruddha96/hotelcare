@@ -758,7 +758,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                       <Button
                         variant={selectedRoom.towel_change_required ? "default" : "outline"}
                         size="sm"
-                        className={`flex-1 gap-1.5 ${selectedRoom.towel_change_required 
+                        className={`w-full justify-start gap-2 text-xs ${selectedRoom.towel_change_required 
                           ? 'bg-red-600 hover:bg-red-700 text-white' 
                           : 'border-border hover:bg-accent'}`}
                         disabled={actionLoading === 'towel'}
