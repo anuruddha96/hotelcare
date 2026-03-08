@@ -140,7 +140,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [showLegend, setShowLegend] = useState(false);
+  const [showLegend, setShowLegend] = useState(true);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
@@ -547,14 +547,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 </Button>
               )}
               <Button
-                variant="ghost"
+                variant="default"
                 size="sm"
-                className="h-6 px-2 text-xs"
+                className="h-7 px-3 text-xs font-semibold shadow-sm"
                 onClick={handleRefresh}
                 disabled={refreshing}
               >
-                <RefreshCw className={`h-3 w-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-                {refreshing ? '' : 'Refresh'}
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? 'Refreshing...' : '🔄 Refresh'}
               </Button>
             </div>
           </div>
@@ -593,8 +593,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               onClick={() => setShowLegend(prev => !prev)}
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              <ChevronDown className={`h-3 w-3 transition-transform ${showLegend ? 'rotate-180' : ''}`} />
-              Legend
+              <ChevronDown className={`h-3 w-3 transition-transform ${showLegend ? '' : '-rotate-90'}`} />
+              {showLegend ? 'Hide Legend' : 'Show Legend'}
             </button>
             {showLegend && (
               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
