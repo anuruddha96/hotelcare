@@ -382,7 +382,10 @@ export function SupervisorApprovalView() {
             floor_number,
             towel_change_required,
             linen_change_required,
-            guest_nights_stayed
+            guest_nights_stayed,
+            bed_configuration,
+            is_dnd,
+            dnd_marked_at
           ),
           profiles!assigned_to (
             full_name,
@@ -418,6 +421,12 @@ export function SupervisorApprovalView() {
       
       setPendingAssignments(assignmentData || []);
       setEarlySignoutRequests(earlySignoutData || []);
+
+      // Load completion photo thumbnails and dirty linen summaries
+      if (assignmentData && assignmentData.length > 0) {
+        loadCompletionPhotos(assignmentData);
+        loadLinenSummaries(assignmentData, dateStr);
+      }
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
       toast.error('Failed to fetch pending assignments');
