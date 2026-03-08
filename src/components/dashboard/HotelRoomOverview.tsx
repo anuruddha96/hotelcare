@@ -631,7 +631,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
 
       {/* Room Edit Dialog */}
       <Dialog open={roomSizeDialogOpen} onOpenChange={setRoomSizeDialogOpen}>
-        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[85vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}
