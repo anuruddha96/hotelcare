@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
+import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
 
