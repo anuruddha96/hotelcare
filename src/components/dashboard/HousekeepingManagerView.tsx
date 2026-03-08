@@ -475,12 +475,16 @@ export function HousekeepingManagerView() {
 
 
 
-  const handleAssignmentCreated = () => {
+  const handleAssignmentCreated = (roomCount?: number, staffCount?: number) => {
+    // Show success animation
+    setSuccessAnimation({ show: true, roomCount: roomCount || 0, staffCount: staffCount || 0 });
+    
+    // Refresh all views
     fetchTeamAssignments();
     fetchRoomAssignments();
+    setOverviewRefreshKey(prev => prev + 1);
     setAssignmentDialogOpen(false);
     setAutoAssignDialogOpen(false);
-    toast.success(t('assignment.successMessage').replace('{count}', '1').replace('{staffName}', 'staff'));
   };
 
   const handleBulkUnassign = async () => {
