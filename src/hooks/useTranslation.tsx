@@ -2145,6 +2145,9 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     
     const enDashboard = dashboardTranslations.en[key as keyof typeof dashboardTranslations.en];
     if (enDashboard) return enDashboard;
+
+    const enPms = pmsTranslations.en[key];
+    if (enPms) return enPms;
     
     return key;
   };
