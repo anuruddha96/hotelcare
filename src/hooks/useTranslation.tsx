@@ -2125,6 +2125,9 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     
     const dashboardTranslation = dashboardTranslations[language as keyof typeof dashboardTranslations]?.[key as keyof typeof dashboardTranslations.en];
     if (dashboardTranslation) return dashboardTranslation;
+
+    const pmsTranslation = pmsTranslations[language]?.[key];
+    if (pmsTranslation) return pmsTranslation;
     
     // Only fall back to English if not found in current language
     const enMain = translations.en[key];
