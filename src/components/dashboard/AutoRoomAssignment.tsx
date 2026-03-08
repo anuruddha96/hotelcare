@@ -51,7 +51,7 @@ interface AutoRoomAssignmentProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedDate: string;
-  onAssignmentCreated: () => void;
+  onAssignmentCreated: (roomCount?: number, staffCount?: number) => void;
 }
 
 type Step = 'select-staff' | 'preview' | 'confirm' | 'public-areas';
