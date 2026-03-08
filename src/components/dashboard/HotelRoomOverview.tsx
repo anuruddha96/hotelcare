@@ -631,7 +631,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
 
       {/* Room Edit Dialog */}
       <Dialog open={roomSizeDialogOpen} onOpenChange={setRoomSizeDialogOpen}>
-        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[85vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}
@@ -646,7 +646,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
               )}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Room Status */}
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
@@ -754,11 +754,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   {/* Special Instructions Section */}
                   <div className="space-y-2 pb-3 border-b">
                     <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">🧺 Towel & Linen Change</label>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-1 gap-2">
                       <Button
                         variant={selectedRoom.towel_change_required ? "default" : "outline"}
                         size="sm"
-                        className={`flex-1 gap-1.5 ${selectedRoom.towel_change_required 
+                        className={`w-full justify-start gap-2 text-xs ${selectedRoom.towel_change_required 
                           ? 'bg-red-600 hover:bg-red-700 text-white' 
                           : 'border-border hover:bg-accent'}`}
                         disabled={actionLoading === 'towel'}
@@ -787,7 +787,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                       <Button
                         variant={selectedRoom.linen_change_required ? "default" : "outline"}
                         size="sm"
-                        className={`flex-1 gap-1.5 ${selectedRoom.linen_change_required 
+                        className={`w-full justify-start gap-2 text-xs ${selectedRoom.linen_change_required 
                           ? 'bg-red-600 hover:bg-red-700 text-white' 
                           : 'border-border hover:bg-accent'}`}
                         disabled={actionLoading === 'linen'}
