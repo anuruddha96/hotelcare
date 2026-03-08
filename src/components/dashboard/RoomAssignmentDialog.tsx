@@ -299,7 +299,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
         title: t('common.success'),
         description: `Successfully assigned ${selectedRooms.length} rooms to ${selectedStaffMember?.full_name}`,
       });
-      onAssignmentCreated();
+      onAssignmentCreated(selectedRooms.length, 1);
       
       // Reset form
       setSelectedRooms([]);
