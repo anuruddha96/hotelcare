@@ -177,20 +177,21 @@ export function HousekeepingTab() {
 
     if (tabId === 'supervisor') {
       return (
-        <TabsTrigger 
-          key={tabId}
-          value={tabId} 
-          className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
-        >
-          {config.icon}
-          <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
-          <span className="xs:hidden">Approval</span>
-          {pendingCount > 0 && (
-            <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
-              {pendingCount}
-            </Badge>
-          )}
-        </TabsTrigger>
+        <HelpTooltip key={tabId} hint={UI_HINTS[config.hintKey || '']}>
+          <TabsTrigger 
+            value={tabId} 
+            className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
+          >
+            {config.icon}
+            <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
+            <span className="xs:hidden">Approval</span>
+            {pendingCount > 0 && (
+              <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
+                {pendingCount}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </HelpTooltip>
       );
     }
 
@@ -199,15 +200,16 @@ export function HousekeepingTab() {
     });
 
     return (
-      <TabsTrigger 
-        key={tabId}
-        value={tabId} 
-        className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-      >
-        {tabIcon}
-        <span className="hidden sm:inline">{t(config.label)}</span>
-        <span className="sm:hidden">{t(config.label).split(' ')[0]}</span>
-      </TabsTrigger>
+      <HelpTooltip key={tabId} hint={UI_HINTS[config.hintKey || '']}>
+        <TabsTrigger 
+          value={tabId} 
+          className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+        >
+          {tabIcon}
+          <span className="hidden sm:inline">{t(config.label)}</span>
+          <span className="sm:hidden">{t(config.label).split(' ')[0]}</span>
+        </TabsTrigger>
+      </HelpTooltip>
     );
   };
 
