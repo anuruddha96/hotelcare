@@ -647,6 +647,7 @@ export function HousekeepingManagerView() {
           selectedDate={selectedDate}
           hotelName={managerHotelName}
           staffMap={Object.fromEntries(housekeepingStaff.map(s => [s.id, s.full_name]))}
+          refreshKey={overviewRefreshKey}
         />
       )}
 
