@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
 import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
+import { pmsTranslations } from '@/lib/pms-translations';
 
 const translations = {
   en: {
