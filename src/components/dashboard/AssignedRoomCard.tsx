@@ -695,50 +695,64 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         </div>
       </CardHeader>
 
+      {/* === SPECIAL INSTRUCTIONS — Between header and content === */}
+      {hasSpecialInstructions && (
+        <div className="px-6 pb-2 space-y-2">
+          {assignment.rooms?.towel_change_required && (
+            <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🧺</span>
+                <p className="font-bold text-yellow-800 dark:text-yellow-200 text-sm">{t('roomCard.towelChange') || 'Towel Change Required'}</p>
+              </div>
+            </div>
+          )}
+          {assignment.rooms?.linen_change_required && (
+            <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-400 dark:border-purple-600 rounded-lg">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🛏️</span>
+                <p className="font-bold text-purple-800 dark:text-purple-200 text-sm">{t('roomCard.linenChange') || 'Linen Change Required'}</p>
+              </div>
+            </div>
+          )}
+          {assignment.rooms?.bed_configuration && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border-2 border-blue-400 dark:border-blue-600 rounded-lg">
+              <div className="flex items-center gap-2">
+                <BedDouble className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <div>
+                  <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Bed Configuration</p>
+                  <p className="font-bold text-blue-800 dark:text-blue-200 text-sm">{assignment.rooms.bed_configuration}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {assignment.rooms?.notes && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-600 rounded-lg">
+              <div className="flex items-start gap-2">
+                <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">{t('roomCard.managerNotes') || 'Manager Notes'}</p>
+                  <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">{assignment.rooms.notes}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {assignment.notes && (
+            <div className="p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide">📝 {t('housekeeping.assignmentNotes')}</p>
+                  <p className="text-sm text-amber-800 dark:text-amber-200 font-semibold mt-0.5">
+                    {shouldTranslateContent(language) ? translateText(assignment.notes, language) : assignment.notes}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <CardContent className="space-y-6">
-        {/* Special Instructions Banners - unmissable section */}
-        {(assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || assignment.rooms?.notes) && (
-          <div className="space-y-2">
-            {assignment.rooms?.towel_change_required && (
-              <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">🧺</span>
-                  <p className="font-bold text-yellow-800 dark:text-yellow-200 text-sm">{t('roomCard.towelChange') || 'Towel Change Required'}</p>
-                </div>
-              </div>
-            )}
-            {assignment.rooms?.linen_change_required && (
-              <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-400 dark:border-purple-600 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">🛏️</span>
-                  <p className="font-bold text-purple-800 dark:text-purple-200 text-sm">{t('roomCard.linenChange') || 'Linen Change Required'}</p>
-                </div>
-              </div>
-            )}
-            {assignment.rooms?.bed_configuration && (
-              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border-2 border-blue-400 dark:border-blue-600 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <BedDouble className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                  <div>
-                    <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Bed Configuration</p>
-                    <p className="font-bold text-blue-800 dark:text-blue-200 text-sm">{assignment.rooms.bed_configuration}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-            {assignment.rooms?.notes && (
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-600 rounded-lg">
-                <div className="flex items-start gap-2">
-                  <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">{t('roomCard.managerNotes') || 'Manager Notes'}</p>
-                    <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">{assignment.rooms.notes}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
         {/* Room Details */}
         <div className="grid grid-cols-2 gap-4">
           <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
@@ -787,26 +801,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </div>
           )}
         </div>
-
-        {/* Important Assignment Notes - Prominently Displayed */}
-        {assignment.notes && (
-          <div className="relative p-5 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-xl border-2 border-amber-300 shadow-lg animate-pulse-slow">
-            <div className="absolute -top-3 -left-3 bg-amber-400 text-white rounded-full p-2 shadow-md">
-              <AlertTriangle className="h-5 w-5" />
-            </div>
-            <div className="ml-6">
-              <h4 className="font-bold text-amber-900 mb-2 text-lg flex items-center gap-2">
-                📝 {t('housekeeping.assignmentNotes')}
-              </h4>
-              <p className="text-base text-amber-800 leading-relaxed font-semibold bg-white/60 p-3 rounded-lg border border-amber-200">
-                {shouldTranslateContent(language) 
-                  ? translateText(assignment.notes, language)
-                  : assignment.notes
-                }
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* Action Buttons */}
         <div className="space-y-4">
