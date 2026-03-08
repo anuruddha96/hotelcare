@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,8 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Progress } from '@/components/ui/progress';
 import { 
   CheckCircle, 
   RefreshCw, 
@@ -18,7 +21,16 @@ import {
   History,
   Wrench,
   Camera,
-  FileText
+  FileText,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  Zap,
+  TrendingUp,
+  TrendingDown,
+  Timer,
+  CheckCheck,
+  Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -65,6 +77,34 @@ interface Staff {
   role: string;
 }
 
+// Speed benchmark thresholds in minutes
+const BENCHMARKS = {
+  daily_cleaning: { fast: 8, normalMax: 45, slow: 45 },
+  checkout_cleaning: { fast: 20, normalMax: 120, slow: 120 },
+  deep_cleaning: { fast: 30, normalMax: 180, slow: 180 },
+  maintenance: { fast: 5, normalMax: 60, slow: 60 },
+};
+
+function getSpeedIndicator(type: string, durationMinutes: number) {
+  const bench = BENCHMARKS[type as keyof typeof BENCHMARKS] || BENCHMARKS.daily_cleaning;
+  if (durationMinutes < bench.fast) {
+    return { label: 'Suspiciously Fast', color: 'text-red-700 bg-red-100 border-red-300', icon: Zap, severity: 'warning' };
+  }
+  if (durationMinutes <= bench.normalMax) {
+    return { label: 'Normal', color: 'text-green-700 bg-green-100 border-green-300', icon: TrendingUp, severity: 'ok' };
+  }
+  return { label: 'Very Slow', color: 'text-orange-700 bg-orange-100 border-orange-300', icon: TrendingDown, severity: 'warning' };
+}
+
+function getDurationMinutes(startedAt: string | null, completedAt: string): number {
+  if (!startedAt) return 0;
+  return Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000);
+}
+
+function getMinutesSince(dateStr: string): number {
+  return Math.round((Date.now() - new Date(dateStr).getTime()) / 60000);
+}
+
 export function SupervisorApprovalView() {
   const { t } = useTranslation();
   const { showNotification } = useNotifications();
@@ -79,13 +119,58 @@ export function SupervisorApprovalView() {
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
   const [earlySignoutRequests, setEarlySignoutRequests] = useState<any[]>([]);
   const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
+  const [bulkApproving, setBulkApproving] = useState<string | null>(null);
+  const [bulkProgress, setBulkProgress] = useState(0);
+  const [collapsedHotels, setCollapsedHotels] = useState<Set<string>>(new Set());
+
+  // Group assignments by hotel
+  const hotelGroups = useMemo(() => {
+    const groups: Record<string, PendingAssignment[]> = {};
+    for (const a of pendingAssignments) {
+      const hotel = a.rooms?.hotel || 'Unknown';
+      if (!groups[hotel]) groups[hotel] = [];
+      groups[hotel].push(a);
+    }
+    return groups;
+  }, [pendingAssignments]);
+
+  // Summary stats
+  const summaryStats = useMemo(() => {
+    const hotelCounts = Object.entries(hotelGroups).map(([hotel, items]) => ({ hotel, count: items.length }));
+    const roomCount = pendingAssignments.length;
+    const maintenanceCount = pendingMaintenanceTickets.length;
+    const earlySignoutCount = earlySignoutRequests.length;
+    const totalCount = roomCount + maintenanceCount + earlySignoutCount;
+
+    // Find oldest pending
+    let oldestMinutes = 0;
+    for (const a of pendingAssignments) {
+      const mins = getMinutesSince(a.completed_at);
+      if (mins > oldestMinutes) oldestMinutes = mins;
+    }
+    for (const t of pendingMaintenanceTickets) {
+      const mins = getMinutesSince(t.created_at);
+      if (mins > oldestMinutes) oldestMinutes = mins;
+    }
+
+    // Count flagged items (suspiciously fast or very slow)
+    let flaggedCount = 0;
+    for (const a of pendingAssignments) {
+      if (a.started_at) {
+        const dur = getDurationMinutes(a.started_at, a.completed_at);
+        const indicator = getSpeedIndicator(a.assignment_type, dur);
+        if (indicator.severity === 'warning') flaggedCount++;
+      }
+    }
+
+    return { hotelCounts, roomCount, maintenanceCount, earlySignoutCount, totalCount, oldestMinutes, flaggedCount };
+  }, [hotelGroups, pendingAssignments, pendingMaintenanceTickets, earlySignoutRequests]);
 
   useEffect(() => {
     fetchPendingAssignments();
     fetchStaff();
     fetchPendingMaintenanceTickets();
     
-    // Set up real-time subscription
     const channel = supabase
       .channel('supervisor-assignments')
       .on(
@@ -130,7 +215,6 @@ export function SupervisorApprovalView() {
       if (error) throw error;
       setStaff(data || []);
 
-      // Fetch maintenance staff for ticket reassignment
       const { data: maintStaff, error: maintError } = await supabase.rpc('get_assignable_staff', {
         hotel_filter: profile?.assigned_hotel
       });
@@ -178,14 +262,12 @@ export function SupervisorApprovalView() {
       if (error) throw error;
       setPendingMaintenanceTickets(data || []);
       
-      // Load signed URLs for tickets with completion photos
       loadSignedUrlsForTickets(data || []);
     } catch (error) {
       console.error('Error fetching maintenance tickets:', error);
     }
   };
 
-  // Load signed URLs for maintenance tickets
   const loadSignedUrlsForTickets = async (tickets: any[]) => {
     const urlsMap: { [ticketId: string]: string[] } = {};
     
@@ -202,7 +284,6 @@ export function SupervisorApprovalView() {
   };
 
   const handleApproveTicket = async (ticketId: string) => {
-    // Optimistic removal
     setPendingMaintenanceTickets(prev => prev.filter(t => t.id !== ticketId));
     try {
       const { error } = await supabase
@@ -255,7 +336,6 @@ export function SupervisorApprovalView() {
     try {
       const dateStr = selectedDate.toISOString().split('T')[0];
       
-      // Get current user's organization
       const { data: currentUser } = await supabase.auth.getUser();
       if (!currentUser.user) return;
 
@@ -274,7 +354,6 @@ export function SupervisorApprovalView() {
         return;
       }
       
-      // Fetch room assignments filtered by organization
       const { data: assignmentData, error: assignmentError } = await supabase
         .from('room_assignments')
         .select(`
@@ -302,7 +381,6 @@ export function SupervisorApprovalView() {
 
       if (assignmentError) throw assignmentError;
 
-      // Fetch early sign-out requests
       const { data: earlySignoutData, error: earlySignoutError } = await supabase
         .from('early_signout_requests')
         .select(`
@@ -322,7 +400,6 @@ export function SupervisorApprovalView() {
 
       if (earlySignoutError) throw earlySignoutError;
       
-      // Store both types in separate state
       setPendingAssignments(assignmentData || []);
       setEarlySignoutRequests(earlySignoutData || []);
     } catch (error) {
@@ -349,7 +426,6 @@ export function SupervisorApprovalView() {
   };
 
   const handleApproval = async (assignmentId: string) => {
-    // Optimistic removal
     const previousAssignments = [...pendingAssignments];
     setPendingAssignments(prev => prev.filter(a => a.id !== assignmentId));
     try {
@@ -372,7 +448,6 @@ export function SupervisorApprovalView() {
       if (assignment?.room_id && assignment?.rooms?.hotel) {
         const hotelValue = assignment.rooms.hotel;
         
-        // Find the hotel configuration by matching either hotel_id or hotel_name
         const { data: hotelConfigs } = await supabase
           .from('hotel_configurations')
           .select('hotel_id, hotel_name');
@@ -382,7 +457,6 @@ export function SupervisorApprovalView() {
         );
         
         if (matchingConfig) {
-          // Check if this hotel has Previo PMS integration enabled
           const { data: pmsConfig } = await supabase
             .from('pms_configurations')
             .select('is_active, pms_type, hotel_id')
@@ -391,11 +465,8 @@ export function SupervisorApprovalView() {
             .eq('is_active', true)
             .maybeSingle();
           
-          // Only push to Previo if PMS integration is active for this hotel
           if (pmsConfig) {
             try {
-              console.log(`🔄 Pushing room status to Previo PMS for room ${assignment.rooms?.room_number}`);
-              
               const { data: result, error: previoError } = await supabase.functions.invoke('previo-update-room-status', {
                 body: { 
                   roomId: assignment.room_id,
@@ -405,14 +476,9 @@ export function SupervisorApprovalView() {
               
               if (previoError) {
                 console.error('❌ Previo update error:', previoError);
-                toast.error('Room approved but failed to update PMS');
-              } else {
-                console.log('✅ Room status pushed to Previo successfully:', result);
-                toast.success('Room approved and PMS updated');
               }
             } catch (previoError) {
               console.error('Failed to update Previo:', previoError);
-              // Don't fail the approval if Previo update fails
             }
           }
         }
@@ -428,6 +494,40 @@ export function SupervisorApprovalView() {
     }
   };
 
+  const handleBulkApprove = async (hotelName: string) => {
+    const assignments = hotelGroups[hotelName];
+    if (!assignments || assignments.length === 0) return;
+
+    setBulkApproving(hotelName);
+    setBulkProgress(0);
+
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    let approved = 0;
+
+    for (const assignment of assignments) {
+      try {
+        const { error } = await supabase
+          .from('room_assignments')
+          .update({
+            supervisor_approved: true,
+            supervisor_approved_by: userId,
+            supervisor_approved_at: new Date().toISOString()
+          })
+          .eq('id', assignment.id);
+
+        if (!error) approved++;
+      } catch (e) {
+        console.error('Bulk approve error for', assignment.id, e);
+      }
+      setBulkProgress(Math.round(((approved) / assignments.length) * 100));
+    }
+
+    setBulkApproving(null);
+    setBulkProgress(0);
+    toast.success(`${approved} rooms approved for ${hotelName}`);
+    fetchPendingAssignments();
+  };
+
   const handleReassignment = async () => {
     if (!selectedAssignment || !selectedHousekeeper) return;
 
@@ -435,7 +535,6 @@ export function SupervisorApprovalView() {
       const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
       if (!assignment) return;
 
-      // First, check if there's already an active assignment for this room on the same date
       const { data: existingAssignments, error: checkError } = await supabase
         .from('room_assignments')
         .select('id, assigned_to, status')
@@ -446,7 +545,6 @@ export function SupervisorApprovalView() {
 
       if (checkError) throw checkError;
 
-      // Cancel or mark as superseded any existing active assignments for this room
       if (existingAssignments && existingAssignments.length > 0) {
         const { error: updateError } = await supabase
           .from('room_assignments')
@@ -462,7 +560,6 @@ export function SupervisorApprovalView() {
         if (updateError) throw updateError;
       }
 
-      // Create new assignment for the selected housekeeper
       const { error } = await supabase
         .from('room_assignments')
         .insert({
@@ -478,7 +575,6 @@ export function SupervisorApprovalView() {
 
       if (error) throw error;
 
-      // Mark the current assignment as approved (remove from pending list)
       await supabase
         .from('room_assignments')
         .update({
@@ -514,6 +610,14 @@ export function SupervisorApprovalView() {
     }
   };
 
+  const toggleHotelCollapse = (hotel: string) => {
+    setCollapsedHotels(prev => {
+      const next = new Set(prev);
+      if (next.has(hotel)) next.delete(hotel);
+      else next.add(hotel);
+      return next;
+    });
+  };
 
   if (loading) {
     return (
@@ -522,6 +626,219 @@ export function SupervisorApprovalView() {
       </div>
     );
   }
+
+  const renderAssignmentCard = (assignment: PendingAssignment) => {
+    const durationMins = getDurationMinutes(assignment.started_at, assignment.completed_at);
+    const speedIndicator = assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
+    const SpeedIcon = speedIndicator?.icon || Timer;
+    const waitingMins = getMinutesSince(assignment.completed_at);
+
+    return (
+      <Card key={assignment.id} className={`border shadow-sm hover:shadow-md transition-all duration-200 ${
+        speedIndicator?.severity === 'warning' ? 'border-l-4 border-l-orange-400' : 'border-l-4 border-l-green-400'
+      }`}>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <CardTitle className="text-lg font-bold text-foreground">
+                Room {assignment.rooms?.room_number || 'N/A'}
+              </CardTitle>
+              {assignment.rooms?.floor_number && (
+                <Badge variant="outline" className="text-xs bg-muted">
+                  <Layers className="h-3 w-3 mr-1" />
+                  Floor {assignment.rooms.floor_number}
+                </Badge>
+              )}
+              <Badge variant="outline" className="bg-muted text-foreground border-border text-xs">
+                {getAssignmentTypeLabel(assignment.assignment_type)}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              {speedIndicator && (
+                <Badge variant="outline" className={`text-xs ${speedIndicator.color}`}>
+                  <SpeedIcon className="h-3 w-3 mr-1" />
+                  {speedIndicator.label}
+                </Badge>
+              )}
+              {waitingMins > 30 && (
+                <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
+                  ⏰ {waitingMins}m waiting
+                </Badge>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
+              <User className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Cleaned by</p>
+                <p className="text-sm font-semibold text-foreground truncate">
+                  {assignment.profiles?.full_name || 'Unknown'}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
+              <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">Started</p>
+                <p className="text-sm font-semibold text-foreground">
+                  {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
+              <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+              <div>
+                <p className="text-xs text-muted-foreground">Completed</p>
+                <p className="text-sm font-semibold text-foreground">
+                  {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            </div>
+
+            {assignment.started_at && (
+              <div className={`flex items-center gap-2 p-2.5 rounded-lg ${
+                speedIndicator?.severity === 'warning' ? 'bg-orange-50 border border-orange-200' : 'bg-green-50 border border-green-200'
+              }`}>
+                <Timer className={`h-4 w-4 shrink-0 ${
+                  speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'
+                }`} />
+                <div>
+                  <p className={`text-xs ${speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'}`}>Duration</p>
+                  <p className={`text-sm font-bold ${
+                    speedIndicator?.severity === 'warning' ? 'text-orange-800' : 'text-green-800'
+                  }`}>
+                    {calculateDuration(assignment.started_at, assignment.completed_at)}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Notes */}
+          {assignment.notes && (
+            <div className="relative p-4 bg-amber-50 rounded-lg border border-amber-200">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <div>
+                  <h4 className="font-semibold text-amber-900 text-sm mb-1">📝 Notes</h4>
+                  <p className="text-sm text-amber-800">{assignment.notes}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Completion Data */}
+          <CompletionDataView
+            assignmentId={assignment.id}
+            roomId={assignment.room_id}
+            assignmentDate={assignment.assignment_date}
+            housekeeperId={assignment.assigned_to}
+          />
+
+          {/* Special Requirements */}
+          {(assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && (
+            <div className="flex flex-wrap gap-2">
+              {assignment.rooms.towel_change_required && (
+                <div className="p-2.5 bg-blue-500 text-white rounded-lg text-sm font-medium flex items-center gap-2">
+                  🏺 Towel Change ({assignment.rooms.guest_nights_stayed || 0} nights)
+                </div>
+              )}
+              {assignment.rooms.linen_change_required && (
+                <div className="p-2.5 bg-purple-500 text-white rounded-lg text-sm font-medium flex items-center gap-2">
+                  🛏️ Linen Change ({assignment.rooms.guest_nights_stayed || 0} nights)
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border">
+            <Button
+              onClick={() => handleApproval(assignment.id)}
+              className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+              size="sm"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              {t('supervisor.approveTask')}
+            </Button>
+            
+            <Dialog 
+              open={reassignDialogOpen && selectedAssignment === assignment.id} 
+              onOpenChange={(open) => {
+                setReassignDialogOpen(open);
+                if (!open) {
+                  setSelectedAssignment(null);
+                  setSelectedHousekeeper('');
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedAssignment(assignment.id)}
+                  className="w-full sm:w-auto"
+                  size="sm"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  {t('supervisor.reassignRoom')}
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    {t('supervisor.reassignRoomTitle')} {assignment.rooms?.room_number}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-foreground mb-2 block">
+                      {t('supervisor.selectHousekeeper')}
+                    </label>
+                    <Select value={selectedHousekeeper} onValueChange={setSelectedHousekeeper}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('supervisor.chooseHousekeeper')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {staff.map((person) => (
+                          <SelectItem key={person.id} value={person.id}>
+                            {person.full_name} ({person.nickname})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex justify-end gap-3">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        setReassignDialogOpen(false);
+                        setSelectedAssignment(null);
+                        setSelectedHousekeeper('');
+                      }}
+                    >
+                      {t('common.cancel')}
+                    </Button>
+                    <Button 
+                      onClick={handleReassignment}
+                      disabled={!selectedHousekeeper}
+                    >
+                      {t('supervisor.confirmReassign')}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -539,6 +856,9 @@ export function SupervisorApprovalView() {
           <TabsTrigger value="pending" className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
             {t('supervisor.pendingApprovals')}
+            {summaryStats.totalCount > 0 && (
+              <Badge className="ml-1 h-5 px-1.5 text-xs">{summaryStats.totalCount}</Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger value="history" className="flex items-center gap-2">
             <History className="h-4 w-4" />
@@ -547,568 +867,488 @@ export function SupervisorApprovalView() {
         </TabsList>
 
         <TabsContent value="pending" className="space-y-6">
+          {/* Date picker */}
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
             <div>
               <p className="text-muted-foreground">
                 {t('supervisor.reviewCompletedTasks')}
               </p>
             </div>
-        
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="w-full sm:w-auto">
-              <Clock className="h-4 w-4 mr-2" />
-              {format(selectedDate, 'PPP')}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="end">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={(date) => date && setSelectedDate(date)}
-              initialFocus
-            />
-          </PopoverContent>
-        </Popover>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full sm:w-auto">
+                  <Clock className="h-4 w-4 mr-2" />
+                  {format(selectedDate, 'PPP')}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={(date) => date && setSelectedDate(date)}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
           </div>
 
-          {pendingAssignments.length === 0 && earlySignoutRequests.length === 0 ? (
-        <Card className="text-center py-12">
-          <CardContent>
-            <CheckCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-foreground mb-2">
-              {t('supervisor.noTasksPending')}
-            </h3>
-            <p className="text-muted-foreground">
-              {t('supervisor.allTasksReviewed')}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-6">
-          {/* Early Sign-Out Request Cards */}
-          {earlySignoutRequests.length > 0 && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-orange-600" />
-                  Early Sign-Out Requests
-                </h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Staff requesting to sign out before regular hours
-                </p>
-              </div>
-              
-              {earlySignoutRequests.map((request) => (
-              <Card key={request.id} className="border-2 border-orange-300 bg-orange-50/50">
-                <CardHeader>
-                  <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                    <div className="flex items-center gap-3">
-                      <CardTitle className="text-xl font-bold text-foreground">
-                        {request.profiles?.full_name || 'Unknown'}
-                      </CardTitle>
-                      <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300">
-                        Early Sign-Out Request
-                      </Badge>
-                    </div>
+          {/* Summary Dashboard */}
+          {summaryStats.totalCount > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Room Approvals */}
+              <Card className="border-l-4 border-l-green-500">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <span className="text-xs font-medium text-muted-foreground">Rooms</span>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                      <Clock className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Requested At</p>
-                        <p className="text-lg font-semibold">
-                          {new Date(request.requested_at).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={async () => {
-                        try {
-                          const { error } = await supabase
-                            .from('early_signout_requests')
-                            .update({
-                              status: 'approved',
-                              approved_by: (await supabase.auth.getUser()).data.user?.id,
-                              approved_at: new Date().toISOString()
-                            })
-                            .eq('id', request.id);
-
-                          if (error) throw error;
-
-                          // Actually check out the staff member
-                          const { data: attendance } = await supabase
-                            .from('staff_attendance')
-                            .select('*')
-                            .eq('user_id', request.user_id)
-                            .eq('work_date', new Date().toISOString().split('T')[0])
-                            .eq('status', 'checked_in')
-                            .single();
-
-                          if (attendance) {
-                            await supabase
-                              .from('staff_attendance')
-                              .update({
-                                check_out_time: new Date().toISOString(),
-                                status: 'checked_out'
-                              })
-                              .eq('id', attendance.id);
-                          }
-
-                          toast.success('Early sign-out approved');
-                          fetchPendingAssignments();
-                        } catch (error: any) {
-                          console.error('Error approving early signout:', error);
-                          toast.error('Failed to approve early sign-out');
-                        }
-                      }}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Approve Early Sign-Out
-                    </Button>
-                    
-                    <Button
-                      variant="destructive"
-                      onClick={async () => {
-                        const reason = prompt('Enter rejection reason:');
-                        if (!reason) return;
-                        
-                        try {
-                          const { error } = await supabase
-                            .from('early_signout_requests')
-                            .update({
-                              status: 'rejected',
-                              approved_by: (await supabase.auth.getUser()).data.user?.id,
-                              approved_at: new Date().toISOString(),
-                              rejection_reason: reason
-                            })
-                            .eq('id', request.id);
-
-                          if (error) throw error;
-
-                          toast.success('Early sign-out rejected');
-                          fetchPendingAssignments();
-                        } catch (error: any) {
-                          console.error('Error rejecting early signout:', error);
-                          toast.error('Failed to reject early sign-out');
-                        }
-                      }}
-                    >
-                      <AlertTriangle className="h-4 w-4 mr-2" />
-                      Reject
-                    </Button>
-                  </div>
+                  <p className="text-2xl font-bold text-foreground">{summaryStats.roomCount}</p>
                 </CardContent>
               </Card>
+
+              {/* Maintenance */}
+              <Card className="border-l-4 border-l-blue-500">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Wrench className="h-4 w-4 text-blue-600" />
+                    <span className="text-xs font-medium text-muted-foreground">Maintenance</span>
+                  </div>
+                  <p className="text-2xl font-bold text-foreground">{summaryStats.maintenanceCount}</p>
+                </CardContent>
+              </Card>
+
+              {/* Flagged */}
+              <Card className={`border-l-4 ${summaryStats.flaggedCount > 0 ? 'border-l-orange-500' : 'border-l-muted'}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertTriangle className={`h-4 w-4 ${summaryStats.flaggedCount > 0 ? 'text-orange-600' : 'text-muted-foreground'}`} />
+                    <span className="text-xs font-medium text-muted-foreground">Flagged</span>
+                  </div>
+                  <p className="text-2xl font-bold text-foreground">{summaryStats.flaggedCount}</p>
+                </CardContent>
+              </Card>
+
+              {/* Oldest Waiting */}
+              <Card className={`border-l-4 ${summaryStats.oldestMinutes > 60 ? 'border-l-red-500' : 'border-l-muted'}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className={`h-4 w-4 ${summaryStats.oldestMinutes > 60 ? 'text-red-600' : 'text-muted-foreground'}`} />
+                    <span className="text-xs font-medium text-muted-foreground">Oldest</span>
+                  </div>
+                  <p className="text-2xl font-bold text-foreground">
+                    {summaryStats.oldestMinutes > 60 
+                      ? `${Math.floor(summaryStats.oldestMinutes / 60)}h ${summaryStats.oldestMinutes % 60}m`
+                      : `${summaryStats.oldestMinutes}m`
+                    }
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Per-Hotel Breakdown Pills */}
+          {summaryStats.hotelCounts.length > 1 && (
+            <div className="flex flex-wrap gap-2">
+              {summaryStats.hotelCounts.map(({ hotel, count }) => (
+                <Badge key={hotel} variant="outline" className="px-3 py-1.5 text-sm bg-muted/50">
+                  <Building2 className="h-3.5 w-3.5 mr-1.5" />
+                  {hotel}: <span className="font-bold ml-1">{count}</span>
+                </Badge>
               ))}
             </div>
           )}
-          
-          {/* Room Assignment Cards */}
-          {pendingAssignments.length > 0 && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                  Room Completion Approvals
-                </h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Review completed room cleanings
-                </p>
-              </div>
-              
-              <div className="grid gap-4">
-          {pendingAssignments.map((assignment) => (
-            <Card key={assignment.id} className="border border-border shadow-sm hover:shadow-md transition-all duration-200">
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                  <div className="flex items-center gap-3">
-                    <CardTitle className="text-xl font-bold text-foreground">
-                      Room {assignment.rooms?.room_number || 'N/A'}
-                    </CardTitle>
-                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                      {t('housekeeping.completed')}
-                    </Badge>
-                  </div>
-                   <Badge variant="outline" className="bg-muted text-foreground border-border">
-                     {getAssignmentTypeLabel(assignment.assignment_type)}
-                   </Badge>
-                </div>
-              </CardHeader>
 
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                    <User className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {t('supervisor.cleanedBy')}
-                      </p>
-                      <p className="text-lg font-semibold text-foreground">
-                        {assignment.profiles?.full_name || 'Unknown'}
-                      </p>
-                    </div>
+          {summaryStats.totalCount === 0 ? (
+            <Card className="text-center py-12">
+              <CardContent>
+                <CheckCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-foreground mb-2">
+                  {t('supervisor.noTasksPending')}
+                </h3>
+                <p className="text-muted-foreground">
+                  {t('supervisor.allTasksReviewed')}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-6">
+              {/* Early Sign-Out Requests */}
+              {earlySignoutRequests.length > 0 && (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-orange-600" />
+                      Early Sign-Out Requests
+                      <Badge className="bg-orange-100 text-orange-800 border-orange-300">{earlySignoutRequests.length}</Badge>
+                    </h3>
                   </div>
                   
-                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                    <MapPin className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">{t('supervisor.hotel')}</p>
-                      <p className="text-lg font-semibold text-foreground">
-                        {assignment.rooms?.hotel || 'Unknown'}
-                      </p>
-                    </div>
+                  {earlySignoutRequests.map((request) => (
+                    <Card key={request.id} className="border-l-4 border-l-orange-400">
+                      <CardContent className="p-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
+                          <div>
+                            <p className="font-semibold text-foreground">
+                              {request.profiles?.full_name || 'Unknown'}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Requested: {new Date(request.requested_at).toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  const { error } = await supabase
+                                    .from('early_signout_requests')
+                                    .update({
+                                      status: 'approved',
+                                      approved_by: (await supabase.auth.getUser()).data.user?.id,
+                                      approved_at: new Date().toISOString()
+                                    })
+                                    .eq('id', request.id);
+
+                                  if (error) throw error;
+
+                                  const { data: attendance } = await supabase
+                                    .from('staff_attendance')
+                                    .select('*')
+                                    .eq('user_id', request.user_id)
+                                    .eq('work_date', new Date().toISOString().split('T')[0])
+                                    .eq('status', 'checked_in')
+                                    .single();
+
+                                  if (attendance) {
+                                    await supabase
+                                      .from('staff_attendance')
+                                      .update({
+                                        check_out_time: new Date().toISOString(),
+                                        status: 'checked_out'
+                                      })
+                                      .eq('id', attendance.id);
+                                  }
+
+                                  toast.success('Early sign-out approved');
+                                  fetchPendingAssignments();
+                                } catch (error: any) {
+                                  console.error('Error approving early signout:', error);
+                                  toast.error('Failed to approve early sign-out');
+                                }
+                              }}
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={async () => {
+                                const reason = prompt('Enter rejection reason:');
+                                if (!reason) return;
+                                
+                                try {
+                                  const { error } = await supabase
+                                    .from('early_signout_requests')
+                                    .update({
+                                      status: 'rejected',
+                                      approved_by: (await supabase.auth.getUser()).data.user?.id,
+                                      approved_at: new Date().toISOString(),
+                                      rejection_reason: reason
+                                    })
+                                    .eq('id', request.id);
+
+                                  if (error) throw error;
+
+                                  toast.success('Early sign-out rejected');
+                                  fetchPendingAssignments();
+                                } catch (error: any) {
+                                  console.error('Error rejecting early signout:', error);
+                                  toast.error('Failed to reject early sign-out');
+                                }
+                              }}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+              
+              {/* Room Assignments Grouped by Hotel */}
+              {pendingAssignments.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      Room Completion Approvals
+                      <Badge className="bg-green-100 text-green-800 border-green-300">{pendingAssignments.length}</Badge>
+                    </h3>
                   </div>
 
-                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
-                    <Clock className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <p className="text-sm font-medium text-blue-700">{t('supervisor.startedAt')}</p>
-                      <p className="text-lg font-semibold text-blue-800">
-                        {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString() : 'N/A'}
-                      </p>
-                    </div>
-                  </div>
+                  {Object.entries(hotelGroups).map(([hotel, assignments]) => (
+                    <div key={hotel} className="border rounded-xl overflow-hidden bg-card">
+                      {/* Hotel Group Header */}
+                      <div 
+                        className="flex items-center justify-between p-4 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => toggleHotelCollapse(hotel)}
+                      >
+                        <div className="flex items-center gap-3">
+                          {collapsedHotels.has(hotel) 
+                            ? <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                            : <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          }
+                          <Building2 className="h-5 w-5 text-primary" />
+                          <span className="font-bold text-foreground text-lg">{hotel}</span>
+                          <Badge variant="outline" className="text-sm">{assignments.length} pending</Badge>
+                          {/* Count flagged in this hotel */}
+                          {(() => {
+                            const flagged = assignments.filter(a => {
+                              if (!a.started_at) return false;
+                              const dur = getDurationMinutes(a.started_at, a.completed_at);
+                              return getSpeedIndicator(a.assignment_type, dur).severity === 'warning';
+                            }).length;
+                            return flagged > 0 ? (
+                              <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                {flagged} flagged
+                              </Badge>
+                            ) : null;
+                          })()}
+                        </div>
 
-                  <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
-                    <Clock className="h-5 w-5 text-green-600" />
-                    <div>
-                      <p className="text-sm font-medium text-green-700">{t('supervisor.completedAt')}</p>
-                      <p className="text-lg font-semibold text-green-800">
-                        {new Date(assignment.completed_at).toLocaleTimeString()}
-                      </p>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-green-50 text-green-700 border-green-300 hover:bg-green-100"
+                              onClick={(e) => e.stopPropagation()}
+                              disabled={bulkApproving === hotel}
+                            >
+                              <CheckCheck className="h-4 w-4 mr-1" />
+                              Approve All ({assignments.length})
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Approve all {assignments.length} rooms for {hotel}?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will approve all pending room completions for this hotel. 
+                                {(() => {
+                                  const flagged = assignments.filter(a => {
+                                    if (!a.started_at) return false;
+                                    const dur = getDurationMinutes(a.started_at, a.completed_at);
+                                    return getSpeedIndicator(a.assignment_type, dur).severity === 'warning';
+                                  }).length;
+                                  return flagged > 0 ? ` ⚠️ ${flagged} item(s) are flagged for unusual duration.` : '';
+                                })()}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction 
+                                onClick={() => handleBulkApprove(hotel)}
+                                className="bg-green-600 hover:bg-green-700"
+                              >
+                                Approve All
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+
+                      {/* Bulk progress */}
+                      {bulkApproving === hotel && (
+                        <div className="px-4 py-2 bg-green-50">
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm text-green-700">Approving...</span>
+                            <Progress value={bulkProgress} className="flex-1 h-2" />
+                            <span className="text-sm font-semibold text-green-700">{bulkProgress}%</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Assignment Cards */}
+                      {!collapsedHotels.has(hotel) && (
+                        <div className="p-4 space-y-3">
+                          {assignments.map(renderAssignmentCard)}
+                        </div>
+                      )}
                     </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Maintenance Ticket Approvals */}
+              {pendingMaintenanceTickets.length > 0 && (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                      <Wrench className="h-5 w-5 text-blue-600" />
+                      {t('supervisor.maintenanceApprovals') || 'Maintenance Ticket Approvals'}
+                      <Badge className="bg-blue-100 text-blue-800 border-blue-300">{pendingMaintenanceTickets.length}</Badge>
+                    </h3>
+                  </div>
+                  
+                  <div className="grid gap-4">
+                    {pendingMaintenanceTickets.map((ticket) => (
+                      <Card key={ticket.id} className="border shadow-sm hover:shadow-md transition-all duration-200 border-l-4 border-l-blue-500">
+                        <CardHeader className="pb-3">
+                          <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
+                            <div className="flex items-center gap-3">
+                              <CardTitle className="text-lg font-bold text-foreground">
+                                {ticket.title}
+                              </CardTitle>
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                                Pending Approval
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${
+                                  ticket.priority === 'urgent' ? 'bg-red-100 text-red-800 border-red-300' :
+                                  ticket.priority === 'high' ? 'bg-orange-100 text-orange-800 border-orange-300' :
+                                  ticket.priority === 'medium' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                                  'bg-green-100 text-green-800 border-green-300'
+                                }`}
+                              >
+                                {ticket.priority?.toUpperCase()}
+                              </Badge>
+                              {ticket.hotel && (
+                                <Badge variant="outline" className="text-xs bg-muted">
+                                  <Building2 className="h-3 w-3 mr-1" />
+                                  {ticket.hotel}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </CardHeader>
+
+                        <CardContent className="space-y-4">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
+                              <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">Room</p>
+                                <p className="text-sm font-semibold text-foreground">{ticket.room_number}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
+                              <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">Reported By</p>
+                                <p className="text-sm font-semibold text-foreground truncate">
+                                  {ticket.created_by_profile?.full_name || 'Unknown'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 p-2.5 bg-blue-50 rounded-lg">
+                              <Wrench className="h-4 w-4 text-blue-600 shrink-0" />
+                              <div>
+                                <p className="text-xs text-blue-600">Fixed By</p>
+                                <p className="text-sm font-semibold text-blue-800">
+                                  {ticket.assigned_to_profile?.full_name || 'Unknown'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
+                              <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div>
+                                <p className="text-xs text-muted-foreground">Waiting</p>
+                                <p className="text-sm font-semibold text-foreground">
+                                  {getMinutesSince(ticket.created_at)}m
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Issue Description */}
+                          <div className="p-3 bg-muted/30 rounded-lg">
+                            <h4 className="font-semibold text-foreground mb-1 flex items-center gap-2 text-sm">
+                              <FileText className="h-3.5 w-3.5" />
+                              Issue
+                            </h4>
+                            <p className="text-sm text-muted-foreground">{ticket.description}</p>
+                          </div>
+
+                          {/* Resolution */}
+                          {ticket.resolution_text && (
+                            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                              <h4 className="font-semibold text-green-800 mb-1 flex items-center gap-2 text-sm">
+                                <CheckCircle className="h-3.5 w-3.5" />
+                                Resolution
+                              </h4>
+                              <p className="text-sm text-green-700">{ticket.resolution_text}</p>
+                            </div>
+                          )}
+
+                          {/* Completion Photos */}
+                          {signedPhotoUrls[ticket.id] && signedPhotoUrls[ticket.id].length > 0 && (
+                            <div className="space-y-2">
+                              <h4 className="font-semibold text-foreground flex items-center gap-2 text-sm">
+                                <Camera className="h-3.5 w-3.5" />
+                                Completion Photos
+                              </h4>
+                              <div className="flex flex-wrap gap-2">
+                                {signedPhotoUrls[ticket.id].map((photoUrl: string, idx: number) => (
+                                  <a 
+                                    key={idx} 
+                                    href={photoUrl} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="block"
+                                  >
+                                    <img 
+                                      src={photoUrl} 
+                                      alt={`Completion ${idx + 1}`}
+                                      className="w-20 h-20 object-cover rounded-lg border hover:opacity-80 transition-opacity"
+                                    />
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border">
+                            <Button
+                              onClick={() => handleApproveTicket(ticket.id)}
+                              className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+                              size="sm"
+                            >
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Approve
+                            </Button>
+                            
+                            <Select onValueChange={(value) => handleReassignTicket(ticket.id, value)}>
+                              <SelectTrigger className="w-full sm:w-auto">
+                                <SelectValue placeholder="Reassign to..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {maintenanceStaff.map((person) => (
+                                  <SelectItem key={person.id} value={person.id}>
+                                    {person.full_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
                 </div>
-
-                {assignment.started_at && (
-                  <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Clock className="h-5 w-5 text-amber-600" />
-                      <h4 className="font-semibold text-amber-800">{t('supervisor.duration')}</h4>
-                    </div>
-                    <p className="text-2xl font-bold text-amber-900">
-                      {calculateDuration(assignment.started_at, assignment.completed_at)}
-                    </p>
-                    <p className="text-sm text-amber-700 mt-1">
-                      {t('supervisor.totalTimeTaken')}
-                    </p>
-                  </div>
-                )}
-
-                 {/* Important Assignment Notes - Prominently Displayed */}
-                 {assignment.notes && (
-                  <div className="relative p-5 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-xl border-2 border-amber-300 shadow-lg mb-4">
-                    <div className="absolute -top-3 -left-3 bg-amber-400 text-white rounded-full p-2 shadow-md">
-                      <AlertTriangle className="h-5 w-5" />
-                    </div>
-                    <div className="ml-6">
-                      <h4 className="font-bold text-amber-900 mb-2 text-lg flex items-center gap-2">
-                        📝 {t('housekeeping.assignmentNotes')}
-                      </h4>
-                      <p className="text-base text-amber-800 leading-relaxed font-semibold bg-white/60 p-3 rounded-lg border border-amber-200">
-                        {assignment.notes}
-                      </p>
-                    </div>
-                  </div>
-                 )}
-
-                 {/* Completion Photos, DND Photos, and Dirty Linen */}
-                 <CompletionDataView
-                   assignmentId={assignment.id}
-                   roomId={assignment.room_id}
-                   assignmentDate={assignment.assignment_date}
-                   housekeeperId={assignment.assigned_to}
-                 />
-
-                {/* Towel and Linen Change Requirements */}
-                {(assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && (
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-foreground">Special Requirements</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {assignment.rooms.towel_change_required && (
-                        <div className="p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg flex-1 min-w-[200px]">
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className="text-lg">🏺</div>
-                            <div className="font-bold">TOWEL CHANGE REQUIRED</div>
-                          </div>
-                          <p className="text-sm opacity-90">
-                            Guest stayed {assignment.rooms.guest_nights_stayed || 0} nights
-                          </p>
-                        </div>
-                      )}
-                      
-                      {assignment.rooms.linen_change_required && (
-                        <div className="p-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg flex-1 min-w-[200px]">
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className="text-lg">🛏️</div>
-                            <div className="font-bold">BED LINEN CHANGE REQUIRED</div>
-                          </div>
-                          <p className="text-sm opacity-90">
-                            Guest stayed {assignment.rooms.guest_nights_stayed || 0} nights
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                  <div className="flex flex-col sm:flex-row gap-3">
-                   <Button
-                     onClick={() => handleApproval(assignment.id)}
-                     className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-                   >
-                     <CheckCircle className="h-4 w-4 mr-2" />
-                     {t('supervisor.approveTask')}
-                   </Button>
-                   
-                   <Dialog 
-                     open={reassignDialogOpen && selectedAssignment === assignment.id} 
-                     onOpenChange={(open) => {
-                       setReassignDialogOpen(open);
-                       if (!open) {
-                         setSelectedAssignment(null);
-                         setSelectedHousekeeper('');
-                       }
-                     }}
-                   >
-                     <DialogTrigger asChild>
-                       <Button
-                         variant="outline"
-                         onClick={() => setSelectedAssignment(assignment.id)}
-                         className="w-full sm:w-auto"
-                       >
-                         <RefreshCw className="h-4 w-4 mr-2" />
-                         {t('supervisor.reassignRoom')}
-                       </Button>
-                     </DialogTrigger>
-                     <DialogContent>
-                       <DialogHeader>
-                         <DialogTitle>
-                           {t('supervisor.reassignRoomTitle')} {assignment.rooms?.room_number}
-                         </DialogTitle>
-                       </DialogHeader>
-                       <div className="space-y-4">
-                         <div>
-                           <label className="text-sm font-medium text-foreground mb-2 block">
-                             {t('supervisor.selectHousekeeper')}
-                           </label>
-                           <Select value={selectedHousekeeper} onValueChange={setSelectedHousekeeper}>
-                             <SelectTrigger>
-                               <SelectValue placeholder={t('supervisor.chooseHousekeeper')} />
-                             </SelectTrigger>
-                             <SelectContent>
-                               {staff.map((person) => (
-                                 <SelectItem key={person.id} value={person.id}>
-                                   {person.full_name} ({person.nickname})
-                                 </SelectItem>
-                               ))}
-                             </SelectContent>
-                           </Select>
-                         </div>
-                         <div className="flex justify-end gap-3">
-                           <Button 
-                             variant="outline" 
-                             onClick={() => {
-                               setReassignDialogOpen(false);
-                               setSelectedAssignment(null);
-                               setSelectedHousekeeper('');
-                             }}
-                           >
-                             {t('common.cancel')}
-                           </Button>
-                           <Button 
-                             onClick={handleReassignment}
-                             disabled={!selectedHousekeeper}
-                           >
-                             {t('supervisor.confirmReassign')}
-                           </Button>
-                         </div>
-                       </div>
-                     </DialogContent>
-                   </Dialog>
-                  </div>
-               </CardContent>
-             </Card>
-            ))}
-              </div>
+              )}
             </div>
           )}
-          
-          {/* Maintenance Ticket Approvals */}
-          {pendingMaintenanceTickets.length > 0 && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
-                  <Wrench className="h-5 w-5 text-blue-600" />
-                  {t('supervisor.maintenanceApprovals') || 'Maintenance Ticket Approvals'}
-                </h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {t('supervisor.reviewMaintenanceTasks') || 'Review completed maintenance tasks'}
-                </p>
-              </div>
-              
-              <div className="grid gap-4">
-                {pendingMaintenanceTickets.map((ticket) => (
-                  <Card key={ticket.id} className="border border-border shadow-sm hover:shadow-md transition-all duration-200 border-l-4 border-l-blue-500">
-                    <CardHeader>
-                      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                        <div className="flex items-center gap-3">
-                          <CardTitle className="text-xl font-bold text-foreground">
-                            {ticket.title}
-                          </CardTitle>
-                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                            {t('maintenance.pendingApproval') || 'Pending Approval'}
-                          </Badge>
-                        </div>
-                        <Badge 
-                          variant="outline" 
-                          className={
-                            ticket.priority === 'urgent' ? 'bg-red-100 text-red-800 border-red-300' :
-                            ticket.priority === 'high' ? 'bg-orange-100 text-orange-800 border-orange-300' :
-                            ticket.priority === 'medium' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
-                            'bg-green-100 text-green-800 border-green-300'
-                          }
-                        >
-                          {ticket.priority?.toUpperCase()}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                          <MapPin className="h-5 w-5 text-muted-foreground" />
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">
-                              {t('tickets.roomNumber') || 'Room'}
-                            </p>
-                            <p className="text-lg font-semibold text-foreground">
-                              {ticket.room_number}
-                            </p>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                          <User className="h-5 w-5 text-muted-foreground" />
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">
-                              {t('tickets.reportedBy') || 'Reported By'}
-                            </p>
-                            <p className="text-lg font-semibold text-foreground">
-                              {ticket.created_by_profile?.full_name || 'Unknown'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
-                          <Wrench className="h-5 w-5 text-blue-600" />
-                          <div>
-                            <p className="text-sm font-medium text-blue-700">
-                              {t('tickets.fixedBy') || 'Fixed By'}
-                            </p>
-                            <p className="text-lg font-semibold text-blue-800">
-                              {ticket.assigned_to_profile?.full_name || 'Unknown'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                          <Clock className="h-5 w-5 text-muted-foreground" />
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground">
-                              {t('tickets.hotel') || 'Hotel'}
-                            </p>
-                            <p className="text-lg font-semibold text-foreground">
-                              {ticket.hotel || 'N/A'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Issue Description */}
-                      <div className="p-4 bg-muted/30 rounded-lg">
-                        <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
-                          <FileText className="h-4 w-4" />
-                          {t('tickets.description') || 'Issue Description'}
-                        </h4>
-                        <p className="text-sm text-muted-foreground">{ticket.description}</p>
-                      </div>
-
-                      {/* Resolution Text */}
-                      {ticket.resolution_text && (
-                        <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                          <h4 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
-                            <CheckCircle className="h-4 w-4" />
-                            {t('maintenance.resolution') || 'Resolution'}
-                          </h4>
-                          <p className="text-sm text-green-700">{ticket.resolution_text}</p>
-                        </div>
-                      )}
-
-                      {/* Completion Photos - use signed URLs */}
-                      {signedPhotoUrls[ticket.id] && signedPhotoUrls[ticket.id].length > 0 && (
-                        <div className="space-y-2">
-                          <h4 className="font-semibold text-foreground flex items-center gap-2">
-                            <Camera className="h-4 w-4" />
-                            {t('maintenance.completionPhotos') || 'Completion Photos'}
-                          </h4>
-                          <div className="flex flex-wrap gap-2">
-                            {signedPhotoUrls[ticket.id].map((photoUrl: string, idx: number) => (
-                              <a 
-                                key={idx} 
-                                href={photoUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="block"
-                              >
-                                <img 
-                                  src={photoUrl} 
-                                  alt={`Completion ${idx + 1}`}
-                                  className="w-24 h-24 object-cover rounded-lg border hover:opacity-80 transition-opacity"
-                                />
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <Button
-                          onClick={() => handleApproveTicket(ticket.id)}
-                          className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-                        >
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          {t('supervisor.approveTask') || 'Approve'}
-                        </Button>
-                        
-                        <Select onValueChange={(value) => handleReassignTicket(ticket.id, value)}>
-                          <SelectTrigger className="w-full sm:w-auto">
-                            <SelectValue placeholder={t('supervisor.reassignTo') || 'Reassign to...'} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {maintenanceStaff.map((person) => (
-                              <SelectItem key={person.id} value={person.id}>
-                                {person.full_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
         </TabsContent>
 
         <TabsContent value="history" className="space-y-6">
