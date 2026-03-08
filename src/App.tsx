@@ -12,6 +12,12 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 import GuestMinibar from "./pages/GuestMinibar";
+import FrontDesk from "./pages/FrontDesk";
+import Reservations from "./pages/Reservations";
+import ReservationDetail from "./pages/ReservationDetail";
+import Guests from "./pages/Guests";
+import GuestDetail from "./pages/GuestDetail";
+import ChannelManager from "./pages/ChannelManager";
 
 const queryClient = new QueryClient();
 
