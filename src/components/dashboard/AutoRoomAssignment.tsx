@@ -51,7 +51,7 @@ interface AutoRoomAssignmentProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedDate: string;
-  onAssignmentCreated: () => void;
+  onAssignmentCreated: (roomCount?: number, staffCount?: number) => void;
 }
 
 type Step = 'select-staff' | 'preview' | 'confirm' | 'public-areas';
@@ -425,7 +425,7 @@ export function AutoRoomAssignment({
       const staffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
       
       toast.success(`Assigned ${totalRooms} rooms to ${staffCount} housekeepers`);
-      onAssignmentCreated();
+      onAssignmentCreated(totalRooms, staffCount);
       
       // Move to public areas step instead of closing
       setStep('public-areas');
@@ -469,7 +469,7 @@ export function AutoRoomAssignment({
       if (error) throw error;
 
       toast.success(`Assigned ${tasks.length} public area(s)`);
-      onAssignmentCreated();
+      onAssignmentCreated(tasks.length, 0);
       onOpenChange(false);
     } catch (error) {
       console.error('Error assigning public areas:', error);

@@ -20,6 +20,7 @@ import { EarlySignoutApprovalView } from './EarlySignoutApprovalView';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { HotelRoomOverview } from './HotelRoomOverview';
 import { PublicAreaAssignment } from './PublicAreaAssignment';
+import { AssignmentSuccessAnimation } from './AssignmentSuccessAnimation';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -126,7 +127,8 @@ export function HousekeepingManagerView() {
   const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
   const [managerHotelName, setManagerHotelName] = useState<string>('');
-
+  const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
+  const [successAnimation, setSuccessAnimation] = useState<{ show: boolean; roomCount: number; staffCount: number }>({ show: false, roomCount: 0, staffCount: 0 });
   useEffect(() => {
     fetchHousekeepingStaff();
     fetchTeamAssignments();
@@ -473,12 +475,16 @@ export function HousekeepingManagerView() {
 
 
 
-  const handleAssignmentCreated = () => {
+  const handleAssignmentCreated = (roomCount?: number, staffCount?: number) => {
+    // Show success animation
+    setSuccessAnimation({ show: true, roomCount: roomCount || 0, staffCount: staffCount || 0 });
+    
+    // Refresh all views
     fetchTeamAssignments();
     fetchRoomAssignments();
+    setOverviewRefreshKey(prev => prev + 1);
     setAssignmentDialogOpen(false);
     setAutoAssignDialogOpen(false);
-    toast.success(t('assignment.successMessage').replace('{count}', '1').replace('{staffName}', 'staff'));
   };
 
   const handleBulkUnassign = async () => {
@@ -522,6 +528,7 @@ export function HousekeepingManagerView() {
   const isReception = profile?.role === 'reception';
 
   return (
+    <>
     <Tabs defaultValue="team" className="space-y-6">
       {!isReception && (
         <TabsList className="grid w-full grid-cols-2">
@@ -641,6 +648,7 @@ export function HousekeepingManagerView() {
           selectedDate={selectedDate}
           hotelName={managerHotelName}
           staffMap={Object.fromEntries(housekeepingStaff.map(s => [s.id, s.full_name]))}
+          refreshKey={overviewRefreshKey}
         />
       )}
 
@@ -907,5 +915,14 @@ export function HousekeepingManagerView() {
         </TabsContent>
       )}
     </Tabs>
+
+    {/* Success Animation Overlay */}
+    <AssignmentSuccessAnimation
+      show={successAnimation.show}
+      roomCount={successAnimation.roomCount}
+      staffCount={successAnimation.staffCount}
+      onComplete={() => setSuccessAnimation({ show: false, roomCount: 0, staffCount: 0 })}
+    />
+    </>
   );
 }
