@@ -138,4 +138,5 @@ export function usePendingApprovals() {
   }, [fetchPendingCount]);
 
   return { pendingCount, maintenanceTicketCount, totalCount: pendingCount + maintenanceTicketCount, refetch };
+
 }
