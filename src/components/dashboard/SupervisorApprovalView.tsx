@@ -435,6 +435,44 @@ export function SupervisorApprovalView() {
     }
   };
 
+  const loadCompletionPhotos = async (assignments: any[]) => {
+    const urlsMap: { [id: string]: string[] } = {};
+    for (const a of assignments) {
+      if (a.completion_photos && a.completion_photos.length > 0) {
+        const signed = await getSignedPhotoUrls(a.completion_photos, 'room-photos');
+        if (signed.length > 0) urlsMap[a.id] = signed;
+      }
+    }
+    setCompletionPhotoUrls(prev => ({ ...prev, ...urlsMap }));
+  };
+
+  const loadLinenSummaries = async (assignments: any[], dateStr: string) => {
+    try {
+      const roomIds = assignments.map((a: any) => a.room_id);
+      const { data, error } = await supabase
+        .from('dirty_linen_counts')
+        .select('room_id, count, dirty_linen_items(display_name)')
+        .in('room_id', roomIds)
+        .eq('work_date', dateStr);
+      
+      if (error || !data) return;
+
+      const summaryMap: { [assignmentId: string]: LinenSummaryItem[] } = {};
+      for (const a of assignments) {
+        const roomCounts = data.filter((d: any) => d.room_id === a.room_id && d.count > 0);
+        if (roomCounts.length > 0) {
+          summaryMap[a.id] = roomCounts.map((d: any) => ({
+            display_name: (d.dirty_linen_items as any)?.display_name || 'Unknown',
+            count: d.count
+          }));
+        }
+      }
+      setLinenSummaries(prev => ({ ...prev, ...summaryMap }));
+    } catch (e) {
+      console.error('Error loading linen summaries:', e);
+    }
+  };
+
   const calculateDuration = (startTime: string, endTime: string) => {
     const start = new Date(startTime);
     const end = new Date(endTime);
