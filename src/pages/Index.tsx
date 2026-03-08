@@ -35,6 +35,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
       <Header />
+      <PMSNavigation />
       <Dashboard />
     </div>
   );
