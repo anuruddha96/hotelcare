@@ -30,6 +30,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { UI_HINTS } from '@/lib/ui-hints';
 
 interface Ticket {
   id: string;
@@ -372,18 +374,24 @@ export function Dashboard() {
           <div className="w-full overflow-x-auto">
             {profile?.role === 'housekeeping' ? (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12" data-training="main-tabs">
-                <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab">
-                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.tickets')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="housekeeping-tab">
-                  <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.myTasks')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab">
-                  <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.workStatus')}</span>
-                </TabsTrigger>
+                <HelpTooltip hint={UI_HINTS["tab.tickets"]}>
+                  <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab">
+                    <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.tickets')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.housekeeping"]}>
+                  <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="housekeeping-tab">
+                    <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.myTasks')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.attendance"]}>
+                  <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab">
+                    <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.workStatus')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
               </TabsList>
             ) : profile?.role === 'maintenance' ? (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12">
@@ -402,62 +410,86 @@ export function Dashboard() {
               </TabsList>
             ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
               <TabsList className="flex w-full max-w-2xl h-10 sm:h-12" data-training="main-tabs">
-                <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="tickets-tab">
-                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                  <span>{t('dashboard.tickets')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="rooms-tab">
-                  <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                  <span>{t('dashboard.rooms')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="housekeeping" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="housekeeping-tab">
-                  <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                  <span>{t('dashboard.housekeeping')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="attendance" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="attendance-tab">
-                  <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                  <span>{t('dashboard.workStatus')}</span>
-                </TabsTrigger>
-                {profile?.role === 'admin' && (
-                  <TabsTrigger value="admin" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="admin-tab">
-                    <Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                    <span>Admin</span>
+                <HelpTooltip hint={UI_HINTS["tab.tickets"]}>
+                  <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="tickets-tab">
+                    <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                    <span>{t('dashboard.tickets')}</span>
                   </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.rooms"]}>
+                  <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="rooms-tab">
+                    <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                    <span>{t('dashboard.rooms')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.housekeeping"]}>
+                  <TabsTrigger value="housekeeping" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="housekeeping-tab">
+                    <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                    <span>{t('dashboard.housekeeping')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.attendance"]}>
+                  <TabsTrigger value="attendance" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="attendance-tab">
+                    <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                    <span>{t('dashboard.workStatus')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                {profile?.role === 'admin' && (
+                  <HelpTooltip hint={UI_HINTS["tab.admin"]}>
+                    <TabsTrigger value="admin" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="admin-tab">
+                      <Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                      <span>Admin</span>
+                    </TabsTrigger>
+                  </HelpTooltip>
                 )}
               </TabsList>
             ) : profile?.role === 'reception' ? (
               <TabsList className="flex w-full min-w-[320px] max-w-lg h-10 sm:h-12">
-                <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.tickets')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                  <Home className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.rooms')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="minibar" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                  <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Minibar</span>
-                </TabsTrigger>
-                <TabsTrigger value="lost-found" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
-                  <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Lost & Found</span>
-                </TabsTrigger>
+                <HelpTooltip hint={UI_HINTS["tab.tickets"]}>
+                  <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                    <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.tickets')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.rooms"]}>
+                  <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                    <Home className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.rooms')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.minibar"]}>
+                  <TabsTrigger value="minibar" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                    <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>Minibar</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.lostFound"]}>
+                  <TabsTrigger value="lost-found" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                    <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>Lost & Found</span>
+                  </TabsTrigger>
+                </HelpTooltip>
               </TabsList>
             ) : (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12" data-training="main-tabs">
-                <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab">
-                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.tickets')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="rooms-tab">
-                  <Home className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.rooms')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab">
-                  <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.workStatus')}</span>
-                </TabsTrigger>
+                <HelpTooltip hint={UI_HINTS["tab.tickets"]}>
+                  <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab">
+                    <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.tickets')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.rooms"]}>
+                  <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="rooms-tab">
+                    <Home className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.rooms')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.attendance"]}>
+                  <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab">
+                    <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.workStatus')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
               </TabsList>
             )}
           </div>

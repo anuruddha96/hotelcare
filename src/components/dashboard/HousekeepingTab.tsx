@@ -26,29 +26,32 @@ import { TabOrderManagement } from './TabOrderManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
 import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle, Package, Settings } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { UI_HINTS } from '@/lib/ui-hints';
 
 interface TabConfig {
   id: string;
   label: string;
   icon: React.ReactNode;
   colorClass?: string;
+  hintKey?: string;
 }
 
 const TAB_CONFIGS: { [key: string]: TabConfig } = {
-  'staff-management': { id: 'staff-management', label: 'housekeeping.tabs.staffManagement', icon: <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'supervisor': { id: 'supervisor', label: 'housekeeping.tabs.pendingApprovals', icon: <Shield className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'manage': { id: 'manage', label: 'housekeeping.tabs.teamView', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'performance': { id: 'performance', label: 'housekeeping.tabs.performance', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'pms-upload': { id: 'pms-upload', label: 'housekeeping.tabs.pmsUpload', icon: <Upload className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'completion-photos': { id: 'completion-photos', label: 'housekeeping.tabs.roomPhotos', icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-green-500' },
-  'dnd-photos': { id: 'dnd-photos', label: 'housekeeping.tabs.dndPhotos', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-yellow-500' },
-  'maintenance-photos': { id: 'maintenance-photos', label: 'housekeeping.tabs.maintenance', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-red-500' },
-  'lost-and-found': { id: 'lost-and-found', label: 'housekeeping.tabs.lostFound', icon: <Package className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-blue-500' },
-  'dirty-linen': { id: 'dirty-linen', label: 'housekeeping.tabs.dirtyLinen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-purple-500' },
+  'staff-management': { id: 'staff-management', label: 'housekeeping.tabs.staffManagement', icon: <UserPlus className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.staffManagement' },
+  'supervisor': { id: 'supervisor', label: 'housekeeping.tabs.pendingApprovals', icon: <Shield className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.pendingApprovals' },
+  'manage': { id: 'manage', label: 'housekeeping.tabs.teamView', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.teamView' },
+  'performance': { id: 'performance', label: 'housekeeping.tabs.performance', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.performance' },
+  'pms-upload': { id: 'pms-upload', label: 'housekeeping.tabs.pmsUpload', icon: <Upload className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.pmsUpload' },
+  'completion-photos': { id: 'completion-photos', label: 'housekeeping.tabs.roomPhotos', icon: <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-green-500', hintKey: 'hk.roomPhotos' },
+  'dnd-photos': { id: 'dnd-photos', label: 'housekeeping.tabs.dndPhotos', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-yellow-500', hintKey: 'hk.dndPhotos' },
+  'maintenance-photos': { id: 'maintenance-photos', label: 'housekeeping.tabs.maintenance', icon: <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-red-500', hintKey: 'hk.maintenance' },
+  'lost-and-found': { id: 'lost-and-found', label: 'housekeeping.tabs.lostFound', icon: <Package className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-blue-500', hintKey: 'hk.lostFound' },
+  'dirty-linen': { id: 'dirty-linen', label: 'housekeeping.tabs.dirtyLinen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-purple-500', hintKey: 'hk.dirtyLinen' },
   
-  'attendance': { id: 'attendance', label: 'housekeeping.tabs.hrManagement', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'minibar': { id: 'minibar', label: 'housekeeping.tabs.minibarTracking', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" /> },
-  'tab-order': { id: 'tab-order', label: 'housekeeping.tabs.tabSettings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500' },
+  'attendance': { id: 'attendance', label: 'housekeeping.tabs.hrManagement', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.hrManagement' },
+  'minibar': { id: 'minibar', label: 'housekeeping.tabs.minibarTracking', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.minibar' },
+  'tab-order': { id: 'tab-order', label: 'housekeeping.tabs.tabSettings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500', hintKey: 'hk.tabSettings' },
 };
 
 export function HousekeepingTab() {
@@ -174,20 +177,21 @@ export function HousekeepingTab() {
 
     if (tabId === 'supervisor') {
       return (
-        <TabsTrigger 
-          key={tabId}
-          value={tabId} 
-          className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
-        >
-          {config.icon}
-          <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
-          <span className="xs:hidden">Approval</span>
-          {pendingCount > 0 && (
-            <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
-              {pendingCount}
-            </Badge>
-          )}
-        </TabsTrigger>
+        <HelpTooltip key={tabId} hint={UI_HINTS[config.hintKey || '']}>
+          <TabsTrigger 
+            value={tabId} 
+            className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
+          >
+            {config.icon}
+            <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
+            <span className="xs:hidden">Approval</span>
+            {pendingCount > 0 && (
+              <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
+                {pendingCount}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </HelpTooltip>
       );
     }
 
@@ -196,15 +200,16 @@ export function HousekeepingTab() {
     });
 
     return (
-      <TabsTrigger 
-        key={tabId}
-        value={tabId} 
-        className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-      >
-        {tabIcon}
-        <span className="hidden sm:inline">{t(config.label)}</span>
-        <span className="sm:hidden">{t(config.label).split(' ')[0]}</span>
-      </TabsTrigger>
+      <HelpTooltip key={tabId} hint={UI_HINTS[config.hintKey || '']}>
+        <TabsTrigger 
+          value={tabId} 
+          className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+        >
+          {tabIcon}
+          <span className="hidden sm:inline">{t(config.label)}</span>
+          <span className="sm:hidden">{t(config.label).split(' ')[0]}</span>
+        </TabsTrigger>
+      </HelpTooltip>
     );
   };
 
@@ -250,15 +255,17 @@ export function HousekeepingTab() {
                   )}
                 </>
               )}
-              <TabsTrigger
-                value="assignments" 
-                className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
-                data-training="my-tasks-tab"
-              >
-                <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
-                <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
-              </TabsTrigger>
+              <HelpTooltip hint={UI_HINTS["hk.myTasks"]}>
+                <TabsTrigger
+                  value="assignments" 
+                  className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
+                  data-training="my-tasks-tab"
+                >
+                  <ClipboardCheck className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden xs:inline">{t('housekeeping.myTasks')}</span>
+                  <span className="xs:hidden">{t('housekeeping.myTasks')}</span>
+                </TabsTrigger>
+              </HelpTooltip>
             </>
           )}
         </TabsList>

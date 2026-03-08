@@ -17,6 +17,8 @@ import { SwipeToEndBreak } from './SwipeToEndBreak';
 import { BreakRequestDialog } from './BreakRequestDialog';
 import { SwipeAction } from '@/components/ui/swipe-action';
 import { PendingRoomsSignoutDialog } from './PendingRoomsSignoutDialog';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { UI_HINTS } from '@/lib/ui-hints';
 
 interface AttendanceRecord {
   id: string;
@@ -619,28 +621,32 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                       </SelectContent>
                     </Select>
                     
-                    <Button
-                      onClick={() => handleBreak(true)}
-                      variant="outline"
-                      className="w-full bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:scale-105 text-sm"
-                      disabled={isLoading}
-                      data-training="break-button"
-                    >
-                      <Coffee className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
-                      {t('attendance.startBreak')} 😌
-                    </Button>
+                    <HelpTooltip hint={UI_HINTS["attendance.startBreak"]}>
+                      <Button
+                        onClick={() => handleBreak(true)}
+                        variant="outline"
+                        className="w-full bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200 hover:from-blue-100 hover:to-purple-100 transition-all duration-300 hover:scale-105 text-sm"
+                        disabled={isLoading}
+                        data-training="break-button"
+                      >
+                        <Coffee className="h-3 w-3 sm:h-4 sm:w-4 mr-2" />
+                        {t('attendance.startBreak')} 😌
+                      </Button>
+                    </HelpTooltip>
                   </div>
                   
-                  <Button
-                    onClick={handleCheckOut}
-                    variant="outline"
-                    className="w-full text-sm"
-                    disabled={isLoading}
-                    data-training="sign-out-button"
-                  >
-                    <LogOut className="h-3 w-3 mr-2" />
-                    {t('attendance.endShift')}
-                  </Button>
+                  <HelpTooltip hint={UI_HINTS["attendance.endShift"]}>
+                    <Button
+                      onClick={handleCheckOut}
+                      variant="outline"
+                      className="w-full text-sm"
+                      disabled={isLoading}
+                      data-training="sign-out-button"
+                    >
+                      <LogOut className="h-3 w-3 mr-2" />
+                      {t('attendance.endShift')}
+                    </Button>
+                  </HelpTooltip>
                 </>
               )}
 

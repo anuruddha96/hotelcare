@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { UI_HINTS } from '@/lib/ui-hints';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -655,15 +657,25 @@ export function SupervisorApprovalView() {
             </div>
             <div className="flex items-center gap-2">
               {speedIndicator && (
-                <Badge variant="outline" className={`text-xs ${speedIndicator.color}`}>
-                  <SpeedIcon className="h-3 w-3 mr-1" />
-                  {speedIndicator.label}
-                </Badge>
+                <HelpTooltip hint={
+                  speedIndicator.severity === 'warning' && durationMins < 10
+                    ? UI_HINTS["approval.speedFast"]
+                    : speedIndicator.severity === 'warning'
+                    ? UI_HINTS["approval.speedSlow"]
+                    : UI_HINTS["approval.speedNormal"]
+                }>
+                  <Badge variant="outline" className={`text-xs ${speedIndicator.color}`}>
+                    <SpeedIcon className="h-3 w-3 mr-1" />
+                    {speedIndicator.label}
+                  </Badge>
+                </HelpTooltip>
               )}
               {waitingMins > 30 && (
-                <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
-                  ⏰ {waitingMins}m waiting
-                </Badge>
+                <HelpTooltip hint={UI_HINTS["approval.waiting"]}>
+                  <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
+                    ⏰ {waitingMins}m waiting
+                  </Badge>
+                </HelpTooltip>
               )}
             </div>
           </div>
@@ -896,53 +908,61 @@ export function SupervisorApprovalView() {
           {summaryStats.totalCount > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {/* Room Approvals */}
-              <Card className="border-l-4 border-l-green-500">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <span className="text-xs font-medium text-muted-foreground">Rooms</span>
-                  </div>
-                  <p className="text-2xl font-bold text-foreground">{summaryStats.roomCount}</p>
-                </CardContent>
-              </Card>
+              <HelpTooltip hint={UI_HINTS["approval.rooms"]}>
+                <Card className="border-l-4 border-l-green-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-xs font-medium text-muted-foreground">Rooms</span>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">{summaryStats.roomCount}</p>
+                  </CardContent>
+                </Card>
+              </HelpTooltip>
 
               {/* Maintenance */}
-              <Card className="border-l-4 border-l-blue-500">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Wrench className="h-4 w-4 text-blue-600" />
-                    <span className="text-xs font-medium text-muted-foreground">Maintenance</span>
-                  </div>
-                  <p className="text-2xl font-bold text-foreground">{summaryStats.maintenanceCount}</p>
-                </CardContent>
-              </Card>
+              <HelpTooltip hint={UI_HINTS["approval.maintenance"]}>
+                <Card className="border-l-4 border-l-blue-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Wrench className="h-4 w-4 text-blue-600" />
+                      <span className="text-xs font-medium text-muted-foreground">Maintenance</span>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">{summaryStats.maintenanceCount}</p>
+                  </CardContent>
+                </Card>
+              </HelpTooltip>
 
               {/* Flagged */}
-              <Card className={`border-l-4 ${summaryStats.flaggedCount > 0 ? 'border-l-orange-500' : 'border-l-muted'}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <AlertTriangle className={`h-4 w-4 ${summaryStats.flaggedCount > 0 ? 'text-orange-600' : 'text-muted-foreground'}`} />
-                    <span className="text-xs font-medium text-muted-foreground">Flagged</span>
-                  </div>
-                  <p className="text-2xl font-bold text-foreground">{summaryStats.flaggedCount}</p>
-                </CardContent>
-              </Card>
+              <HelpTooltip hint={UI_HINTS["approval.flagged"]}>
+                <Card className={`border-l-4 ${summaryStats.flaggedCount > 0 ? 'border-l-orange-500' : 'border-l-muted'}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertTriangle className={`h-4 w-4 ${summaryStats.flaggedCount > 0 ? 'text-orange-600' : 'text-muted-foreground'}`} />
+                      <span className="text-xs font-medium text-muted-foreground">Flagged</span>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">{summaryStats.flaggedCount}</p>
+                  </CardContent>
+                </Card>
+              </HelpTooltip>
 
               {/* Oldest Waiting */}
-              <Card className={`border-l-4 ${summaryStats.oldestMinutes > 60 ? 'border-l-red-500' : 'border-l-muted'}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Clock className={`h-4 w-4 ${summaryStats.oldestMinutes > 60 ? 'text-red-600' : 'text-muted-foreground'}`} />
-                    <span className="text-xs font-medium text-muted-foreground">Oldest</span>
-                  </div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {summaryStats.oldestMinutes > 60 
-                      ? `${Math.floor(summaryStats.oldestMinutes / 60)}h ${summaryStats.oldestMinutes % 60}m`
-                      : `${summaryStats.oldestMinutes}m`
-                    }
-                  </p>
-                </CardContent>
-              </Card>
+              <HelpTooltip hint={UI_HINTS["approval.oldest"]}>
+                <Card className={`border-l-4 ${summaryStats.oldestMinutes > 60 ? 'border-l-red-500' : 'border-l-muted'}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Clock className={`h-4 w-4 ${summaryStats.oldestMinutes > 60 ? 'text-red-600' : 'text-muted-foreground'}`} />
+                      <span className="text-xs font-medium text-muted-foreground">Oldest</span>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">
+                      {summaryStats.oldestMinutes > 60 
+                        ? `${Math.floor(summaryStats.oldestMinutes / 60)}h ${summaryStats.oldestMinutes % 60}m`
+                        : `${summaryStats.oldestMinutes}m`
+                      }
+                    </p>
+                  </CardContent>
+                </Card>
+              </HelpTooltip>
             </div>
           )}
 
