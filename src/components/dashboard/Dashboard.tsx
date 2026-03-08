@@ -374,18 +374,24 @@ export function Dashboard() {
           <div className="w-full overflow-x-auto">
             {profile?.role === 'housekeeping' ? (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12" data-training="main-tabs">
-                <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab">
-                  <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.tickets')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="housekeeping-tab">
-                  <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.myTasks')}</span>
-                </TabsTrigger>
-                <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab">
-                  <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>{t('dashboard.workStatus')}</span>
-                </TabsTrigger>
+                <HelpTooltip hint={UI_HINTS["tab.tickets"]}>
+                  <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab">
+                    <Ticket className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.tickets')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.housekeeping"]}>
+                  <TabsTrigger value="housekeeping" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="housekeeping-tab">
+                    <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.myTasks')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
+                <HelpTooltip hint={UI_HINTS["tab.attendance"]}>
+                  <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab">
+                    <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span>{t('dashboard.workStatus')}</span>
+                  </TabsTrigger>
+                </HelpTooltip>
               </TabsList>
             ) : profile?.role === 'maintenance' ? (
               <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12">
