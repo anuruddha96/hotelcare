@@ -60,6 +60,7 @@ interface HotelRoomOverviewProps {
   selectedDate: string;
   hotelName: string;
   staffMap: StaffMap;
+  refreshKey?: number;
 }
 
 const ROOM_SIZE_OPTIONS = [
