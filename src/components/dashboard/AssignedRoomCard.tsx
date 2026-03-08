@@ -587,7 +587,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const instructionCount = [assignment.rooms?.towel_change_required, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, assignment.rooms?.notes, assignment.notes].filter(Boolean).length;
 
   return (
-    <Card className={cardClassName}>
+    <Card className={`${cardClassName}${hasSpecialInstructions ? ' border-l-4 border-l-amber-400' : ''}`}>
       <CardHeader className="pb-4">
         {/* Checkout Waiting Banner */}
         {isCheckoutWaiting && (
