@@ -582,6 +582,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
+  // Count special instructions
+  const hasSpecialInstructions = assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || assignment.rooms?.notes || assignment.notes;
+  const instructionCount = [assignment.rooms?.towel_change_required, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, assignment.rooms?.notes, assignment.notes].filter(Boolean).length;
+
   return (
     <Card className={cardClassName}>
       <CardHeader className="pb-4">
