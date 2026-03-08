@@ -547,14 +547,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 </Button>
               )}
               <Button
-                variant="ghost"
+                variant="default"
                 size="sm"
-                className="h-6 px-2 text-xs"
+                className="h-7 px-3 text-xs font-semibold shadow-sm"
                 onClick={handleRefresh}
                 disabled={refreshing}
               >
-                <RefreshCw className={`h-3 w-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-                {refreshing ? '' : 'Refresh'}
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? 'Refreshing...' : '🔄 Refresh'}
               </Button>
             </div>
           </div>
