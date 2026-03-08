@@ -715,6 +715,18 @@ export function SupervisorApprovalView() {
               <Badge variant="outline" className="bg-muted text-foreground border-border text-xs">
                 {getAssignmentTypeLabel(assignment.assignment_type)}
               </Badge>
+              {assignment.rooms?.is_dnd && (
+                <Badge className="text-xs bg-orange-100 text-orange-800 border border-orange-300">
+                  <DoorClosed className="h-3 w-3 mr-1" />
+                  DND
+                </Badge>
+              )}
+              {assignment.rooms?.bed_configuration && (
+                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                  <BedDouble className="h-3 w-3 mr-1" />
+                  {assignment.rooms.bed_configuration}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {speedIndicator && (
