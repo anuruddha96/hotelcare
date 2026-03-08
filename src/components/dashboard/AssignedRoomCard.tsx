@@ -625,6 +625,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 : assignment.status.replace('_', ' ')
               }
             </Badge>
+            {hasSpecialInstructions && (
+              <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 animate-pulse flex-shrink-0">
+                ⚠️ {instructionCount}
+              </Badge>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             {/* Checkout Room Indicator */}
