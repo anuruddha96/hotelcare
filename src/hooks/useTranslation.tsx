@@ -2083,7 +2083,13 @@ const TranslationContext = createContext<TranslationContextType | null>(null);
 
 export function TranslationProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>(() => {
-    return (localStorage.getItem('preferred-language') as Language) || 'en';
+    const stored = localStorage.getItem('preferred-language') as Language;
+    if (stored) return stored;
+    
+    const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn'];
+    const browserLang = navigator.language?.split('-')[0]?.toLowerCase();
+    const detected = supportedLanguages.find(l => l === browserLang);
+    return detected || 'en';
   });
 
   // Load custom translations from localStorage
