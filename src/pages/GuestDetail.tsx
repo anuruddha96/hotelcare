@@ -8,10 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, User, CalendarDays, Star, Building } from 'lucide-react';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const GuestDetail = () => {
   const { user, loading } = useAuth();
   const { organizationSlug, guestId } = useParams<{ organizationSlug: string; guestId: string }>();
+  const { t } = useTranslation();
   const [guest, setGuest] = useState<any>(null);
   const [reservations, setReservations] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -54,7 +56,7 @@ const GuestDetail = () => {
         <Header />
         <PMSNavigation />
         <main className="container mx-auto px-3 sm:px-6 py-8 text-center text-muted-foreground">
-          Guest not found.
+          {t('pms.guestDetail.guestNotFound')}
         </main>
       </div>
     );
@@ -67,7 +69,7 @@ const GuestDetail = () => {
       <main className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
         <Link to={`${basePath}/guests`}>
           <Button variant="ghost" size="sm" className="gap-1">
-            <ArrowLeft className="h-4 w-4" /> Guests
+            <ArrowLeft className="h-4 w-4" /> {t('pms.guests')}
           </Button>
         </Link>
 
@@ -80,22 +82,22 @@ const GuestDetail = () => {
               {guest.first_name} {guest.last_name}
               {guest.vip_status === 'vip' && <Star className="h-4 w-4 text-amber-500 fill-amber-500" />}
             </h1>
-            <p className="text-sm text-muted-foreground">{guest.email || 'No email'} · {guest.phone || 'No phone'}</p>
+            <p className="text-sm text-muted-foreground">{guest.email || t('pms.guests.noEmail')} · {guest.phone || t('pms.guests.noPhone')}</p>
           </div>
         </div>
 
         <div className="grid md:grid-cols-2 gap-4">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Personal Information</CardTitle>
+              <CardTitle className="text-sm">{t('pms.guestDetail.personalInfo')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">Nationality:</span> {guest.nationality || '-'}</div>
-              <div><span className="text-muted-foreground">Date of Birth:</span> {guest.date_of_birth || '-'}</div>
-              <div><span className="text-muted-foreground">ID Document:</span> {guest.id_document_type ? `${guest.id_document_type} - ${guest.id_document_number}` : '-'}</div>
-              <div><span className="text-muted-foreground">Address:</span> {[guest.address, guest.city, guest.postal_code, guest.country].filter(Boolean).join(', ') || '-'}</div>
+              <div><span className="text-muted-foreground">{t('pms.guests.nationality')}:</span> {guest.nationality || '-'}</div>
+              <div><span className="text-muted-foreground">{t('pms.guestDetail.dateOfBirth')}:</span> {guest.date_of_birth || '-'}</div>
+              <div><span className="text-muted-foreground">{t('pms.guestDetail.idDocument')}:</span> {guest.id_document_type ? `${guest.id_document_type} - ${guest.id_document_number}` : '-'}</div>
+              <div><span className="text-muted-foreground">{t('pms.guestDetail.address')}:</span> {[guest.address, guest.city, guest.postal_code, guest.country].filter(Boolean).join(', ') || '-'}</div>
               {guest.szallas_registration_number && (
-                <div><span className="text-muted-foreground">NTAK Reg #:</span> {guest.szallas_registration_number}</div>
+                <div><span className="text-muted-foreground">{t('pms.guestDetail.ntakRegNumber')}:</span> {guest.szallas_registration_number}</div>
               )}
             </CardContent>
           </Card>
@@ -103,14 +105,14 @@ const GuestDetail = () => {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Building className="h-4 w-4" /> Business Info
+                <Building className="h-4 w-4" /> {t('pms.guestDetail.businessInfo')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">Company:</span> {guest.company_name || '-'}</div>
-              <div><span className="text-muted-foreground">Tax ID:</span> {guest.tax_id || '-'}</div>
-              <div><span className="text-muted-foreground">Notes:</span> {guest.notes || '-'}</div>
-              <div><span className="text-muted-foreground">Total Stays:</span> {reservations.length}</div>
+              <div><span className="text-muted-foreground">{t('pms.guests.company')}:</span> {guest.company_name || '-'}</div>
+              <div><span className="text-muted-foreground">{t('pms.guestDetail.taxId')}:</span> {guest.tax_id || '-'}</div>
+              <div><span className="text-muted-foreground">{t('pms.guests.notes')}:</span> {guest.notes || '-'}</div>
+              <div><span className="text-muted-foreground">{t('pms.guestDetail.totalStays')}:</span> {reservations.length}</div>
             </CardContent>
           </Card>
         </div>
@@ -119,12 +121,12 @@ const GuestDetail = () => {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
-              <CalendarDays className="h-4 w-4" /> Stay History
+              <CalendarDays className="h-4 w-4" /> {t('pms.guestDetail.stayHistory')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {reservations.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No reservations found</p>
+              <p className="text-sm text-muted-foreground text-center py-4">{t('pms.guestDetail.noReservationsFound')}</p>
             ) : (
               <div className="space-y-2">
                 {reservations.map((r) => (

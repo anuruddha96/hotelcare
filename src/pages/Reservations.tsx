@@ -19,10 +19,12 @@ import { CalendarDays, List, Plus, Search, Filter } from 'lucide-react';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { ReservationCalendar } from '@/components/reservations/ReservationCalendar';
 import { format } from 'date-fns';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const Reservations = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const { t } = useTranslation();
   const [reservations, setReservations] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -88,12 +90,12 @@ const Reservations = () => {
       <main className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <h1 className="text-xl font-bold">Reservations</h1>
+          <h1 className="text-xl font-bold">{t('pms.reservations.title')}</h1>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search..."
+                placeholder={t('pms.reservations.search')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-8 w-48 h-9"
@@ -101,16 +103,16 @@ const Reservations = () => {
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-36 h-9">
-                <SelectValue placeholder="Status" />
+                <SelectValue placeholder={t('pms.reservations.status')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="confirmed">Confirmed</SelectItem>
-                <SelectItem value="checked_in">Checked In</SelectItem>
-                <SelectItem value="checked_out">Checked Out</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-                <SelectItem value="no_show">No Show</SelectItem>
+                <SelectItem value="all">{t('pms.reservations.allStatus')}</SelectItem>
+                <SelectItem value="pending">{t('pms.reservations.pending')}</SelectItem>
+                <SelectItem value="confirmed">{t('pms.reservations.confirmed')}</SelectItem>
+                <SelectItem value="checked_in">{t('pms.reservations.checkedIn')}</SelectItem>
+                <SelectItem value="checked_out">{t('pms.reservations.checkedOut')}</SelectItem>
+                <SelectItem value="cancelled">{t('pms.reservations.cancelled')}</SelectItem>
+                <SelectItem value="no_show">{t('pms.reservations.noShow')}</SelectItem>
               </SelectContent>
             </Select>
             <div className="flex border border-border rounded-md overflow-hidden">
@@ -132,7 +134,7 @@ const Reservations = () => {
               </Button>
             </div>
             <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-1">
-              <Plus className="h-4 w-4" /> New Reservation
+              <Plus className="h-4 w-4" /> {t('pms.reservations.newReservation')}
             </Button>
           </div>
         </div>
@@ -144,27 +146,27 @@ const Reservations = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Reservation #</TableHead>
-                      <TableHead>Guest</TableHead>
-                      <TableHead>Check-in</TableHead>
-                      <TableHead>Check-out</TableHead>
-                      <TableHead>Nights</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Amount</TableHead>
+                      <TableHead>{t('pms.reservations.reservationNumber')}</TableHead>
+                      <TableHead>{t('pms.reservations.guest')}</TableHead>
+                      <TableHead>{t('pms.reservations.checkInDate')}</TableHead>
+                      <TableHead>{t('pms.reservations.checkOutDate')}</TableHead>
+                      <TableHead>{t('pms.reservations.nights')}</TableHead>
+                      <TableHead>{t('pms.reservations.status')}</TableHead>
+                      <TableHead>{t('pms.reservations.source')}</TableHead>
+                      <TableHead>{t('pms.reservations.amount')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loadingData ? (
                       <TableRow>
                         <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                          Loading reservations...
+                          {t('pms.reservations.loadingReservations')}
                         </TableCell>
                       </TableRow>
                     ) : filtered.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                          No reservations found
+                          {t('pms.reservations.noReservationsFound')}
                         </TableCell>
                       </TableRow>
                     ) : (

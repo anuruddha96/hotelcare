@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
 import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
+import { pmsTranslations } from '@/lib/pms-translations';
 
 const translations = {
   en: {
@@ -2124,6 +2125,9 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     
     const dashboardTranslation = dashboardTranslations[language as keyof typeof dashboardTranslations]?.[key as keyof typeof dashboardTranslations.en];
     if (dashboardTranslation) return dashboardTranslation;
+
+    const pmsTranslation = pmsTranslations[language]?.[key];
+    if (pmsTranslation) return pmsTranslation;
     
     // Only fall back to English if not found in current language
     const enMain = translations.en[key];
@@ -2141,6 +2145,9 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     
     const enDashboard = dashboardTranslations.en[key as keyof typeof dashboardTranslations.en];
     if (enDashboard) return enDashboard;
+
+    const enPms = pmsTranslations.en[key];
+    if (enPms) return enPms;
     
     return key;
   };

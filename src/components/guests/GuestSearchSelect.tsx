@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Search, Plus, Check, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface GuestSearchSelectProps {
   value: string;
@@ -12,6 +13,7 @@ interface GuestSearchSelectProps {
 }
 
 export function GuestSearchSelect({ value, onChange }: GuestSearchSelectProps) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [guests, setGuests] = useState<any[]>([]);
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
@@ -52,7 +54,7 @@ export function GuestSearchSelect({ value, onChange }: GuestSearchSelectProps) {
 
   return (
     <div className="space-y-2">
-      <Label>Guest *</Label>
+      <Label>{t('pms.guests.guestLabel')}</Label>
       {selectedGuest ? (
         <div className="flex items-center justify-between p-2.5 rounded-md border border-border bg-accent/20">
           <div className="flex items-center gap-2">
@@ -70,14 +72,14 @@ export function GuestSearchSelect({ value, onChange }: GuestSearchSelectProps) {
             onClick={() => { setSelectedGuest(null); onChange(''); }}
             className="text-xs"
           >
-            Change
+            {t('pms.guests.change')}
           </Button>
         </div>
       ) : (
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search guest by name or email..."
+            placeholder={t('pms.guests.searchGuestPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onFocus={() => search.length >= 2 && setShowResults(true)}
@@ -105,7 +107,7 @@ export function GuestSearchSelect({ value, onChange }: GuestSearchSelectProps) {
           )}
           {showResults && search.length >= 2 && guests.length === 0 && (
             <div className="absolute z-50 top-full mt-1 w-full bg-popover border border-border rounded-md shadow-lg p-3 text-center text-sm text-muted-foreground">
-              No guests found. Create one in the Guests page first.
+              {t('pms.guests.noGuestsFoundCreate')}
             </div>
           )}
         </div>

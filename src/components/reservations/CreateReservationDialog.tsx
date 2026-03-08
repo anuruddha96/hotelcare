@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useParams } from 'react-router-dom';
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { GuestSearchSelect } from '@/components/guests/GuestSearchSelect';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface CreateReservationDialogProps {
   open: boolean;
@@ -24,6 +25,7 @@ interface CreateReservationDialogProps {
 export function CreateReservationDialog({ open, onOpenChange, onSuccess }: CreateReservationDialogProps) {
   const { profile } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const { t } = useTranslation();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     guest_id: '',
@@ -40,11 +42,11 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
 
   const handleCreate = async () => {
     if (!form.guest_id || !form.check_in_date || !form.check_out_date) {
-      toast.error('Guest, check-in and check-out dates are required');
+      toast.error(t('pms.createReservation.guestCheckInOutRequired'));
       return;
     }
     if (form.check_out_date <= form.check_in_date) {
-      toast.error('Check-out must be after check-in');
+      toast.error(t('pms.createReservation.checkOutAfterCheckIn'));
       return;
     }
     setSubmitting(true);
@@ -74,10 +76,10 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
     });
 
     if (error) {
-      toast.error('Failed to create reservation');
+      toast.error(t('pms.createReservation.failedToCreate'));
       console.error(error);
     } else {
-      toast.success('Reservation created');
+      toast.success(t('pms.createReservation.reservationCreated'));
       onSuccess();
     }
     setSubmitting(false);
@@ -87,7 +89,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New Reservation</DialogTitle>
+          <DialogTitle>{t('pms.createReservation.newReservation')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <GuestSearchSelect
@@ -97,63 +99,63 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Check-in Date *</Label>
+              <Label>{t('pms.createReservation.checkInDate')}</Label>
               <Input type="date" value={form.check_in_date} onChange={(e) => setForm({ ...form, check_in_date: e.target.value })} />
             </div>
             <div>
-              <Label>Check-out Date *</Label>
+              <Label>{t('pms.createReservation.checkOutDate')}</Label>
               <Input type="date" value={form.check_out_date} onChange={(e) => setForm({ ...form, check_out_date: e.target.value })} />
             </div>
             <div>
-              <Label>Adults</Label>
+              <Label>{t('pms.createReservation.adults')}</Label>
               <Input type="number" min={1} value={form.adults} onChange={(e) => setForm({ ...form, adults: Number(e.target.value) })} />
             </div>
             <div>
-              <Label>Children</Label>
+              <Label>{t('pms.createReservation.children')}</Label>
               <Input type="number" min={0} value={form.children} onChange={(e) => setForm({ ...form, children: Number(e.target.value) })} />
             </div>
             <div>
-              <Label>Room Type</Label>
-              <Input placeholder="e.g. Deluxe Double" value={form.room_type_requested} onChange={(e) => setForm({ ...form, room_type_requested: e.target.value })} />
+              <Label>{t('pms.createReservation.roomType')}</Label>
+              <Input placeholder={t('pms.createReservation.roomTypePlaceholder')} value={form.room_type_requested} onChange={(e) => setForm({ ...form, room_type_requested: e.target.value })} />
             </div>
             <div>
-              <Label>Rate / Night (HUF)</Label>
+              <Label>{t('pms.createReservation.ratePerNight')}</Label>
               <Input type="number" min={0} value={form.rate_per_night} onChange={(e) => setForm({ ...form, rate_per_night: Number(e.target.value) })} />
             </div>
           </div>
 
           <div>
-            <Label>Source</Label>
+            <Label>{t('pms.createReservation.source')}</Label>
             <Select value={form.source} onValueChange={(v) => setForm({ ...form, source: v })}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="direct">Direct</SelectItem>
+                <SelectItem value="direct">{t('pms.createReservation.direct')}</SelectItem>
                 <SelectItem value="booking_com">Booking.com</SelectItem>
                 <SelectItem value="expedia">Expedia</SelectItem>
-                <SelectItem value="walk_in">Walk-in</SelectItem>
-                <SelectItem value="phone">Phone</SelectItem>
-                <SelectItem value="email">Email</SelectItem>
+                <SelectItem value="walk_in">{t('pms.createReservation.walkIn')}</SelectItem>
+                <SelectItem value="phone">{t('auth.phoneNumber')}</SelectItem>
+                <SelectItem value="email">{t('auth.email')}</SelectItem>
                 <SelectItem value="previo">Previo</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div>
-            <Label>Special Requests</Label>
-            <Textarea value={form.special_requests} onChange={(e) => setForm({ ...form, special_requests: e.target.value })} placeholder="Guest preferences, allergies, late check-in..." />
+            <Label>{t('pms.createReservation.specialRequests')}</Label>
+            <Textarea value={form.special_requests} onChange={(e) => setForm({ ...form, special_requests: e.target.value })} placeholder={t('pms.createReservation.guestPreferences')} />
           </div>
 
           <div>
-            <Label>Internal Notes</Label>
-            <Textarea value={form.internal_notes} onChange={(e) => setForm({ ...form, internal_notes: e.target.value })} placeholder="Staff-only notes..." />
+            <Label>{t('pms.createReservation.internalNotes')}</Label>
+            <Textarea value={form.internal_notes} onChange={(e) => setForm({ ...form, internal_notes: e.target.value })} placeholder={t('pms.createReservation.staffNotes')} />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button onClick={handleCreate} disabled={submitting}>
-            {submitting ? 'Creating...' : 'Create Reservation'}
+            {submitting ? t('pms.createReservation.creating') : t('pms.createReservation.createReservation')}
           </Button>
         </DialogFooter>
       </DialogContent>
