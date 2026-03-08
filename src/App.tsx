@@ -34,6 +34,12 @@ const TenantRouter = () => {
       <Routes>
         <Route path="/" element={<Index />} />
         <Route path="/auth" element={<Auth />} />
+        <Route path="/front-desk" element={<FrontDesk />} />
+        <Route path="/reservations" element={<Reservations />} />
+        <Route path="/reservations/:id" element={<ReservationDetail />} />
+        <Route path="/guests" element={<Guests />} />
+        <Route path="/guests/:guestId" element={<GuestDetail />} />
+        <Route path="/channel-manager" element={<ChannelManager />} />
       </Routes>
     </TenantProvider>
   );
