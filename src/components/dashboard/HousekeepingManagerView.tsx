@@ -914,5 +914,14 @@ export function HousekeepingManagerView() {
         </TabsContent>
       )}
     </Tabs>
+
+    {/* Success Animation Overlay */}
+    <AssignmentSuccessAnimation
+      show={successAnimation.show}
+      roomCount={successAnimation.roomCount}
+      staffCount={successAnimation.staffCount}
+      onComplete={() => setSuccessAnimation({ show: false, roomCount: 0, staffCount: 0 })}
+    />
+    </>
   );
 }
