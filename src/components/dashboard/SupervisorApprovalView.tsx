@@ -818,6 +818,40 @@ export function SupervisorApprovalView() {
             </div>
           )}
 
+          {/* Inline Photo Thumbnails */}
+          {completionPhotoUrls[assignment.id] && completionPhotoUrls[assignment.id].length > 0 && (
+            <div className="flex items-center gap-2">
+              <Image className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="flex items-center gap-1.5">
+                {completionPhotoUrls[assignment.id].slice(0, 4).map((url, idx) => (
+                  <img
+                    key={idx}
+                    src={url}
+                    alt={`Completion photo ${idx + 1}`}
+                    className="h-12 w-12 rounded-md object-cover border border-border"
+                  />
+                ))}
+                {completionPhotoUrls[assignment.id].length > 4 && (
+                  <div className="h-12 w-12 rounded-md bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground border border-border">
+                    +{completionPhotoUrls[assignment.id].length - 4}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Inline Dirty Linen Summary */}
+          {linenSummaries[assignment.id] && linenSummaries[assignment.id].length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-muted-foreground">🧺 Linen:</span>
+              {linenSummaries[assignment.id].map((item, idx) => (
+                <Badge key={idx} variant="outline" className="text-xs bg-muted/50">
+                  {item.display_name}: {item.count}
+                </Badge>
+              ))}
+            </div>
+          )}
+
           {/* Completion Data */}
           <CompletionDataView
             assignmentId={assignment.id}
