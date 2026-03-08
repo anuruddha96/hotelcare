@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
@@ -525,26 +526,56 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
   return (
     <>
       <Card className="border-primary/20">
-        <CardHeader className="pb-2 pt-3 px-4">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Hotel className="h-4 w-4 text-primary" />
-            Hotel Room Overview
-            <Badge variant="secondary" className="text-xs ml-auto">{rooms.length} rooms</Badge>
+        <CardHeader className="pb-2 pt-3 px-4 space-y-2">
+          {/* Row 1: Title + room count */}
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+              <Hotel className="h-4 w-4 text-primary" />
+              Hotel Room Overview
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              {canViewFullOverview && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
+                >
+                  <MapIcon className="h-3 w-3 mr-1" />
+                  {viewMode === 'list' ? 'Map' : 'List'}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={handleRefresh}
+                disabled={refreshing}
+              >
+                <RefreshCw className={`h-3 w-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? '' : 'Refresh'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Row 2: Stats badges */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="secondary" className="text-[10px] sm:text-xs">{rooms.length} rooms</Badge>
             {noShowRooms.length > 0 && (
-              <Badge variant="outline" className="text-xs font-semibold text-red-700 border-red-400 bg-red-50 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">
-                <UserX className="h-3 w-3 mr-1" />
+              <Badge variant="outline" className="text-[10px] sm:text-xs font-semibold text-red-700 border-red-400 bg-red-50 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">
+                <UserX className="h-3 w-3 mr-0.5" />
                 {noShowRooms.length} No-Show
               </Badge>
             )}
             {earlyCheckoutRooms.length > 0 && (
-              <Badge variant="outline" className="text-xs font-semibold text-orange-700 border-orange-400 bg-orange-50 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700">
-                🔶 {earlyCheckoutRooms.length} Early Checkout
+              <Badge variant="outline" className="text-[10px] sm:text-xs font-semibold text-orange-700 border-orange-400 bg-orange-50 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700">
+                🔶 {earlyCheckoutRooms.length} Early C/O
               </Badge>
             )}
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="text-xs font-semibold cursor-help">
+                  <Badge variant="outline" className="text-[10px] sm:text-xs font-semibold cursor-help">
                     ACT: {averageCleanTime !== null ? `${averageCleanTime}m` : '--'}
                   </Badge>
                 </TooltipTrigger>
@@ -553,55 +584,45 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            {canViewFullOverview && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
-              >
-                <MapIcon className="h-3 w-3 mr-1" />
-                {viewMode === 'list' ? 'Map' : 'List'}
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={handleRefresh}
-              disabled={refreshing}
-            >
-              <RefreshCw className={`h-3 w-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-              {refreshing ? '' : 'Refresh'}
-            </Button>
-          </CardTitle>
-          {/* Legend */}
-          <div className="flex flex-wrap gap-2 mt-1">
-            {[
-              { label: 'Approved/Clean', cls: 'bg-emerald-200 border-emerald-500' },
-              { label: 'Dirty/Assigned', cls: 'bg-amber-200 border-amber-500' },
-              { label: 'In Progress', cls: 'bg-sky-200 border-sky-500' },
-              { label: 'Pending Approval', cls: 'bg-violet-200 border-violet-500' },
-              { label: 'Overdue', cls: 'bg-rose-300 border-rose-600' },
-              { label: 'Out of Order', cls: 'bg-red-200 border-red-500' },
-              { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted' },
-              { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted' },
-              { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted' },
-              { label: 'Towel Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T' },
-              { label: 'Linen Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC' },
-              { label: 'Ready to Clean (Checkout)', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC' },
-              { label: 'Approved', cls: 'text-[10px]', isText: true, text: '✅' },
-            ].map(item => (
-              <div key={item.label} className="flex items-center gap-1">
-                {(item as any).isText ? (
-                  <span className={`rounded ${item.cls}`}>{(item as any).text}</span>
-                ) : (
-                  <div className={`w-3 h-3 rounded border-2 ${item.cls}`} />
-                )}
-                <span className="text-[10px] text-muted-foreground">{item.label}</span>
-              </div>
-            ))}
           </div>
+
+          {/* Row 3: Collapsible Legend */}
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <button className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                <ChevronDown className="h-3 w-3" />
+                Legend
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+                {[
+                  { label: 'Approved/Clean', cls: 'bg-emerald-200 border-emerald-500' },
+                  { label: 'Dirty/Assigned', cls: 'bg-amber-200 border-amber-500' },
+                  { label: 'In Progress', cls: 'bg-sky-200 border-sky-500' },
+                  { label: 'Pending Approval', cls: 'bg-violet-200 border-violet-500' },
+                  { label: 'Overdue', cls: 'bg-rose-300 border-rose-600' },
+                  { label: 'Out of Order', cls: 'bg-red-200 border-red-500' },
+                  { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted' },
+                  { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted' },
+                  { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted' },
+                  { label: 'Towel Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T' },
+                  { label: 'Linen Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC' },
+                  { label: 'Ready to Clean', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC' },
+                  { label: 'Approved', cls: 'text-[10px]', isText: true, text: '✅' },
+                ].map(item => (
+                  <div key={item.label} className="flex items-center gap-1">
+                    {(item as any).isText ? (
+                      <span className={`rounded ${item.cls}`}>{(item as any).text}</span>
+                    ) : (
+                      <div className={`w-3 h-3 rounded border-2 ${item.cls}`} />
+                    )}
+                    <span className="text-[10px] text-muted-foreground">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
           {viewMode === 'map' ? (
