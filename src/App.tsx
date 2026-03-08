@@ -12,6 +12,12 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 import GuestMinibar from "./pages/GuestMinibar";
+import FrontDesk from "./pages/FrontDesk";
+import Reservations from "./pages/Reservations";
+import ReservationDetail from "./pages/ReservationDetail";
+import Guests from "./pages/Guests";
+import GuestDetail from "./pages/GuestDetail";
+import ChannelManager from "./pages/ChannelManager";
 
 const queryClient = new QueryClient();
 
@@ -28,6 +34,12 @@ const TenantRouter = () => {
       <Routes>
         <Route path="/" element={<Index />} />
         <Route path="/auth" element={<Auth />} />
+        <Route path="/front-desk" element={<FrontDesk />} />
+        <Route path="/reservations" element={<Reservations />} />
+        <Route path="/reservations/:id" element={<ReservationDetail />} />
+        <Route path="/guests" element={<Guests />} />
+        <Route path="/guests/:guestId" element={<GuestDetail />} />
+        <Route path="/channel-manager" element={<ChannelManager />} />
       </Routes>
     </TenantProvider>
   );
