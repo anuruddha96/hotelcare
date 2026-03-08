@@ -754,7 +754,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap }: HotelRo
                   {/* Special Instructions Section */}
                   <div className="space-y-2 pb-3 border-b">
                     <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">🧺 Towel & Linen Change</label>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-1 gap-2">
                       <Button
                         variant={selectedRoom.towel_change_required ? "default" : "outline"}
                         size="sm"
