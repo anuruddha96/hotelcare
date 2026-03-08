@@ -26,6 +26,8 @@ import { TabOrderManagement } from './TabOrderManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
 import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle, Package, Settings } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { UI_HINTS } from '@/lib/ui-hints';
 
 interface TabConfig {
   id: string;
