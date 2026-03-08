@@ -133,6 +133,8 @@ export function SupervisorApprovalView() {
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
   const [earlySignoutRequests, setEarlySignoutRequests] = useState<any[]>([]);
   const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
+  const [completionPhotoUrls, setCompletionPhotoUrls] = useState<{ [assignmentId: string]: string[] }>({});
+  const [linenSummaries, setLinenSummaries] = useState<{ [assignmentId: string]: LinenSummaryItem[] }>({});
   const [bulkApproving, setBulkApproving] = useState<string | null>(null);
   const [bulkProgress, setBulkProgress] = useState(0);
   const [collapsedHotels, setCollapsedHotels] = useState<Set<string>>(new Set());
