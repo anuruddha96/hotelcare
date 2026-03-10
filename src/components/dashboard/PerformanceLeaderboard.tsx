@@ -745,7 +745,7 @@ export function PerformanceLeaderboard() {
                             onClick={() => openDetailDialog(entry.housekeeper_id, entry.full_name, 'hours')}
                           >
                             <div className="text-lg sm:text-xl font-bold text-orange-700 dark:text-orange-400">{entry.avg_working_hours}h</div>
-                            <div className="text-[10px] sm:text-xs text-orange-600 dark:text-orange-500">Hours</div>
+                            <div className="text-[10px] sm:text-xs text-orange-600 dark:text-orange-500">{t('performance.hours')}</div>
                           </div>
                         </TooltipTrigger>
                         <TooltipContent>Avg working hours per day</TooltipContent>
