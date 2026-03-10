@@ -127,9 +127,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
           },
           () => {
             showNotification(
-              'New ticket assigned to you',
+              t('notifications.newTicketAssigned'),
               'info',
-              'New Ticket'
+              t('notifications.newTicketLabel')
             );
           }
         )
