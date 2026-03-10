@@ -150,15 +150,15 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
 
             {/* Priority */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Priority</label>
+              <label className="text-sm font-medium">{t('publicArea.priority')}</label>
               <Select value={String(priority)} onValueChange={(v) => setPriority(Number(v))}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">Normal</SelectItem>
-                  <SelectItem value="2">High</SelectItem>
-                  <SelectItem value="3">Urgent</SelectItem>
+                  <SelectItem value="1">{t('publicArea.normal')}</SelectItem>
+                  <SelectItem value="2">{t('publicArea.high')}</SelectItem>
+                  <SelectItem value="3">{t('publicArea.urgent')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
