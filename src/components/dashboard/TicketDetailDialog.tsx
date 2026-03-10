@@ -574,7 +574,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                         disabled={loading}
                         className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                       >
-                        {loading ? 'Deleting...' : 'Delete Permanently'}
+                        {loading ? t('ticketDetail.deleting') : t('ticketDetail.deletePermanently')}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
