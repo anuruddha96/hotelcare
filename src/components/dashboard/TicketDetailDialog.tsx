@@ -621,7 +621,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   <div>
                     <Label className="flex items-center gap-2">
                       <Paperclip className="h-4 w-4" />
-                      Attach Photos (Optional)
+                      {t('ticketDetail.attachPhotos')}
                     </Label>
                     <FileUpload 
                       onFilesChange={setAttachmentFiles}
