@@ -648,7 +648,7 @@ export function PerformanceLeaderboard() {
                     <div className="flex justify-between text-xs mb-1">
                       <span className="font-medium">{entry.performance_score}/100</span>
                       {entry.attendance_streak > 0 && (
-                        <span className="text-green-600">🔥 {entry.attendance_streak} day streak</span>
+                        <span className="text-green-600">🔥 {t('performance.dayStreak').replace('{count}', String(entry.attendance_streak))}</span>
                       )}
                     </div>
                     {/* Stacked score breakdown */}
