@@ -441,8 +441,35 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 </Badge>
               </div>
 
-              {/* Towel & Linen Toggles */}
+              {/* Ready to Clean - PROMINENT for checkout rooms */}
+              {isCheckout && assignment && !assignment.ready_to_clean && (
+                <button
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
+                  disabled={actionLoading === `ready-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`ready-${room.id}`);
+                    try {
+                      const { error } = await supabase.from('room_assignments').update({ ready_to_clean: true } as any).eq('room_id', room.id).eq('assignment_date', selectedDate);
+                      if (error) throw error;
+                      setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+                      toast.success(`Room ${room.room_number} ready to clean`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <CheckCircle className="h-4 w-4" /> ✅ Mark Ready to Clean
+                </button>
+              )}
+              {isCheckout && assignment?.ready_to_clean && (
+                <div className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                  ✅ Ready to Clean
+                </div>
+              )}
+
+              {/* Services Section */}
               <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Services</p>
                 <button
                   className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
                     room.towel_change_required 
@@ -455,6 +482,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     setActionLoading(`towel-${room.id}`);
                     const newVal = !room.towel_change_required;
                     try {
+                      // Check if room is already completed
+                      if (assignmentStatus === 'completed') {
+                        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
+                      }
                       const { error } = await supabase.from('rooms').update({ towel_change_required: newVal } as any).eq('id', room.id);
                       if (error) throw error;
                       setRooms(prev => prev.map(r => r.id === room.id ? { ...r, towel_change_required: newVal } : r));
@@ -463,8 +494,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🔄 Towel</span>
-                  <span className="text-[10px]">{room.towel_change_required ? '✓ Required' : 'Not Required'}</span>
+                  <span>🔄 Towel Change</span>
+                  <span className="text-[10px]">{room.towel_change_required ? '✓ Required' : 'Off'}</span>
                 </button>
                 <button
                   className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
@@ -478,42 +509,106 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     setActionLoading(`linen-${room.id}`);
                     const newVal = !room.linen_change_required;
                     try {
+                      if (assignmentStatus === 'completed') {
+                        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
+                      }
                       const { error } = await supabase.from('rooms').update({ linen_change_required: newVal } as any).eq('id', room.id);
                       if (error) throw error;
                       setRooms(prev => prev.map(r => r.id === room.id ? { ...r, linen_change_required: newVal } : r));
-                      toast.success(`Linen ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                      toast.success(`Bed Linen ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🛏️ Linen</span>
-                  <span className="text-[10px]">{room.linen_change_required ? '✓ Required' : 'Not Required'}</span>
+                  <span>🛏️ Bed Linen (LC)</span>
+                  <span className="text-[10px]">{room.linen_change_required ? '✓ Required' : 'Off'}</span>
+                </button>
+                <button
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                    roomFlags.roomCleaning 
+                      ? 'bg-blue-100 text-blue-800 border border-blue-200 hover:bg-blue-200' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent'
+                  }`}
+                  disabled={actionLoading === `rc-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`rc-${room.id}`);
+                    const newVal = !roomFlags.roomCleaning;
+                    try {
+                      if (assignmentStatus === 'completed') {
+                        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
+                      }
+                      const updatedNotes = toggleFlag(room.notes, 'ROOM_CLEANING', newVal);
+                      const { error } = await supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      if (error) throw error;
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: updatedNotes || null } : r));
+                      toast.success(`Room Cleaning ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <span>🧹 Room Cleaning (RC)</span>
+                  <span className="text-[10px]">{roomFlags.roomCleaning ? '✓ Required' : 'Off'}</span>
+                </button>
+                <button
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                    roomFlags.collectExtraTowels 
+                      ? 'bg-orange-100 text-orange-800 border border-orange-200 hover:bg-orange-200' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent'
+                  }`}
+                  disabled={actionLoading === `extratowel-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`extratowel-${room.id}`);
+                    const newVal = !roomFlags.collectExtraTowels;
+                    try {
+                      if (assignmentStatus === 'completed') {
+                        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
+                      }
+                      const updatedNotes = toggleFlag(room.notes, 'COLLECT_EXTRA_TOWELS', newVal);
+                      const { error } = await supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      if (error) throw error;
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: updatedNotes || null } : r));
+                      toast.success(`Collect Extra Towels ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <span>🧺 Collect Extra Towels</span>
+                  <span className="text-[10px]">{roomFlags.collectExtraTowels ? '✓ Yes' : 'Off'}</span>
                 </button>
               </div>
 
-              {/* Quick Actions */}
-              <div className="space-y-1 border-t border-border pt-1.5">
-                {/* Ready to Clean (checkout only) */}
-                {isCheckout && assignment && !assignment.ready_to_clean && (
-                  <button
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
-                    disabled={actionLoading === `ready-${room.id}`}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      setActionLoading(`ready-${room.id}`);
+              {/* Bed Configuration */}
+              {isManagerOrAdmin && (
+                <div className="border-t border-border pt-1.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Bed Config</p>
+                  <select
+                    className="w-full text-xs p-1.5 rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                    value={(room as any).bed_configuration || ''}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={async (e) => {
+                      const val = e.target.value || null;
                       try {
-                        const { error } = await supabase.from('room_assignments').update({ ready_to_clean: true } as any).eq('room_id', room.id).eq('assignment_date', selectedDate);
+                        const { error } = await supabase.from('rooms').update({ bed_configuration: val } as any).eq('id', room.id);
                         if (error) throw error;
-                        setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
-                        toast.success(`Room ${room.room_number} ready to clean`);
+                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, bed_configuration: val } as any : r));
+                        toast.success(`Bed config updated — ${room.room_number}`);
                       } catch { toast.error('Failed'); }
-                      finally { setActionLoading(null); }
                     }}
                   >
-                    <CheckCircle className="h-3 w-3" /> Mark Ready to Clean
-                  </button>
-                )}
+                    <option value="">None</option>
+                    <option value="Double Bed">Double Bed</option>
+                    <option value="Twin Beds">Twin Beds</option>
+                    <option value="Twin Beds Separated">Twin Beds Separated</option>
+                    <option value="Single Bed">Single Bed</option>
+                    <option value="Extra Cot Added">Extra Cot Added</option>
+                  </select>
+                </div>
+              )}
 
+              {/* Quick Actions */}
+              <div className="space-y-1 border-t border-border pt-1.5">
                 {/* Switch Type */}
                 {assignment && (
                   <button
@@ -539,7 +634,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   </button>
                 )}
 
-                {/* Status change */}
+                {/* Status change - hidden for checkout rooms not yet ready */}
                 {room.status === 'clean' && (
                   <button
                     className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
@@ -558,7 +653,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     Mark as Dirty
                   </button>
                 )}
-                {(room.status === 'dirty' || room.status === 'in_progress') && (
+                {(room.status === 'dirty' || room.status === 'in_progress') && !(isCheckout && !assignment?.ready_to_clean) && (
                   <button
                     className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
                     disabled={actionLoading === `clean-${room.id}`}
@@ -583,15 +678,25 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 <div className="border-t border-border pt-1.5">
                   <textarea
                     className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    placeholder="Notes..."
+                    placeholder="Manager notes..."
                     value={popoverNotes}
                     onChange={(e) => setPopoverNotes(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     onBlur={async () => {
-                      if (popoverNotes !== (room.notes || '')) {
+                      // Preserve flags when saving notes
+                      const currentFlags = parseRoomFlags(room.notes);
+                      const { buildRoomNotes } = await import('@/lib/room-service-flags');
+                      const newFullNotes = buildRoomNotes(
+                        { collectExtraTowels: currentFlags.collectExtraTowels, roomCleaning: currentFlags.roomCleaning },
+                        popoverNotes
+                      );
+                      if (newFullNotes !== (room.notes || '')) {
                         try {
-                          await supabase.from('rooms').update({ notes: popoverNotes || null } as any).eq('id', room.id);
-                          setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: popoverNotes || null } : r));
+                          if (assignmentStatus === 'completed') {
+                            toast.warning(`⚠️ Room ${room.room_number} was already cleaned. The housekeeper will need to be informed.`, { duration: 5000 });
+                          }
+                          await supabase.from('rooms').update({ notes: newFullNotes || null } as any).eq('id', room.id);
+                          setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: newFullNotes || null } : r));
                           toast.success(`Notes saved — ${room.room_number}`);
                         } catch { toast.error('Failed to save notes'); }
                       }
