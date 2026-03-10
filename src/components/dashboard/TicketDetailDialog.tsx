@@ -561,10 +561,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Ticket</AlertDialogTitle>
+                      <AlertDialogTitle>{t('ticketDetail.deleteTicket')}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you absolutely sure you want to delete ticket <strong>{ticket.ticket_number}</strong>? 
-                        This action cannot be undone and will permanently remove the ticket and all its comments.
+                        {t('ticketDetail.deleteConfirm')} <strong>{ticket.ticket_number}</strong>? 
+                        {t('ticketDetail.deleteWarning')}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
