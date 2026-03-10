@@ -1093,7 +1093,7 @@ export function SupervisorApprovalView() {
                   <div>
                     <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                       <Clock className="h-5 w-5 text-orange-600" />
-                      Early Sign-Out Requests
+                      {t('supervisor.earlySignOutRequests')}
                       <Badge className="bg-orange-100 text-orange-800 border-orange-300">{earlySignoutRequests.length}</Badge>
                     </h3>
                   </div>
