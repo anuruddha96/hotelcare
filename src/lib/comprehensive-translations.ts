@@ -1646,7 +1646,6 @@ export const additionalTranslations = {
     'performance.cons': 'Ổ.Định',
     'performance.qual': 'C.Lượng',
     'linen.exportCsv': 'Xuất CSV',
-    'linen.totalCollected': 'Tổng Thu Gom',
     'linen.housekeepersCount': '{count} Nhân Viên',
     'linen.noData': 'Không có dữ liệu cho khoảng thời gian đã chọn',
     'notifications.breakRequestSubmitted': 'Yêu cầu nghỉ giải lao mới',
