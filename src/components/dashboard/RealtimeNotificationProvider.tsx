@@ -29,9 +29,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
             },
             () => {
               showNotification(
-                'New break request submitted',
+                t('notifications.breakRequestSubmitted'),
                 'info',
-                'Break Request'
+                t('notifications.breakRequestLabel')
               );
             }
           )
