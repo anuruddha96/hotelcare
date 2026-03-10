@@ -107,7 +107,11 @@ interface RoomAssignment {
   hotel: string;
 }
 
-export function HousekeepingManagerView() {
+interface HousekeepingManagerViewProps {
+  onActiveInnerTabChange?: (tab: string) => void;
+}
+
+export function HousekeepingManagerView({ onActiveInnerTabChange }: HousekeepingManagerViewProps = {}) {
   const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
