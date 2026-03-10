@@ -533,7 +533,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   disabled={loading}
                 >
                   <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Assign to..." />
+                    <SelectValue placeholder={t('ticketDetail.assignTo')} />
                   </SelectTrigger>
                   <SelectContent>
                     {maintenanceStaff.map((staff) => (
