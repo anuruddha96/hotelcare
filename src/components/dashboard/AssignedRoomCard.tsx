@@ -585,9 +585,34 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
+  // Parse room flags from notes
+  const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
+  const hasManagerNotes = !!roomFlags.cleanNotes;
+  
   // Count special instructions
-  const hasSpecialInstructions = assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || assignment.rooms?.notes || assignment.notes;
-  const instructionCount = [assignment.rooms?.towel_change_required, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, assignment.rooms?.notes, assignment.notes].filter(Boolean).length;
+  const hasSpecialInstructions = assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [assignment.rooms?.towel_change_required, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+
+  // AI translation state
+  const [translating, setTranslating] = useState(false);
+  const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);
+  const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);
+
+  const handleTranslateNote = async (noteText: string, setter: (val: string) => void) => {
+    setTranslating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-note', {
+        body: { text: noteText, targetLanguage: language }
+      });
+      if (error) throw error;
+      setter(data.translatedText);
+      toast.success('Note translated');
+    } catch (err: any) {
+      toast.error('Translation failed');
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   return (
     <Card className={`${cardClassName}${hasSpecialInstructions ? ' border-l-4 border-l-amber-400' : ''}`}>
