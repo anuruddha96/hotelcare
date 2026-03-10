@@ -78,9 +78,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
 
                   if (roomData.hotel === userHotelName || roomData.hotel === userHotelId) {
                     showNotification(
-                      `Room completed and ready for approval`,
+                      t('notifications.roomReadyApproval'),
                       'info',
-                      'Approval Required'
+                      t('notifications.approvalRequired')
                     );
                   }
                 }
