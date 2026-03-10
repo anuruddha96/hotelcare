@@ -587,7 +587,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               <div className="p-4 border rounded-lg bg-slate-50">
                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                   <CheckCircle className="h-4 w-4" />
-                  Close Ticket
+                  {t('ticketDetail.closeTicket')}
                 </h4>
                 <div className="space-y-3">
                   <div>
