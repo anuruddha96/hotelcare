@@ -349,21 +349,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const isPendingApproval = assignmentStatus === 'completed' && assignment?.supervisor_approved === false;
     const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
     
-    // Determine color based on enhanced status logic
     let statusKey: string;
-    if (roomOverdue) {
-      statusKey = 'overdue';
-    } else if (isPendingApproval) {
-      statusKey = 'pending_approval';
-    } else if (assignmentStatus === 'in_progress') {
-      statusKey = 'in_progress';
-    } else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) {
-      statusKey = 'clean'; // Only green if supervisor approved
-    } else if (assignmentStatus === 'completed') {
-      statusKey = 'pending_approval';
-    } else {
-      statusKey = room.status || 'dirty';
-    }
+    if (roomOverdue) statusKey = 'overdue';
+    else if (isPendingApproval) statusKey = 'pending_approval';
+    else if (assignmentStatus === 'in_progress') statusKey = 'in_progress';
+    else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) statusKey = 'clean';
+    else if (assignmentStatus === 'completed') statusKey = 'pending_approval';
+    else statusKey = room.status || 'dirty';
     
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
     const isDND = room.is_dnd;
@@ -371,105 +363,262 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
+    const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+    const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms;
 
-    return (
-      <TooltipProvider key={room.id} delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div 
-              className="flex flex-col items-center gap-0.5"
-              onClick={() => handleRoomClick(room)}
-              style={{ cursor: canInteractWithRooms ? 'pointer' : 'default' }}
-            >
-              <div
-                className={`
-                  px-2 py-1 rounded text-xs font-bold border-2 transition-all min-w-[40px] text-center
-                  ${colorClass}
-                  ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-                  ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
-                  ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
-                  ${roomOverdue ? 'animate-pulse' : ''}
-                  ${canInteractWithRooms ? 'hover:scale-110 hover:shadow-md' : ''}
-                `}
-              >
-                {room.room_number}
-                {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
-                {room.towel_change_required && (
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white cursor-help">T</span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">Towel Change Required</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-                {room.linen_change_required && (
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white cursor-help">RC</span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">Room Change — Full Linen Change Required</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-                {assignment?.ready_to_clean && 
-                 (room.is_checkout_room || assignment?.assignment_type === 'checkout_cleaning') &&
-                 !(assignment?.status === 'completed' && assignment?.supervisor_approved) && (
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white cursor-help">RTC</span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">Ready to Clean — Guest has checked out, room is available for cleaning</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-                {assignment?.status === 'completed' && assignment?.supervisor_approved && (
-                  <span className="ml-0.5 text-[9px]">✅</span>
-                )}
-                {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
-                {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
-                {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
-                {isPendingApproval && <span className="ml-0.5 text-[9px]">⏳</span>}
-                {roomOverdue && <span className="ml-0.5 text-[9px]">🔴</span>}
-                {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
+    const chipContent = (
+      <div 
+        className="flex flex-col items-center gap-0.5"
+        onClick={() => handleRoomClick(room)}
+        onMouseEnter={() => handleHoverEnter(room.id, room)}
+        onMouseLeave={handleHoverLeave}
+        style={{ cursor: canInteractWithRooms ? 'pointer' : 'default' }}
+      >
+        <div
+          className={`
+            px-2 py-1 rounded text-xs font-bold border-2 transition-all min-w-[40px] text-center
+            ${colorClass}
+            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
+            ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
+            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+            ${roomOverdue ? 'animate-pulse' : ''}
+            ${canInteractWithRooms ? 'hover:scale-110 hover:shadow-md' : ''}
+          `}
+        >
+          {room.room_number}
+          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">T</span>}
+          {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">RC</span>}
+          {assignment?.ready_to_clean && isCheckout && !(assignment?.status === 'completed' && assignment?.supervisor_approved) && (
+            <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
+          )}
+          {assignment?.status === 'completed' && assignment?.supervisor_approved && <span className="ml-0.5 text-[9px]">✅</span>}
+          {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
+          {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
+          {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
+          {isPendingApproval && <span className="ml-0.5 text-[9px]">⏳</span>}
+          {roomOverdue && <span className="ml-0.5 text-[9px]">🔴</span>}
+          {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
+        </div>
+        {staffName && (
+          <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
+            {staffName}
+          </span>
+        )}
+      </div>
+    );
+
+    // Desktop: hover popover with quick actions
+    if (!isMobile && canInteractWithRooms) {
+      return (
+        <Popover key={room.id} open={isPopoverOpen}>
+          <PopoverTrigger asChild>
+            {chipContent}
+          </PopoverTrigger>
+          <PopoverContent 
+            side="top" 
+            align="center"
+            className="w-56 p-0 shadow-lg"
+            onMouseEnter={handlePopoverEnter}
+            onMouseLeave={handlePopoverLeave}
+            onOpenAutoFocus={(e) => e.preventDefault()}
+          >
+            <div className="p-2.5 space-y-2">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-foreground">Room {room.room_number}</span>
+                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 uppercase ${
+                  statusKey === 'clean' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' :
+                  statusKey === 'in_progress' ? 'bg-sky-100 text-sky-700 border-sky-300' :
+                  statusKey === 'pending_approval' ? 'bg-violet-100 text-violet-700 border-violet-300' :
+                  'bg-amber-100 text-amber-700 border-amber-300'
+                }`}>
+                  {statusKey === 'pending_approval' ? 'Pending' : statusKey.replace(/_/g, ' ')}
+                </Badge>
               </div>
-              {staffName && (
-                <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
-                  {staffName}
-                </span>
+
+              {/* Towel & Linen Toggles */}
+              <div className="space-y-1">
+                <button
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                    room.towel_change_required 
+                      ? 'bg-red-100 text-red-800 border border-red-200 hover:bg-red-200' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent'
+                  }`}
+                  disabled={actionLoading === `towel-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`towel-${room.id}`);
+                    const newVal = !room.towel_change_required;
+                    try {
+                      const { error } = await supabase.from('rooms').update({ towel_change_required: newVal } as any).eq('id', room.id);
+                      if (error) throw error;
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, towel_change_required: newVal } : r));
+                      toast.success(`Towel ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <span>🔄 Towel</span>
+                  <span className="text-[10px]">{room.towel_change_required ? '✓ Required' : 'Not Required'}</span>
+                </button>
+                <button
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                    room.linen_change_required 
+                      ? 'bg-purple-100 text-purple-800 border border-purple-200 hover:bg-purple-200' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent'
+                  }`}
+                  disabled={actionLoading === `linen-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`linen-${room.id}`);
+                    const newVal = !room.linen_change_required;
+                    try {
+                      const { error } = await supabase.from('rooms').update({ linen_change_required: newVal } as any).eq('id', room.id);
+                      if (error) throw error;
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, linen_change_required: newVal } : r));
+                      toast.success(`Linen ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <span>🛏️ Linen</span>
+                  <span className="text-[10px]">{room.linen_change_required ? '✓ Required' : 'Not Required'}</span>
+                </button>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="space-y-1 border-t border-border pt-1.5">
+                {/* Ready to Clean (checkout only) */}
+                {isCheckout && assignment && !assignment.ready_to_clean && (
+                  <button
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                    disabled={actionLoading === `ready-${room.id}`}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setActionLoading(`ready-${room.id}`);
+                      try {
+                        const { error } = await supabase.from('room_assignments').update({ ready_to_clean: true } as any).eq('room_id', room.id).eq('assignment_date', selectedDate);
+                        if (error) throw error;
+                        setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+                        toast.success(`Room ${room.room_number} ready to clean`);
+                      } catch { toast.error('Failed'); }
+                      finally { setActionLoading(null); }
+                    }}
+                  >
+                    <CheckCircle className="h-3 w-3" /> Mark Ready to Clean
+                  </button>
+                )}
+
+                {/* Switch Type */}
+                {assignment && (
+                  <button
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+                    disabled={actionLoading === `switch-${room.id}`}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setActionLoading(`switch-${room.id}`);
+                      const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
+                      const newIsCheckout = !isCheckout;
+                      try {
+                        await Promise.all([
+                          supabase.from('room_assignments').update({ assignment_type: newType } as any).eq('room_id', room.id).eq('assignment_date', selectedDate),
+                          supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', room.id),
+                        ]);
+                        toast.success(`Room ${room.room_number} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+                        await fetchData();
+                      } catch { toast.error('Failed'); }
+                      finally { setActionLoading(null); }
+                    }}
+                  >
+                    <ArrowLeftRight className="h-3 w-3" /> Switch to {isCheckout ? 'Daily' : 'Checkout'}
+                  </button>
+                )}
+
+                {/* Status change */}
+                {room.status === 'clean' && (
+                  <button
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                    disabled={actionLoading === `dirty-${room.id}`}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setActionLoading(`dirty-${room.id}`);
+                      try {
+                        await supabase.from('rooms').update({ status: 'dirty' } as any).eq('id', room.id);
+                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'dirty' } : r));
+                        toast.success(`Room ${room.room_number} → Dirty`);
+                      } catch { toast.error('Failed'); }
+                      finally { setActionLoading(null); }
+                    }}
+                  >
+                    Mark as Dirty
+                  </button>
+                )}
+                {(room.status === 'dirty' || room.status === 'in_progress') && (
+                  <button
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                    disabled={actionLoading === `clean-${room.id}`}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setActionLoading(`clean-${room.id}`);
+                      try {
+                        await supabase.from('rooms').update({ status: 'clean' } as any).eq('id', room.id);
+                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'clean' } : r));
+                        toast.success(`Room ${room.room_number} → Clean`);
+                      } catch { toast.error('Failed'); }
+                      finally { setActionLoading(null); }
+                    }}
+                  >
+                    <CheckCircle className="h-3 w-3" /> Mark as Clean
+                  </button>
+                )}
+              </div>
+
+              {/* Notes - auto-save on blur */}
+              {isManagerOrAdmin && (
+                <div className="border-t border-border pt-1.5">
+                  <textarea
+                    className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    placeholder="Notes..."
+                    value={popoverNotes}
+                    onChange={(e) => setPopoverNotes(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={async () => {
+                      if (popoverNotes !== (room.notes || '')) {
+                        try {
+                          await supabase.from('rooms').update({ notes: popoverNotes || null } as any).eq('id', room.id);
+                          setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: popoverNotes || null } : r));
+                          toast.success(`Notes saved — ${room.room_number}`);
+                        } catch { toast.error('Failed to save notes'); }
+                      }
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Settings link */}
+              {isManagerOrAdmin && (
+                <button
+                  className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openSettingsDialog(room);
+                  }}
+                >
+                  <Settings className="h-3 w-3" /> Room Settings...
+                </button>
               )}
             </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs">
-            <div className="space-y-1">
-              <p className="font-semibold">Room {room.room_number}</p>
-              {room.room_type && <p>Type: {room.room_type.replace(/_/g, ' ')}</p>}
-              <p>Status: {room.status || 'unknown'}</p>
-              {room.wing && <p>Wing: {room.wing}</p>}
-              {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
-              {room.room_category && <p className="text-[10px] text-muted-foreground">{room.room_category}</p>}
-              {room.bed_type === 'shabath' && <p className="text-blue-600 font-medium">✡ Shabath Room</p>}
-              {room.guest_nights_stayed != null && room.guest_nights_stayed > 0 && (
-                <p>Guest Night: {room.guest_nights_stayed}</p>
-              )}
-              {room.towel_change_required && <p className="text-red-600 font-bold">🔄 Towel Change Required</p>}
-              {room.linen_change_required && <p className="text-red-600 font-bold">🛏️ Linen Change Required</p>}
-              {isDND && <p className="text-purple-600 font-medium">🚫 Do Not Disturb</p>}
-              {noShow && <p className="text-red-600 font-medium">⚠️ No Show</p>}
-              {earlyCheckout && <p className="text-orange-600 font-bold">🔶 Early Checkout</p>}
-              {isPendingApproval && <p className="text-violet-600 font-bold">⏳ Pending Supervisor Approval</p>}
-              {roomOverdue && <p className="text-rose-600 font-bold">🔴 OVERDUE - Check with housekeeper</p>}
-              {staffName && <p>Assigned: {staffMap[assignmentMap.get(room.id)?.assigned_to || ''] || staffName}</p>}
-              {assignmentStatus && <p>Task: {assignmentStatus}</p>}
-              {room.room_name && <p className="text-[9px] text-muted-foreground">PMS: {room.room_name}</p>}
-              {isManagerOrAdmin && <p className="text-primary font-medium">Click to edit room</p>}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+          </PopoverContent>
+        </Popover>
+      );
+    }
+
+    // Mobile / non-interactive: simple chip (click opens dialog on mobile)
+    return (
+      <React.Fragment key={room.id}>
+        {chipContent}
+      </React.Fragment>
     );
   };
 
