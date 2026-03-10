@@ -316,6 +316,7 @@ export interface HotelAssignmentConfig {
   checkoutFirstGrouping?: boolean;    // default true
   roomProximityWeight?: number;       // default 1.0, for hotels without wing data
   wingZoneMapping?: Record<string, string>; // maps original wing to zone name for grouping
+  staffPreferences?: Record<string, string[]>; // maps staff ID to preferred room numbers/wings from AI insights
 }
 
 const DEFAULT_CONFIG: HotelAssignmentConfig = {
