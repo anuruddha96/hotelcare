@@ -1251,7 +1251,7 @@ ${activePreviews.map(preview => {
                         </div>
 
                         {/* Room chips - scrollable column body */}
-                        <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5" style={{ maxHeight: '50vh' }}>
+                        <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-1.5">
                           {/* Checkouts */}
                           {checkoutRooms.length > 0 && (
                             <div>
