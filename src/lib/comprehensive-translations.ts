@@ -2731,7 +2731,6 @@ export const additionalTranslations = {
     'performance.cons': 'Köv',
     'performance.qual': 'Min',
     'linen.exportCsv': 'Exportálás CSV-be',
-    'linen.totalCollected': 'Összesen Gyűjtött',
     'linen.housekeepersCount': '{count} Szobalány',
     'linen.noData': 'Nincs elérhető adat a kiválasztott időszakra',
     'notifications.breakRequestSubmitted': 'Új szünet kérelem érkezett',
