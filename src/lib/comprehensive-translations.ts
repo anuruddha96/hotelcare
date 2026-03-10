@@ -626,9 +626,8 @@ export const additionalTranslations = {
     'performance.cons': 'Cons',
     'performance.qual': 'Qual',
 
-    // Linen
+    // Linen (additional)
     'linen.exportCsv': 'Export to CSV',
-    'linen.totalCollected': 'Total Collected',
     'linen.housekeepersCount': '{count} Housekeepers',
     'linen.noData': 'No data available for the selected date range',
 
