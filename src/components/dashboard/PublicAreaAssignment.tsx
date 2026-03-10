@@ -36,6 +36,7 @@ const PUBLIC_AREAS = [
 
 export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onAssigned }: PublicAreaAssignmentProps) {
   const { user, profile } = useAuth();
+  const { t } = useTranslation();
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
   const [selectedAreas, setSelectedAreas] = useState<Set<string>>(new Set());
   const [notes, setNotes] = useState('');
