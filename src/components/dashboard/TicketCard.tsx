@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Calendar, User, MapPin, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface Ticket {
   id: string;
@@ -29,6 +30,8 @@ interface TicketCardProps {
 }
 
 export function TicketCard({ ticket, onClick }: TicketCardProps) {
+  const { t } = useTranslation();
+
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'urgent': return 'bg-red-500 text-white';
@@ -62,8 +65,23 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
     }
   };
 
-  const formatStatus = (status: string) => {
-    return status.replace('_', ' ').toUpperCase();
+  const getTranslatedStatus = (status: string) => {
+    switch (status) {
+      case 'open': return t('tickets.openStatus');
+      case 'in_progress': return t('tickets.inProgressStatus');
+      case 'completed': return t('tickets.completedStatus');
+      default: return status.replace('_', ' ').toUpperCase();
+    }
+  };
+
+  const getTranslatedPriority = (priority: string) => {
+    switch (priority) {
+      case 'urgent': return t('tickets.urgentPriority');
+      case 'high': return t('tickets.highPriority');
+      case 'medium': return t('tickets.mediumPriority');
+      case 'low': return t('tickets.lowPriority');
+      default: return priority.toUpperCase();
+    }
   };
 
   return (
@@ -83,7 +101,7 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
           </div>
           <div className="flex flex-col gap-1">
             <Badge className={getPriorityColor(ticket.priority)} variant="secondary">
-              {ticket.priority.toUpperCase()}
+              {getTranslatedPriority(ticket.priority)}
             </Badge>
             {ticket.department && (
               <Badge className={getDepartmentColor(ticket.department)}>
@@ -91,7 +109,7 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
               </Badge>
             )}
             <Badge className={getStatusColor(ticket.status)} variant="outline">
-              {formatStatus(ticket.status)}
+              {getTranslatedStatus(ticket.status)}
             </Badge>
           </div>
         </div>
@@ -105,7 +123,7 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
             <MapPin className="h-3 w-3" />
-            Room {ticket.room_number}
+            {t('ticketCard.room')} {ticket.room_number}
           </div>
           <div className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
@@ -116,7 +134,7 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
         <div className="space-y-1">
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <User className="h-3 w-3" />
-            {ticket.created_by?.full_name ?? 'Unknown'}
+            {ticket.created_by?.full_name ?? t('ticketCard.unknown')}
           </div>
           
           {ticket.hotel && (
@@ -129,7 +147,7 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
           {ticket.assigned_to && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <AlertCircle className="h-3 w-3" />
-              Assigned to {ticket.assigned_to.full_name}
+              {t('ticketCard.assignedTo')} {ticket.assigned_to.full_name}
             </div>
           )}
         </div>
