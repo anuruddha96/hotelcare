@@ -1144,7 +1144,7 @@ export function SupervisorApprovalView() {
                                       .eq('id', attendance.id);
                                   }
 
-                                  toast.success('Early sign-out approved');
+                                  toast.success(t('supervisor.earlySignOutApproved'));
                                   fetchPendingAssignments();
                                 } catch (error: any) {
                                   console.error('Error approving early signout:', error);
