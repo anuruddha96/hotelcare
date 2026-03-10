@@ -29,9 +29,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
             },
             () => {
               showNotification(
-                'New break request submitted',
+                t('notifications.breakRequestSubmitted'),
                 'info',
-                'Break Request'
+                t('notifications.breakRequestLabel')
               );
             }
           )
@@ -78,9 +78,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
 
                   if (roomData.hotel === userHotelName || roomData.hotel === userHotelId) {
                     showNotification(
-                      `Room completed and ready for approval`,
+                      t('notifications.roomReadyApproval'),
                       'info',
-                      'Approval Required'
+                      t('notifications.approvalRequired')
                     );
                   }
                 }
@@ -104,9 +104,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
                   payload.old.pending_supervisor_approval !== true &&
                   payload.new.department === 'maintenance') {
                 showNotification(
-                  'Maintenance task ready for review',
+                  t('notifications.maintenanceReview'),
                   'info',
-                  'Maintenance Approval'
+                  t('notifications.maintenanceApproval')
                 );
               }
             }
@@ -127,9 +127,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
           },
           () => {
             showNotification(
-              'New ticket assigned to you',
+              t('notifications.newTicketAssigned'),
               'info',
-              'New Ticket'
+              t('notifications.newTicketLabel')
             );
           }
         )
@@ -144,9 +144,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
           (payload) => {
             if (payload.new.status !== payload.old.status) {
               showNotification(
-                `Your ticket status changed to ${payload.new.status}`,
+                t('notifications.ticketStatusChanged').replace('{status}', payload.new.status),
                 'info',
-                'Ticket Update'
+                t('notifications.ticketUpdateLabel')
               );
             }
           }

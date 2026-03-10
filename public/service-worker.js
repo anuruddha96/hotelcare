@@ -1,5 +1,5 @@
 // Service Worker for persistent notifications
-const CACHE_NAME = 'rd-hotels-v1';
+const CACHE_NAME = 'hotelcare-v1';
 
 // Install event
 self.addEventListener('install', (event) => {
@@ -20,7 +20,7 @@ self.addEventListener('push', (event) => {
   console.log('Push notification received:', event);
   
   let notificationData = {
-    title: 'RD Hotels',
+    title: 'Hotel Care',
     body: 'You have a new notification',
     icon: '/favicon.ico',
     badge: '/favicon.ico',

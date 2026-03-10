@@ -215,7 +215,7 @@ export function SimplifiedDirtyLinenManagement() {
     <div className="space-y-3">
       {housekeeperData.length === 0 ? (
         <div className="p-8 text-center text-muted-foreground">
-          No data available for the selected date range
+          {t('linen.noData')}
         </div>
       ) : (
         <>
@@ -280,7 +280,7 @@ export function SimplifiedDirtyLinenManagement() {
           {housekeeperData.length === 0 ? (
             <tr>
               <td colSpan={allLinenItems.length + 2} className="border p-8 text-center text-muted-foreground">
-                No data available for the selected date range
+                {t('linen.noData')}
               </td>
             </tr>
           ) : (
@@ -325,7 +325,7 @@ export function SimplifiedDirtyLinenManagement() {
         </div>
         <Button onClick={exportToCSV} variant="outline" disabled={housekeeperData.length === 0}>
           <Download className="h-4 w-4 mr-2" />
-          Export to CSV
+          <span className="truncate">{t('linen.exportCsv')}</span>
         </Button>
       </div>
 
@@ -340,13 +340,13 @@ export function SimplifiedDirtyLinenManagement() {
           <div className="flex items-center gap-3 p-4 bg-primary/5 rounded-lg">
             <Shirt className="h-8 w-8 text-primary" />
             <div>
-              <p className="text-sm text-muted-foreground">Total Collected</p>
+              <p className="text-sm text-muted-foreground">{t('linen.totalCollected')}</p>
               <p className="text-2xl font-bold">{grandTotal}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 p-4 bg-secondary/50 rounded-lg">
             <Badge variant="secondary" className="text-lg px-4 py-2">
-              {housekeeperData.length} Housekeepers
+              {t('linen.housekeepersCount').replace('{count}', String(housekeeperData.length))}
             </Badge>
           </div>
         </div>

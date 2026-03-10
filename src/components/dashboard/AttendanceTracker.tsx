@@ -478,13 +478,13 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       case 'checked_out':
         return <Badge className="bg-gray-500 text-white text-xs sm:text-sm">{t('attendance.checkedOut')}</Badge>;
       case 'pending_early_signout':
-        return <Badge className="bg-orange-500 text-white text-xs sm:text-sm animate-pulse">Pending Early Sign-Out Approval</Badge>;
+        return <Badge className="bg-orange-500 text-white text-xs sm:text-sm animate-pulse">{t('attendance.pendingEarlySignOut')}</Badge>;
       case 'auto_signout':
-        return <Badge className="bg-orange-600 text-white text-xs sm:text-sm">Auto Signed Out</Badge>;
+        return <Badge className="bg-orange-600 text-white text-xs sm:text-sm">{t('attendance.autoSignedOut')}</Badge>;
       case 'forgot_signout':
-        return <Badge className="bg-amber-500 text-white text-xs sm:text-sm">Forgot Sign Out</Badge>;
+        return <Badge className="bg-amber-500 text-white text-xs sm:text-sm">{t('attendance.forgotSignOut')}</Badge>;
       default:
-        return <Badge variant="outline" className="text-xs sm:text-sm">Unknown</Badge>;
+        return <Badge variant="outline" className="text-xs sm:text-sm">{t('attendance.unknown')}</Badge>;
     }
   };
 
@@ -535,10 +535,10 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             {earlySignoutStatus?.type === 'pending' && (
               <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
                 <p className="text-sm font-medium text-orange-800">
-                  ⏳ Waiting for supervisor approval
+                  ⏳ {t('attendance.waitingSupervisor')}
                 </p>
                 <p className="text-xs text-orange-600 mt-1">
-                  You cannot start new work until your early sign-out is approved.
+                  {t('attendance.cannotWorkUntilApproved')}
                 </p>
               </div>
             )}
@@ -546,10 +546,10 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             {earlySignoutStatus?.type === 'approved' && (
               <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-sm font-medium text-green-800">
-                  ✅ Early sign-out approved
+                  ✅ {t('attendance.earlySignOutApprovedMsg')}
                 </p>
                 <p className="text-xs text-green-600 mt-1">
-                  Approved by: {earlySignoutStatus.details?.profiles?.full_name || 'Supervisor'}
+                  {t('attendance.approvedByLabel')}: {earlySignoutStatus.details?.profiles?.full_name || 'Supervisor'}
                 </p>
               </div>
             )}
@@ -557,15 +557,15 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             {earlySignoutStatus?.type === 'rejected' && (
               <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-sm font-medium text-red-800">
-                  ❌ Early sign-out rejected
+                  ❌ {t('attendance.earlySignOutRejectedMsg')}
                 </p>
                 {earlySignoutStatus.details?.rejection_reason && (
                   <p className="text-xs text-red-600 mt-1">
-                    Reason: {earlySignoutStatus.details.rejection_reason}
+                    {t('attendance.rejectionReason')}: {earlySignoutStatus.details.rejection_reason}
                   </p>
                 )}
                 <p className="text-xs text-red-600 mt-1">
-                  Please continue working or contact your supervisor.
+                  {t('attendance.continueWorking')}
                 </p>
               </div>
             )}

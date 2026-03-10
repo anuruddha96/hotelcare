@@ -559,7 +559,7 @@ export function PerformanceLeaderboard() {
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle className="h-4 w-4 text-red-500" />
-                  <span className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase">Needs Attention</span>
+                  <span className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase">{t('performance.needsAttention')}</span>
                 </div>
                 <div className="font-bold text-lg truncate">{needsAttention.full_name}</div>
                 <div className="flex items-center gap-3 mt-1 text-sm text-red-700 dark:text-red-400">
@@ -586,7 +586,7 @@ export function PerformanceLeaderboard() {
           <CardContent className="p-4 text-center">
             <Activity className="h-6 w-6 mx-auto mb-1 text-green-500" />
             <div className="text-2xl font-bold">{teamAvgRPH}</div>
-            <div className="text-xs text-muted-foreground">Avg Rooms/Hour</div>
+            <div className="text-xs text-muted-foreground">{t('performance.avgRoomsHour')}</div>
           </CardContent>
         </Card>
         <Card>
@@ -600,7 +600,7 @@ export function PerformanceLeaderboard() {
           <CardContent className="p-4 text-center">
             <ShieldCheck className="h-6 w-6 mx-auto mb-1 text-orange-500" />
             <div className="text-2xl font-bold">{overviewStats.outliersExcluded}</div>
-            <div className="text-xs text-muted-foreground">Outliers Filtered</div>
+            <div className="text-xs text-muted-foreground">{t('performance.outliersFiltered')}</div>
           </CardContent>
         </Card>
       </div>
@@ -620,7 +620,7 @@ export function PerformanceLeaderboard() {
           {leaderboard.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <p className="font-medium">{t('performance.noData')}</p>
-              <p className="text-xs mt-1">Staff need at least {THRESHOLDS.minRoomsForRanking} rooms across {THRESHOLDS.minDaysForRanking}+ days to appear here</p>
+              <p className="text-xs mt-1">{t('performance.minRoomsNote').replace('{minRooms}', String(THRESHOLDS.minRoomsForRanking)).replace('{minDays}', String(THRESHOLDS.minDaysForRanking))}</p>
             </div>
           ) : (
             leaderboard.map((entry) => (
@@ -633,9 +633,9 @@ export function PerformanceLeaderboard() {
                       <div className="min-w-0">
                         <div className="font-bold text-sm sm:text-base truncate">{entry.full_name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {entry.total_completed} rooms in {entry.unique_work_days} days
+                          {t('performance.roomsInDays').replace('{rooms}', String(entry.total_completed)).replace('{days}', String(entry.unique_work_days))}
                           {entry.excluded_outliers > 0 && (
-                            <span className="text-orange-500 ml-1">({entry.excluded_outliers} outliers removed)</span>
+                            <span className="text-orange-500 ml-1">({t('performance.outliersRemoved').replace('{count}', String(entry.excluded_outliers))})</span>
                           )}
                         </div>
                       </div>
@@ -648,7 +648,7 @@ export function PerformanceLeaderboard() {
                     <div className="flex justify-between text-xs mb-1">
                       <span className="font-medium">{entry.performance_score}/100</span>
                       {entry.attendance_streak > 0 && (
-                        <span className="text-green-600">🔥 {entry.attendance_streak} day streak</span>
+                        <span className="text-green-600">🔥 {t('performance.dayStreak').replace('{count}', String(entry.attendance_streak))}</span>
                       )}
                     </div>
                     {/* Stacked score breakdown */}
@@ -659,12 +659,12 @@ export function PerformanceLeaderboard() {
                       <div className="bg-teal-500 h-full transition-all" style={{ width: `${entry.consistency_score}%` }} title={`Consistency: ${entry.consistency_score}`} />
                       <div className="bg-yellow-500 h-full transition-all" style={{ width: `${entry.quality_score}%` }} title={`Quality: ${entry.quality_score}`} />
                     </div>
-                    <div className="flex gap-2 mt-1 text-[9px] text-muted-foreground flex-wrap">
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />Spd:{entry.speed_score}</span>
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />Prod:{entry.productivity_score}</span>
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />Punc:{entry.punctuality_score}</span>
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-teal-500 inline-block" />Cons:{entry.consistency_score}</span>
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" />Qual:{entry.quality_score}</span>
+                     <div className="flex gap-2 mt-1 text-[9px] text-muted-foreground flex-wrap">
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />{t('performance.spd')}:{entry.speed_score}</span>
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />{t('performance.prod')}:{entry.productivity_score}</span>
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />{t('performance.punc')}:{entry.punctuality_score}</span>
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-teal-500 inline-block" />{t('performance.cons')}:{entry.consistency_score}</span>
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" />{t('performance.qual')}:{entry.quality_score}</span>
                     </div>
                   </div>
 
@@ -686,7 +686,7 @@ export function PerformanceLeaderboard() {
                             )}
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Avg daily clean time (±{entry.daily_stddev}m stddev)</TooltipContent>
+                        <TooltipContent>{t('performance.avgDailyCleanTime').replace('{stddev}', String(entry.daily_stddev))}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -706,7 +706,7 @@ export function PerformanceLeaderboard() {
                             )}
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Avg checkout clean time (±{entry.checkout_stddev}m stddev)</TooltipContent>
+                        <TooltipContent>{t('performance.avgCheckoutCleanTime').replace('{stddev}', String(entry.checkout_stddev))}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -715,10 +715,10 @@ export function PerformanceLeaderboard() {
                         <TooltipTrigger asChild>
                           <div className="text-center p-2 bg-teal-50 dark:bg-teal-900/20 rounded-lg cursor-pointer hover:bg-teal-100 dark:hover:bg-teal-900/30 transition-colors">
                             <div className="text-lg sm:text-xl font-bold text-teal-700 dark:text-teal-400">{entry.rooms_per_hour}</div>
-                            <div className="text-[10px] sm:text-xs text-teal-600 dark:text-teal-500">Rooms/Hr</div>
+                            <div className="text-[10px] sm:text-xs text-teal-600 dark:text-teal-500">{t('performance.roomsHr')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Rooms per working hour ({entry.rooms_per_day} rooms/day)</TooltipContent>
+                        <TooltipContent>{t('performance.roomsPerWorkingHour').replace('{rpd}', String(entry.rooms_per_day))}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -733,7 +733,7 @@ export function PerformanceLeaderboard() {
                             <div className="text-[10px] sm:text-xs text-purple-600 dark:text-purple-500">{t('performance.punctual')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>On-time arrival rate (before {THRESHOLDS.punctualityCutoff})</TooltipContent>
+                        <TooltipContent>{t('performance.onTimeArrival').replace('{cutoff}', THRESHOLDS.punctualityCutoff)}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -745,10 +745,10 @@ export function PerformanceLeaderboard() {
                             onClick={() => openDetailDialog(entry.housekeeper_id, entry.full_name, 'hours')}
                           >
                             <div className="text-lg sm:text-xl font-bold text-orange-700 dark:text-orange-400">{entry.avg_working_hours}h</div>
-                            <div className="text-[10px] sm:text-xs text-orange-600 dark:text-orange-500">Hours</div>
+                            <div className="text-[10px] sm:text-xs text-orange-600 dark:text-orange-500">{t('performance.hours')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Avg working hours per day</TooltipContent>
+                        <TooltipContent>{t('performance.avgWorkingHours')}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
@@ -759,16 +759,16 @@ export function PerformanceLeaderboard() {
                             <div className="text-lg sm:text-xl font-bold text-yellow-700 dark:text-yellow-400">
                               {entry.rating_count > 0 ? `${entry.avg_rating}★` : '-'}
                             </div>
-                            <div className="text-[10px] sm:text-xs text-yellow-600 dark:text-yellow-500">Quality</div>
+                             <div className="text-[10px] sm:text-xs text-yellow-600 dark:text-yellow-500">{t('performance.qualityLabel')}</div>
                             {entry.rating_count > 0 && (
-                              <div className="text-[8px] text-muted-foreground">{entry.rating_count} reviews</div>
+                               <div className="text-[8px] text-muted-foreground">{t('performance.reviewsCount').replace('{count}', String(entry.rating_count))}</div>
                             )}
                           </div>
                         </TooltipTrigger>
                         <TooltipContent>
                           {entry.rating_count > 0 
-                            ? `Manager rating: ${entry.avg_rating}/5 (${entry.rating_count} reviews)`
-                            : 'No ratings yet — scored at 50%'
+                            ? t('performance.managerRating').replace('{rating}', String(entry.avg_rating)).replace('{count}', String(entry.rating_count))
+                            : t('performance.noRatingsYet')
                           }
                         </TooltipContent>
                       </Tooltip>

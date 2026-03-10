@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -134,6 +135,7 @@ function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): 
 
 export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
@@ -909,7 +911,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
-                  Average Cleaning Time
+                  {t('room.actTooltip')}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

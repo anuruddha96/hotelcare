@@ -95,7 +95,7 @@ export function useNotifications() {
       
       if (permission === 'granted') {
         // Test notification to ensure it works
-        const testNotification = new Notification('Notifications Enabled!', {
+        const testNotification = new Notification('Hotel Care', {
           body: 'You will now receive notifications for room assignments and approvals.',
           icon: '/favicon.ico',
           silent: false

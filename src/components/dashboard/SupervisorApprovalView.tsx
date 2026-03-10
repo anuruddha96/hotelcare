@@ -1093,7 +1093,7 @@ export function SupervisorApprovalView() {
                   <div>
                     <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                       <Clock className="h-5 w-5 text-orange-600" />
-                      Early Sign-Out Requests
+                      {t('supervisor.earlySignOutRequests')}
                       <Badge className="bg-orange-100 text-orange-800 border-orange-300">{earlySignoutRequests.length}</Badge>
                     </h3>
                   </div>
@@ -1107,7 +1107,7 @@ export function SupervisorApprovalView() {
                               {request.profiles?.full_name || 'Unknown'}
                             </p>
                             <p className="text-sm text-muted-foreground">
-                              Requested: {new Date(request.requested_at).toLocaleString()}
+                              {t('supervisor.requested')}: {new Date(request.requested_at).toLocaleString()}
                             </p>
                           </div>
                           <div className="flex gap-2">
@@ -1144,23 +1144,23 @@ export function SupervisorApprovalView() {
                                       .eq('id', attendance.id);
                                   }
 
-                                  toast.success('Early sign-out approved');
+                                  toast.success(t('supervisor.earlySignOutApproved'));
                                   fetchPendingAssignments();
                                 } catch (error: any) {
                                   console.error('Error approving early signout:', error);
-                                  toast.error('Failed to approve early sign-out');
+                                  toast.error(t('supervisor.failedApprove'));
                                 }
                               }}
                               className="bg-green-600 hover:bg-green-700 text-white"
                             >
                               <CheckCircle className="h-4 w-4 mr-1" />
-                              Approve
+                              {t('supervisor.approveBtn')}
                             </Button>
                             <Button
                               size="sm"
                               variant="destructive"
                               onClick={async () => {
-                                const reason = prompt('Enter rejection reason:');
+                                const reason = prompt(t('supervisor.enterRejectionReason'));
                                 if (!reason) return;
                                 
                                 try {
@@ -1176,15 +1176,15 @@ export function SupervisorApprovalView() {
 
                                   if (error) throw error;
 
-                                  toast.success('Early sign-out rejected');
+                                  toast.success(t('supervisor.earlySignOutRejected'));
                                   fetchPendingAssignments();
                                 } catch (error: any) {
                                   console.error('Error rejecting early signout:', error);
-                                  toast.error('Failed to reject early sign-out');
+                                  toast.error(t('supervisor.failedReject'));
                                 }
                               }}
                             >
-                              Reject
+                              {t('supervisor.rejectBtn')}
                             </Button>
                           </div>
                         </div>
