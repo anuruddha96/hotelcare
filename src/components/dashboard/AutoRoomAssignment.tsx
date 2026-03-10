@@ -1162,7 +1162,7 @@ ${activePreviews.map(preview => {
                 )}
               </div>
             ) : step === 'preview' ? (
-              <div className="space-y-3">
+              <div className="flex flex-col flex-1 min-h-0 gap-2">
                 {/* Summary bar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-muted/40 rounded-lg text-sm">
                   <p>
