@@ -1170,7 +1170,6 @@ export const additionalTranslations = {
     'performance.cons': 'Cons',
     'performance.qual': 'Cal',
     'linen.exportCsv': 'Exportar a CSV',
-    'linen.totalCollected': 'Total Recolectado',
     'linen.housekeepersCount': '{count} Camareras',
     'linen.noData': 'No hay datos disponibles para el rango de fechas seleccionado',
     'notifications.breakRequestSubmitted': 'Nueva solicitud de descanso enviada',
