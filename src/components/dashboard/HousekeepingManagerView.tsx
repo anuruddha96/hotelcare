@@ -533,7 +533,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   return (
     <>
-    <Tabs defaultValue="team" className="space-y-6">
+    <Tabs defaultValue="team" className="space-y-6" onValueChange={(val) => onActiveInnerTabChange?.(val)}>
       {!isReception && (
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="team" className="text-xs sm:text-sm truncate">{t('manager.teamView')}</TabsTrigger>
