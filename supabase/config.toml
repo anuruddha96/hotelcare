@@ -104,3 +104,6 @@ verify_jwt = false
 
 [functions.guest-minibar-data]
 verify_jwt = false
+
+[functions.translate-note]
+verify_jwt = true

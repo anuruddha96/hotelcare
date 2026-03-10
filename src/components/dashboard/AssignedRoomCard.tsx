@@ -23,7 +23,9 @@ import {
   ArrowUpDown,
   Camera,
   Package,
-  Info
+  Info,
+  Globe,
+  Loader2 as LucideLoader
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
@@ -39,6 +41,7 @@ import { PausableTimerComponent } from './PausableTimerComponent';
 import { RoomAssignmentChangeDialog } from './RoomAssignmentChangeDialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
+import { parseRoomFlags } from '@/lib/room-service-flags';
 
 interface AssignedRoomCardProps {
   assignment: {
@@ -582,9 +585,34 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
+  // Parse room flags from notes
+  const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
+  const hasManagerNotes = !!roomFlags.cleanNotes;
+  
   // Count special instructions
-  const hasSpecialInstructions = assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || assignment.rooms?.notes || assignment.notes;
-  const instructionCount = [assignment.rooms?.towel_change_required, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, assignment.rooms?.notes, assignment.notes].filter(Boolean).length;
+  const hasSpecialInstructions = assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [assignment.rooms?.towel_change_required, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+
+  // AI translation state
+  const [translating, setTranslating] = useState(false);
+  const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);
+  const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);
+
+  const handleTranslateNote = async (noteText: string, setter: (val: string) => void) => {
+    setTranslating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-note', {
+        body: { text: noteText, targetLanguage: language }
+      });
+      if (error) throw error;
+      setter(data.translatedText);
+      toast.success('Note translated');
+    } catch (err: any) {
+      toast.error('Translation failed');
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   return (
     <Card className={`${cardClassName}${hasSpecialInstructions ? ' border-l-4 border-l-amber-400' : ''}`}>
@@ -710,7 +738,26 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-400 dark:border-purple-600 rounded-lg">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🛏️</span>
-                <p className="font-bold text-purple-800 dark:text-purple-200 text-sm">{t('roomCard.linenChange') || 'Linen Change Required'}</p>
+                <p className="font-bold text-purple-800 dark:text-purple-200 text-sm">{t('roomCard.bedLinenChange') || 'Bed Linen Change (LC)'}</p>
+              </div>
+            </div>
+          )}
+          {roomFlags.roomCleaning && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border-2 border-blue-400 dark:border-blue-600 rounded-lg">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🧹</span>
+                <p className="font-bold text-blue-800 dark:text-blue-200 text-sm">{t('roomCard.roomCleaning') || 'Full Room Cleaning (RC)'}</p>
+              </div>
+            </div>
+          )}
+          {roomFlags.collectExtraTowels && (
+            <div className="p-3 bg-orange-50 dark:bg-orange-950/30 border-2 border-orange-400 dark:border-orange-600 rounded-lg animate-pulse">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🧺</span>
+                <div>
+                  <p className="font-bold text-orange-800 dark:text-orange-200 text-sm">{t('roomCard.collectExtraTowels') || 'Collect Extra Towels'}</p>
+                  <p className="text-xs text-orange-700 dark:text-orange-300">{t('roomCard.collectExtraTowelsDesc') || 'Reception gave extra towels — please collect them'}</p>
+                </div>
               </div>
             </div>
           )}
@@ -719,19 +766,31 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <div className="flex items-center gap-2">
                 <BedDouble className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                 <div>
-                  <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Bed Configuration</p>
+                  <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">{t('roomCard.bedConfiguration') || 'Bed Configuration'}</p>
                   <p className="font-bold text-blue-800 dark:text-blue-200 text-sm">{assignment.rooms.bed_configuration}</p>
                 </div>
               </div>
             </div>
           )}
-          {assignment.rooms?.notes && (
+          {hasManagerNotes && (
             <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-600 rounded-lg">
               <div className="flex items-start gap-2">
                 <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div>
+                <div className="flex-1">
                   <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">{t('roomCard.managerNotes') || 'Manager Notes'}</p>
-                  <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">{assignment.rooms.notes}</p>
+                  <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
+                    {translatedManagerNote || roomFlags.cleanNotes}
+                  </p>
+                  {!translatedManagerNote && (
+                    <button
+                      className="mt-1.5 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
+                      onClick={() => handleTranslateNote(roomFlags.cleanNotes, setTranslatedManagerNote)}
+                      disabled={translating}
+                    >
+                      {translating ? <LucideLoader className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
+                      {t('roomCard.translateNote') || '🌐 Translate'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -740,11 +799,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <div className="p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div>
+                <div className="flex-1">
                   <p className="text-xs font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide">📝 {t('housekeeping.assignmentNotes')}</p>
                   <p className="text-sm text-amber-800 dark:text-amber-200 font-semibold mt-0.5">
-                    {shouldTranslateContent(language) ? translateText(assignment.notes, language) : assignment.notes}
+                    {translatedAssignmentNote || (shouldTranslateContent(language) ? translateText(assignment.notes, language) : assignment.notes)}
                   </p>
+                  {!translatedAssignmentNote && (
+                    <button
+                      className="mt-1.5 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
+                      onClick={() => handleTranslateNote(assignment.notes, setTranslatedAssignmentNote)}
+                      disabled={translating}
+                    >
+                      {translating ? <LucideLoader className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
+                      {t('roomCard.translateNote') || '🌐 Translate'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

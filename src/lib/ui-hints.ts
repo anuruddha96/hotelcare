@@ -49,7 +49,7 @@ export const UI_HINTS: Record<string, string> = {
   "room.earlyCheckout": "Guest checked out earlier than expected",
   "room.dnd": "Do Not Disturb — guest requested no housekeeping service",
   "room.towelChange": "Towel Change Required — based on guest stay duration",
-  "room.linenChange": "Full Room & Linen Change Required",
+  "room.linenChange": "Bed Linen Change (LC) — bed linen only, not full room clean",
   "room.rtc": "Ready to Clean — guest has checked out, room is available",
   "room.shabath": "Shabath room — special configuration for religious observance",
   "room.pendingApproval": "Cleaning finished, waiting for supervisor to approve",
