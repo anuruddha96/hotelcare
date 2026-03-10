@@ -177,16 +177,16 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
         </div>
 
         <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">{t('common.cancel')}</Button>
           <Button
             onClick={handleAssign}
             disabled={!selectedStaffId || selectedAreas.size === 0 || submitting}
             className="w-full sm:w-auto"
           >
             {submitting ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Assigning...</>
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{t('publicArea.assigning')}</>
             ) : (
-              <><Check className="h-4 w-4 mr-2" />Assign {selectedAreas.size} Area(s)</>
+              <><Check className="h-4 w-4 mr-2" />{t('publicArea.assign')} {selectedAreas.size}</>
             )}
           </Button>
         </DialogFooter>
