@@ -144,9 +144,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
           (payload) => {
             if (payload.new.status !== payload.old.status) {
               showNotification(
-                `Your ticket status changed to ${payload.new.status}`,
+                t('notifications.ticketStatusChanged').replace('{status}', payload.new.status),
                 'info',
-                'Ticket Update'
+                t('notifications.ticketUpdateLabel')
               );
             }
           }

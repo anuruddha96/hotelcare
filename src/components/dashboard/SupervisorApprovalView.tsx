@@ -1184,7 +1184,7 @@ export function SupervisorApprovalView() {
                                 }
                               }}
                             >
-                              Reject
+                              {t('supervisor.rejectBtn')}
                             </Button>
                           </div>
                         </div>

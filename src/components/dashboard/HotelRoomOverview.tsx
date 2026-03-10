@@ -911,7 +911,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
-                  Average Cleaning Time
+                  {t('room.actTooltip')}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

@@ -831,7 +831,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         
         // Try to show browser notification if permission granted
         if (Notification.permission === 'granted') {
-          new Notification('PMS Upload Complete', {
+          new Notification(t('notifications.pmsUploadComplete'), {
             body: successMessage,
             icon: '/favicon.ico'
           });
