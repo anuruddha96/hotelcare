@@ -527,6 +527,52 @@ export function AutoRoomAssignment({
       // Clear saved state after successful assignment
       localStorage.removeItem(saveKey);
 
+      // Trigger AI pattern analysis in background (non-blocking)
+      try {
+        const todayAssignments = assignmentPreviews.map(p => ({
+          staffName: p.staffName,
+          staffId: p.staffId,
+          rooms: p.rooms.map(r => ({ room_number: r.room_number, wing: r.wing, floor: r.floor_number, is_checkout: r.is_checkout_room })),
+        }));
+        
+        const { data: patternData } = await supabase
+          .from('assignment_patterns')
+          .select('room_number_a, room_number_b, pair_count')
+          .eq('hotel', hotelName || '')
+          .eq('organization_slug', profile?.organization_slug || 'rdhotels')
+          .order('pair_count', { ascending: false })
+          .limit(50);
+
+        // Load current zone mapping
+        const { data: configData } = await supabase
+          .from('hotel_configurations')
+          .select('settings')
+          .eq('hotel_name', hotelName || '')
+          .single();
+
+        const currentZoneMapping = (configData?.settings as any)?.wing_zone_mapping || {};
+
+        supabase.functions.invoke('analyze-assignment-patterns', {
+          body: {
+            hotel: hotelName,
+            orgSlug: profile?.organization_slug,
+            todayAssignments,
+            patterns: patternData || [],
+            currentZoneMapping,
+          },
+        }).then(({ data: insights }) => {
+          if (insights && !insights.error) {
+            const insightsKey = `ai_insights_${hotelName}`;
+            localStorage.setItem(insightsKey, JSON.stringify({ ...insights, cachedAt: Date.now() }));
+            console.log('🧠 AI assignment insights cached:', insights.optimization_notes);
+          }
+        }).catch(() => {
+          console.warn('AI pattern analysis failed (non-critical)');
+        });
+      } catch {
+        // Non-critical, ignore
+      }
+
       const totalRooms = assignments.length;
       const staffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
       
