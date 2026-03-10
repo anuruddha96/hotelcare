@@ -2371,11 +2371,60 @@ export const additionalTranslations = {
     'status.ticket_created': 'Jegy létrehozva',
     'status.resolved': 'Megoldva',
 
-    // Housekeeping tab names
-    // Housekeeping tab names - added to en section
-    // PMS Upload - added to en section
-    // Supervisor/Pending approvals - added to en section
-    // Attendance - already exists in previous section
+    // Ticket Card
+    'ticketCard.room': 'Szoba',
+    'ticketCard.assignedTo': 'Hozzárendelve',
+    'ticketCard.unknown': 'Ismeretlen',
 
+    // Completion Dialog
+    'completion.completeRoom': 'Szoba Befejezése',
+    'completion.step1Info': 'Jelölje meg ezt a szobát befejezettnek a fotózás és szennyesruha-követés folytatásához.',
+    'completion.notesOptional': 'Megjegyzések (Opcionális)',
+    'completion.notesPlaceholder': 'Megjegyzés a takarításról...',
+    'completion.failedToComplete': 'Nem sikerült befejezni',
+    'completion.photosSaved': 'Fotók sikeresen mentve',
+    'completion.step2Info': 'Feladat kész! Most fotókat adhat hozzá bizonyítékként.',
+    'completion.capturedPhotos': 'Készített Fotók',
+    'completion.morePhotos': 'további fotó',
+    'completion.addPhotos': 'Fotók Hozzáadása',
+    'completion.markAsDND': 'DND Jelölés',
+    'completion.continue': 'Tovább',
+    'completion.step3Info': 'Végül kövesse nyomon a szennyesruhát.',
+    'completion.trackLinen': 'Szennyesruha Követése',
+    'completion.finish': 'Befejezés',
+
+    // Completion Checklist
+    'checklist.completeRoom': 'Szoba Befejezése',
+    'checklist.confirmWarning': 'A szoba befejezése előtt kérjük, erősítse meg az összes szükséges adatot:',
+    'checklist.photosCapture': 'Szobafotók készítve (Ágy, Fürdőszoba, Íróasztal, Szemetes)',
+    'checklist.dirtyLinenUpdated': 'Szennyesruha szám frissítve (ha alkalmazandó)',
+    'checklist.minibarRecorded': 'Minibár fogyasztás rögzítve (ha alkalmazandó)',
+    'checklist.confirmAllItems': 'Kérjük, erősítsen meg minden elemet a folytatáshoz.',
+    'checklist.markComplete': 'Befejezettnek Jelölés',
+    'checklist.pleaseConfirm': 'Kérjük Erősítse Meg',
+
+    // Ticket Detail
+    'ticketDetail.createdBy': 'Létrehozta',
+    'ticketDetail.assignedTo': 'Hozzárendelve',
+    'ticketDetail.resolution': 'Megoldás',
+    'ticketDetail.closedBy': 'Lezárta',
+    'ticketDetail.on': '-kor',
+    'ticketDetail.attachments': 'Mellékletek',
+    'ticketDetail.deleteTicket': 'Jegy Törlése',
+    'ticketDetail.closeTicket': 'Jegy Lezárása',
+    'ticketDetail.resolutionDetails': 'Megoldás Részletei',
+    'ticketDetail.resolutionPlaceholder': 'Írja le a megoldást...',
+    'ticketDetail.closing': 'Lezárás...',
+    'ticketDetail.comments': 'Hozzászólások',
+    'ticketDetail.addComment': 'Hozzászólás hozzáadása',
+    'ticketDetail.addCommentBtn': 'Hozzászólás',
+    'ticketDetail.adding': 'Hozzáadás...',
+    'ticketDetail.attachPhotos': 'Fotók Csatolása (Opcionális)',
+    'ticketDetail.attachFiles': 'Fájlok Csatolása (Opcionális)',
+    'ticketDetail.statusUpdated': 'Jegy állapota frissítve',
+    'ticketDetail.assigned': 'Jegy sikeresen hozzárendelve',
+    'ticketDetail.closed': 'Jegy sikeresen lezárva',
+    'ticketDetail.deleted': 'Jegy sikeresen törölve',
+    'ticketDetail.commentAdded': 'Hozzászólás hozzáadva',
   },
 };
