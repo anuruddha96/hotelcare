@@ -107,10 +107,10 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
           <div className="space-y-4">
             {/* Select Housekeeper */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Select Housekeeper</label>
+              <label className="text-sm font-medium">{t('publicArea.selectHousekeeper')}</label>
               <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a housekeeper..." />
+                  <SelectValue placeholder={t('publicArea.choosePlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {staff.map(s => (
