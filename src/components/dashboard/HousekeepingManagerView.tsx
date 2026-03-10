@@ -532,8 +532,8 @@ export function HousekeepingManagerView() {
     <Tabs defaultValue="team" className="space-y-6">
       {!isReception && (
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="team">Team View</TabsTrigger>
-          <TabsTrigger value="early-signout">Early Sign-Out Approvals</TabsTrigger>
+          <TabsTrigger value="team" className="text-xs sm:text-sm truncate">{t('manager.teamView')}</TabsTrigger>
+          <TabsTrigger value="early-signout" className="text-xs sm:text-sm truncate">{t('manager.earlySignOutApprovals')}</TabsTrigger>
         </TabsList>
       )}
 
