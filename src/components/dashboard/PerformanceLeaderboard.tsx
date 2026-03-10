@@ -559,7 +559,7 @@ export function PerformanceLeaderboard() {
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle className="h-4 w-4 text-red-500" />
-                  <span className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase">Needs Attention</span>
+                  <span className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase">{t('performance.needsAttention')}</span>
                 </div>
                 <div className="font-bold text-lg truncate">{needsAttention.full_name}</div>
                 <div className="flex items-center gap-3 mt-1 text-sm text-red-700 dark:text-red-400">
