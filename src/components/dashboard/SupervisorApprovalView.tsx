@@ -1176,7 +1176,7 @@ export function SupervisorApprovalView() {
 
                                   if (error) throw error;
 
-                                  toast.success('Early sign-out rejected');
+                                  toast.success(t('supervisor.earlySignOutRejected'));
                                   fetchPendingAssignments();
                                 } catch (error: any) {
                                   console.error('Error rejecting early signout:', error);
