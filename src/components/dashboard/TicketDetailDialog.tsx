@@ -124,8 +124,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       setComments(data || []);
     } catch (error: any) {
       toast({
-        title: 'Error',
-        description: 'Failed to fetch comments',
+        title: t('common.error'),
+        description: t('ticketDetail.fetchCommentsError'),
         variant: 'destructive',
       });
     }
