@@ -1,95 +1,99 @@
 
 
-## Plan: Auto-Assign Towel Change, Custom Bed Types, Improved Sorting, and Housekeeper Card Visibility
+## Plan: Fix Missing Translations, Hotel Care Branding & Translated ACT Tooltip
 
-### Summary of Changes (4 areas)
+### Problems Identified
 
----
+1. **Hardcoded English strings** scattered across multiple components — not going through `t()`:
+   - `HousekeepingManagerView.tsx`: "Team View", "Early Sign-Out Approvals", "Auto Assign", "Public Areas"
+   - `AttendanceTracker.tsx`: "Pending Early Sign-Out Approval", "Auto Signed Out", "Forgot Sign Out", early sign-out status messages
+   - `PerformanceLeaderboard.tsx`: "Avg Rooms/Hour", "Outliers Filtered", "Needs Attention", "Rooms/Hr", "Hours", "Quality", tooltip contents, "rooms in X days", "outliers removed", "day streak", "reviews"
+   - `SimplifiedDirtyLinenManagement.tsx`: "Export to CSV", "Total Collected", "X Housekeepers", "No data available..."
+   - `RealtimeNotificationProvider.tsx`: All notification messages hardcoded in English ("New break request submitted", "Room completed and ready for approval", etc.)
+   - `SupervisorApprovalView.tsx`: "Early Sign-Out Requests" section header and toast messages
+   - `PMSUpload.tsx`: "PMS Upload Complete" notification
 
-### 1. Auto-Assign: Manual Towel Change Toggle Before Assignment
+2. **ACT tooltip** in `HotelRoomOverview.tsx` (line 912) shows "Average Cleaning Time" in English only — not translated, and not using `UI_HINTS` system
 
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`**
+3. **Hotel Care branding missing** from notifications — service worker, `useNotifications.tsx`, and `serviceWorkerManager.ts` all use `/favicon.ico` and titles like "RD Hotels" instead of "Hotel Care"
 
-In Step 1 (select-staff), after the staff grid, add a new section "Pre-Assignment Room Settings" that lists all dirty rooms and allows managers to toggle `towel_change_required` for each room before generating the preview. This lets managers plan towel changes in the morning.
+### Changes
 
-- Add a collapsible section below staff selection showing all `dirtyRooms` in a compact grid
-- Each room chip has a small towel icon toggle button (T) that updates the local state and the DB `rooms.towel_change_required`
-- When toggled, the room's towel status flows into the algorithm (already supported via `calculateRoomTime` and `calculateRoomWeight`)
-- Also add a "Select All Towel Change" button for bulk toggling
+#### 1. Add translation keys to `src/lib/comprehensive-translations.ts`
+Add ~40 new keys across all 5 languages (en, es, hu, vi, mn):
+- `manager.teamView`, `manager.earlySignOutApprovals`, `manager.autoAssign`, `manager.publicAreas`
+- `attendance.pendingEarlySignOut`, `attendance.autoSignedOut`, `attendance.forgotSignOut`, `attendance.waitingSupervisor`, `attendance.earlySignOutApproved`, `attendance.earlySignOutRejected`, `attendance.approvedBy`
+- `performance.avgRoomsHour`, `performance.outliersFiltered`, `performance.needsAttention`, `performance.roomsHr`, `performance.hours`, `performance.quality`, `performance.roomsInDays`, `performance.outliersRemoved`, `performance.dayStreak`, `performance.reviews`, `performance.noRatingsYet`
+- `linen.exportCsv`, `linen.totalCollected`, `linen.housekeepersCount`, `linen.noData`
+- `notifications.breakRequest`, `notifications.breakRequestTitle`, `notifications.roomReadyApproval`, `notifications.approvalRequired`, `notifications.maintenanceReview`, `notifications.maintenanceApproval`, `notifications.newTicketAssigned`, `notifications.newTicket`, `notifications.ticketStatusChanged`, `notifications.ticketUpdate`
+- `room.actTooltip` (translated ACT tooltip for all languages)
 
----
+#### 2. Update `src/lib/ui-hints.ts`
+Make `room.act` hint translatable — change the hint system to support translated hints or add translated ACT hints directly.
 
-### 2. Custom Bed Requirements (Budapest Hotel Use Case)
+Since `UI_HINTS` is a simple `Record<string, string>`, and the `HelpTooltip` component uses it directly, the simplest approach is to **not use UI_HINTS for ACT** and instead use `t('room.actTooltip')` directly in the tooltip content in `HotelRoomOverview.tsx`.
 
-**Database Migration:** Add a `bed_configuration` text column to `rooms` table (nullable). This stores the specific bed arrangement set by managers (e.g., "Twin beds separated", "Double bed", "Extra cot"). The existing `bed_type` column has limited values (`single`, `double`, `queen`, `triple`, `shabath`) — this new column stores the **current guest requirement** which can change per stay.
+#### 3. Update components to use `t()` calls
 
-```sql
-ALTER TABLE rooms ADD COLUMN IF NOT EXISTS bed_configuration text DEFAULT NULL;
-```
+**`HousekeepingManagerView.tsx`** (~lines 535-594):
+- Replace "Team View" → `t('manager.teamView')`
+- Replace "Early Sign-Out Approvals" → `t('manager.earlySignOutApprovals')`
+- Replace "Auto Assign" → `t('manager.autoAssign')`
+- Replace "Public Areas" → `t('manager.publicAreas')`
+- Add `truncate` or `text-xs` responsive classes on tab triggers for long translations
 
-**File: `src/components/dashboard/HotelRoomOverview.tsx`** — In the room chip dialog, add a "Bed Configuration" field (text input or dropdown with common options + custom) under Room Settings. Only managers/admins can set it. Options: "Double Bed", "Twin Beds", "Twin Beds Separated", "Extra Cot Added", "Single Bed", or custom text.
+**`AttendanceTracker.tsx`** (~lines 480-562):
+- Replace hardcoded status badge texts with `t()` calls
+- Replace early sign-out status messages with `t()` calls
 
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`** — Fetch `bed_configuration` in the rooms query. Show it on room chips in the preview (small icon/label like "🛏️ Twin Sep").
+**`PerformanceLeaderboard.tsx`** (~lines 589, 603, 562, 636, 651, 662-667, 689, 709, 718, 721, 736, 748, 762, 770):
+- Replace all hardcoded metric labels and tooltip texts with `t()` calls
 
-**File: `src/components/dashboard/AssignedRoomCard.tsx`** — Display `bed_configuration` prominently in a dedicated info row (alongside floor number) so housekeepers clearly see what bed arrangement the guest needs. Show it with a bed icon and distinct styling.
+**`SimplifiedDirtyLinenManagement.tsx`** (~lines 218, 226, 283, 328, 343, 349):
+- Replace "Export to CSV", "Total Collected", "Housekeepers", "No data available" with `t()` calls
 
-**File: `src/components/dashboard/MobileHousekeepingView.tsx`** — Include `bed_configuration` in the rooms query.
+**`RealtimeNotificationProvider.tsx`** (all notification strings):
+- Replace all hardcoded notification messages with `t()` calls
 
-**File: `src/components/dashboard/HousekeepingStaffView.tsx`** — Include `bed_configuration` in the rooms query.
+**`SupervisorApprovalView.tsx`** (~lines 1096, 1147, 1151, 1179, 1183):
+- Replace "Early Sign-Out Requests" and toast messages with `t()` calls
 
-**File: `src/lib/roomAssignmentAlgorithm.ts`** — Add `bed_configuration` to `RoomForAssignment` interface.
+**`HotelRoomOverview.tsx`** (line 912):
+- Replace `Average Cleaning Time` with `t('room.actTooltip')`
 
----
+#### 4. Hotel Care branding for notifications
 
-### 3. Fix Room Priority/Sorting Order
+**`public/service-worker.js`** (lines 23-24):
+- Change `title: 'RD Hotels'` → `title: 'Hotel Care'`
+- Change `CACHE_NAME: 'rd-hotels-v1'` → `CACHE_NAME: 'hotelcare-v1'`
 
-Current sorting logic in `HousekeepingStaffView.tsx` and `MobileHousekeepingView.tsx` is almost correct but has issues:
-- Checkout rooms waiting for guest (`ready_to_clean=false`) should sort AFTER daily rooms that are ready
-- Ready-to-clean checkout rooms should be first
-- Same floor rooms should be grouped together
-- High priority rooms should always be at top (after in-progress)
+**`src/hooks/useNotifications.tsx`** (~lines 98, 171, 203, 245):
+- Change notification title fallbacks from any hardcoded brand to 'Hotel Care'
 
-**New sort order (all 3 files + PendingRoomsDialog):**
+**`src/lib/serviceWorkerManager.ts`** (lines 64-68):
+- Already uses `/favicon.ico` for icon — keep as-is (the favicon should be Hotel Care branded)
+- Change any hardcoded title references to 'Hotel Care'
 
-1. `in_progress` always first
-2. High priority rooms (`priority >= 3`) — regardless of type
-3. Ready checkout rooms (`checkout_cleaning` + `ready_to_clean=true`)
-4. Daily rooms — grouped by floor, then room number
-5. Checkout rooms waiting (`checkout_cleaning` + `ready_to_clean=false`) — at bottom
-6. Completed rooms last
+**`src/components/dashboard/PMSUpload.tsx`** (line 834):
+- Replace `'PMS Upload Complete'` → `t('notifications.pmsUploadComplete')`
 
-**Files to update sorting:**
-- `src/components/dashboard/HousekeepingStaffView.tsx` (lines 174-208)
-- `src/components/dashboard/MobileHousekeepingView.tsx` (lines 189-223)
-- `src/components/dashboard/PendingRoomsDialog.tsx` (lines 86-91) — replace simple numeric sort with the same priority logic
+#### 5. UI handling for long translations
+- On tab triggers in `HousekeepingManagerView.tsx`, add `text-xs truncate` classes so Hungarian/Mongolian text doesn't break layout
+- On buttons ("Auto Assign", "Public Areas"), use responsive text sizing (`text-xs sm:text-sm`) and allow wrapping with `whitespace-nowrap` removed where needed
 
----
-
-### 4. Redesign AssignedRoomCard Special Instructions Visibility
-
-**File: `src/components/dashboard/AssignedRoomCard.tsx`**
-
-Currently, towel/linen badges are small badges in the header. Bed configuration doesn't exist yet. Manager notes are shown but could be more prominent. Redesign the top of the card to have a **"Special Instructions" banner** that consolidates:
-
-- Towel change required → prominent yellow banner with icon
-- Linen change required → prominent purple banner with icon  
-- Bed configuration → prominent blue banner with bed icon and the configuration text
-- Manager notes → already amber banner (keep as-is)
-
-Move these from small header badges to a dedicated, unmissable section right after the card header, before room details. Use larger text and bolder styling.
-
----
-
-### Files Changed Summary
+### Files Changed
 
 | File | Changes |
 |------|---------|
-| **Migration** | Add `bed_configuration` column to `rooms` |
-| `AutoRoomAssignment.tsx` | Add towel change toggle section in Step 1, fetch `bed_configuration`, show on preview chips |
-| `HotelRoomOverview.tsx` | Add bed configuration selector in room chip dialog |
-| `AssignedRoomCard.tsx` | Redesign special instructions section with prominent banners for towel/linen/bed config |
-| `HousekeepingStaffView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `MobileHousekeepingView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `PendingRoomsDialog.tsx` | Fix sorting to match housekeeper priority order, fetch `bed_configuration` and show it |
-| `roomAssignmentAlgorithm.ts` | Add `bed_configuration` to `RoomForAssignment` interface |
+| `src/lib/comprehensive-translations.ts` | ~40 new keys × 5 languages |
+| `src/components/dashboard/HousekeepingManagerView.tsx` | Replace 4 hardcoded strings with `t()`, add responsive text classes |
+| `src/components/dashboard/AttendanceTracker.tsx` | Replace ~6 hardcoded status/message strings with `t()` |
+| `src/components/dashboard/PerformanceLeaderboard.tsx` | Replace ~15 hardcoded labels/tooltips with `t()` |
+| `src/components/dashboard/SimplifiedDirtyLinenManagement.tsx` | Replace ~5 hardcoded strings with `t()` |
+| `src/components/dashboard/RealtimeNotificationProvider.tsx` | Replace ~6 hardcoded notification messages with `t()` |
+| `src/components/dashboard/SupervisorApprovalView.tsx` | Replace ~4 hardcoded strings with `t()` |
+| `src/components/dashboard/HotelRoomOverview.tsx` | Translate ACT tooltip |
+| `src/components/dashboard/PMSUpload.tsx` | Translate notification title |
+| `public/service-worker.js` | Hotel Care branding |
+| `src/hooks/useNotifications.tsx` | Hotel Care branding in notification titles |
 
