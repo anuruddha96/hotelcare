@@ -1180,7 +1180,7 @@ ${activePreviews.map(preview => {
                 </div>
 
                 {/* Multi-column layout: all housekeepers side by side */}
-                <div className="flex gap-2 overflow-x-auto pb-2" style={{ minHeight: '300px' }}>
+                <div className="flex gap-2 overflow-x-auto flex-1 min-h-0 pb-1">
                   {assignmentPreviews.filter(p => p.rooms.length > 0).map(preview => {
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
                     const isDragOver = dragOverStaffId === preview.staffId;
