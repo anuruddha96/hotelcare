@@ -686,7 +686,7 @@ export function PerformanceLeaderboard() {
                             )}
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Avg daily clean time (±{entry.daily_stddev}m stddev)</TooltipContent>
+                        <TooltipContent>{t('performance.avgDailyCleanTime').replace('{stddev}', String(entry.daily_stddev))}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
