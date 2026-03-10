@@ -596,7 +596,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                       id="resolution"
                       value={resolutionText}
                       onChange={(e) => setResolutionText(e.target.value)}
-                      placeholder="Describe how the issue was resolved..."
+                      placeholder={t('ticketDetail.resolutionPlaceholder')}
                       rows={3}
                     />
                   </div>
