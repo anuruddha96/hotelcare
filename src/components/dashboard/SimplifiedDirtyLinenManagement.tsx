@@ -215,7 +215,7 @@ export function SimplifiedDirtyLinenManagement() {
     <div className="space-y-3">
       {housekeeperData.length === 0 ? (
         <div className="p-8 text-center text-muted-foreground">
-          No data available for the selected date range
+          {t('linen.noData')}
         </div>
       ) : (
         <>
