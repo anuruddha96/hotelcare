@@ -459,7 +459,6 @@ export function autoAssignRooms(
       const sorted = [...wingRooms].sort((a, b) => calculateRoomWeight(b) - calculateRoomWeight(a));
       for (const room of sorted) {
         const roomFloor = room.floor_number ?? getFloorFromRoomNumber(room.room_number);
-        // Find staff with lowest effective weight (weight minus affinity & sequence bonuses + floor penalty)
         const affinityMult = config.affinityBonusMultiplier!;
         const proxWeight = config.roomProximityWeight!;
         const hasWings = rooms.some(r => r.wing);
@@ -472,10 +471,13 @@ export function autoAssignRooms(
           const bSeqBonus = getSequenceBonus(room.room_number, bRooms);
           const aFloorPenalty = getFloorSpreadPenalty(aRooms, roomFloor) * config.floorPenaltyMultiplier!;
           const bFloorPenalty = getFloorSpreadPenalty(bRooms, roomFloor) * config.floorPenaltyMultiplier!;
-          // Room proximity bonus for hotels without wing data
           const aProxBonus = !hasWings ? getRoomProximityBonus(room.room_number, aRooms, proxWeight) : 0;
           const bProxBonus = !hasWings ? getRoomProximityBonus(room.room_number, bRooms, proxWeight) : 0;
-          return (a[1] + aFloorPenalty - aAffinity * affinityMult - aSeqBonus * 0.5 - aProxBonus) - (b[1] + bFloorPenalty - bAffinity * affinityMult - bSeqBonus * 0.5 - bProxBonus);
+          // AI staff preferences bonus
+          const aStaffPrefBonus = getStaffPreferenceBonus(a[0], room, config.staffPreferences);
+          const bStaffPrefBonus = getStaffPreferenceBonus(b[0], room, config.staffPreferences);
+          return (a[1] + aFloorPenalty - aAffinity * affinityMult - aSeqBonus * 0.5 - aProxBonus - aStaffPrefBonus) 
+               - (b[1] + bFloorPenalty - bAffinity * affinityMult - bSeqBonus * 0.5 - bProxBonus - bStaffPrefBonus);
         });
         const [bestId, bestWeight] = splitCandidates[0];
         assignments.get(bestId)!.push(room);
