@@ -340,7 +340,7 @@ export function SimplifiedDirtyLinenManagement() {
           <div className="flex items-center gap-3 p-4 bg-primary/5 rounded-lg">
             <Shirt className="h-8 w-8 text-primary" />
             <div>
-              <p className="text-sm text-muted-foreground">Total Collected</p>
+              <p className="text-sm text-muted-foreground">{t('linen.totalCollected')}</p>
               <p className="text-2xl font-bold">{grandTotal}</p>
             </div>
           </div>
