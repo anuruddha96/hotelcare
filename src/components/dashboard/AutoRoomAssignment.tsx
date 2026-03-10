@@ -755,7 +755,7 @@ ${activePreviews.map(preview => {
         return `<tr class="${room.is_checkout_room ? 'type-co' : 'type-daily'}">
           <td>${i + 1}</td>
           <td><strong>${room.room_number}</strong></td>
-          <td>${room.is_checkout_room ? 'Checkout' : 'Daily'}</td>
+          <td>${room.is_checkout_room ? t('autoAssign.checkout') : t('autoAssign.daily')}</td>
           <td>F${getFloorFromRoomNumber(room.room_number)}</td>
           <td>${room.room_category || '—'}</td>
           <td class="${specials.length > 0 ? 'special' : ''}">${specials.join(', ') || '—'}</td>

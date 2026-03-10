@@ -924,26 +924,26 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
             >
               <ChevronDown className={`h-3 w-3 transition-transform ${showLegend ? '' : '-rotate-90'}`} />
-              {showLegend ? 'Hide Legend' : 'Show Legend'}
+              {showLegend ? t('legend.hideLegend') : t('legend.showLegend')}
             </button>
             {showLegend && (
               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                 {[
-                  { label: 'Approved/Clean', cls: 'bg-emerald-200 border-emerald-500', hint: 'Room has been cleaned and approved by supervisor' },
-                  { label: 'Dirty/Assigned', cls: 'bg-amber-200 border-amber-500', hint: 'Room needs cleaning — assigned to a housekeeper' },
-                  { label: 'In Progress', cls: 'bg-sky-200 border-sky-500', hint: 'Housekeeper is currently cleaning this room' },
-                  { label: 'Pending Approval', cls: 'bg-violet-200 border-violet-500', hint: UI_HINTS["room.pendingApproval"] },
-                  { label: 'Overdue', cls: 'bg-rose-300 border-rose-600', hint: UI_HINTS["room.overdue"] },
-                  { label: 'Out of Order', cls: 'bg-red-200 border-red-500', hint: 'Room is out of service and unavailable' },
-                  { label: 'DND', cls: 'ring-2 ring-purple-500 bg-muted', hint: UI_HINTS["room.dnd"] },
-                  { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted', hint: UI_HINTS["room.noShow"] },
-                  { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted', hint: UI_HINTS["room.earlyCheckout"] },
-                  { label: 'Towel Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
-                  { label: 'Bed Linen Change', cls: 'bg-purple-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'LC', hint: UI_HINTS["room.linenChange"] },
-                  { label: 'Room Cleaning', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: 'Full room cleaning required' },
-                  { label: 'Extra Towels', cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: 'Collect extra towels from this room' },
-                  { label: 'Ready to Clean', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
-                  { label: 'Approved', cls: 'text-[10px]', isText: true, text: '✅', hint: 'Supervisor has approved this cleaning' },
+                  { label: t('legend.approvedClean'), cls: 'bg-emerald-200 border-emerald-500', hint: t('legend.approvedCleanHint') },
+                  { label: t('legend.dirtyAssigned'), cls: 'bg-amber-200 border-amber-500', hint: t('legend.dirtyAssignedHint') },
+                  { label: t('legend.inProgress'), cls: 'bg-sky-200 border-sky-500', hint: t('legend.inProgressHint') },
+                  { label: t('legend.pendingApproval'), cls: 'bg-violet-200 border-violet-500', hint: UI_HINTS["room.pendingApproval"] },
+                  { label: t('legend.overdue'), cls: 'bg-rose-300 border-rose-600', hint: UI_HINTS["room.overdue"] },
+                  { label: t('legend.outOfOrder'), cls: 'bg-red-200 border-red-500', hint: t('legend.outOfOrderHint') },
+                  { label: t('legend.dnd'), cls: 'ring-2 ring-purple-500 bg-muted', hint: UI_HINTS["room.dnd"] },
+                  { label: t('legend.noShow'), cls: 'ring-2 ring-red-600 bg-muted', hint: UI_HINTS["room.noShow"] },
+                  { label: t('legend.earlyCheckout'), cls: 'ring-2 ring-orange-500 bg-muted', hint: UI_HINTS["room.earlyCheckout"] },
+                  { label: t('legend.towelChange'), cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
+                  { label: t('legend.bedLinenChange'), cls: 'bg-purple-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'LC', hint: UI_HINTS["room.linenChange"] },
+                  { label: t('legend.roomCleaning'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: t('legend.roomCleaningHint') },
+                  { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: t('legend.extraTowelsHint') },
+                  { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
+                  { label: t('legend.approved'), cls: 'text-[10px]', isText: true, text: '✅', hint: t('legend.approvedHint') },
                 ].map(item => (
                   <HelpTooltip key={item.label} hint={(item as any).hint}>
                     <div className="flex items-center gap-1 cursor-help">

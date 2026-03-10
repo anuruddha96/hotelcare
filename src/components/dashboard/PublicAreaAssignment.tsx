@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +36,7 @@ const PUBLIC_AREAS = [
 
 export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onAssigned }: PublicAreaAssignmentProps) {
   const { user, profile } = useAuth();
+  const { t } = useTranslation();
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
   const [selectedAreas, setSelectedAreas] = useState<Set<string>>(new Set());
   const [notes, setNotes] = useState('');
@@ -95,9 +97,9 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+         <DialogTitle className="flex items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
-            Assign Public Areas
+            {t('publicArea.title')}
           </DialogTitle>
         </DialogHeader>
 
@@ -105,10 +107,10 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
           <div className="space-y-4">
             {/* Select Housekeeper */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Select Housekeeper</label>
+              <label className="text-sm font-medium">{t('publicArea.selectHousekeeper')}</label>
               <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a housekeeper..." />
+                  <SelectValue placeholder={t('publicArea.choosePlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {staff.map(s => (
@@ -122,7 +124,7 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
 
             {/* Select Areas */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Select Areas ({selectedAreas.size} selected)</label>
+              <label className="text-sm font-medium">{t('publicArea.selectAreas')} ({selectedAreas.size} {t('publicArea.selected')})</label>
               <div className="grid grid-cols-1 gap-2">
                 {PUBLIC_AREAS.map(area => {
                   const isSelected = selectedAreas.has(area.key);
@@ -148,26 +150,26 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
 
             {/* Priority */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Priority</label>
+              <label className="text-sm font-medium">{t('publicArea.priority')}</label>
               <Select value={String(priority)} onValueChange={(v) => setPriority(Number(v))}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">Normal</SelectItem>
-                  <SelectItem value="2">High</SelectItem>
-                  <SelectItem value="3">Urgent</SelectItem>
+                  <SelectItem value="1">{t('publicArea.normal')}</SelectItem>
+                  <SelectItem value="2">{t('publicArea.high')}</SelectItem>
+                  <SelectItem value="3">{t('publicArea.urgent')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {/* Notes */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Notes (optional)</label>
+              <label className="text-sm font-medium">{t('publicArea.notes')}</label>
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add any special instructions..."
+                placeholder={t('publicArea.notesPlaceholder')}
                 rows={2}
               />
             </div>
@@ -175,16 +177,16 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
         </div>
 
         <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">{t('common.cancel')}</Button>
           <Button
             onClick={handleAssign}
             disabled={!selectedStaffId || selectedAreas.size === 0 || submitting}
             className="w-full sm:w-auto"
           >
             {submitting ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Assigning...</>
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{t('publicArea.assigning')}</>
             ) : (
-              <><Check className="h-4 w-4 mr-2" />Assign {selectedAreas.size} Area(s)</>
+              <><Check className="h-4 w-4 mr-2" />{t('publicArea.assign')} {selectedAreas.size}</>
             )}
           </Button>
         </DialogFooter>
