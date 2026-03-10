@@ -455,14 +455,12 @@ export function AutoRoomAssignment({
     try {
       // Create all assignments with checkout-first priority ordering
       const assignments = assignmentPreviews.flatMap(preview => {
-        // Assign priority based on room type urgency, not sequential index
-        // Priority 1: Checkout rooms ready to clean (guest already left)
-        // Priority 2: Daily cleaning rooms (occupied, need service)
-        // Priority 3: Checkout rooms NOT ready (guest still in room, clean later)
-        const getRoomPriority = (room: any): number => {
-          if (room.is_checkout_room && room.ready_to_clean) return 1;
-          if (!room.is_checkout_room) return 2;
-          return 3; // checkout but not ready
+        // Assign priority based on room type urgency:
+        // Priority 1: Checkout rooms (guest departed, needs deep clean ASAP for next guest)
+        // Priority 2: Daily cleaning rooms (occupied, routine service)
+        const getRoomPriority = (room: RoomForAssignment): number => {
+          if (room.is_checkout_room) return 1;
+          return 2;
         };
 
         // Sort by priority, then floor, then room number
@@ -485,7 +483,7 @@ export function AutoRoomAssignment({
           status: 'assigned' as const,
           priority: getRoomPriority(room),
           organization_slug: profile?.organization_slug,
-          ready_to_clean: room.is_checkout_room ? (room.ready_to_clean || false) : true
+          ready_to_clean: true
         }));
       });
 
