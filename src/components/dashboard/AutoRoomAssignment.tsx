@@ -357,21 +357,62 @@ export function AutoRoomAssignment({
     const selectedStaff = allStaff.filter(s => selectedStaffIds.has(s.id));
     const roomsToAssign = dirtyRooms.filter(r => !excludedRoomIds.has(r.id));
     
-    // Build hotel-specific config
+    // Build hotel-specific config - read from DB instead of hardcoding
     const hotelName = await getManagerHotel();
     let hotelConfig: HotelAssignmentConfig | undefined;
     
-    // Hotel Memories Budapest zone mapping - groups 10 wings into 5 logical zones
-    if (hotelName === 'Hotel Memories Budapest') {
-      hotelConfig = {
-        wingZoneMapping: {
-          'A': 'ground', 'B': 'ground', 'C': 'ground',
-          'D': 'f1-left',
-          'E': 'f1-right',
-          'F': 'f1-back', 'G': 'f1-back', 'H': 'f1-back',
-          'I': 'f2-f3', 'J': 'f2-f3',
+    try {
+      // Load zone mapping from hotel_configurations.settings
+      const { data: configData } = await supabase
+        .from('hotel_configurations')
+        .select('settings')
+        .eq('hotel_name', hotelName || '')
+        .single();
+      
+      const settings = (configData?.settings as any) || {};
+      const dbZoneMapping = settings.wing_zone_mapping;
+      
+      // Load AI insights from localStorage
+      let staffPreferences: Record<string, string[]> | undefined;
+      try {
+        const insightsKey = `ai_insights_${hotelName}`;
+        const cached = localStorage.getItem(insightsKey);
+        if (cached) {
+          const insights = JSON.parse(cached);
+          if (Date.now() - (insights.cachedAt || 0) < 7 * 24 * 60 * 60 * 1000) {
+            staffPreferences = insights.staff_preferences;
+          }
         }
-      };
+      } catch { /* ignore */ }
+      
+      if (dbZoneMapping && Object.keys(dbZoneMapping).length > 0) {
+        hotelConfig = { wingZoneMapping: dbZoneMapping, staffPreferences };
+      } else if (hotelName === 'Hotel Memories Budapest') {
+        // Fallback for Hotel Memories Budapest if no DB config yet
+        hotelConfig = {
+          wingZoneMapping: {
+            'A': 'ground', 'B': 'ground', 'C': 'ground',
+            'D': 'f1-left', 'E': 'f1-right',
+            'F': 'f1-back', 'G': 'f1-back', 'H': 'f1-back',
+            'I': 'f2-f3', 'J': 'f2-f3',
+          },
+          staffPreferences,
+        };
+      } else if (staffPreferences) {
+        hotelConfig = { staffPreferences };
+      }
+    } catch {
+      // Fallback to hardcoded for Memories Budapest
+      if (hotelName === 'Hotel Memories Budapest') {
+        hotelConfig = {
+          wingZoneMapping: {
+            'A': 'ground', 'B': 'ground', 'C': 'ground',
+            'D': 'f1-left', 'E': 'f1-right',
+            'F': 'f1-back', 'G': 'f1-back', 'H': 'f1-back',
+            'I': 'f2-f3', 'J': 'f2-f3',
+          },
+        };
+      }
     }
     
     const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, hotelConfig);
