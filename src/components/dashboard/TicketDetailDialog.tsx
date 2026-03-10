@@ -606,7 +606,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
                     return slaInfo.isOverdue && (
                       <div>
-                        <Label htmlFor="slaBreachReason">SLA Breach Reason *</Label>
+                        <Label htmlFor="slaBreachReason">{t('ticketDetail.slaBreachReason')} *</Label>
                         <Textarea
                           id="slaBreachReason"
                           value={slaBreachReason}
