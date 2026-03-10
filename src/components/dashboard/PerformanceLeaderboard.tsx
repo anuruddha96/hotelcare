@@ -600,7 +600,7 @@ export function PerformanceLeaderboard() {
           <CardContent className="p-4 text-center">
             <ShieldCheck className="h-6 w-6 mx-auto mb-1 text-orange-500" />
             <div className="text-2xl font-bold">{overviewStats.outliersExcluded}</div>
-            <div className="text-xs text-muted-foreground">Outliers Filtered</div>
+            <div className="text-xs text-muted-foreground">{t('performance.outliersFiltered')}</div>
           </CardContent>
         </Card>
       </div>
