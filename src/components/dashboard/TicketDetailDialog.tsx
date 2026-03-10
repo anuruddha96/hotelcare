@@ -144,8 +144,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       setMaintenanceStaff(maintenanceOnly);
     } catch (error: any) {
       toast({
-        title: 'Error',
-        description: 'Failed to fetch staff',
+        title: t('common.error'),
+        description: t('ticketDetail.fetchStaffError'),
         variant: 'destructive',
       });
     }
