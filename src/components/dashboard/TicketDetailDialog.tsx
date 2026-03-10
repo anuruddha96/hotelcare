@@ -591,7 +591,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                 </h4>
                 <div className="space-y-3">
                   <div>
-                    <Label htmlFor="resolution">Resolution Details *</Label>
+                    <Label htmlFor="resolution">{t('ticketDetail.resolutionDetails')} *</Label>
                     <Textarea
                       id="resolution"
                       value={resolutionText}
