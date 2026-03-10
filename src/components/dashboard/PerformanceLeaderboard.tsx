@@ -706,7 +706,7 @@ export function PerformanceLeaderboard() {
                             )}
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Avg checkout clean time (±{entry.checkout_stddev}m stddev)</TooltipContent>
+                        <TooltipContent>{t('performance.avgCheckoutCleanTime').replace('{stddev}', String(entry.checkout_stddev))}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
