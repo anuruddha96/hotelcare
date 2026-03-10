@@ -2146,7 +2146,6 @@ export const additionalTranslations = {
     'performance.cons': 'Тогт',
     'performance.qual': 'Чан',
     'linen.exportCsv': 'CSV руу экспортлох',
-    'linen.totalCollected': 'Нийт Цуглуулсан',
     'linen.housekeepersCount': '{count} Цэвэрлэгч',
     'linen.noData': 'Сонгосон хугацаанд өгөгдөл байхгүй',
     'notifications.breakRequestSubmitted': 'Шинэ завсарлагааны хүсэлт ирлээ',
