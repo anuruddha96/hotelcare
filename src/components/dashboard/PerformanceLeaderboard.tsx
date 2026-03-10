@@ -718,7 +718,7 @@ export function PerformanceLeaderboard() {
                             <div className="text-[10px] sm:text-xs text-teal-600 dark:text-teal-500">{t('performance.roomsHr')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Rooms per working hour ({entry.rooms_per_day} rooms/day)</TooltipContent>
+                        <TooltipContent>{t('performance.roomsPerWorkingHour').replace('{rpd}', String(entry.rooms_per_day))}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
