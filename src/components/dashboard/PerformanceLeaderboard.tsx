@@ -767,8 +767,8 @@ export function PerformanceLeaderboard() {
                         </TooltipTrigger>
                         <TooltipContent>
                           {entry.rating_count > 0 
-                            ? `Manager rating: ${entry.avg_rating}/5 (${entry.rating_count} reviews)`
-                            : 'No ratings yet — scored at 50%'
+                            ? t('performance.managerRating').replace('{rating}', String(entry.avg_rating)).replace('{count}', String(entry.rating_count))
+                            : t('performance.noRatingsYet')
                           }
                         </TooltipContent>
                       </Tooltip>

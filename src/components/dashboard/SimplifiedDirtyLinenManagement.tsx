@@ -346,7 +346,7 @@ export function SimplifiedDirtyLinenManagement() {
           </div>
           <div className="flex items-center gap-3 p-4 bg-secondary/50 rounded-lg">
             <Badge variant="secondary" className="text-lg px-4 py-2">
-              {housekeeperData.length} Housekeepers
+              {t('linen.housekeepersCount').replace('{count}', String(housekeeperData.length))}
             </Badge>
           </div>
         </div>

@@ -590,7 +590,7 @@ export function HousekeepingManagerView() {
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                >
                  <MapPin className="h-4 w-4" />
-                 Public Areas
+                 <span className="truncate">{t('manager.publicAreas')}</span>
                </Button>
                
                <Button 
