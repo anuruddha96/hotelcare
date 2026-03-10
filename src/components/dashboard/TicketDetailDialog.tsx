@@ -365,8 +365,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       fetchComments();
       
       toast({
-        title: 'Success',
-        description: 'Comment added',
+        title: t('common.success'),
+        description: t('ticketDetail.commentAdded'),
       });
     } catch (error: any) {
       toast({
