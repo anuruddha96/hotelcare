@@ -568,7 +568,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                      <AlertDialogCancel disabled={loading}>{t('common.cancel')}</AlertDialogCancel>
                       <AlertDialogAction 
                         onClick={handleDeleteTicket}
                         disabled={loading}
