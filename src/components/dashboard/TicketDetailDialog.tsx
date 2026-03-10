@@ -162,8 +162,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       if (error) throw error;
 
       toast({
-        title: 'Success',
-        description: 'Ticket status updated',
+        title: t('common.success'),
+        description: t('ticketDetail.statusUpdated'),
       });
 
       onTicketUpdated();
