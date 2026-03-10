@@ -1298,11 +1298,9 @@ ${activePreviews.map(preview => {
                   })}
                 </div>
 
-                {/* Info about room order */}
-                <div className="flex items-start gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-[11px] text-blue-800 dark:text-blue-300">
-                  <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                  <span>{t('autoAssign.previewInfo')} {isMobile ? t('autoAssign.tapToMove') : t('autoAssign.dragToReassign')}</span>
-                </div>
+                <p className="text-[10px] text-muted-foreground text-center flex-shrink-0 py-0.5">
+                  {isMobile ? t('autoAssign.tapToMove') : t('autoAssign.dragToReassign')}
+                </p>
               </div>
             ) : step === 'confirm' ? (
               <div className="space-y-4 text-center py-8">
