@@ -23,7 +23,9 @@ import {
   ArrowUpDown,
   Camera,
   Package,
-  Info
+  Info,
+  Globe,
+  Loader2 as LucideLoader
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
@@ -39,6 +41,7 @@ import { PausableTimerComponent } from './PausableTimerComponent';
 import { RoomAssignmentChangeDialog } from './RoomAssignmentChangeDialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
+import { parseRoomFlags } from '@/lib/room-service-flags';
 
 interface AssignedRoomCardProps {
   assignment: {
