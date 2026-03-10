@@ -620,7 +620,7 @@ export function PerformanceLeaderboard() {
           {leaderboard.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <p className="font-medium">{t('performance.noData')}</p>
-              <p className="text-xs mt-1">Staff need at least {THRESHOLDS.minRoomsForRanking} rooms across {THRESHOLDS.minDaysForRanking}+ days to appear here</p>
+              <p className="text-xs mt-1">{t('performance.minRoomsNote').replace('{minRooms}', String(THRESHOLDS.minRoomsForRanking)).replace('{minDays}', String(THRESHOLDS.minDaysForRanking))}</p>
             </div>
           ) : (
             leaderboard.map((entry) => (
