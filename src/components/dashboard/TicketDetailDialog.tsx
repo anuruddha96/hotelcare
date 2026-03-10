@@ -85,6 +85,7 @@ interface TicketDetailDialogProps {
 
 export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated }: TicketDetailDialogProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [maintenanceStaff, setMaintenanceStaff] = useState<Profile[]>([]);
