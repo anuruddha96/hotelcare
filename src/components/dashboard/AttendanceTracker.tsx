@@ -478,13 +478,13 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       case 'checked_out':
         return <Badge className="bg-gray-500 text-white text-xs sm:text-sm">{t('attendance.checkedOut')}</Badge>;
       case 'pending_early_signout':
-        return <Badge className="bg-orange-500 text-white text-xs sm:text-sm animate-pulse">Pending Early Sign-Out Approval</Badge>;
+        return <Badge className="bg-orange-500 text-white text-xs sm:text-sm animate-pulse">{t('attendance.pendingEarlySignOut')}</Badge>;
       case 'auto_signout':
-        return <Badge className="bg-orange-600 text-white text-xs sm:text-sm">Auto Signed Out</Badge>;
+        return <Badge className="bg-orange-600 text-white text-xs sm:text-sm">{t('attendance.autoSignedOut')}</Badge>;
       case 'forgot_signout':
-        return <Badge className="bg-amber-500 text-white text-xs sm:text-sm">Forgot Sign Out</Badge>;
+        return <Badge className="bg-amber-500 text-white text-xs sm:text-sm">{t('attendance.forgotSignOut')}</Badge>;
       default:
-        return <Badge variant="outline" className="text-xs sm:text-sm">Unknown</Badge>;
+        return <Badge variant="outline" className="text-xs sm:text-sm">{t('attendance.unknown')}</Badge>;
     }
   };
 
