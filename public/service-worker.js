@@ -1,5 +1,5 @@
 // Service Worker for persistent notifications
-const CACHE_NAME = 'rd-hotels-v1';
+const CACHE_NAME = 'hotelcare-v1';
 
 // Install event
 self.addEventListener('install', (event) => {
