@@ -466,7 +466,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               </div>
               <div className="flex items-center gap-2">
                 <User className="h-4 w-4" />
-                Created by {ticket.created_by?.full_name ?? 'Unknown'}
+                {t('ticketDetail.createdBy')} {ticket.created_by?.full_name ?? t('ticketCard.unknown')}
               </div>
               {ticket.assigned_to && (
                 <div className="flex items-center gap-2">
