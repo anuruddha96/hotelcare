@@ -282,7 +282,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
             </TabsContent>
 
             <TabsContent value="manage" className="space-y-6">
-              <HousekeepingManagerView />
+              <HousekeepingManagerView onActiveInnerTabChange={onActiveInnerTabChange} />
             </TabsContent>
 
             <TabsContent value="performance" className="space-y-6">
