@@ -229,8 +229,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   const handleCloseTicket = async () => {
     if (!resolutionText.trim()) {
       toast({
-        title: 'Error',
-        description: 'Please provide a resolution before closing the ticket',
+        title: t('common.error'),
+        description: t('ticketDetail.resolutionRequired'),
         variant: 'destructive',
       });
       return;
