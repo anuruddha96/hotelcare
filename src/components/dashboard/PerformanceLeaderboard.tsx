@@ -759,9 +759,9 @@ export function PerformanceLeaderboard() {
                             <div className="text-lg sm:text-xl font-bold text-yellow-700 dark:text-yellow-400">
                               {entry.rating_count > 0 ? `${entry.avg_rating}★` : '-'}
                             </div>
-                            <div className="text-[10px] sm:text-xs text-yellow-600 dark:text-yellow-500">Quality</div>
+                             <div className="text-[10px] sm:text-xs text-yellow-600 dark:text-yellow-500">{t('performance.qualityLabel')}</div>
                             {entry.rating_count > 0 && (
-                              <div className="text-[8px] text-muted-foreground">{entry.rating_count} reviews</div>
+                               <div className="text-[8px] text-muted-foreground">{t('performance.reviewsCount').replace('{count}', String(entry.rating_count))}</div>
                             )}
                           </div>
                         </TooltipTrigger>
