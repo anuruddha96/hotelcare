@@ -639,7 +639,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     })())}
                     className="w-full"
                   >
-                    {loading ? 'Closing...' : 'Close Ticket'}
+                    {loading ? t('ticketDetail.closing') : t('ticketDetail.closeTicket')}
                   </Button>
                 </div>
               </div>
