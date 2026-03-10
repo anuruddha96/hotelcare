@@ -497,7 +497,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               <div className="mt-4">
                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                   <Paperclip className="h-4 w-4" />
-                  Attachments
+                  {t('ticketDetail.attachments')}
                 </h4>
                 <AttachmentViewer attachments={ticket.attachment_urls} />
               </div>
