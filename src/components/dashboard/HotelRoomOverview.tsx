@@ -405,11 +405,30 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {roomOverdue && <span className="ml-0.5 text-[9px]">🔴</span>}
           {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
         </div>
-        {staffName && (
-          <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
-            {staffName}
-          </span>
-        )}
+        {/* Bed config & staff name indicators below chip */}
+        <div className="flex flex-col items-center gap-0">
+          {(room as any).bed_configuration && (
+            <span className="text-[8px] text-purple-600 dark:text-purple-400 font-semibold truncate max-w-[48px]">
+              {(() => {
+                const bc = (room as any).bed_configuration;
+                if (bc.includes('Double')) return 'DB';
+                if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
+                if (bc.includes('Twin')) return 'TW';
+                if (bc.includes('Single')) return 'SGL';
+                if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
+                return bc.substring(0, 3).toUpperCase();
+              })()}
+            </span>
+          )}
+          {roomFlags.cleanNotes && (
+            <span className="text-[8px]" title={roomFlags.cleanNotes}>📝</span>
+          )}
+          {staffName && (
+            <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
+              {staffName}
+            </span>
+          )}
+        </div>
       </div>
     );
 

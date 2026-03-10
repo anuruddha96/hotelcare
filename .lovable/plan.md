@@ -1,110 +1,82 @@
 
 
-## Plan: Service Badges on Room Chips, Dynamic Floor Map & AI-Enhanced Assignment Learning
+## Plan: Auto-Assign Towel Change, Custom Bed Types, Improved Sorting, and Housekeeper Card Visibility
 
-### 1. Show Service Badges Visually on Room Chips in Hotel Room Overview
-
-**Problem**: When a manager adds towel change, linen change, RC, or extra towels via the popover, the badges (T, LC, RC, 🧺) already appear on the chip. But **bed configuration** is not shown at all on room chips. Also, manager notes are not visually indicated.
-
-**Changes in `HotelRoomOverview.tsx`**:
-- Add a small bed config indicator on room chips when set (e.g., "DB" for Double Bed, "TW" for Twin, "EX" for Extra Cot) — tiny text below the room number, similar to the existing staff name display
-- Add a small note indicator (📝) on room chips when manager notes exist
-- These are already partially there but bed config is missing from the chip view
+### Summary of Changes (4 areas)
 
 ---
 
-### 2. Dynamic Hotel Floor Map (Replace Hardcoded Wings)
+### 1. Auto-Assign: Manual Towel Change Toggle Before Assignment
 
-**Problem**: The current `HotelFloorMap.tsx` has hardcoded `WING_INFO`, `FLOOR_ORDER`, `FLOOR_LABELS`, and `FLOOR_WINGS` constants specific to Hotel Memories Budapest. This makes it unusable for other hotels and non-configurable by admins.
+**File: `src/components/dashboard/AutoRoomAssignment.tsx`**
 
-**Solution**: Make the floor map fully dynamic — derive floors and wings from room data, and let admins configure everything.
+In Step 1 (select-staff), after the staff grid, add a new section "Pre-Assignment Room Settings" that lists all dirty rooms and allows managers to toggle `towel_change_required` for each room before generating the preview. This lets managers plan towel changes in the morning.
 
-**Changes in `HotelFloorMap.tsx`**:
-- Remove all hardcoded `WING_INFO`, `FLOOR_ORDER`, `FLOOR_LABELS`, `FLOOR_WINGS` constants
-- Derive floors and wings dynamically from the `rooms` prop: `rooms.forEach(r => { floors.add(r.floor_number); wings.add(r.wing); })`
-- Sort floors numerically, generate labels automatically ("Ground Floor", "1st Floor", etc.)
-- Group rooms by floor then wing dynamically
-- Keep the drag/rotate/save layout functionality (already saves to `hotel_floor_layouts` DB table)
-- Add admin edit capabilities:
-  - Assign rooms to wings (drag room chips between wing cards, or a dropdown per room)
-  - Create new wing groups
-  - Set wing labels/views via inline editable text
-  - Save wing assignments back to the `rooms` table (`wing` column)
-- Show service badges (T, LC, RC, 🧺) on room chips in the map view too
-- Show room chip colors matching the overview status colors (clean/dirty/in_progress etc.)
-
-**Room-to-wing assignment UI** (admin edit mode):
-- A panel appears showing "Unassigned Rooms" (rooms with no wing)
-- Admins can click a room chip and then click a wing to assign it
-- Or create a new wing and drag rooms into it
-- Save persists to `rooms.wing` and `rooms.floor_number`
+- Add a collapsible section below staff selection showing all `dirtyRooms` in a compact grid
+- Each room chip has a small towel icon toggle button (T) that updates the local state and the DB `rooms.towel_change_required`
+- When toggled, the room's towel status flows into the algorithm (already supported via `calculateRoomTime` and `calculateRoomWeight`)
+- Also add a "Select All Towel Change" button for bulk toggling
 
 ---
 
-### 3. Floor Map Integration with Auto-Assignment
+### 2. Custom Bed Requirements (Budapest Hotel Use Case)
 
-**Problem**: The auto-assignment already reads `hotel_floor_layouts` for proximity data and uses `wingZoneMapping` for Memories Budapest. Need to ensure the dynamic map feeds the algorithm properly.
+**Database Migration:** Add a `bed_configuration` text column to `rooms` table (nullable). This stores the specific bed arrangement set by managers (e.g., "Twin beds separated", "Double bed", "Extra cot"). The existing `bed_type` column has limited values (`single`, `double`, `queen`, `triple`, `shabath`) — this new column stores the **current guest requirement** which can change per stay.
 
-**Changes in `AutoRoomAssignment.tsx`**:
-- Currently uses hardcoded zone mapping for Hotel Memories Budapest — make this **configurable via a new DB table** or a JSON field in `hotel_configurations`
-- Add a `wing_zone_mapping` JSONB column to `hotel_configurations` table
-- On assignment generation, read the hotel's zone mapping from `hotel_configurations` instead of hardcoding
-- If no custom mapping exists, fall back to using wings directly (current behavior for non-Memories hotels)
+```sql
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS bed_configuration text DEFAULT NULL;
+```
 
-**Changes in `roomAssignmentAlgorithm.ts`**:
-- No algorithm changes needed — it already supports `wingZoneMapping` config
-- The data source just changes from hardcoded to DB-driven
+**File: `src/components/dashboard/HotelRoomOverview.tsx`** — In the room chip dialog, add a "Bed Configuration" field (text input or dropdown with common options + custom) under Room Settings. Only managers/admins can set it. Options: "Double Bed", "Twin Beds", "Twin Beds Separated", "Extra Cot Added", "Single Bed", or custom text.
 
----
+**File: `src/components/dashboard/AutoRoomAssignment.tsx`** — Fetch `bed_configuration` in the rooms query. Show it on room chips in the preview (small icon/label like "🛏️ Twin Sep").
 
-### 4. AI-Enhanced Pattern Learning (Smarter Day-by-Day)
+**File: `src/components/dashboard/AssignedRoomCard.tsx`** — Display `bed_configuration` prominently in a dedicated info row (alongside floor number) so housekeepers clearly see what bed arrangement the guest needs. Show it with a bed icon and distinct styling.
 
-**Problem**: Current learning stores room-pair frequencies but doesn't analyze patterns intelligently. It's purely frequency-based.
+**File: `src/components/dashboard/MobileHousekeepingView.tsx`** — Include `bed_configuration` in the rooms query.
 
-**Solution**: Add an AI analysis step that runs after each confirmed assignment, using the Lovable AI Gateway to analyze patterns and generate optimization suggestions.
+**File: `src/components/dashboard/HousekeepingStaffView.tsx`** — Include `bed_configuration` in the rooms query.
 
-**New edge function: `supabase/functions/analyze-assignment-patterns/index.ts`**:
-- Triggered after assignment confirmation
-- Inputs: hotel name, org slug, today's assignments, last 14 days of patterns
-- Uses `google/gemini-3-flash-preview` to analyze:
-  - Which room groupings the manager keeps vs. changes
-  - Floor/wing preferences per housekeeper
-  - Checkout distribution preferences
-  - Time-of-week patterns
-- Returns structured output via tool calling:
-  - `suggested_zone_mapping`: recommended wing groupings
-  - `staff_preferences`: per-housekeeper room affinities
-  - `optimization_notes`: human-readable insights
-- Stores results in a new `assignment_insights` object in localStorage (per hotel) to avoid DB migration
-- On next auto-assignment, these insights are loaded and passed as additional config to the algorithm
-
-**Changes in `AutoRoomAssignment.tsx`**:
-- After `handleConfirmAssignment` succeeds, invoke `analyze-assignment-patterns` in the background (non-blocking)
-- Before generating preview, load cached AI insights and apply:
-  - If AI suggests zone mapping adjustments, use those
-  - If AI identifies staff-room preferences, boost affinity scores for those pairs
-- Show a small "🧠 AI Learning" indicator in the assignment dialog footer
-- Show AI optimization notes (if any) as a collapsible section in the preview step
-
-**Changes in `roomAssignmentAlgorithm.ts`**:
-- Add `staffPreferences?: Record<string, string[]>` to `HotelAssignmentConfig` — maps staff ID to preferred room number patterns
-- When scoring candidates during wing-split, add a preference bonus if the staff member has an AI-identified preference for that room/zone
+**File: `src/lib/roomAssignmentAlgorithm.ts`** — Add `bed_configuration` to `RoomForAssignment` interface.
 
 ---
 
-### 5. Configurable Zone Mapping via Hotel Settings
+### 3. Fix Room Priority/Sorting Order
 
-**Problem**: Zone mapping is hardcoded in `AutoRoomAssignment.tsx` for Memories Budapest.
+Current sorting logic in `HousekeepingStaffView.tsx` and `MobileHousekeepingView.tsx` is almost correct but has issues:
+- Checkout rooms waiting for guest (`ready_to_clean=false`) should sort AFTER daily rooms that are ready
+- Ready-to-clean checkout rooms should be first
+- Same floor rooms should be grouped together
+- High priority rooms should always be at top (after in-progress)
 
-**Solution**: Store zone mappings in `hotel_configurations` and provide an admin UI to edit them.
+**New sort order (all 3 files + PendingRoomsDialog):**
 
-**Changes**:
-- In the Floor Map admin edit mode, add a "Zone Grouping" panel where admins can:
-  - See current wing-to-zone mapping
-  - Drag wings into zones
-  - Create/rename/delete zones
-  - Save to `hotel_configurations.wing_zone_mapping`
-- The auto-assignment reads from this config instead of hardcoded values
+1. `in_progress` always first
+2. High priority rooms (`priority >= 3`) — regardless of type
+3. Ready checkout rooms (`checkout_cleaning` + `ready_to_clean=true`)
+4. Daily rooms — grouped by floor, then room number
+5. Checkout rooms waiting (`checkout_cleaning` + `ready_to_clean=false`) — at bottom
+6. Completed rooms last
+
+**Files to update sorting:**
+- `src/components/dashboard/HousekeepingStaffView.tsx` (lines 174-208)
+- `src/components/dashboard/MobileHousekeepingView.tsx` (lines 189-223)
+- `src/components/dashboard/PendingRoomsDialog.tsx` (lines 86-91) — replace simple numeric sort with the same priority logic
+
+---
+
+### 4. Redesign AssignedRoomCard Special Instructions Visibility
+
+**File: `src/components/dashboard/AssignedRoomCard.tsx`**
+
+Currently, towel/linen badges are small badges in the header. Bed configuration doesn't exist yet. Manager notes are shown but could be more prominent. Redesign the top of the card to have a **"Special Instructions" banner** that consolidates:
+
+- Towel change required → prominent yellow banner with icon
+- Linen change required → prominent purple banner with icon  
+- Bed configuration → prominent blue banner with bed icon and the configuration text
+- Manager notes → already amber banner (keep as-is)
+
+Move these from small header badges to a dedicated, unmissable section right after the card header, before room details. Use larger text and bolder styling.
 
 ---
 
@@ -112,14 +84,12 @@
 
 | File | Changes |
 |------|---------|
-| `HotelRoomOverview.tsx` | Add bed config + notes indicators to room chips |
-| `HotelFloorMap.tsx` | Remove hardcoded constants, dynamic floor/wing derivation, admin room-to-wing assignment, zone grouping UI, service badges on map chips |
-| `AutoRoomAssignment.tsx` | Read zone mapping from DB, load AI insights, trigger analysis after confirm, show AI learning indicator |
-| `roomAssignmentAlgorithm.ts` | Add `staffPreferences` to config, preference bonus in scoring |
-| `supabase/functions/analyze-assignment-patterns/index.ts` | **New** — AI pattern analysis edge function |
-| `hotel_configurations` table | Add `wing_zone_mapping` JSONB column (needs migration or use existing columns) |
-
-### Migration Note
-
-Need to check if `hotel_configurations` has a suitable JSONB column or if we should store the zone mapping in the existing `hotel_floor_layouts` table. Will use the most pragmatic approach to avoid heavy migrations.
+| **Migration** | Add `bed_configuration` column to `rooms` |
+| `AutoRoomAssignment.tsx` | Add towel change toggle section in Step 1, fetch `bed_configuration`, show on preview chips |
+| `HotelRoomOverview.tsx` | Add bed configuration selector in room chip dialog |
+| `AssignedRoomCard.tsx` | Redesign special instructions section with prominent banners for towel/linen/bed config |
+| `HousekeepingStaffView.tsx` | Fix sorting, add `bed_configuration` to query |
+| `MobileHousekeepingView.tsx` | Fix sorting, add `bed_configuration` to query |
+| `PendingRoomsDialog.tsx` | Fix sorting to match housekeeper priority order, fetch `bed_configuration` and show it |
+| `roomAssignmentAlgorithm.ts` | Add `bed_configuration` to `RoomForAssignment` interface |
 
