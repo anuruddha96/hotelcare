@@ -315,6 +315,7 @@ export interface HotelAssignmentConfig {
   affinityBonusMultiplier?: number;   // default 15 (increased from 10)
   checkoutFirstGrouping?: boolean;    // default true
   roomProximityWeight?: number;       // default 1.0, for hotels without wing data
+  wingZoneMapping?: Record<string, string>; // maps original wing to zone name for grouping
 }
 
 const DEFAULT_CONFIG: HotelAssignmentConfig = {
