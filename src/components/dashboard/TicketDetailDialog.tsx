@@ -486,7 +486,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                 <p className="text-sm text-green-700">{ticket.resolution_text}</p>
                 {ticket.closed_at && ticket.closed_by && (
                   <div className="text-xs text-green-600 mt-2">
-                    Closed by {ticket.closed_by.full_name} on {format(new Date(ticket.closed_at), 'MMM dd, yyyy HH:mm')}
+                    {t('ticketDetail.closedBy')} {ticket.closed_by.full_name} {t('ticketDetail.on')} {format(new Date(ticket.closed_at), 'MMM dd, yyyy HH:mm')}
                   </div>
                 )}
               </div>
