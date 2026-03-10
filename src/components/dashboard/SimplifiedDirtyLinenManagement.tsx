@@ -325,7 +325,7 @@ export function SimplifiedDirtyLinenManagement() {
         </div>
         <Button onClick={exportToCSV} variant="outline" disabled={housekeeperData.length === 0}>
           <Download className="h-4 w-4 mr-2" />
-          Export to CSV
+          <span className="truncate">{t('linen.exportCsv')}</span>
         </Button>
       </div>
 
