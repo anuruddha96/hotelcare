@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Dialog,
@@ -84,6 +85,7 @@ interface TicketDetailDialogProps {
 
 export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated }: TicketDetailDialogProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [maintenanceStaff, setMaintenanceStaff] = useState<Profile[]>([]);
@@ -122,8 +124,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       setComments(data || []);
     } catch (error: any) {
       toast({
-        title: 'Error',
-        description: 'Failed to fetch comments',
+        title: t('common.error'),
+        description: t('ticketDetail.fetchCommentsError'),
         variant: 'destructive',
       });
     }
@@ -142,8 +144,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       setMaintenanceStaff(maintenanceOnly);
     } catch (error: any) {
       toast({
-        title: 'Error',
-        description: 'Failed to fetch staff',
+        title: t('common.error'),
+        description: t('ticketDetail.fetchStaffError'),
         variant: 'destructive',
       });
     }
@@ -160,8 +162,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       if (error) throw error;
 
       toast({
-        title: 'Success',
-        description: 'Ticket status updated',
+        title: t('common.success'),
+        description: t('ticketDetail.statusUpdated'),
       });
 
       onTicketUpdated();
@@ -208,8 +210,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       }
 
       toast({
-        title: 'Success',
-        description: 'Ticket assigned successfully',
+        title: t('common.success'),
+        description: t('ticketDetail.assigned'),
       });
       
       onTicketUpdated();
@@ -227,8 +229,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   const handleCloseTicket = async () => {
     if (!resolutionText.trim()) {
       toast({
-        title: 'Error',
-        description: 'Please provide a resolution before closing the ticket',
+        title: t('common.error'),
+        description: t('ticketDetail.resolutionRequired'),
         variant: 'destructive',
       });
       return;
@@ -238,8 +240,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
     const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
     if (slaInfo.isOverdue && !slaBreachReason.trim()) {
       toast({
-        title: 'Error',
-        description: 'Please provide an SLA breach reason for overdue tickets',
+        title: t('common.error'),
+        description: t('ticketDetail.slaBreachRequired'),
         variant: 'destructive',
       });
       return;
@@ -281,8 +283,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       }
 
       toast({
-        title: 'Success',
-        description: 'Ticket closed successfully',
+        title: t('common.success'),
+        description: t('ticketDetail.closed'),
       });
 
       onTicketUpdated();
@@ -309,8 +311,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       if (error) throw error;
 
       toast({
-        title: 'Success',
-        description: 'Ticket deleted successfully',
+        title: t('common.success'),
+        description: t('ticketDetail.deleted'),
       });
 
       onTicketUpdated();
@@ -363,8 +365,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       fetchComments();
       
       toast({
-        title: 'Success',
-        description: 'Comment added',
+        title: t('common.success'),
+        description: t('ticketDetail.commentAdded'),
       });
     } catch (error: any) {
       toast({
@@ -464,12 +466,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               </div>
               <div className="flex items-center gap-2">
                 <User className="h-4 w-4" />
-                Created by {ticket.created_by?.full_name ?? 'Unknown'}
+                {t('ticketDetail.createdBy')} {ticket.created_by?.full_name ?? t('ticketCard.unknown')}
               </div>
               {ticket.assigned_to && (
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4" />
-                  Assigned to {ticket.assigned_to.full_name}
+                  {t('ticketDetail.assignedTo')} {ticket.assigned_to.full_name}
                 </div>
               )}
             </div>
@@ -479,12 +481,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
                   <CheckCircle className="h-4 w-4 text-green-600" />
-                  <span className="font-medium text-green-700">Resolution</span>
+                  <span className="font-medium text-green-700">{t('ticketDetail.resolution')}</span>
                 </div>
                 <p className="text-sm text-green-700">{ticket.resolution_text}</p>
                 {ticket.closed_at && ticket.closed_by && (
                   <div className="text-xs text-green-600 mt-2">
-                    Closed by {ticket.closed_by.full_name} on {format(new Date(ticket.closed_at), 'MMM dd, yyyy HH:mm')}
+                    {t('ticketDetail.closedBy')} {ticket.closed_by.full_name} {t('ticketDetail.on')} {format(new Date(ticket.closed_at), 'MMM dd, yyyy HH:mm')}
                   </div>
                 )}
               </div>
@@ -495,7 +497,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               <div className="mt-4">
                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                   <Paperclip className="h-4 w-4" />
-                  Attachments
+                  {t('ticketDetail.attachments')}
                 </h4>
                 <AttachmentViewer attachments={ticket.attachment_urls} />
               </div>
@@ -514,12 +516,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   disabled={loading}
                 >
                   <SelectTrigger className="w-[160px]">
-                    <SelectValue placeholder="Update Status" />
+                    <SelectValue placeholder={t('ticketDetail.updateStatus')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="open">{t('ticketDetail.open')}</SelectItem>
+                    <SelectItem value="in_progress">{t('ticketDetail.inProgress')}</SelectItem>
+                    <SelectItem value="completed">{t('ticketDetail.completed')}</SelectItem>
                   </SelectContent>
                 </Select>
               )}
@@ -531,7 +533,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   disabled={loading}
                 >
                   <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Assign to..." />
+                    <SelectValue placeholder={t('ticketDetail.assignTo')} />
                   </SelectTrigger>
                   <SelectContent>
                     {maintenanceStaff.map((staff) => (
@@ -554,25 +556,25 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                       className="ml-auto"
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Delete Ticket
+                      {t('ticketDetail.deleteTicket')}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Ticket</AlertDialogTitle>
+                      <AlertDialogTitle>{t('ticketDetail.deleteTicket')}</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you absolutely sure you want to delete ticket <strong>{ticket.ticket_number}</strong>? 
-                        This action cannot be undone and will permanently remove the ticket and all its comments.
+                        {t('ticketDetail.deleteConfirm')} <strong>{ticket.ticket_number}</strong>? 
+                        {t('ticketDetail.deleteWarning')}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+                      <AlertDialogCancel disabled={loading}>{t('common.cancel')}</AlertDialogCancel>
                       <AlertDialogAction 
                         onClick={handleDeleteTicket}
                         disabled={loading}
                         className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                       >
-                        {loading ? 'Deleting...' : 'Delete Permanently'}
+                        {loading ? t('ticketDetail.deleting') : t('ticketDetail.deletePermanently')}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -585,16 +587,16 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               <div className="p-4 border rounded-lg bg-slate-50">
                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                   <CheckCircle className="h-4 w-4" />
-                  Close Ticket
+                  {t('ticketDetail.closeTicket')}
                 </h4>
                 <div className="space-y-3">
                   <div>
-                    <Label htmlFor="resolution">Resolution Details *</Label>
+                    <Label htmlFor="resolution">{t('ticketDetail.resolutionDetails')} *</Label>
                     <Textarea
                       id="resolution"
                       value={resolutionText}
                       onChange={(e) => setResolutionText(e.target.value)}
-                      placeholder="Describe how the issue was resolved..."
+                      placeholder={t('ticketDetail.resolutionPlaceholder')}
                       rows={3}
                     />
                   </div>
@@ -604,12 +606,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
                     return slaInfo.isOverdue && (
                       <div>
-                        <Label htmlFor="slaBreachReason">SLA Breach Reason *</Label>
+                        <Label htmlFor="slaBreachReason">{t('ticketDetail.slaBreachReason')} *</Label>
                         <Textarea
                           id="slaBreachReason"
                           value={slaBreachReason}
                           onChange={(e) => setSlaBreachReason(e.target.value)}
-                          placeholder="Explain why this ticket exceeded the SLA time limit..."
+                          placeholder={t('ticketDetail.slaBreachPlaceholder')}
                           rows={3}
                         />
                       </div>
@@ -619,7 +621,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   <div>
                     <Label className="flex items-center gap-2">
                       <Paperclip className="h-4 w-4" />
-                      Attach Photos (Optional)
+                      {t('ticketDetail.attachPhotos')}
                     </Label>
                     <FileUpload 
                       onFilesChange={setAttachmentFiles}
@@ -637,7 +639,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     })())}
                     className="w-full"
                   >
-                    {loading ? 'Closing...' : 'Close Ticket'}
+                    {loading ? t('ticketDetail.closing') : t('ticketDetail.closeTicket')}
                   </Button>
                 </div>
               </div>
@@ -650,7 +652,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
           <div>
             <h4 className="font-semibold mb-4 flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
-              Comments ({comments.length})
+              {t('ticketDetail.comments')} ({comments.length})
             </h4>
             
             <div className="space-y-4 mb-4 max-h-60 overflow-y-auto">
@@ -680,12 +682,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
             {/* Add Comment Form */}
             <form onSubmit={handleAddComment} className="space-y-3">
               <div>
-                <Label htmlFor="comment">Add a comment</Label>
+                <Label htmlFor="comment">{t('ticketDetail.addComment')}</Label>
                 <Textarea
                   id="comment"
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Share updates, ask questions, or provide additional information..."
+                  placeholder={t('ticketDetail.commentPlaceholder')}
                   rows={3}
                 />
               </div>
@@ -694,7 +696,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               <div>
                 <Label className="flex items-center gap-2 mb-2">
                   <Paperclip className="h-4 w-4" />
-                  Attach Files (Optional)
+                  {t('ticketDetail.attachFiles')}
                 </Label>
                 <AttachmentUpload
                   ticketId={ticket.id}
@@ -706,7 +708,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               
               <div className="flex justify-end">
                 <Button type="submit" disabled={loading || !newComment.trim()}>
-                  {loading ? 'Adding...' : 'Add Comment'}
+                  {loading ? t('ticketDetail.adding') : t('ticketDetail.addCommentBtn')}
                 </Button>
               </div>
             </form>

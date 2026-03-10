@@ -34,21 +34,12 @@ export function CompletionChecklistDialog({
 
   const handleConfirm = () => {
     onConfirm();
-    // Reset checklist
-    setChecklist({
-      photos: false,
-      dirtyLinen: false,
-      minibar: false,
-    });
+    setChecklist({ photos: false, dirtyLinen: false, minibar: false });
     onOpenChange(false);
   };
 
   const handleCancel = () => {
-    setChecklist({
-      photos: false,
-      dirtyLinen: false,
-      minibar: false,
-    });
+    setChecklist({ photos: false, dirtyLinen: false, minibar: false });
     onOpenChange(false);
   };
 
@@ -58,7 +49,7 @@ export function CompletionChecklistDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CheckCircle className="h-5 w-5 text-blue-600" />
-            Complete Room {roomNumber}
+            {t('checklist.completeRoom')} {roomNumber}
           </DialogTitle>
         </DialogHeader>
 
@@ -67,7 +58,7 @@ export function CompletionChecklistDialog({
             <div className="flex gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-sm text-amber-800">
-                Before marking this room as complete, please confirm you have captured all required data:
+                {t('checklist.confirmWarning')}
               </p>
             </div>
           </div>
@@ -84,7 +75,7 @@ export function CompletionChecklistDialog({
                 className="flex items-center gap-2 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
               >
                 <Camera className="h-4 w-4 text-blue-600" />
-                Room photos captured (Bed, Bathroom, Desk, Trash Bin)
+                {t('checklist.photosCapture')}
               </Label>
             </div>
 
@@ -99,7 +90,7 @@ export function CompletionChecklistDialog({
                 className="flex items-center gap-2 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
               >
                 <Shirt className="h-4 w-4 text-purple-600" />
-                Dirty linen count updated (if applicable)
+                {t('checklist.dirtyLinenUpdated')}
               </Label>
             </div>
 
@@ -114,7 +105,7 @@ export function CompletionChecklistDialog({
                 className="flex items-center gap-2 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
               >
                 <span className="text-base">🍷</span>
-                Minibar consumption recorded (if applicable)
+                {t('checklist.minibarRecorded')}
               </Label>
             </div>
           </div>
@@ -122,25 +113,22 @@ export function CompletionChecklistDialog({
           {!allChecked && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3">
               <p className="text-xs text-red-700">
-                ⚠️ Please confirm all items above to proceed with completion. You can still access these features after completing if needed.
+                ⚠️ {t('checklist.confirmAllItems')}
               </p>
             </div>
           )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            variant="outline"
-            onClick={handleCancel}
-          >
-            Cancel
+          <Button variant="outline" onClick={handleCancel}>
+            {t('common.cancel')}
           </Button>
           <Button
             onClick={handleConfirm}
             disabled={!allChecked}
             className={allChecked ? '' : 'opacity-50'}
           >
-            {allChecked ? 'Mark as Complete' : 'Please Confirm All Items'}
+            {allChecked ? t('checklist.markComplete') : t('checklist.pleaseConfirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
