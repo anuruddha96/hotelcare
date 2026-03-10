@@ -652,7 +652,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
           <div>
             <h4 className="font-semibold mb-4 flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
-              Comments ({comments.length})
+              {t('ticketDetail.comments')} ({comments.length})
             </h4>
             
             <div className="space-y-4 mb-4 max-h-60 overflow-y-auto">
