@@ -708,7 +708,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               
               <div className="flex justify-end">
                 <Button type="submit" disabled={loading || !newComment.trim()}>
-                  {loading ? 'Adding...' : 'Add Comment'}
+                  {loading ? t('ticketDetail.adding') : t('ticketDetail.addCommentBtn')}
                 </Button>
               </div>
             </form>
