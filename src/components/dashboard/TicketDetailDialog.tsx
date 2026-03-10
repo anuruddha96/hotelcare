@@ -210,8 +210,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       }
 
       toast({
-        title: 'Success',
-        description: 'Ticket assigned successfully',
+        title: t('common.success'),
+        description: t('ticketDetail.assigned'),
       });
       
       onTicketUpdated();
