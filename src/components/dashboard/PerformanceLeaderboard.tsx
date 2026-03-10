@@ -633,9 +633,9 @@ export function PerformanceLeaderboard() {
                       <div className="min-w-0">
                         <div className="font-bold text-sm sm:text-base truncate">{entry.full_name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {entry.total_completed} rooms in {entry.unique_work_days} days
+                          {t('performance.roomsInDays').replace('{rooms}', String(entry.total_completed)).replace('{days}', String(entry.unique_work_days))}
                           {entry.excluded_outliers > 0 && (
-                            <span className="text-orange-500 ml-1">({entry.excluded_outliers} outliers removed)</span>
+                            <span className="text-orange-500 ml-1">({t('performance.outliersRemoved').replace('{count}', String(entry.excluded_outliers))})</span>
                           )}
                         </div>
                       </div>
