@@ -657,6 +657,47 @@ export const additionalTranslations = {
 
     // Room overview
     'room.actTooltip': 'Average Cleaning Time — average duration to clean a room',
+
+    // Legend
+    'legend.hideLegend': 'Hide Legend',
+    'legend.showLegend': 'Show Legend',
+    'legend.approvedClean': 'Approved/Clean',
+    'legend.dirtyAssigned': 'Dirty/Assigned',
+    'legend.inProgress': 'In Progress',
+    'legend.pendingApproval': 'Pending Approval',
+    'legend.overdue': 'Overdue',
+    'legend.outOfOrder': 'Out of Order',
+    'legend.dnd': 'DND',
+    'legend.noShow': 'No-Show',
+    'legend.earlyCheckout': 'Early Checkout',
+    'legend.towelChange': 'Towel Change',
+    'legend.bedLinenChange': 'Bed Linen Change',
+    'legend.roomCleaning': 'Room Cleaning',
+    'legend.extraTowels': 'Extra Towels',
+    'legend.readyToClean': 'Ready to Clean',
+    'legend.approved': 'Approved',
+    'legend.approvedCleanHint': 'Room has been cleaned and approved by supervisor',
+    'legend.dirtyAssignedHint': 'Room needs cleaning — assigned to a housekeeper',
+    'legend.inProgressHint': 'Housekeeper is currently cleaning this room',
+    'legend.outOfOrderHint': 'Room is out of service and unavailable',
+    'legend.roomCleaningHint': 'Full room cleaning required',
+    'legend.extraTowelsHint': 'Collect extra towels from this room',
+    'legend.approvedHint': 'Supervisor has approved this cleaning',
+
+    // Public Area Assignment
+    'publicArea.title': 'Assign Public Areas',
+    'publicArea.selectHousekeeper': 'Select Housekeeper',
+    'publicArea.choosePlaceholder': 'Choose a housekeeper...',
+    'publicArea.selectAreas': 'Select Areas',
+    'publicArea.selected': 'selected',
+    'publicArea.priority': 'Priority',
+    'publicArea.normal': 'Normal',
+    'publicArea.high': 'High',
+    'publicArea.urgent': 'Urgent',
+    'publicArea.notes': 'Notes (optional)',
+    'publicArea.notesPlaceholder': 'Add any special instructions...',
+    'publicArea.assign': 'Assign',
+    'publicArea.assigning': 'Assigning...',
   },
 
   es: {
