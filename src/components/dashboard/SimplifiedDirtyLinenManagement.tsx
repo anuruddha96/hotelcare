@@ -280,7 +280,7 @@ export function SimplifiedDirtyLinenManagement() {
           {housekeeperData.length === 0 ? (
             <tr>
               <td colSpan={allLinenItems.length + 2} className="border p-8 text-center text-muted-foreground">
-                No data available for the selected date range
+                {t('linen.noData')}
               </td>
             </tr>
           ) : (
