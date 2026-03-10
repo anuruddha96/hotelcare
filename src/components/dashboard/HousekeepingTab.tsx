@@ -54,7 +54,12 @@ const TAB_CONFIGS: { [key: string]: TabConfig } = {
   'tab-order': { id: 'tab-order', label: 'housekeeping.tabs.tabSettings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500', hintKey: 'hk.tabSettings' },
 };
 
-export function HousekeepingTab() {
+interface HousekeepingTabProps {
+  onActiveSubTabChange?: (tab: string) => void;
+  onActiveInnerTabChange?: (tab: string) => void;
+}
+
+export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }: HousekeepingTabProps = {}) {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [userRole, setUserRole] = useState<string>('');
@@ -223,7 +228,7 @@ export function HousekeepingTab() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); onActiveSubTabChange?.(val); }} className="w-full">
         <TabsList className={`
           ${hasManagerAccess || isReceptionReadOnly
             ? 'inline-flex overflow-x-auto overflow-y-hidden w-full justify-start gap-1 p-1 h-auto flex-nowrap scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent' 
@@ -277,7 +282,7 @@ export function HousekeepingTab() {
             </TabsContent>
 
             <TabsContent value="manage" className="space-y-6">
-              <HousekeepingManagerView />
+              <HousekeepingManagerView onActiveInnerTabChange={onActiveInnerTabChange} />
             </TabsContent>
 
             <TabsContent value="performance" className="space-y-6">

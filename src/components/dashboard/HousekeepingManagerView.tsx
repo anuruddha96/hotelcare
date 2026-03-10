@@ -107,7 +107,11 @@ interface RoomAssignment {
   hotel: string;
 }
 
-export function HousekeepingManagerView() {
+interface HousekeepingManagerViewProps {
+  onActiveInnerTabChange?: (tab: string) => void;
+}
+
+export function HousekeepingManagerView({ onActiveInnerTabChange }: HousekeepingManagerViewProps = {}) {
   const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
@@ -529,7 +533,7 @@ export function HousekeepingManagerView() {
 
   return (
     <>
-    <Tabs defaultValue="team" className="space-y-6">
+    <Tabs defaultValue="team" className="space-y-6" onValueChange={(val) => onActiveInnerTabChange?.(val)}>
       {!isReception && (
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="team" className="text-xs sm:text-sm truncate">{t('manager.teamView')}</TabsTrigger>

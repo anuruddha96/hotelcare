@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
@@ -22,6 +22,7 @@ import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 
 import { AdminTabs } from '@/components/admin/AdminTabs';
+import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -308,10 +309,46 @@ export function Dashboard() {
   };
 
   const [activeTab, setActiveTab] = useState<string>(getDefaultTab(profile?.role));
+  const [activeHousekeepingSubTab, setActiveHousekeepingSubTab] = useState<string>('');
+  const [activeInnerTab, setActiveInnerTab] = useState<string>('team');
   
   useEffect(() => {
     setActiveTab(getDefaultTab(profile?.role));
   }, [profile?.role, attendanceStatus]);
+
+  // Build breadcrumb labels
+  const mainTabLabels: Record<string, string> = useMemo(() => ({
+    tickets: t('dashboard.tickets'),
+    rooms: t('dashboard.rooms'),
+    housekeeping: t('dashboard.housekeeping'),
+    attendance: t('dashboard.workStatus'),
+    admin: 'Admin',
+    'maintenance-tasks': t('dashboard.myTasks'),
+    minibar: 'Minibar',
+    'lost-found': 'Lost & Found',
+  }), [t]);
+
+  const housekeepingSubTabLabels: Record<string, string> = useMemo(() => ({
+    'staff-management': t('housekeeping.tabs.staffManagement'),
+    'supervisor': t('housekeeping.tabs.pendingApprovals'),
+    'manage': t('housekeeping.tabs.teamView'),
+    'performance': t('housekeeping.tabs.performance'),
+    'pms-upload': t('housekeeping.tabs.pmsUpload'),
+    'completion-photos': t('housekeeping.tabs.roomPhotos'),
+    'dnd-photos': t('housekeeping.tabs.dndPhotos'),
+    'maintenance-photos': t('housekeeping.tabs.maintenance'),
+    'lost-and-found': t('housekeeping.tabs.lostFound'),
+    'dirty-linen': t('housekeeping.tabs.dirtyLinen'),
+    'attendance': t('housekeeping.tabs.hrManagement'),
+    'minibar': t('housekeeping.tabs.minibarTracking'),
+    'tab-order': t('housekeeping.tabs.tabSettings'),
+    'assignments': t('housekeeping.myTasks'),
+  }), [t]);
+
+  const innerTabLabels: Record<string, string> = useMemo(() => ({
+    'team': t('manager.teamView'),
+    'early-signout': t('manager.earlySignOutApprovals'),
+  }), [t]);
 
   // Listen for training navigation events
   useEffect(() => {
@@ -359,7 +396,40 @@ export function Dashboard() {
       )}
       
       <div className="container mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        {/* Breadcrumb Navigation */}
+        <div className="mb-4">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbPage className="text-xs text-primary font-medium">
+                  {mainTabLabels[activeTab] || activeTab}
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+              {activeTab === 'housekeeping' && activeHousekeepingSubTab && (
+                <>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage className="text-xs text-primary font-medium">
+                      {housekeepingSubTabLabels[activeHousekeepingSubTab] || activeHousekeepingSubTab}
+                    </BreadcrumbPage>
+                  </BreadcrumbItem>
+                  {activeHousekeepingSubTab === 'manage' && activeInnerTab && (
+                    <>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        <BreadcrumbPage className="text-xs text-primary font-medium">
+                          {innerTabLabels[activeInnerTab] || activeInnerTab}
+                        </BreadcrumbPage>
+                      </BreadcrumbItem>
+                    </>
+                  )}
+                </>
+              )}
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+
+        <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setActiveHousekeepingSubTab(''); setActiveInnerTab('team'); }} className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
@@ -704,7 +774,10 @@ export function Dashboard() {
           </TabsContent>
 
           <TabsContent value="housekeeping" className="space-y-6">
-            <HousekeepingTab />
+            <HousekeepingTab 
+              onActiveSubTabChange={setActiveHousekeepingSubTab} 
+              onActiveInnerTabChange={setActiveInnerTab} 
+            />
           </TabsContent>
 
           <TabsContent value="attendance" className="space-y-6">
