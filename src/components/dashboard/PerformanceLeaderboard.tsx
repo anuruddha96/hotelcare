@@ -659,12 +659,12 @@ export function PerformanceLeaderboard() {
                       <div className="bg-teal-500 h-full transition-all" style={{ width: `${entry.consistency_score}%` }} title={`Consistency: ${entry.consistency_score}`} />
                       <div className="bg-yellow-500 h-full transition-all" style={{ width: `${entry.quality_score}%` }} title={`Quality: ${entry.quality_score}`} />
                     </div>
-                    <div className="flex gap-2 mt-1 text-[9px] text-muted-foreground flex-wrap">
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />Spd:{entry.speed_score}</span>
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />Prod:{entry.productivity_score}</span>
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />Punc:{entry.punctuality_score}</span>
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-teal-500 inline-block" />Cons:{entry.consistency_score}</span>
-                      <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" />Qual:{entry.quality_score}</span>
+                     <div className="flex gap-2 mt-1 text-[9px] text-muted-foreground flex-wrap">
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />{t('performance.spd')}:{entry.speed_score}</span>
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />{t('performance.prod')}:{entry.productivity_score}</span>
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />{t('performance.punc')}:{entry.punctuality_score}</span>
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-teal-500 inline-block" />{t('performance.cons')}:{entry.consistency_score}</span>
+                       <span className="flex items-center gap-0.5"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" />{t('performance.qual')}:{entry.quality_score}</span>
                     </div>
                   </div>
 
