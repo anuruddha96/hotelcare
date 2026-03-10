@@ -124,7 +124,7 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
 
             {/* Select Areas */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Select Areas ({selectedAreas.size} selected)</label>
+              <label className="text-sm font-medium">{t('publicArea.selectAreas')} ({selectedAreas.size} {t('publicArea.selected')})</label>
               <div className="grid grid-cols-1 gap-2">
                 {PUBLIC_AREAS.map(area => {
                   const isSelected = selectedAreas.has(area.key);
