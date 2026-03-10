@@ -54,7 +54,12 @@ const TAB_CONFIGS: { [key: string]: TabConfig } = {
   'tab-order': { id: 'tab-order', label: 'housekeeping.tabs.tabSettings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500', hintKey: 'hk.tabSettings' },
 };
 
-export function HousekeepingTab() {
+interface HousekeepingTabProps {
+  onActiveSubTabChange?: (tab: string) => void;
+  onActiveInnerTabChange?: (tab: string) => void;
+}
+
+export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }: HousekeepingTabProps = {}) {
   const { user } = useAuth();
   const { t } = useTranslation();
   const [userRole, setUserRole] = useState<string>('');
