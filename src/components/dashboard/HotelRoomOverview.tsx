@@ -347,6 +347,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const renderRoomChip = (room: RoomData) => {
     const assignment = assignmentMap.get(room.id);
     const assignmentStatus = assignment?.status || null;
+    const roomFlags = parseRoomFlags(room.notes);
     const isPendingApproval = assignmentStatus === 'completed' && assignment?.supervisor_approved === false;
     const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
     
