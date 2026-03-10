@@ -516,7 +516,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   disabled={loading}
                 >
                   <SelectTrigger className="w-[160px]">
-                    <SelectValue placeholder="Update Status" />
+                    <SelectValue placeholder={t('ticketDetail.updateStatus')} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="open">Open</SelectItem>
