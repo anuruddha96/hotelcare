@@ -396,7 +396,40 @@ export function Dashboard() {
       )}
       
       <div className="container mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        {/* Breadcrumb Navigation */}
+        <div className="mb-4">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbPage className="text-xs text-primary font-medium">
+                  {mainTabLabels[activeTab] || activeTab}
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+              {activeTab === 'housekeeping' && activeHousekeepingSubTab && (
+                <>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage className="text-xs text-primary font-medium">
+                      {housekeepingSubTabLabels[activeHousekeepingSubTab] || activeHousekeepingSubTab}
+                    </BreadcrumbPage>
+                  </BreadcrumbItem>
+                  {activeHousekeepingSubTab === 'manage' && activeInnerTab && (
+                    <>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        <BreadcrumbPage className="text-xs text-primary font-medium">
+                          {innerTabLabels[activeInnerTab] || activeInnerTab}
+                        </BreadcrumbPage>
+                      </BreadcrumbItem>
+                    </>
+                  )}
+                </>
+              )}
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+
+        <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setActiveHousekeepingSubTab(''); setActiveInnerTab('team'); }} className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
