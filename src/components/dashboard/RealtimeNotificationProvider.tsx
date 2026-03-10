@@ -104,9 +104,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
                   payload.old.pending_supervisor_approval !== true &&
                   payload.new.department === 'maintenance') {
                 showNotification(
-                  'Maintenance task ready for review',
+                  t('notifications.maintenanceReview'),
                   'info',
-                  'Maintenance Approval'
+                  t('notifications.maintenanceApproval')
                 );
               }
             }
