@@ -20,7 +20,7 @@ self.addEventListener('push', (event) => {
   console.log('Push notification received:', event);
   
   let notificationData = {
-    title: 'RD Hotels',
+    title: 'Hotel Care',
     body: 'You have a new notification',
     icon: '/favicon.ico',
     badge: '/favicon.ico',
