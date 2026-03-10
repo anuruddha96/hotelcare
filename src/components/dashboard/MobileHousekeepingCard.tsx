@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { HoldButton } from '@/components/ui/hold-button';
-import { Clock, MapPin, User, Camera, PlayCircle, AlertTriangle, Shirt, BedDouble, Info } from 'lucide-react';
+import { Clock, MapPin, User, Camera, PlayCircle, AlertTriangle, Shirt, BedDouble, Info, Globe, Loader2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
+import { parseRoomFlags } from '@/lib/room-service-flags';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 interface MobileHousekeepingCardProps {
   assignment: any;
