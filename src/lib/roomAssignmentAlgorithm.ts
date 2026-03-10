@@ -384,6 +384,16 @@ export function autoAssignRooms(
     });
   }
 
+  // STEP 1a: Apply wing zone mapping if provided (merge related wings into zones)
+  if (config.wingZoneMapping) {
+    roomsToAssign = roomsToAssign.map(room => {
+      if (room.wing && config.wingZoneMapping![room.wing]) {
+        return { ...room, wing: config.wingZoneMapping![room.wing] };
+      }
+      return room;
+    });
+  }
+
   // STEP 1b: Group ALL rooms (checkout + daily) by wing
   const allByWing = groupRoomsByWing(roomsToAssign);
 
