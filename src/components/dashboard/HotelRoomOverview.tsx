@@ -133,6 +133,7 @@ function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): 
 
 export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
+  const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
   const [publicAreaTasks, setPublicAreaTasks] = useState<PublicAreaTask[]>([]);
@@ -146,6 +147,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(true);
+  const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [popoverNotes, setPopoverNotes] = useState<string>('');
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
