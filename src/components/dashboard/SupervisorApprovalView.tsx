@@ -700,102 +700,90 @@ export function SupervisorApprovalView() {
       <Card key={assignment.id} className={`border shadow-sm hover:shadow-md transition-all duration-200 ${
         speedIndicator?.severity === 'warning' ? 'border-l-4 border-l-orange-400' : 'border-l-4 border-l-green-400'
       }`}>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <CardTitle className="text-lg font-bold text-foreground">
+        <CardContent className="p-3 sm:p-4 space-y-3">
+          {/* Compact Header Row */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-base font-bold text-foreground">
                 Room {assignment.rooms?.room_number || 'N/A'}
-              </CardTitle>
+              </span>
               {assignment.rooms?.floor_number && (
-                <Badge variant="outline" className="text-xs bg-muted">
-                  <Layers className="h-3 w-3 mr-1" />
-                  Floor {assignment.rooms.floor_number}
+                <Badge variant="outline" className="text-[10px] bg-muted px-1.5 py-0">
+                  F{assignment.rooms.floor_number}
                 </Badge>
               )}
-              <Badge variant="outline" className="bg-muted text-foreground border-border text-xs">
+              <Badge variant="outline" className="bg-muted text-foreground border-border text-[10px] px-1.5 py-0">
                 {getAssignmentTypeLabel(assignment.assignment_type)}
               </Badge>
               {assignment.rooms?.is_dnd && (
-                <Badge className="text-xs bg-orange-100 text-orange-800 border border-orange-300">
-                  <DoorClosed className="h-3 w-3 mr-1" />
+                <Badge className="text-[10px] bg-orange-100 text-orange-800 border border-orange-300 px-1.5 py-0">
                   DND
                 </Badge>
               )}
               {assignment.rooms?.bed_configuration && (
-                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                  <BedDouble className="h-3 w-3 mr-1" />
+                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 px-1.5 py-0">
+                  <BedDouble className="h-3 w-3 mr-0.5" />
                   {assignment.rooms.bed_configuration}
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {speedIndicator && (
-                <HelpTooltip hint={
-                  speedIndicator.severity === 'warning' && durationMins < 10
-                    ? UI_HINTS["approval.speedFast"]
-                    : speedIndicator.severity === 'warning'
-                    ? UI_HINTS["approval.speedSlow"]
-                    : UI_HINTS["approval.speedNormal"]
-                }>
-                  <Badge variant="outline" className={`text-xs ${speedIndicator.color}`}>
-                    <SpeedIcon className="h-3 w-3 mr-1" />
-                    {speedIndicator.label}
-                  </Badge>
-                </HelpTooltip>
+                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${speedIndicator.color}`}>
+                  <SpeedIcon className="h-3 w-3 mr-0.5" />
+                  {speedIndicator.label}
+                </Badge>
               )}
               {waitingMins > 30 && (
-                <HelpTooltip hint={UI_HINTS["approval.waiting"]}>
-                  <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
-                    ⏰ {waitingMins}m waiting
-                  </Badge>
-                </HelpTooltip>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-50 text-red-700 border-red-200">
+                  ⏰ {waitingMins}m
+                </Badge>
               )}
             </div>
           </div>
-        </CardHeader>
 
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
-              <User className="h-4 w-4 text-muted-foreground shrink-0" />
+          {/* Stats Grid - always 2 cols on mobile, 4 on desktop */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="flex items-center gap-1.5 p-2 bg-muted/50 rounded-lg min-w-0">
+              <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Cleaned by</p>
-                <p className="text-sm font-semibold text-foreground truncate">
+                <p className="text-[10px] text-muted-foreground leading-none">Cleaned by</p>
+                <p className="text-xs font-semibold text-foreground truncate">
                   {assignment.profiles?.full_name || 'Unknown'}
                 </p>
               </div>
             </div>
             
-            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
-              <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="flex items-center gap-1.5 p-2 bg-muted/50 rounded-lg">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <div>
-                <p className="text-xs text-muted-foreground">Started</p>
-                <p className="text-sm font-semibold text-foreground">
+                <p className="text-[10px] text-muted-foreground leading-none">Started</p>
+                <p className="text-xs font-semibold text-foreground">
                   {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
-              <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+            <div className="flex items-center gap-1.5 p-2 bg-muted/50 rounded-lg">
+              <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
               <div>
-                <p className="text-xs text-muted-foreground">Completed</p>
-                <p className="text-sm font-semibold text-foreground">
+                <p className="text-[10px] text-muted-foreground leading-none">Completed</p>
+                <p className="text-xs font-semibold text-foreground">
                   {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </p>
               </div>
             </div>
 
             {assignment.started_at && (
-              <div className={`flex items-center gap-2 p-2.5 rounded-lg ${
+              <div className={`flex items-center gap-1.5 p-2 rounded-lg ${
                 speedIndicator?.severity === 'warning' ? 'bg-orange-50 border border-orange-200' : 'bg-green-50 border border-green-200'
               }`}>
-                <Timer className={`h-4 w-4 shrink-0 ${
+                <Timer className={`h-3.5 w-3.5 shrink-0 ${
                   speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'
                 }`} />
                 <div>
-                  <p className={`text-xs ${speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'}`}>Duration</p>
-                  <p className={`text-sm font-bold ${
+                  <p className={`text-[10px] leading-none ${speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'}`}>Duration</p>
+                  <p className={`text-xs font-bold ${
                     speedIndicator?.severity === 'warning' ? 'text-orange-800' : 'text-green-800'
                   }`}>
                     {calculateDuration(assignment.started_at, assignment.completed_at)}
