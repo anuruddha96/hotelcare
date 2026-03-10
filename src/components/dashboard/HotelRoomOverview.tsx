@@ -918,7 +918,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   { label: 'No-Show', cls: 'ring-2 ring-red-600 bg-muted', hint: UI_HINTS["room.noShow"] },
                   { label: 'Early Checkout', cls: 'ring-2 ring-orange-500 bg-muted', hint: UI_HINTS["room.earlyCheckout"] },
                   { label: 'Towel Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
-                  { label: 'Linen Change', cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: UI_HINTS["room.linenChange"] },
+                  { label: 'Bed Linen Change', cls: 'bg-purple-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'LC', hint: UI_HINTS["room.linenChange"] },
+                  { label: 'Room Cleaning', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: 'Full room cleaning required' },
+                  { label: 'Extra Towels', cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: 'Collect extra towels from this room' },
                   { label: 'Ready to Clean', cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
                   { label: 'Approved', cls: 'text-[10px]', isText: true, text: '✅', hint: 'Supervisor has approved this cleaning' },
                 ].map(item => (
