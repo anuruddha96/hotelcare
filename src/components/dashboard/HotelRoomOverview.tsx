@@ -224,12 +224,50 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const handleRoomClick = (room: RoomData) => {
     if (!canInteractWithRooms) return;
+    // On mobile, open the dialog directly. On desktop, popover handles it.
+    if (isMobile) {
+      setSelectedRoom(room);
+      setSelectedSize(String(room.room_size_sqm || 25));
+      setSelectedCategory(room.room_category || '');
+      setRoomNotes(room.notes || '');
+      setRoomSizeDialogOpen(true);
+    }
+  };
+
+  const openSettingsDialog = (room: RoomData) => {
     setSelectedRoom(room);
     setSelectedSize(String(room.room_size_sqm || 25));
     setSelectedCategory(room.room_category || '');
     setRoomNotes(room.notes || '');
+    setHoveredRoomId(null);
     setRoomSizeDialogOpen(true);
   };
+
+  const handleHoverEnter = useCallback((roomId: string, room: RoomData) => {
+    if (isMobile || !canInteractWithRooms) return;
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredRoomId(roomId);
+      setPopoverNotes(room.notes || '');
+    }, 150);
+  }, [isMobile, canInteractWithRooms]);
+
+  const handleHoverLeave = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredRoomId(null);
+    }, 200);
+  }, []);
+
+  const handlePopoverEnter = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+  }, []);
+
+  const handlePopoverLeave = useCallback(() => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredRoomId(null);
+    }, 150);
+  }, []);
 
   const handleSaveSize = async () => {
     if (!selectedRoom) return;
