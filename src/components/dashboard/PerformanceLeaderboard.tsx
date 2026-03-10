@@ -715,7 +715,7 @@ export function PerformanceLeaderboard() {
                         <TooltipTrigger asChild>
                           <div className="text-center p-2 bg-teal-50 dark:bg-teal-900/20 rounded-lg cursor-pointer hover:bg-teal-100 dark:hover:bg-teal-900/30 transition-colors">
                             <div className="text-lg sm:text-xl font-bold text-teal-700 dark:text-teal-400">{entry.rooms_per_hour}</div>
-                            <div className="text-[10px] sm:text-xs text-teal-600 dark:text-teal-500">Rooms/Hr</div>
+                            <div className="text-[10px] sm:text-xs text-teal-600 dark:text-teal-500">{t('performance.roomsHr')}</div>
                           </div>
                         </TooltipTrigger>
                         <TooltipContent>Rooms per working hour ({entry.rooms_per_day} rooms/day)</TooltipContent>
