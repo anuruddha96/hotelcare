@@ -481,7 +481,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
                   <CheckCircle className="h-4 w-4 text-green-600" />
-                  <span className="font-medium text-green-700">Resolution</span>
+                  <span className="font-medium text-green-700">{t('ticketDetail.resolution')}</span>
                 </div>
                 <p className="text-sm text-green-700">{ticket.resolution_text}</p>
                 {ticket.closed_at && ticket.closed_by && (
