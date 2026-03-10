@@ -97,9 +97,9 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+         <DialogTitle className="flex items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
-            Assign Public Areas
+            {t('publicArea.title')}
           </DialogTitle>
         </DialogHeader>
 
