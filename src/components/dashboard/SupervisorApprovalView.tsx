@@ -1180,7 +1180,7 @@ export function SupervisorApprovalView() {
                                   fetchPendingAssignments();
                                 } catch (error: any) {
                                   console.error('Error rejecting early signout:', error);
-                                  toast.error('Failed to reject early sign-out');
+                                  toast.error(t('supervisor.failedReject'));
                                 }
                               }}
                             >
