@@ -1154,7 +1154,7 @@ export function SupervisorApprovalView() {
                               className="bg-green-600 hover:bg-green-700 text-white"
                             >
                               <CheckCircle className="h-4 w-4 mr-1" />
-                              Approve
+                              {t('supervisor.approveBtn')}
                             </Button>
                             <Button
                               size="sm"
