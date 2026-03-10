@@ -40,7 +40,7 @@ export function CompletionDialog({
   const [showDirtyLinen, setShowDirtyLinen] = useState(false);
   const [showDNDPhoto, setShowDNDPhoto] = useState(false);
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
-  const [completionStep, setCompletionStep] = useState(1); // 1: Basic completion, 2: Photos, 3: Dirty linen
+  const [completionStep, setCompletionStep] = useState(1);
 
   const handleBasicCompletion = async () => {
     if (!user?.id) return;
@@ -58,23 +58,23 @@ export function CompletionDialog({
 
       if (error) throw error;
 
-      toast.success(`Room ${roomNumber} marked as completed`);
-      setCompletionStep(2); // Move to photo capture step
+      toast.success(`${t('ticketCard.room')} ${roomNumber} ${t('tickets.completedStatus')}`);
+      setCompletionStep(2);
       
     } catch (error) {
       console.error('Error completing assignment:', error);
-      toast.error('Failed to complete assignment');
+      toast.error(t('completion.failedToComplete'));
       setIsCompleting(false);
     }
   };
 
   const handlePhotoCaptured = () => {
     setShowImageCapture(false);
-    toast.success('Photos saved successfully');
+    toast.success(t('completion.photosSaved'));
   };
 
   const handleSkipPhotos = () => {
-    setCompletionStep(3); // Move to dirty linen step
+    setCompletionStep(3);
   };
 
   const handleComplete = () => {
@@ -94,7 +94,7 @@ export function CompletionDialog({
     setNotes('');
     setCapturedPhotos([]);
     setIsCompleting(false);
-    toast.success(`Room ${roomNumber} marked as DND with photo evidence`);
+    toast.success(`${t('ticketCard.room')} ${roomNumber} - DND`);
   };
 
   const handleClose = () => {
@@ -112,7 +112,7 @@ export function CompletionDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5" />
-              Complete Room {roomNumber}
+              {t('completion.completeRoom')} {roomNumber}
             </DialogTitle>
           </DialogHeader>
 
@@ -121,21 +121,15 @@ export function CompletionDialog({
             <div className="flex items-center justify-center gap-2 mb-4">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
                 completionStep >= 1 ? 'bg-green-500 text-white' : 'bg-gray-200'
-              }`}>
-                1
-              </div>
+              }`}>1</div>
               <div className={`w-4 h-1 ${completionStep >= 2 ? 'bg-green-500' : 'bg-gray-200'}`} />
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
                 completionStep >= 2 ? 'bg-green-500 text-white' : 'bg-gray-200'
-              }`}>
-                2
-              </div>
+              }`}>2</div>
               <div className={`w-4 h-1 ${completionStep >= 3 ? 'bg-green-500' : 'bg-gray-200'}`} />
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
                 completionStep >= 3 ? 'bg-green-500 text-white' : 'bg-gray-200'
-              }`}>
-                3
-              </div>
+              }`}>3</div>
             </div>
 
             {completionStep === 1 && (
@@ -143,15 +137,15 @@ export function CompletionDialog({
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-sm text-blue-800">
                     <CheckCircle className="h-4 w-4 inline mr-1" />
-                    Mark this room as completed to proceed with optional photo capture and dirty linen tracking.
+                    {t('completion.step1Info')}
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="completion-notes">Notes (Optional)</Label>
+                  <Label htmlFor="completion-notes">{t('completion.notesOptional')}</Label>
                   <Textarea
                     id="completion-notes"
-                    placeholder="Add any notes about the room cleaning..."
+                    placeholder={t('completion.notesPlaceholder')}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={3}
@@ -165,7 +159,7 @@ export function CompletionDialog({
                     className="flex-1"
                     disabled={isCompleting}
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </Button>
                   
                   <HoldButton
@@ -194,26 +188,26 @@ export function CompletionDialog({
                 <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                   <p className="text-sm text-green-800">
                     <CheckCircle className="h-4 w-4 inline mr-1" />
-                    Task completed! Now you can optionally add photos as proof of work.
+                    {t('completion.step2Info')}
                   </p>
                 </div>
 
                 {capturedPhotos.length > 0 && (
                   <div className="space-y-2">
-                    <Label>Captured Photos</Label>
+                    <Label>{t('completion.capturedPhotos')}</Label>
                     <div className="grid grid-cols-2 gap-2">
                       {capturedPhotos.slice(0, 4).map((photoUrl, index) => (
                         <img
                           key={index}
                           src={photoUrl}
-                          alt={`Photo ${index + 1}`}
+                          alt={`${t('common.photos')} ${index + 1}`}
                           className="w-full h-20 object-cover rounded border"
                         />
                       ))}
                     </div>
                     {capturedPhotos.length > 4 && (
                       <p className="text-sm text-muted-foreground">
-                        +{capturedPhotos.length - 4} more photos
+                        +{capturedPhotos.length - 4} {t('completion.morePhotos')}
                       </p>
                     )}
                   </div>
@@ -227,7 +221,7 @@ export function CompletionDialog({
                       className="flex-1"
                     >
                       <Camera className="h-4 w-4 mr-2" />
-                      Add Completion Photos
+                      {t('completion.addPhotos')}
                     </Button>
                     
                     <Button
@@ -235,15 +229,12 @@ export function CompletionDialog({
                       variant="outline"
                       className="flex-1 bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100"
                     >
-                      📷 Mark as DND
+                      📷 {t('completion.markAsDND')}
                     </Button>
                   </div>
                   
-                  <Button
-                    onClick={handleSkipPhotos}
-                    className="w-full"
-                  >
-                    Continue
+                  <Button onClick={handleSkipPhotos} className="w-full">
+                    {t('completion.continue')}
                   </Button>
                 </div>
               </div>
@@ -254,7 +245,7 @@ export function CompletionDialog({
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-sm text-blue-800">
                     <AlertTriangle className="h-4 w-4 inline mr-1" />
-                    Finally, track any dirty linen collected from this room.
+                    {t('completion.step3Info')}
                   </p>
                 </div>
 
@@ -264,14 +255,11 @@ export function CompletionDialog({
                     variant="outline"
                     className="flex-1"
                   >
-                    Track Dirty Linen
+                    {t('completion.trackLinen')}
                   </Button>
                   
-                  <Button
-                    onClick={handleComplete}
-                    className="flex-1"
-                  >
-                    Finish
+                  <Button onClick={handleComplete} className="flex-1">
+                    {t('completion.finish')}
                   </Button>
                 </div>
               </div>
