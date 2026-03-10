@@ -26,6 +26,9 @@ export function PMSNavigation() {
   const { t } = useTranslation();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
+  // PMS features are under development - only show to admins
+  if (profile?.role !== 'admin') return null;
+
   const visibleItems = PMS_NAV_ITEMS.filter(
     (item) => profile && item.roles.includes(profile.role)
   );

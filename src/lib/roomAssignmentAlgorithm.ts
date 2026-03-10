@@ -315,6 +315,7 @@ export interface HotelAssignmentConfig {
   affinityBonusMultiplier?: number;   // default 15 (increased from 10)
   checkoutFirstGrouping?: boolean;    // default true
   roomProximityWeight?: number;       // default 1.0, for hotels without wing data
+  wingZoneMapping?: Record<string, string>; // maps original wing to zone name for grouping
 }
 
 const DEFAULT_CONFIG: HotelAssignmentConfig = {
@@ -380,6 +381,16 @@ export function autoAssignRooms(
       if (a.is_checkout_room && !b.is_checkout_room) return -1;
       if (!a.is_checkout_room && b.is_checkout_room) return 1;
       return 0;
+    });
+  }
+
+  // STEP 1a: Apply wing zone mapping if provided (merge related wings into zones)
+  if (config.wingZoneMapping) {
+    roomsToAssign = roomsToAssign.map(room => {
+      if (room.wing && config.wingZoneMapping![room.wing]) {
+        return { ...room, wing: config.wingZoneMapping![room.wing] };
+      }
+      return room;
     });
   }
 
