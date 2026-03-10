@@ -481,7 +481,7 @@ export function Dashboard() {
             ) : ['manager','housekeeping_manager','admin'].includes(profile?.role || '') ? (
               <TabsList className="flex w-full max-w-2xl h-10 sm:h-12" data-training="main-tabs">
                 <HelpTooltip hint={UI_HINTS["tab.tickets"]}>
-                  <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="tickets-tab">
+                  <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="tickets-tab">
                     <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                     <span>{t('dashboard.tickets')}</span>
                   </TabsTrigger>
