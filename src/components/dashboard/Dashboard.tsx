@@ -506,7 +506,7 @@ export function Dashboard() {
                 </HelpTooltip>
                 {profile?.role === 'admin' && (
                   <HelpTooltip hint={UI_HINTS["tab.admin"]}>
-                    <TabsTrigger value="admin" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="admin-tab">
+                    <TabsTrigger value="admin" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="admin-tab">
                       <Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                       <span>Admin</span>
                     </TabsTrigger>
