@@ -682,7 +682,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
             {/* Add Comment Form */}
             <form onSubmit={handleAddComment} className="space-y-3">
               <div>
-                <Label htmlFor="comment">Add a comment</Label>
+                <Label htmlFor="comment">{t('ticketDetail.addComment')}</Label>
                 <Textarea
                   id="comment"
                   value={newComment}
