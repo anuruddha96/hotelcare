@@ -774,7 +774,10 @@ export function Dashboard() {
           </TabsContent>
 
           <TabsContent value="housekeeping" className="space-y-6">
-            <HousekeepingTab />
+            <HousekeepingTab 
+              onActiveSubTabChange={setActiveHousekeepingSubTab} 
+              onActiveInnerTabChange={setActiveInnerTab} 
+            />
           </TabsContent>
 
           <TabsContent value="attendance" className="space-y-6">
