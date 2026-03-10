@@ -1148,7 +1148,7 @@ export function SupervisorApprovalView() {
                                   fetchPendingAssignments();
                                 } catch (error: any) {
                                   console.error('Error approving early signout:', error);
-                                  toast.error('Failed to approve early sign-out');
+                                  toast.error(t('supervisor.failedApprove'));
                                 }
                               }}
                               className="bg-green-600 hover:bg-green-700 text-white"
