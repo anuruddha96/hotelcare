@@ -311,8 +311,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       if (error) throw error;
 
       toast({
-        title: 'Success',
-        description: 'Ticket deleted successfully',
+        title: t('common.success'),
+        description: t('ticketDetail.deleted'),
       });
 
       onTicketUpdated();
