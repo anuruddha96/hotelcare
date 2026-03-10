@@ -455,25 +455,37 @@ export function AutoRoomAssignment({
     try {
       // Create all assignments with checkout-first priority ordering
       const assignments = assignmentPreviews.flatMap(preview => {
-        // Sort: checkouts first, then daily, by floor and room number
+        // Assign priority based on room type urgency, not sequential index
+        // Priority 1: Checkout rooms ready to clean (guest already left)
+        // Priority 2: Daily cleaning rooms (occupied, need service)
+        // Priority 3: Checkout rooms NOT ready (guest still in room, clean later)
+        const getRoomPriority = (room: any): number => {
+          if (room.is_checkout_room && room.ready_to_clean) return 1;
+          if (!room.is_checkout_room) return 2;
+          return 3; // checkout but not ready
+        };
+
+        // Sort by priority, then floor, then room number
         const sorted = [...preview.rooms].sort((a, b) => {
-          if (a.is_checkout_room && !b.is_checkout_room) return -1;
-          if (!a.is_checkout_room && b.is_checkout_room) return 1;
+          const prioA = getRoomPriority(a);
+          const prioB = getRoomPriority(b);
+          if (prioA !== prioB) return prioA - prioB;
           const floorA = getFloorFromRoomNumber(a.room_number);
           const floorB = getFloorFromRoomNumber(b.room_number);
           if (floorA !== floorB) return floorA - floorB;
           return parseInt(a.room_number) - parseInt(b.room_number);
         });
-        return sorted.map((room, index) => ({
+
+        return sorted.map((room) => ({
           room_id: room.id,
           assigned_to: preview.staffId,
           assigned_by: user.id,
           assignment_date: selectedDate,
           assignment_type: (room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
           status: 'assigned' as const,
-          priority: index + 1,
+          priority: getRoomPriority(room),
           organization_slug: profile?.organization_slug,
-          ready_to_clean: !room.is_checkout_room
+          ready_to_clean: room.is_checkout_room ? (room.ready_to_clean || false) : true
         }));
       });
 
