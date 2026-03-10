@@ -696,7 +696,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               <div>
                 <Label className="flex items-center gap-2 mb-2">
                   <Paperclip className="h-4 w-4" />
-                  Attach Files (Optional)
+                  {t('ticketDetail.attachFiles')}
                 </Label>
                 <AttachmentUpload
                   ticketId={ticket.id}
