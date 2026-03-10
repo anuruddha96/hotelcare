@@ -519,9 +519,9 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     <SelectValue placeholder={t('ticketDetail.updateStatus')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="open">{t('ticketDetail.open')}</SelectItem>
+                    <SelectItem value="in_progress">{t('ticketDetail.inProgress')}</SelectItem>
+                    <SelectItem value="completed">{t('ticketDetail.completed')}</SelectItem>
                   </SelectContent>
                 </Select>
               )}
