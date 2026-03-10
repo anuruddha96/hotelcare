@@ -455,25 +455,35 @@ export function AutoRoomAssignment({
     try {
       // Create all assignments with checkout-first priority ordering
       const assignments = assignmentPreviews.flatMap(preview => {
-        // Sort: checkouts first, then daily, by floor and room number
+        // Assign priority based on room type urgency:
+        // Priority 1: Checkout rooms (guest departed, needs deep clean ASAP for next guest)
+        // Priority 2: Daily cleaning rooms (occupied, routine service)
+        const getRoomPriority = (room: RoomForAssignment): number => {
+          if (room.is_checkout_room) return 1;
+          return 2;
+        };
+
+        // Sort by priority, then floor, then room number
         const sorted = [...preview.rooms].sort((a, b) => {
-          if (a.is_checkout_room && !b.is_checkout_room) return -1;
-          if (!a.is_checkout_room && b.is_checkout_room) return 1;
+          const prioA = getRoomPriority(a);
+          const prioB = getRoomPriority(b);
+          if (prioA !== prioB) return prioA - prioB;
           const floorA = getFloorFromRoomNumber(a.room_number);
           const floorB = getFloorFromRoomNumber(b.room_number);
           if (floorA !== floorB) return floorA - floorB;
           return parseInt(a.room_number) - parseInt(b.room_number);
         });
-        return sorted.map((room, index) => ({
+
+        return sorted.map((room) => ({
           room_id: room.id,
           assigned_to: preview.staffId,
           assigned_by: user.id,
           assignment_date: selectedDate,
           assignment_type: (room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
           status: 'assigned' as const,
-          priority: index + 1,
+          priority: getRoomPriority(room),
           organization_slug: profile?.organization_slug,
-          ready_to_clean: !room.is_checkout_room
+          ready_to_clean: true
         }));
       });
 
@@ -1162,7 +1172,7 @@ ${activePreviews.map(preview => {
                 )}
               </div>
             ) : step === 'preview' ? (
-              <div className="space-y-3">
+              <div className="flex flex-col flex-1 min-h-0 gap-2">
                 {/* Summary bar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-muted/40 rounded-lg text-sm">
                   <p>
@@ -1180,7 +1190,7 @@ ${activePreviews.map(preview => {
                 </div>
 
                 {/* Multi-column layout: all housekeepers side by side */}
-                <div className="flex gap-2 overflow-x-auto pb-2" style={{ minHeight: '300px' }}>
+                <div className="flex gap-2 overflow-x-auto flex-1 min-h-0 pb-1">
                   {assignmentPreviews.filter(p => p.rooms.length > 0).map(preview => {
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
                     const isDragOver = dragOverStaffId === preview.staffId;
@@ -1251,7 +1261,7 @@ ${activePreviews.map(preview => {
                         </div>
 
                         {/* Room chips - scrollable column body */}
-                        <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5" style={{ maxHeight: '50vh' }}>
+                        <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-1.5">
                           {/* Checkouts */}
                           {checkoutRooms.length > 0 && (
                             <div>
@@ -1298,11 +1308,9 @@ ${activePreviews.map(preview => {
                   })}
                 </div>
 
-                {/* Info about room order */}
-                <div className="flex items-start gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-[11px] text-blue-800 dark:text-blue-300">
-                  <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                  <span>{t('autoAssign.previewInfo')} {isMobile ? t('autoAssign.tapToMove') : t('autoAssign.dragToReassign')}</span>
-                </div>
+                <p className="text-[10px] text-muted-foreground text-center flex-shrink-0 py-0.5">
+                  {isMobile ? t('autoAssign.tapToMove') : t('autoAssign.dragToReassign')}
+                </p>
               </div>
             ) : step === 'confirm' ? (
               <div className="space-y-4 text-center py-8">
