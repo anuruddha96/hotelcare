@@ -687,7 +687,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   id="comment"
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Share updates, ask questions, or provide additional information..."
+                  placeholder={t('ticketDetail.commentPlaceholder')}
                   rows={3}
                 />
               </div>
