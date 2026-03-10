@@ -1206,21 +1206,20 @@ export function SupervisorApprovalView() {
                   </div>
 
                   {Object.entries(hotelGroups).map(([hotel, assignments]) => (
-                    <div key={hotel} className="border rounded-xl overflow-hidden bg-card">
-                      {/* Hotel Group Header */}
+                    <div key={hotel} className="border rounded-lg overflow-hidden bg-card">
+                      {/* Hotel Group Header - compact single row */}
                       <div 
-                        className="flex items-center justify-between p-4 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                        className="flex items-center justify-between px-3 py-2 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors gap-2"
                         onClick={() => toggleHotelCollapse(hotel)}
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
                           {collapsedHotels.has(hotel) 
-                            ? <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                            : <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                            ? <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                            : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
                           }
-                          <Building2 className="h-5 w-5 text-primary" />
-                          <span className="font-bold text-foreground text-lg">{hotel}</span>
-                          <Badge variant="outline" className="text-sm">{assignments.length} pending</Badge>
-                          {/* Count flagged in this hotel */}
+                          <Building2 className="h-4 w-4 text-primary shrink-0" />
+                          <span className="font-bold text-foreground text-sm truncate">{hotel}</span>
+                          <Badge variant="outline" className="text-xs shrink-0">{assignments.length}</Badge>
                           {(() => {
                             const flagged = assignments.filter(a => {
                               if (!a.started_at) return false;
@@ -1228,9 +1227,8 @@ export function SupervisorApprovalView() {
                               return getSpeedIndicator(a.assignment_type, dur).severity === 'warning';
                             }).length;
                             return flagged > 0 ? (
-                              <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
-                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                {flagged} flagged
+                              <Badge variant="outline" className="text-[10px] bg-orange-50 text-orange-700 border-orange-200 shrink-0">
+                                ⚠ {flagged}
                               </Badge>
                             ) : null;
                           })()}
@@ -1241,12 +1239,12 @@ export function SupervisorApprovalView() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="bg-green-50 text-green-700 border-green-300 hover:bg-green-100"
+                              className="bg-green-50 text-green-700 border-green-300 hover:bg-green-100 shrink-0 h-7 px-2 text-xs"
                               onClick={(e) => e.stopPropagation()}
                               disabled={bulkApproving === hotel}
                             >
-                              <CheckCheck className="h-4 w-4 mr-1" />
-                              Approve All ({assignments.length})
+                              <CheckCheck className="h-3.5 w-3.5 mr-1" />
+                              Approve All
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent onClick={(e) => e.stopPropagation()}>
@@ -1279,18 +1277,18 @@ export function SupervisorApprovalView() {
 
                       {/* Bulk progress */}
                       {bulkApproving === hotel && (
-                        <div className="px-4 py-2 bg-green-50">
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm text-green-700">Approving...</span>
-                            <Progress value={bulkProgress} className="flex-1 h-2" />
-                            <span className="text-sm font-semibold text-green-700">{bulkProgress}%</span>
+                        <div className="px-3 py-1.5 bg-green-50">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-green-700">Approving...</span>
+                            <Progress value={bulkProgress} className="flex-1 h-1.5" />
+                            <span className="text-xs font-semibold text-green-700">{bulkProgress}%</span>
                           </div>
                         </div>
                       )}
 
                       {/* Assignment Cards */}
                       {!collapsedHotels.has(hotel) && (
-                        <div className="p-4 space-y-3">
+                        <div className="p-3 space-y-2">
                           {assignments.map(renderAssignmentCard)}
                         </div>
                       )}
