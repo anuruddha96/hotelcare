@@ -165,11 +165,11 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
 
             {/* Notes */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Notes (optional)</label>
+              <label className="text-sm font-medium">{t('publicArea.notes')}</label>
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add any special instructions..."
+                placeholder={t('publicArea.notesPlaceholder')}
                 rows={2}
               />
             </div>
