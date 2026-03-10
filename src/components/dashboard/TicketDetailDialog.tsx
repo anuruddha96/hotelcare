@@ -240,8 +240,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
     const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
     if (slaInfo.isOverdue && !slaBreachReason.trim()) {
       toast({
-        title: 'Error',
-        description: 'Please provide an SLA breach reason for overdue tickets',
+        title: t('common.error'),
+        description: t('ticketDetail.slaBreachRequired'),
         variant: 'destructive',
       });
       return;
