@@ -611,7 +611,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                           id="slaBreachReason"
                           value={slaBreachReason}
                           onChange={(e) => setSlaBreachReason(e.target.value)}
-                          placeholder="Explain why this ticket exceeded the SLA time limit..."
+                          placeholder={t('ticketDetail.slaBreachPlaceholder')}
                           rows={3}
                         />
                       </div>
