@@ -476,7 +476,7 @@ export const additionalTranslations = {
     'status.approved': 'Approved',
     'status.ticket_created': 'Ticket Created',
     'status.resolved': 'Resolved',
-    },
+
     ratings: {
       rateHousekeeper: "Rate Housekeeper",
       rating: "Rating",
