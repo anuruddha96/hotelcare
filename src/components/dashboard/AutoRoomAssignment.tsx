@@ -30,7 +30,8 @@ import {
   WingProximityMap,
   CHECKOUT_MINUTES,
   DAILY_MINUTES,
-  BREAK_TIME_MINUTES
+  BREAK_TIME_MINUTES,
+  HotelAssignmentConfig
 } from '@/lib/roomAssignmentAlgorithm';
 import { getLocalDateString } from '@/lib/utils';
 
