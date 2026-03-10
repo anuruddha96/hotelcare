@@ -586,7 +586,7 @@ export function PerformanceLeaderboard() {
           <CardContent className="p-4 text-center">
             <Activity className="h-6 w-6 mx-auto mb-1 text-green-500" />
             <div className="text-2xl font-bold">{teamAvgRPH}</div>
-            <div className="text-xs text-muted-foreground">Avg Rooms/Hour</div>
+            <div className="text-xs text-muted-foreground">{t('performance.avgRoomsHour')}</div>
           </CardContent>
         </Card>
         <Card>
