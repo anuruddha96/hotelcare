@@ -748,7 +748,7 @@ export function PerformanceLeaderboard() {
                             <div className="text-[10px] sm:text-xs text-orange-600 dark:text-orange-500">{t('performance.hours')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>Avg working hours per day</TooltipContent>
+                        <TooltipContent>{t('performance.avgWorkingHours')}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
