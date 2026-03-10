@@ -283,8 +283,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
       }
 
       toast({
-        title: 'Success',
-        description: 'Ticket closed successfully',
+        title: t('common.success'),
+        description: t('ticketDetail.closed'),
       });
 
       onTicketUpdated();
