@@ -1160,7 +1160,7 @@ export function SupervisorApprovalView() {
                               size="sm"
                               variant="destructive"
                               onClick={async () => {
-                                const reason = prompt('Enter rejection reason:');
+                                const reason = prompt(t('supervisor.enterRejectionReason'));
                                 if (!reason) return;
                                 
                                 try {
