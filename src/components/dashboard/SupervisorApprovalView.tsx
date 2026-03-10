@@ -1107,7 +1107,7 @@ export function SupervisorApprovalView() {
                               {request.profiles?.full_name || 'Unknown'}
                             </p>
                             <p className="text-sm text-muted-foreground">
-                              Requested: {new Date(request.requested_at).toLocaleString()}
+                              {t('supervisor.requested')}: {new Date(request.requested_at).toLocaleString()}
                             </p>
                           </div>
                           <div className="flex gap-2">
