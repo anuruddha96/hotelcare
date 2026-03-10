@@ -342,6 +342,24 @@ function getRoomProximityBonus(roomNumber: string, existingRooms: RoomForAssignm
   return bonus;
 }
 
+// AI-driven staff preference bonus: rewards assigning a room to staff who historically prefer it
+function getStaffPreferenceBonus(
+  staffId: string,
+  room: RoomForAssignment,
+  staffPreferences?: Record<string, string[]>
+): number {
+  if (!staffPreferences || !staffPreferences[staffId]) return 0;
+  const prefs = staffPreferences[staffId];
+  let bonus = 0;
+  for (const pref of prefs) {
+    // Check if pref matches room number, wing, or floor pattern
+    if (room.room_number === pref) bonus += 8;
+    else if (room.wing === pref) bonus += 5;
+    else if (pref.startsWith('F') && room.floor_number !== null && `F${room.floor_number}` === pref) bonus += 3;
+  }
+  return bonus;
+}
+
 // Main auto-assignment algorithm: WING-FIRST grouping
 export function autoAssignRooms(
   rooms: RoomForAssignment[],
