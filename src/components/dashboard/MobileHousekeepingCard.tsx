@@ -56,16 +56,40 @@ export function MobileHousekeepingCard({
     }
   };
 
+  // Parse room flags from notes
+  const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
+  const hasManagerNotes = !!roomFlags.cleanNotes;
+
   // Check for special instructions
   const towelChangeRequired = assignment.rooms?.towel_change_required;
   const linenChangeRequired = assignment.rooms?.linen_change_required;
   const bedConfiguration = assignment.rooms?.bed_configuration;
-  const roomNotes = assignment.rooms?.notes;
   const assignmentNotes = assignment.notes;
   const guestNights = assignment.rooms?.guest_nights_stayed;
 
-  const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || roomNotes || assignmentNotes;
-  const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, roomNotes, assignmentNotes].filter(Boolean).length;
+  const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || assignmentNotes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, hasManagerNotes, assignmentNotes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+
+  // AI translation state
+  const [translating, setTranslating] = useState(false);
+  const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);
+  const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);
+
+  const handleTranslateNote = async (noteText: string, setter: (val: string) => void) => {
+    setTranslating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-note', {
+        body: { text: noteText, targetLanguage: language }
+      });
+      if (error) throw error;
+      setter(data.translatedText);
+      toast.success(t('roomCard.noteTranslated') || 'Note translated');
+    } catch {
+      toast.error('Translation failed');
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const cardClassName = [
     "w-full max-w-sm mx-auto shadow-md hover:shadow-lg transition-shadow",
