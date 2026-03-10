@@ -471,7 +471,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               {ticket.assigned_to && (
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4" />
-                  Assigned to {ticket.assigned_to.full_name}
+                  {t('ticketDetail.assignedTo')} {ticket.assigned_to.full_name}
                 </div>
               )}
             </div>
