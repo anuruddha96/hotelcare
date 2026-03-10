@@ -581,7 +581,7 @@ export function HousekeepingManagerView() {
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Wand2 className="h-4 w-4" />
-                Auto Assign
+                <span className="truncate">{t('manager.autoAssign')}</span>
                </Button>
 
                <Button
