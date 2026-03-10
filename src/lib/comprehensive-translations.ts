@@ -583,6 +583,7 @@ export const additionalTranslations = {
     'userMgmt.deleteWarning': 'This action cannot be undone.',
   },
 
+  es: {
     // Housekeeping Tabs
     'housekeeping.tabs.staffManagement': 'Gestión de Personal',
     'housekeeping.tabs.pendingApprovals': 'Aprobaciones Pendientes',
