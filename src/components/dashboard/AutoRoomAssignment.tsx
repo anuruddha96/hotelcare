@@ -353,10 +353,28 @@ export function AutoRoomAssignment({
     });
   };
 
-  const handleGeneratePreview = () => {
+  const handleGeneratePreview = async () => {
     const selectedStaff = allStaff.filter(s => selectedStaffIds.has(s.id));
     const roomsToAssign = dirtyRooms.filter(r => !excludedRoomIds.has(r.id));
-    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity);
+    
+    // Build hotel-specific config
+    const hotelName = await getManagerHotel();
+    let hotelConfig: HotelAssignmentConfig | undefined;
+    
+    // Hotel Memories Budapest zone mapping - groups 10 wings into 5 logical zones
+    if (hotelName === 'Hotel Memories Budapest') {
+      hotelConfig = {
+        wingZoneMapping: {
+          'A': 'ground', 'B': 'ground', 'C': 'ground',
+          'D': 'f1-left',
+          'E': 'f1-right',
+          'F': 'f1-back', 'G': 'f1-back', 'H': 'f1-back',
+          'I': 'f2-f3', 'J': 'f2-f3',
+        }
+      };
+    }
+    
+    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, hotelConfig);
     setAssignmentPreviews(previews);
     setPreviewHistory([]);
     setStep('preview');
