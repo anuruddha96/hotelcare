@@ -228,7 +228,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); onActiveSubTabChange?.(val); }} className="w-full">
         <TabsList className={`
           ${hasManagerAccess || isReceptionReadOnly
             ? 'inline-flex overflow-x-auto overflow-y-hidden w-full justify-start gap-1 p-1 h-auto flex-nowrap scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent' 
