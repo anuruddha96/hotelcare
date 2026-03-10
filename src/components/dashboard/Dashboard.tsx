@@ -487,7 +487,7 @@ export function Dashboard() {
                   </TabsTrigger>
                 </HelpTooltip>
                 <HelpTooltip hint={UI_HINTS["tab.rooms"]}>
-                  <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3 data-[state=active]:font-bold data-[state=active]:shadow-md" data-training="rooms-tab">
+                  <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="rooms-tab">
                     <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                     <span>{t('dashboard.rooms')}</span>
                   </TabsTrigger>
