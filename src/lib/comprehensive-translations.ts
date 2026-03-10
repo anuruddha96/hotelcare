@@ -581,6 +581,83 @@ export const additionalTranslations = {
     'userMgmt.deleteUser': 'Delete User',
     'userMgmt.deleteConfirm': 'Are you absolutely sure you want to delete',
     'userMgmt.deleteWarning': 'This action cannot be undone.',
+
+    // Manager View
+    'manager.teamView': 'Team View',
+    'manager.earlySignOutApprovals': 'Early Sign-Out Approvals',
+    'manager.autoAssign': 'Auto Assign',
+    'manager.publicAreas': 'Public Areas',
+
+    // Attendance statuses
+    'attendance.pendingEarlySignOut': 'Pending Early Sign-Out Approval',
+    'attendance.autoSignedOut': 'Auto Signed Out',
+    'attendance.forgotSignOut': 'Forgot Sign Out',
+    'attendance.waitingSupervisor': 'Waiting for supervisor approval',
+    'attendance.cannotWorkUntilApproved': 'You cannot start new work until your early sign-out is approved.',
+    'attendance.earlySignOutApprovedMsg': 'Early sign-out approved',
+    'attendance.earlySignOutRejectedMsg': 'Early sign-out rejected',
+    'attendance.approvedByLabel': 'Approved by',
+    'attendance.rejectionReason': 'Reason',
+    'attendance.continueWorking': 'Please continue working or contact your supervisor.',
+    'attendance.unknown': 'Unknown',
+
+    // Performance
+    'performance.avgRoomsHour': 'Avg Rooms/Hour',
+    'performance.outliersFiltered': 'Outliers Filtered',
+    'performance.needsAttention': 'Needs Attention',
+    'performance.roomsHr': 'Rooms/Hr',
+    'performance.hours': 'Hours',
+    'performance.qualityLabel': 'Quality',
+    'performance.roomsInDays': '{rooms} rooms in {days} days',
+    'performance.outliersRemoved': '{count} outliers removed',
+    'performance.dayStreak': '{count} day streak',
+    'performance.reviewsCount': '{count} reviews',
+    'performance.noRatingsYet': 'No ratings yet — scored at 50%',
+    'performance.avgDailyCleanTime': 'Avg daily clean time (±{stddev}m stddev)',
+    'performance.avgCheckoutCleanTime': 'Avg checkout clean time (±{stddev}m stddev)',
+    'performance.roomsPerWorkingHour': 'Rooms per working hour ({rpd} rooms/day)',
+    'performance.onTimeArrival': 'On-time arrival rate (before {cutoff})',
+    'performance.avgWorkingHours': 'Avg working hours per day',
+    'performance.managerRating': 'Manager rating: {rating}/5 ({count} reviews)',
+    'performance.minRoomsNote': 'Staff need at least {minRooms} rooms across {minDays}+ days to appear here',
+    'performance.spd': 'Spd',
+    'performance.prod': 'Prod',
+    'performance.punc': 'Punc',
+    'performance.cons': 'Cons',
+    'performance.qual': 'Qual',
+
+    // Linen
+    'linen.exportCsv': 'Export to CSV',
+    'linen.totalCollected': 'Total Collected',
+    'linen.housekeepersCount': '{count} Housekeepers',
+    'linen.noData': 'No data available for the selected date range',
+
+    // Notifications (realtime)
+    'notifications.breakRequestSubmitted': 'New break request submitted',
+    'notifications.breakRequestLabel': 'Break Request',
+    'notifications.roomReadyApproval': 'Room completed and ready for approval',
+    'notifications.approvalRequired': 'Approval Required',
+    'notifications.maintenanceReview': 'Maintenance task ready for review',
+    'notifications.maintenanceApproval': 'Maintenance Approval',
+    'notifications.newTicketAssigned': 'New ticket assigned to you',
+    'notifications.newTicketLabel': 'New Ticket',
+    'notifications.ticketStatusChanged': 'Your ticket status changed to {status}',
+    'notifications.ticketUpdateLabel': 'Ticket Update',
+    'notifications.pmsUploadComplete': 'PMS Upload Complete',
+
+    // Supervisor
+    'supervisor.earlySignOutRequests': 'Early Sign-Out Requests',
+    'supervisor.requested': 'Requested',
+    'supervisor.approveBtn': 'Approve',
+    'supervisor.rejectBtn': 'Reject',
+    'supervisor.earlySignOutApproved': 'Early sign-out approved',
+    'supervisor.earlySignOutRejected': 'Early sign-out rejected',
+    'supervisor.failedApprove': 'Failed to approve early sign-out',
+    'supervisor.failedReject': 'Failed to reject early sign-out',
+    'supervisor.enterRejectionReason': 'Enter rejection reason:',
+
+    // Room overview
+    'room.actTooltip': 'Average Cleaning Time — average duration to clean a room',
   },
 
   es: {
