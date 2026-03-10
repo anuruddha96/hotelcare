@@ -249,7 +249,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
       setHoveredRoomId(roomId);
-      setPopoverNotes(room.notes || '');
+      const flags = parseRoomFlags(room.notes);
+      setPopoverNotes(flags.cleanNotes);
     }, 150);
   }, [isMobile, canInteractWithRooms]);
 
