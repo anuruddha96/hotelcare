@@ -733,7 +733,7 @@ export function PerformanceLeaderboard() {
                             <div className="text-[10px] sm:text-xs text-purple-600 dark:text-purple-500">{t('performance.punctual')}</div>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>On-time arrival rate (before {THRESHOLDS.punctualityCutoff})</TooltipContent>
+                        <TooltipContent>{t('performance.onTimeArrival').replace('{cutoff}', THRESHOLDS.punctualityCutoff)}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
 
