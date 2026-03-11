@@ -641,12 +641,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
                     const newIsCheckout = !isCheckout;
                     try {
-                      const updates: Promise<any>[] = [
-                        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', room.id),
+                      const updates = [
+                        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', room.id).then(),
                       ];
                       if (assignment) {
                         updates.push(
-                          supabase.from('room_assignments').update({ assignment_type: newType } as any).eq('room_id', room.id).eq('assignment_date', selectedDate)
+                          supabase.from('room_assignments').update({ assignment_type: newType } as any).eq('room_id', room.id).eq('assignment_date', selectedDate).then()
                         );
                       }
                       await Promise.all(updates);
