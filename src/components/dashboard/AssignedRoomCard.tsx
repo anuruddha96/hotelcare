@@ -99,6 +99,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [lostFoundDialogOpen, setLostFoundDialogOpen] = useState(false);
   const [currentPhotos, setCurrentPhotos] = useState<string[]>(assignment.completion_photos || []);
   const [isRetrievingDND, setIsRetrievingDND] = useState(false);
+  const [noServiceDialogOpen, setNoServiceDialogOpen] = useState(false);
+  const [noServiceLoading, setNoServiceLoading] = useState(false);
 
   // Priority and styling - static glow for high priority
   const isHighPriority = assignment.priority >= 3;
