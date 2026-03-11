@@ -579,7 +579,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
           
           // Determine new status based on PMS data
-          let newStatus = 'clean';
+          let newStatus = currentStatus || 'dirty'; // Keep current status by default, never default to clean
           let needsCleaning = false;
           let isCheckout = false;
           let guestNightsStayed = 0;
