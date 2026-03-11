@@ -674,16 +674,33 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               nightTotal: nightTotalRaw,
               notes: noteVal
             });
-          } else if (isOccupiedNo(occupiedVal) && String(statusVal).toLowerCase().includes('untidy') && arrivalVal) {
-            // No Show (NS) - Guest didn't show up, room was prepared but unused
-            isNoShow = true;
-            newStatus = 'clean'; // Room is clean but was prepared for no-show
-            console.log(`[PMS] Room ${roomNumber}: No Show detected (Occupied: No, Status: Untidy with Arrival)`);
           } else if (statusVal && (String(statusVal).toLowerCase().includes('untidy') || String(statusVal).toLowerCase().includes('dirty'))) {
-            // Room marked as dirty/untidy in PMS
+            // PMS explicitly says room is Untidy/Dirty — always mark dirty regardless of occupancy
             newStatus = 'dirty';
             needsCleaning = true;
-            console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${statusVal})`);
+            // If unoccupied with arrival and untidy, it's a checkout room (previous guest left, new one coming)
+            if (isOccupiedNo(occupiedVal) && arrivalVal) {
+              isCheckout = true;
+              checkoutRoomsList.push({
+                roomNumber,
+                roomType: room.room_type,
+                guestCount: peopleVal || 0,
+                status: 'checkout',
+                departureTime: null,
+                isEarlyCheckout: false,
+                notes: noteVal
+              });
+              console.log(`[PMS] Room ${roomNumber}: Untidy + unoccupied + arrival → checkout room (previous guest left, new guest arriving)`);
+            } else {
+              console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${statusVal})`);
+            }
+          } else if (isOccupiedNo(occupiedVal) && arrivalVal && statusVal && 
+                     !String(statusVal).toLowerCase().includes('untidy') && 
+                     !String(statusVal).toLowerCase().includes('dirty')) {
+            // True No Show: unoccupied, has arrival, but room status is Clean (not untidy/dirty)
+            isNoShow = true;
+            newStatus = 'clean';
+            console.log(`[PMS] Room ${roomNumber}: No Show detected (Occupied: No, Status: ${statusVal}, not untidy)`);
           } else {
             // Room is not occupied, no departure, no dirty status, not a no-show — keep current status
             console.log(`[PMS] Room ${roomNumber}: Keeping current status (${currentStatus})`);
