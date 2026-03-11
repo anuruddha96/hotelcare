@@ -238,6 +238,35 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
+  const markAsNoService = async () => {
+    setNoServiceLoading(true);
+    try {
+      const now = new Date().toISOString();
+      
+      // Mark assignment as completed with no_service flag
+      const { error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({ 
+          status: 'completed',
+          completed_at: now,
+          notes: `${assignment.notes || ''}\n[NO_SERVICE] Guest declined cleaning service`.trim()
+        })
+        .eq('id', assignment.id);
+
+      if (assignmentError) throw assignmentError;
+      
+      onStatusUpdate(assignment.id, 'completed');
+      const roomNum = assignment.rooms?.room_number ?? '—';
+      toast.success(`Room ${roomNum} marked as No Service - guest declined`);
+    } catch (error) {
+      console.error('Error marking as no service:', error);
+      toast.error('Failed to mark room as no service');
+    } finally {
+      setNoServiceLoading(false);
+      setNoServiceDialogOpen(false);
+    }
+  };
+
   const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
     // Check for room photos on daily cleaning completion
     if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
