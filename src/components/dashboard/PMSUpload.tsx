@@ -685,7 +685,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             needsCleaning = true;
             console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${statusVal})`);
           } else {
-            console.log(`[PMS] Room ${roomNumber}: Setting to clean`);
+            // Room is not occupied, no departure, no dirty status, not a no-show — keep current status
+            console.log(`[PMS] Room ${roomNumber}: Keeping current status (${currentStatus})`);
           }
 
           console.log(`[PMS] Room ${roomNumber}: Status change ${currentStatus} -> ${newStatus}`);

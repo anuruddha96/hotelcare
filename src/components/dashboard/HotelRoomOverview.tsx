@@ -707,7 +707,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     value={popoverNotes}
                     onChange={(e) => setPopoverNotes(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    onBlur={async () => {
+                    onBlur={async (e) => {
+                      const textarea = e.target as HTMLTextAreaElement;
                       // Preserve flags when saving notes
                       const currentFlags = parseRoomFlags(room.notes);
                       const { buildRoomNotes } = await import('@/lib/room-service-flags');
@@ -722,7 +723,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           }
                           await supabase.from('rooms').update({ notes: newFullNotes || null } as any).eq('id', room.id);
                           setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: newFullNotes || null } : r));
-                          toast.success(`Notes saved — ${room.room_number}`);
+                          // Show inline saved indicator
+                          const parent = textarea.parentElement;
+                          if (parent) {
+                            const indicator = document.createElement('span');
+                            indicator.className = 'text-[10px] text-emerald-600 font-medium animate-in fade-in';
+                            indicator.textContent = '✓ Auto-saved';
+                            parent.appendChild(indicator);
+                            setTimeout(() => indicator.remove(), 2000);
+                          }
                         } catch { toast.error('Failed to save notes'); }
                       }
                     }}
