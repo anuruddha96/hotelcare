@@ -1261,47 +1261,46 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       </Button>
                     )}
                     {/* Switch Room Type */}
-                    {assignment && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full justify-start gap-2"
-                        disabled={actionLoading === 'switch'}
-                        onClick={async () => {
-                          setActionLoading('switch');
-                          const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
-                          const newIsCheckout = !isCheckout;
-                          try {
-                            const [assignRes, roomRes] = await Promise.all([
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start gap-2"
+                      disabled={actionLoading === 'switch'}
+                      onClick={async () => {
+                        setActionLoading('switch');
+                        const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
+                        const newIsCheckout = !isCheckout;
+                        try {
+                          const updates: Promise<any>[] = [
+                            supabase
+                              .from('rooms')
+                              .update({ is_checkout_room: newIsCheckout } as any)
+                              .eq('id', selectedRoom.id),
+                          ];
+                          if (assignment) {
+                            updates.push(
                               supabase
                                 .from('room_assignments')
                                 .update({ assignment_type: newType } as any)
                                 .eq('room_id', selectedRoom.id)
-                                .eq('assignment_date', selectedDate),
-                              supabase
-                                .from('rooms')
-                                .update({ is_checkout_room: newIsCheckout } as any)
-                                .eq('id', selectedRoom.id),
-                            ]);
-                            if (assignRes.error) throw assignRes.error;
-                            if (roomRes.error) throw roomRes.error;
-                            toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
-                            setRoomSizeDialogOpen(false);
-                            await fetchData();
-                          } catch (err) {
-                            toast.error('Failed to switch room type');
-                          } finally {
-                            setActionLoading(null);
+                                .eq('assignment_date', selectedDate)
+                            );
                           }
-                        }}
-                      >
-                        {actionLoading === 'switch' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-blue-600" />}
-                        Switch to {isCheckout ? 'Daily' : 'Checkout'}
-                      </Button>
-                    )}
-                    {!assignment && !isCheckout && (
-                      <p className="text-xs text-muted-foreground">No assignment for today — assign a room first to use quick actions.</p>
-                    )}
+                          const results = await Promise.all(updates);
+                          if (results.some(r => r.error)) throw results.find(r => r.error)?.error;
+                          toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+                          setRoomSizeDialogOpen(false);
+                          await fetchData();
+                        } catch (err) {
+                          toast.error('Failed to switch room type');
+                        } finally {
+                          setActionLoading(null);
+                        }
+                      }}
+                    >
+                      {actionLoading === 'switch' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-blue-600" />}
+                      Switch to {isCheckout ? 'Daily' : 'Checkout'}
+                    </Button>
                   </div>
                 </>
               );
