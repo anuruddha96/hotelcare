@@ -25,6 +25,7 @@ import {
   Package,
   Info,
   Globe,
+  Ban,
   Loader2 as LucideLoader
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
@@ -98,6 +99,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [lostFoundDialogOpen, setLostFoundDialogOpen] = useState(false);
   const [currentPhotos, setCurrentPhotos] = useState<string[]>(assignment.completion_photos || []);
   const [isRetrievingDND, setIsRetrievingDND] = useState(false);
+  const [noServiceDialogOpen, setNoServiceDialogOpen] = useState(false);
+  const [noServiceLoading, setNoServiceLoading] = useState(false);
 
   // Priority and styling - static glow for high priority
   const isHighPriority = assignment.priority >= 3;
@@ -232,6 +235,35 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     } finally {
       setLoading(false);
       setDndPhotoDialogOpen(false);
+    }
+  };
+
+  const markAsNoService = async () => {
+    setNoServiceLoading(true);
+    try {
+      const now = new Date().toISOString();
+      
+      // Mark assignment as completed with no_service flag
+      const { error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({ 
+          status: 'completed',
+          completed_at: now,
+          notes: `${assignment.notes || ''}\n[NO_SERVICE] Guest declined cleaning service`.trim()
+        })
+        .eq('id', assignment.id);
+
+      if (assignmentError) throw assignmentError;
+      
+      onStatusUpdate(assignment.id, 'completed');
+      const roomNum = assignment.rooms?.room_number ?? '—';
+      toast.success(`Room ${roomNum} marked as No Service - guest declined`);
+    } catch (error) {
+      console.error('Error marking as no service:', error);
+      toast.error('Failed to mark room as no service');
+    } finally {
+      setNoServiceLoading(false);
+      setNoServiceDialogOpen(false);
     }
   };
 
@@ -868,12 +900,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 </div>
               )}
             </div>
-          )}
-        </div>
+            )}
+          </div>
 
         {/* Action Buttons */}
         <div className="space-y-4">
-          {/* Primary Action Buttons - Only Start button before Required Actions */}
+          {/* Primary Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
           {assignment.status === 'assigned' && !isCheckoutWaiting && (
               <HoldButton
@@ -897,6 +929,54 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <Play className="h-5 w-5" />
                 {t('housekeeping.start')}
               </HoldButton>
+            )}
+
+            {/* No Service Button - when guest declines cleaning */}
+            {assignment.status === 'assigned' && assignment.assignment_type === 'daily_cleaning' && !isCheckoutWaiting && (
+              <Dialog open={noServiceDialogOpen} onOpenChange={setNoServiceDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="w-full sm:w-auto border-gray-400 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                  >
+                    <Ban className="h-5 w-5" />
+                    {t('housekeeping.noService') || 'No Service'}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="text-xl font-bold">
+                      🚫 {t('housekeeping.noServiceTitle') || 'Mark as No Service'}
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      {t('housekeeping.noServiceConfirm') || `Are you sure the guest in Room ${assignment.rooms?.room_number || 'N/A'} declined cleaning service?`}
+                    </p>
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 rounded-lg">
+                      <p className="text-sm text-amber-800 dark:text-amber-200">
+                        {t('housekeeping.noServiceNote') || 'This will mark the room as completed without cleaning. The manager will be able to see this in reports.'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={markAsNoService} 
+                        disabled={noServiceLoading}
+                        className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-semibold"
+                      >
+                        {noServiceLoading ? '...' : (t('housekeeping.confirmNoService') || 'Confirm No Service')}
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setNoServiceDialogOpen(false)}
+                      >
+                        {t('common.cancel')}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             )}
 
             {/* Show disabled message for checkout rooms waiting */}
