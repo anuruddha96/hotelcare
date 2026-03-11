@@ -1,95 +1,63 @@
 
 
-## Plan: Auto-Assign Towel Change, Custom Bed Types, Improved Sorting, and Housekeeper Card Visibility
+## Plan: 4 Issues to Fix
 
-### Summary of Changes (4 areas)
+### Issue 1: Tab Hierarchy Not Visible
 
----
+**Root Cause**: The `TabsTrigger` in `tabs.tsx` uses `bg-primary text-primary-foreground` for active state — this is a solid dark blue that works. But the problem is **the main Radix Tabs component only sets `data-[state=active]` on the currently focused trigger within its own scope**. When you click a sub-tab inside `HousekeepingTab`, the **parent** `Tabs` component (in `Dashboard.tsx`) still has `value="housekeeping"` — so the parent trigger IS active. The styling should be visible.
 
-### 1. Auto-Assign: Manual Towel Change Toggle Before Assignment
+After re-examining the screenshot: the main tabs (Tickets, Rooms, Housekeeping, Attendance) appear with NO highlight at all. The sub-tabs also show no highlight. Only the deepest active tab shows it.
 
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`**
+The real issue: The `TabsTrigger` components are wrapped inside `HelpTooltip` components (lines 447-506 in Dashboard.tsx). The `HelpTooltip` wrapping may interfere with the Radix trigger's `data-[state=active]` attribute propagation, OR the `overflow-x-auto` on the parent div clips the visual styling.
 
-In Step 1 (select-staff), after the staff grid, add a new section "Pre-Assignment Room Settings" that lists all dirty rooms and allows managers to toggle `towel_change_required` for each room before generating the preview. This lets managers plan towel changes in the morning.
+**Fix**: Instead of relying solely on `data-[state=active]` CSS, I'll ensure the main tab and sub-tab containers explicitly pass a highlighted style. The approach:
+- Keep the current `data-[state=active]` styling in `tabs.tsx` with high contrast (`bg-primary text-primary-foreground`)
+- Verify the `HelpTooltip` wrapper doesn't break the active state — if it does, restructure so the tooltip wraps the trigger content, not the trigger itself
 
-- Add a collapsible section below staff selection showing all `dirtyRooms` in a compact grid
-- Each room chip has a small towel icon toggle button (T) that updates the local state and the DB `rooms.towel_change_required`
-- When toggled, the room's towel status flows into the algorithm (already supported via `calculateRoomTime` and `calculateRoomWeight`)
-- Also add a "Select All Towel Change" button for bulk toggling
-
----
-
-### 2. Custom Bed Requirements (Budapest Hotel Use Case)
-
-**Database Migration:** Add a `bed_configuration` text column to `rooms` table (nullable). This stores the specific bed arrangement set by managers (e.g., "Twin beds separated", "Double bed", "Extra cot"). The existing `bed_type` column has limited values (`single`, `double`, `queen`, `triple`, `shabath`) — this new column stores the **current guest requirement** which can change per stay.
-
-```sql
-ALTER TABLE rooms ADD COLUMN IF NOT EXISTS bed_configuration text DEFAULT NULL;
-```
-
-**File: `src/components/dashboard/HotelRoomOverview.tsx`** — In the room chip dialog, add a "Bed Configuration" field (text input or dropdown with common options + custom) under Room Settings. Only managers/admins can set it. Options: "Double Bed", "Twin Beds", "Twin Beds Separated", "Extra Cot Added", "Single Bed", or custom text.
-
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`** — Fetch `bed_configuration` in the rooms query. Show it on room chips in the preview (small icon/label like "🛏️ Twin Sep").
-
-**File: `src/components/dashboard/AssignedRoomCard.tsx`** — Display `bed_configuration` prominently in a dedicated info row (alongside floor number) so housekeepers clearly see what bed arrangement the guest needs. Show it with a bed icon and distinct styling.
-
-**File: `src/components/dashboard/MobileHousekeepingView.tsx`** — Include `bed_configuration` in the rooms query.
-
-**File: `src/components/dashboard/HousekeepingStaffView.tsx`** — Include `bed_configuration` in the rooms query.
-
-**File: `src/lib/roomAssignmentAlgorithm.ts`** — Add `bed_configuration` to `RoomForAssignment` interface.
+**Files**: `src/components/ui/tabs.tsx`, potentially `src/components/dashboard/Dashboard.tsx`
 
 ---
 
-### 3. Fix Room Priority/Sorting Order
+### Issue 2: PMS Upload Sets Rooms as "Clean" Incorrectly
 
-Current sorting logic in `HousekeepingStaffView.tsx` and `MobileHousekeepingView.tsx` is almost correct but has issues:
-- Checkout rooms waiting for guest (`ready_to_clean=false`) should sort AFTER daily rooms that are ready
-- Ready-to-clean checkout rooms should be first
-- Same floor rooms should be grouped together
-- High priority rooms should always be at top (after in-progress)
+**Root Cause**: In `PMSUpload.tsx` line 582, `newStatus` defaults to `'clean'`. Any room that doesn't match checkout, occupied, or PMS-status-dirty conditions falls through to clean. This is wrong — rooms where a guest departed (even early) should be `dirty` unless explicitly a no-show.
 
-**New sort order (all 3 files + PendingRoomsDialog):**
+The no-show detection (line 677) requires: `Occupied=No AND Status=Untidy AND Arrival exists`. Only then is `clean` appropriate.
 
-1. `in_progress` always first
-2. High priority rooms (`priority >= 3`) — regardless of type
-3. Ready checkout rooms (`checkout_cleaning` + `ready_to_clean=true`)
-4. Daily rooms — grouped by floor, then room number
-5. Checkout rooms waiting (`checkout_cleaning` + `ready_to_clean=false`) — at bottom
-6. Completed rooms last
+For rooms like 308 and 213: if they're unoccupied with no departure time and no "untidy" status, they default to `clean`. The fix: **default status should be `dirty`** for any room that was previously dirty or had guest activity, and only set to `clean` for confirmed no-shows.
 
-**Files to update sorting:**
-- `src/components/dashboard/HousekeepingStaffView.tsx` (lines 174-208)
-- `src/components/dashboard/MobileHousekeepingView.tsx` (lines 189-223)
-- `src/components/dashboard/PendingRoomsDialog.tsx` (lines 86-91) — replace simple numeric sort with the same priority logic
+**Fix**: Change the default `newStatus` from `'clean'` to keeping the current room status, and only set to `'clean'` explicitly for no-show rooms. If a room is unoccupied with no departure, no arrival, and no untidy status — it should remain as its current status (not forcefully set to clean).
+
+**File**: `src/components/dashboard/PMSUpload.tsx`
 
 ---
 
-### 4. Redesign AssignedRoomCard Special Instructions Visibility
+### Issue 3: Switch Checkout ↔ Daily on Room Chip Hover & Settings
 
-**File: `src/components/dashboard/AssignedRoomCard.tsx`**
+**Current State**: The switch button already exists in both the popover (line 635-657) and the room settings dialog (line 1261-1298). However, it's **only shown when an assignment exists** (`{assignment && (...)}` on line 635 and 1261). Rooms without assignments can't be switched.
 
-Currently, towel/linen badges are small badges in the header. Bed configuration doesn't exist yet. Manager notes are shown but could be more prominent. Redesign the top of the card to have a **"Special Instructions" banner** that consolidates:
+**Fix**: Allow switching even without an assignment by updating the `is_checkout_room` flag on the room directly. When there's no assignment, just toggle the room's `is_checkout_room` field.
 
-- Towel change required → prominent yellow banner with icon
-- Linen change required → prominent purple banner with icon  
-- Bed configuration → prominent blue banner with bed icon and the configuration text
-- Manager notes → already amber banner (keep as-is)
-
-Move these from small header badges to a dedicated, unmissable section right after the card header, before room details. Use larger text and bolder styling.
+**File**: `src/components/dashboard/HotelRoomOverview.tsx`
 
 ---
 
-### Files Changed Summary
+### Issue 4: Auto-Saved Status for Manager Notes in Hotel Room Overview
+
+**Current State**: The popover notes textarea (line 701-726) auto-saves on blur and shows a `toast.success` message. But there's no inline visual indicator showing the save status.
+
+**Fix**: Add a small "Saved ✓" / "Saving..." indicator next to the notes textarea that appears briefly after auto-save completes.
+
+**File**: `src/components/dashboard/HotelRoomOverview.tsx`
+
+---
+
+### Summary of Changes
 
 | File | Changes |
 |------|---------|
-| **Migration** | Add `bed_configuration` column to `rooms` |
-| `AutoRoomAssignment.tsx` | Add towel change toggle section in Step 1, fetch `bed_configuration`, show on preview chips |
-| `HotelRoomOverview.tsx` | Add bed configuration selector in room chip dialog |
-| `AssignedRoomCard.tsx` | Redesign special instructions section with prominent banners for towel/linen/bed config |
-| `HousekeepingStaffView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `MobileHousekeepingView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `PendingRoomsDialog.tsx` | Fix sorting to match housekeeper priority order, fetch `bed_configuration` and show it |
-| `roomAssignmentAlgorithm.ts` | Add `bed_configuration` to `RoomForAssignment` interface |
+| `src/components/ui/tabs.tsx` | Verify/fix active state styling visibility |
+| `src/components/dashboard/Dashboard.tsx` | Ensure HelpTooltip wrapping doesn't block active state |
+| `src/components/dashboard/PMSUpload.tsx` | Change default room status logic — only no-shows get `clean`, all other unoccupied rooms keep current status |
+| `src/components/dashboard/HotelRoomOverview.tsx` | Allow switch checkout/daily without assignment; add auto-save indicator for manager notes |
 
