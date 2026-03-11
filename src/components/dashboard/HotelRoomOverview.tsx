@@ -632,29 +632,32 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {/* Quick Actions */}
               <div className="space-y-1 border-t border-border pt-1.5">
                 {/* Switch Type */}
-                {assignment && (
-                  <button
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
-                    disabled={actionLoading === `switch-${room.id}`}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      setActionLoading(`switch-${room.id}`);
-                      const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
-                      const newIsCheckout = !isCheckout;
-                      try {
-                        await Promise.all([
-                          supabase.from('room_assignments').update({ assignment_type: newType } as any).eq('room_id', room.id).eq('assignment_date', selectedDate),
-                          supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', room.id),
-                        ]);
-                        toast.success(`Room ${room.room_number} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
-                        await fetchData();
-                      } catch { toast.error('Failed'); }
-                      finally { setActionLoading(null); }
-                    }}
-                  >
-                    <ArrowLeftRight className="h-3 w-3" /> Switch to {isCheckout ? 'Daily' : 'Checkout'}
-                  </button>
-                )}
+                <button
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+                  disabled={actionLoading === `switch-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`switch-${room.id}`);
+                    const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
+                    const newIsCheckout = !isCheckout;
+                    try {
+                      const updates: Promise<any>[] = [
+                        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', room.id),
+                      ];
+                      if (assignment) {
+                        updates.push(
+                          supabase.from('room_assignments').update({ assignment_type: newType } as any).eq('room_id', room.id).eq('assignment_date', selectedDate)
+                        );
+                      }
+                      await Promise.all(updates);
+                      toast.success(`Room ${room.room_number} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+                      await fetchData();
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <ArrowLeftRight className="h-3 w-3" /> Switch to {isCheckout ? 'Daily' : 'Checkout'}
+                </button>
 
                 {/* Status change - hidden for checkout rooms not yet ready */}
                 {room.status === 'clean' && (
