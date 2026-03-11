@@ -25,6 +25,7 @@ import {
   Package,
   Info,
   Globe,
+  Ban,
   Loader2 as LucideLoader
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
