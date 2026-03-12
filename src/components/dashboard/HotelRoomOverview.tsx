@@ -393,7 +393,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {room.room_number}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">T</span>}
-          {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-purple-600 text-white">LC</span>}
+          {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-purple-600 text-white">C</span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {assignment?.ready_to_clean && isCheckout && !(assignment?.status === 'completed' && assignment?.supervisor_approved) && (
@@ -542,7 +542,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🛏️ Bed Linen (LC)</span>
+                  <span>🛏️ Change Room (C)</span>
                   <span className="text-[10px]">{room.linen_change_required ? '✓ Required' : 'Off'}</span>
                 </button>
                 <button

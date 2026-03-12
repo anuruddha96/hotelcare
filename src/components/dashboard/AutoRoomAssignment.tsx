@@ -750,7 +750,7 @@ ${activePreviews.map(preview => {
       ${sortByRoom(preview.rooms).map((room, i) => {
         const specials: string[] = [];
         if (room.towel_change_required) specials.push('🧺 Towel');
-        if (room.linen_change_required) specials.push('🛏️ Linen');
+        if (room.linen_change_required) specials.push('🛏️ Change Room');
         if (room.bed_configuration) specials.push(`Bed: ${room.bed_configuration}`);
         return `<tr class="${room.is_checkout_room ? 'type-co' : 'type-daily'}">
           <td>${i + 1}</td>
@@ -815,7 +815,7 @@ ${activePreviews.map(preview => {
           <span className="text-[10px] px-0.5 font-bold text-red-600">T</span>
         )}
         {room.linen_change_required && (
-          <span className="text-[10px] px-0.5 font-bold text-red-600">L</span>
+          <span className="text-[10px] px-0.5 font-bold text-red-600">C</span>
         )}
         {room.bed_configuration && (
           <span className="text-[9px] px-0.5 opacity-70">🛏️{room.bed_configuration.length > 8 ? room.bed_configuration.substring(0, 8) : room.bed_configuration}</span>
@@ -861,7 +861,7 @@ ${activePreviews.map(preview => {
                 <div className={`px-2 py-1.5 text-center ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
                   {towelCount > 0 && <span className="text-red-600 font-semibold">{towelCount}T</span>}
                   {towelCount > 0 && linenCount > 0 && ' '}
-                  {linenCount > 0 && <span className="text-red-600 font-semibold">{linenCount}L</span>}
+                  {linenCount > 0 && <span className="text-red-600 font-semibold">{linenCount}C</span>}
                   {towelCount === 0 && linenCount === 0 && '—'}
                 </div>
                 <div className={`px-2 py-1.5 text-right ${p.exceedsShift ? 'text-destructive font-semibold' : ''} ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
