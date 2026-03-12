@@ -417,6 +417,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
                 if (bc.includes('Twin')) return 'TW';
                 if (bc.includes('Single')) return 'SGL';
+                if (bc.includes('Baby')) return '👶BB';
                 if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
                 return bc.substring(0, 3).toUpperCase();
               })()}
