@@ -34,8 +34,7 @@ import {
   CheckCheck,
   Layers,
   BedDouble,
-  DoorClosed,
-  Image
+  DoorClosed
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
