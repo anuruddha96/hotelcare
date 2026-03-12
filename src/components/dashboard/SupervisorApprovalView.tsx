@@ -690,7 +690,6 @@ export function SupervisorApprovalView() {
     );
   }
 
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
 
   const toggleCardExpand = (id: string) => {
     setExpandedCards(prev => {
