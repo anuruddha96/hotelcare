@@ -1,11 +1,11 @@
 // Room Assignment Algorithm - FAIRNESS-FIRST approach
-// Priority: 1) Equal checkout distribution 2) Fair C/daily distribution 3) Floor proximity
+// Priority: 1) Equal checkout distribution 2) Fair C/daily distribution 3) Zone proximity
 
 // Time constants (in minutes)
 export const CHECKOUT_MINUTES = 45;
 export const DAILY_MINUTES = 15;
 export const TOWEL_CHANGE_MINUTES = 10;
-export const LINEN_CHANGE_MINUTES = 10;
+export const LINEN_CHANGE_MINUTES = 15; // Clean Room (C) = 15 min total
 export const BREAK_TIME_MINUTES = 30;
 export const STANDARD_SHIFT_MINUTES = 480; // 8 hours
 export const AVAILABLE_WORK_MINUTES = STANDARD_SHIFT_MINUTES - BREAK_TIME_MINUTES; // 450 minutes
@@ -47,26 +47,67 @@ export interface AssignmentPreview {
   overageMinutes: number;
 }
 
+// ─── HOTEL MEMORIES BUDAPEST ZONE MAPPING ───
+// Room-number-based zones that reflect actual physical proximity
+
+const MEMORIES_ZONES: Record<string, string[]> = {
+  'ground': ['002', '004', '006', '008', '010', '032', '034', '036', '038', '040', '042', '044'],
+  'f1-left': ['101', '102', '103', '104', '105', '106', '107', '108', '109', '110', '111', '112', '113', '114', '115', '117', '119', '121', '123', '125', '127'],
+  'f1-right': ['130', '131', '132', '133', '134', '135', '136', '137', '138', '139', '140', '141', '142', '143', '144', '145', '147'],
+  'f2-f3': ['201', '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213', '214', '215', '216', '217', '302', '304', '306', '308'],
+};
+
+// Build reverse lookup: room_number -> zone
+const MEMORIES_ROOM_TO_ZONE: Record<string, string> = {};
+for (const [zone, rooms] of Object.entries(MEMORIES_ZONES)) {
+  for (const room of rooms) {
+    MEMORIES_ROOM_TO_ZONE[room] = zone;
+  }
+}
+
+export function getMemoriesZone(roomNumber: string): string {
+  return MEMORIES_ROOM_TO_ZONE[roomNumber] || `unknown-${roomNumber}`;
+}
+
+export function isHotelMemoriesBudapest(hotelName: string | undefined | null): boolean {
+  return hotelName === 'Hotel Memories Budapest';
+}
+
+// Apply zone-based wing override for Memories Budapest
+export function applyMemoriesZones(rooms: RoomForAssignment[]): RoomForAssignment[] {
+  return rooms.map(room => ({
+    ...room,
+    wing: getMemoriesZone(room.room_number),
+  }));
+}
+
 // Calculate estimated time for a room in minutes
 export function calculateRoomTime(room: RoomForAssignment): number {
+  // Towel change only (not checkout, not linen change)
   if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
-    return TOWEL_CHANGE_MINUTES;
+    return TOWEL_CHANGE_MINUTES; // 10 min
   }
-  const size = room.room_size_sqm || 20;
-  let baseTime: number;
-  if (room.is_checkout_room) {
-    if (size >= 40) baseTime = 60;
-    else if (size >= 28) baseTime = 55;
-    else baseTime = 45;
-  } else {
-    if (size >= 40) baseTime = 20;
-    else if (size >= 28) baseTime = 18;
-    else baseTime = 15;
-  }
+
+  // Clean Room (C) - daily with linen change
   if (room.linen_change_required && !room.is_checkout_room) {
-    baseTime += LINEN_CHANGE_MINUTES;
+    return LINEN_CHANGE_MINUTES; // 15 min total
   }
-  return baseTime;
+
+  // Daily cleaning (no special flags)
+  if (!room.is_checkout_room) {
+    return DAILY_MINUTES; // 15 min
+  }
+
+  // Checkout room - time based on capacity
+  const capacity = room.room_capacity || 2;
+  if (capacity >= 4) return 60;     // Quad
+  if (capacity >= 3) return 55;     // Triple
+  
+  // Queen/Double/Twin (capacity 2 or less) - use size if available
+  const size = room.room_size_sqm || 0;
+  if (size >= 40) return 60;
+  if (size >= 28) return 50;
+  return CHECKOUT_MINUTES; // 45 min default
 }
 
 export function calculateTimeEstimation(rooms: RoomForAssignment[]): {
@@ -101,13 +142,14 @@ export function calculateRoomWeight(room: RoomForAssignment): number {
   if (room.towel_change_required && !room.is_checkout_room) {
     weight += 0.2;
   }
+  const capacity = room.room_capacity || 2;
+  if (capacity >= 4) weight += 0.8;
+  else if (capacity >= 3) weight += 0.4;
+  
   const size = room.room_size_sqm || 20;
   if (size >= 40) weight += 1.0;
   else if (size >= 28) weight += 0.6;
   else if (size >= 22) weight += 0.3;
-  const capacity = room.room_capacity || 2;
-  if (capacity >= 4) weight += 0.3;
-  else if (capacity >= 3) weight += 0.15;
   return weight;
 }
 
@@ -160,6 +202,8 @@ export interface HotelAssignmentConfig {
   roomProximityWeight?: number;
   wingZoneMapping?: Record<string, string>;
   staffPreferences?: Record<string, string[]>;
+  hotelName?: string;
+  randomSeed?: number; // For regenerate: adds slight randomization
 }
 
 // ─── HELPER FUNCTIONS ───
@@ -168,33 +212,46 @@ function getFloor(room: RoomForAssignment): number {
   return room.floor_number ?? getFloorFromRoomNumber(room.room_number);
 }
 
-function getWing(room: RoomForAssignment): string {
+function getZone(room: RoomForAssignment): string {
   return room.wing || `floor-${getFloor(room)}`;
 }
 
-function getStaffFloors(rooms: RoomForAssignment[]): Set<number> {
-  const floors = new Set<number>();
-  rooms.forEach(r => floors.add(getFloor(r)));
-  return floors;
+function getStaffZones(rooms: RoomForAssignment[]): Set<string> {
+  const zones = new Set<string>();
+  rooms.forEach(r => zones.add(getZone(r)));
+  return zones;
 }
 
-// Score how well a room fits with a staff member's existing rooms (lower = better)
-function floorFitScore(room: RoomForAssignment, staffRooms: RoomForAssignment[]): number {
+// Zone-aware fit score (lower = better)
+// Rooms in the same zone = 0 penalty. Different zone = penalty based on zone distance.
+function zoneFitScore(room: RoomForAssignment, staffRooms: RoomForAssignment[]): number {
   if (staffRooms.length === 0) return 0;
-  const roomFloor = getFloor(room);
-  const floors = getStaffFloors(staffRooms);
+  const roomZone = getZone(room);
+  const zones = getStaffZones(staffRooms);
   
-  if (floors.has(roomFloor)) return 0; // Same floor = perfect
+  if (zones.has(roomZone)) return 0; // Same zone = perfect
   
-  // Penalty for each additional floor
-  const floorCount = floors.size + 1;
-  if (floorCount >= 4) return 1000; // Never allow 4+ floors
-  if (floorCount >= 3) return 200;  // Very strongly avoid 3 floors
+  // Penalty for each additional zone
+  const zoneCount = zones.size + 1;
+  if (zoneCount >= 4) return 1000; // Never allow 4+ zones
+  if (zoneCount >= 3) return 300;  // Very strongly avoid 3 zones
   
-  // For 2 floors: penalize based on distance between floors
-  const existingFloors = Array.from(floors);
-  const minFloorDist = Math.min(...existingFloors.map(f => Math.abs(f - roomFloor)));
-  return 20 + minFloorDist * 10; // Adjacent floors = 30, 2-apart = 40, etc.
+  // For 2 zones: check if they are adjacent
+  // F2-F3 zone is considered adjacent since rooms 302-308 are near 201-217
+  const existingZones = Array.from(zones);
+  const isAdjacent = existingZones.some(z => areZonesAdjacent(z, roomZone));
+  
+  return isAdjacent ? 20 : 100; // Adjacent zones = mild penalty, distant = heavy
+}
+
+function areZonesAdjacent(zoneA: string, zoneB: string): boolean {
+  const adjacencyMap: Record<string, string[]> = {
+    'ground': ['f1-left', 'f1-right'],
+    'f1-left': ['ground', 'f1-right', 'f2-f3'],
+    'f1-right': ['ground', 'f1-left', 'f2-f3'],
+    'f2-f3': ['f1-left', 'f1-right'],
+  };
+  return adjacencyMap[zoneA]?.includes(zoneB) || adjacencyMap[zoneB]?.includes(zoneA) || false;
 }
 
 // Room proximity score (lower = closer, better)
@@ -226,7 +283,7 @@ function getAffinityBonus(
   return bonus;
 }
 
-// Sort rooms optimally for display: checkouts first, then by floor, then room number
+// Sort rooms optimally for display: checkouts first, then by zone, then room number
 function sortRoomsOptimally(rooms: RoomForAssignment[]): RoomForAssignment[] {
   return [...rooms].sort((a, b) => {
     if (a.is_checkout_room && !b.is_checkout_room) return -1;
@@ -236,6 +293,15 @@ function sortRoomsOptimally(rooms: RoomForAssignment[]): RoomForAssignment[] {
     if (floorA !== floorB) return floorA - floorB;
     return parseInt(a.room_number) - parseInt(b.room_number);
   });
+}
+
+// Seeded pseudo-random for regenerate (deterministic given seed)
+function seededRandom(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (s * 1664525 + 1013904223) & 0x7fffffff;
+    return (s / 0x7fffffff);
+  };
 }
 
 // ─── MAIN ALGORITHM: FAIRNESS-FIRST ───
@@ -248,6 +314,7 @@ export function autoAssignRooms(
   hotelConfig?: HotelAssignmentConfig
 ): AssignmentPreview[] {
   const config = { ...{ affinityBonusMultiplier: 15 }, ...hotelConfig };
+  const rand = config.randomSeed ? seededRandom(config.randomSeed) : () => 0;
   
   if (staff.length === 0 || rooms.length === 0) {
     return staff.map(s => ({
@@ -258,9 +325,13 @@ export function autoAssignRooms(
     }));
   }
 
-  // Apply wing zone mapping if provided
+  // Apply zone mapping
   let allRooms = [...rooms];
-  if (config.wingZoneMapping) {
+  
+  // For Hotel Memories Budapest: override wings with room-number-based zones
+  if (isHotelMemoriesBudapest(config.hotelName)) {
+    allRooms = applyMemoriesZones(allRooms);
+  } else if (config.wingZoneMapping) {
     allRooms = allRooms.map(room => {
       if (room.wing && config.wingZoneMapping![room.wing]) {
         return { ...room, wing: config.wingZoneMapping![room.wing] };
@@ -286,44 +357,42 @@ export function autoAssignRooms(
   const staffCount = staff.length;
 
   // ─── PHASE 1: DISTRIBUTE CHECKOUTS EVENLY ───
-  // Group checkouts by floor, then distribute round-robin
-  const checkoutsByFloor = new Map<number, RoomForAssignment[]>();
+  // Group checkouts by zone, then distribute round-robin
+  const checkoutsByZone = new Map<string, RoomForAssignment[]>();
   checkoutRooms.forEach(r => {
-    const f = getFloor(r);
-    if (!checkoutsByFloor.has(f)) checkoutsByFloor.set(f, []);
-    checkoutsByFloor.get(f)!.push(r);
+    const z = getZone(r);
+    if (!checkoutsByZone.has(z)) checkoutsByZone.set(z, []);
+    checkoutsByZone.get(z)!.push(r);
   });
 
-  // Sort floor groups by size (largest first) for better distribution
-  const checkoutFloorGroups = Array.from(checkoutsByFloor.entries())
+  // Sort zone groups by size (largest first) for better distribution
+  const checkoutZoneGroups = Array.from(checkoutsByZone.entries())
     .sort((a, b) => b[1].length - a[1].length);
 
-  // Target checkouts per person
-  const targetCheckouts = Math.ceil(checkoutRooms.length / staffCount);
-  
-  // Assign checkout floor groups to staff, keeping floors together
-  for (const [floor, floorRooms] of checkoutFloorGroups) {
-    // Sort rooms within floor by room number
-    floorRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
+  // Assign checkout zone groups to staff, keeping zones together
+  for (const [zone, zoneRooms] of checkoutZoneGroups) {
+    // Sort rooms within zone by room number
+    zoneRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
     
-    for (const room of floorRooms) {
-      // Find best staff: fewest checkouts first, then best floor fit
+    for (const room of zoneRooms) {
+      // Find best staff: fewest checkouts first, then best zone fit
       const candidates = staff.map(s => {
         const sRooms = assignments.get(s.id)!;
         const sCheckouts = sRooms.filter(r => r.is_checkout_room).length;
-        const fitScore = floorFitScore(room, sRooms);
+        const fitScore = zoneFitScore(room, sRooms);
         const proxScore = roomProximityScore(room, sRooms);
         const affinityBonus = getAffinityBonus(
           room.room_number, sRooms.map(r => r.room_number), affinityMap
         ) * (config.affinityBonusMultiplier || 15);
+        const randomPerturbation = rand() * 5; // slight randomness for regenerate
         
         // Primary: checkout count (heavily weighted to enforce equality)
-        // Secondary: floor fit
-        // Tertiary: proximity within floor
+        // Secondary: zone fit
+        // Tertiary: proximity within zone
         return {
           id: s.id,
           checkouts: sCheckouts,
-          score: sCheckouts * 1000 + fitScore * 10 + proxScore - affinityBonus
+          score: sCheckouts * 1000 + fitScore * 10 + proxScore - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
@@ -335,36 +404,33 @@ export function autoAssignRooms(
 
   // ─── PHASE 2: DISTRIBUTE CLEAN ROOM (C) DAILY ROOMS FAIRLY ───
   // Staff with fewer checkouts should get more C rooms to balance workload
-  // Group C rooms by floor
-  const cleanByFloor = new Map<number, RoomForAssignment[]>();
+  const cleanByZone = new Map<string, RoomForAssignment[]>();
   dailyCleanRooms.forEach(r => {
-    const f = getFloor(r);
-    if (!cleanByFloor.has(f)) cleanByFloor.set(f, []);
-    cleanByFloor.get(f)!.push(r);
+    const z = getZone(r);
+    if (!cleanByZone.has(z)) cleanByZone.set(z, []);
+    cleanByZone.get(z)!.push(r);
   });
 
-  const cleanFloorGroups = Array.from(cleanByFloor.entries())
+  const cleanZoneGroups = Array.from(cleanByZone.entries())
     .sort((a, b) => b[1].length - a[1].length);
 
-  for (const [floor, floorRooms] of cleanFloorGroups) {
-    floorRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
+  for (const [zone, zoneRooms] of cleanZoneGroups) {
+    zoneRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
     
-    for (const room of floorRooms) {
-      // Find best staff: lightest total weight first, then floor fit
+    for (const room of zoneRooms) {
       const candidates = staff.map(s => {
         const sRooms = assignments.get(s.id)!;
         const weight = staffWeights.get(s.id)!;
-        const fitScore = floorFitScore(room, sRooms);
+        const fitScore = zoneFitScore(room, sRooms);
         const proxScore = roomProximityScore(room, sRooms);
         const affinityBonus = getAffinityBonus(
           room.room_number, sRooms.map(r => r.room_number), affinityMap
         ) * (config.affinityBonusMultiplier || 15);
+        const randomPerturbation = rand() * 3;
         
-        // Primary: total weight (balance workload)
-        // Secondary: floor fit (keep on same floors)
         return {
           id: s.id,
-          score: weight * 5 + fitScore * 10 + proxScore - affinityBonus
+          score: weight * 5 + fitScore * 10 + proxScore - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
@@ -375,33 +441,33 @@ export function autoAssignRooms(
   }
 
   // ─── PHASE 3: DISTRIBUTE REMAINING DAILY ROOMS (T and normal) ───
-  // Group by floor, assign to lightest staff respecting floor proximity
-  const normalByFloor = new Map<number, RoomForAssignment[]>();
+  const normalByZone = new Map<string, RoomForAssignment[]>();
   dailyNormalRooms.forEach(r => {
-    const f = getFloor(r);
-    if (!normalByFloor.has(f)) normalByFloor.set(f, []);
-    normalByFloor.get(f)!.push(r);
+    const z = getZone(r);
+    if (!normalByZone.has(z)) normalByZone.set(z, []);
+    normalByZone.get(z)!.push(r);
   });
 
-  const normalFloorGroups = Array.from(normalByFloor.entries())
+  const normalZoneGroups = Array.from(normalByZone.entries())
     .sort((a, b) => b[1].length - a[1].length);
 
-  for (const [floor, floorRooms] of normalFloorGroups) {
-    floorRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
+  for (const [zone, zoneRooms] of normalZoneGroups) {
+    zoneRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
     
-    for (const room of floorRooms) {
+    for (const room of zoneRooms) {
       const candidates = staff.map(s => {
         const sRooms = assignments.get(s.id)!;
         const weight = staffWeights.get(s.id)!;
-        const fitScore = floorFitScore(room, sRooms);
+        const fitScore = zoneFitScore(room, sRooms);
         const proxScore = roomProximityScore(room, sRooms);
         const affinityBonus = getAffinityBonus(
           room.room_number, sRooms.map(r => r.room_number), affinityMap
         ) * (config.affinityBonusMultiplier || 15);
+        const randomPerturbation = rand() * 3;
         
         return {
           id: s.id,
-          score: weight * 5 + fitScore * 10 + proxScore - affinityBonus
+          score: weight * 5 + fitScore * 10 + proxScore - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
@@ -425,13 +491,12 @@ export function autoAssignRooms(
     const least = coCounts[coCounts.length - 1];
     if (most.checkouts - least.checkouts <= 1) break;
 
-    // Move a checkout from most to least, preferring one on a floor least already has
     const mostRooms = assignments.get(most.id)!;
     const leastRooms = assignments.get(least.id)!;
     const movableCheckouts = mostRooms.filter(r => r.is_checkout_room);
     
     const scored = movableCheckouts.map(room => {
-      const fit = floorFitScore(room, leastRooms);
+      const fit = zoneFitScore(room, leastRooms);
       const prox = roomProximityScore(room, leastRooms);
       return { room, score: fit + prox };
     }).sort((a, b) => a.score - b.score);
@@ -461,16 +526,19 @@ export function autoAssignRooms(
     const mostRooms = assignments.get(most.id)!;
     const leastRooms = assignments.get(least.id)!;
     
-    // Prefer moving daily rooms that fit the target's floors
+    // Prefer moving daily rooms that fit the target's zones
     const movable = mostRooms
-      .filter(r => !r.is_checkout_room) // prefer not moving checkouts
+      .filter(r => !r.is_checkout_room)
       .map(room => ({
         room,
-        score: floorFitScore(room, leastRooms) + roomProximityScore(room, leastRooms)
+        score: zoneFitScore(room, leastRooms) * 2 + roomProximityScore(room, leastRooms)
       }))
       .sort((a, b) => a.score - b.score);
 
     if (movable.length === 0) break;
+    // Don't move if it would break zone clustering badly
+    if (movable[0].score >= 200) break;
+    
     const roomToMove = movable[0].room;
     const rw = calculateRoomWeight(roomToMove);
 
@@ -494,7 +562,6 @@ export function autoAssignRooms(
     const heavyRooms = assignments.get(heavyId)!;
     const lightRooms = assignments.get(lightId)!;
 
-    // Find best daily room to move (don't move checkouts to preserve checkout equality)
     let bestRoom: RoomForAssignment | null = null;
     let bestScore = Infinity;
 
@@ -502,10 +569,10 @@ export function autoAssignRooms(
       if (room.is_checkout_room) continue;
       const w = calculateRoomWeight(room);
       const newDiff = Math.abs((heavyW - w) - (lightW + w));
-      if (newDiff >= heavyW - lightW) continue; // Must improve
+      if (newDiff >= heavyW - lightW) continue;
 
-      const fit = floorFitScore(room, lightRooms);
-      if (fit >= 200) continue; // Don't add 3rd floor
+      const fit = zoneFitScore(room, lightRooms);
+      if (fit >= 200) continue; // Don't break zone clustering
       
       const score = newDiff + fit;
       if (score < bestScore) {
@@ -575,3 +642,6 @@ export function moveRoom(
 
   return newPreviews;
 }
+
+// Export zone data for visual map
+export const MEMORIES_BUDAPEST_ZONES = MEMORIES_ZONES;

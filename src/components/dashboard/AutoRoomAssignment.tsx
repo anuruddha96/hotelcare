@@ -415,7 +415,14 @@ export function AutoRoomAssignment({
       }
     }
     
-    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, hotelConfig);
+    // Pass hotel name and random seed for regenerate
+    const finalConfig: HotelAssignmentConfig = {
+      ...hotelConfig,
+      hotelName: hotelName || undefined,
+      randomSeed: assignmentPreviews.length > 0 ? Date.now() : undefined, // randomize on regenerate
+    };
+    
+    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, finalConfig);
     setAssignmentPreviews(previews);
     setPreviewHistory([]);
     setStep('preview');
@@ -812,10 +819,10 @@ ${activePreviews.map(preview => {
           <span className="text-[9px] opacity-70 font-normal">{getCategoryShortName(room.room_category)}</span>
         )}
         {room.towel_change_required && (
-          <span className="text-[10px] px-0.5 font-bold text-red-600">T</span>
+          <span className="text-[10px] px-0.5 font-bold text-blue-600">T</span>
         )}
         {room.linen_change_required && (
-          <span className="text-[10px] px-0.5 font-bold text-red-600">C</span>
+          <span className="text-[10px] px-0.5 font-bold text-orange-600">C</span>
         )}
         {room.bed_configuration && (
           <span className="text-[9px] px-0.5 opacity-70">🛏️{room.bed_configuration.length > 8 ? room.bed_configuration.substring(0, 8) : room.bed_configuration}</span>
@@ -859,9 +866,9 @@ ${activePreviews.map(preview => {
                   {p.dailyCount}
                 </div>
                 <div className={`px-2 py-1.5 text-center ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
-                  {towelCount > 0 && <span className="text-red-600 font-semibold">{towelCount}T</span>}
+                  {towelCount > 0 && <span className="text-blue-600 font-semibold">{towelCount}T</span>}
                   {towelCount > 0 && linenCount > 0 && ' '}
-                  {linenCount > 0 && <span className="text-red-600 font-semibold">{linenCount}C</span>}
+                  {linenCount > 0 && <span className="text-orange-600 font-semibold">{linenCount}C</span>}
                   {towelCount === 0 && linenCount === 0 && '—'}
                 </div>
                 <div className={`px-2 py-1.5 text-right ${p.exceedsShift ? 'text-destructive font-semibold' : ''} ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
@@ -1184,8 +1191,8 @@ ${activePreviews.map(preview => {
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-200 border border-amber-400"></span>{t('autoAssign.checkout')}</span>
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-200 border border-blue-400"></span>{t('autoAssign.daily')}</span>
-                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">T</span>{t('autoAssign.towel')}</span>
-                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">C</span>Clean Room</span>
+                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-blue-600">T</span>{t('autoAssign.towel')}</span>
+                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-orange-600">C</span>Clean Room</span>
                   </div>
                 </div>
 
@@ -1248,8 +1255,8 @@ ${activePreviews.map(preview => {
                           <div className="flex items-center justify-between mt-0.5">
                             <p className="text-[10px] text-muted-foreground">
                               {checkoutRooms.length}co · {dailyRooms.length}d
-                              {towelCount > 0 && <> · <span className="text-red-600 font-semibold">{towelCount}T</span></>}
-                              {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}C</span></>}
+                              {towelCount > 0 && <> · <span className="text-blue-600 font-semibold">{towelCount}T</span></>}
+                              {linenCount > 0 && <> · <span className="text-orange-600 font-semibold">{linenCount}C</span></>}
                             </p>
                             <span className={`text-[10px] font-medium ${isOverShift ? 'text-destructive' : 'text-muted-foreground'}`}>
                               {formatMinutesToTime(preview.totalWithBreak)}

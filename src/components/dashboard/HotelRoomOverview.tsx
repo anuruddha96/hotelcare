@@ -392,8 +392,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         >
           {room.room_number}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
-          {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">T</span>}
-          {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-purple-600 text-white">C</span>}
+          {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
+          {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {assignment?.ready_to_clean && isCheckout && !(assignment?.status === 'completed' && assignment?.supervisor_approved) && (
@@ -952,8 +952,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   { label: t('legend.dnd'), cls: 'ring-2 ring-purple-500 bg-muted', hint: UI_HINTS["room.dnd"] },
                   { label: t('legend.noShow'), cls: 'ring-2 ring-red-600 bg-muted', hint: UI_HINTS["room.noShow"] },
                   { label: t('legend.earlyCheckout'), cls: 'ring-2 ring-orange-500 bg-muted', hint: UI_HINTS["room.earlyCheckout"] },
-                  { label: t('legend.towelChange'), cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
-                  { label: 'Clean Room', cls: 'bg-purple-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C', hint: UI_HINTS["room.linenChange"] },
+                  { label: t('legend.towelChange'), cls: 'bg-blue-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
+                  { label: 'Clean Room', cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C', hint: UI_HINTS["room.linenChange"] },
                   { label: t('legend.roomCleaning'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: t('legend.roomCleaningHint') },
                   { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: t('legend.extraTowelsHint') },
                   { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
