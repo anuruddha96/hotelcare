@@ -420,15 +420,34 @@ export function AutoRoomAssignment({
       }
     }
     
-    // Pass hotel name and random seed for regenerate
-    const finalConfig: HotelAssignmentConfig = {
-      ...hotelConfig,
-      hotelName: hotelName || undefined,
-      randomSeed: assignmentPreviews.length > 0 ? Date.now() : undefined, // randomize on regenerate
-    };
+    // Best-of-N generation: run 10 candidates with different seeds, pick fairest
+    const NUM_CANDIDATES = 10;
+    let bestPreviews: AssignmentPreview[] | null = null;
+    let bestScore = Infinity;
+    let bestMetrics: FairnessMetrics | null = null;
     
-    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, finalConfig);
+    for (let i = 0; i < NUM_CANDIDATES; i++) {
+      const finalConfig: HotelAssignmentConfig = {
+        ...hotelConfig,
+        hotelName: hotelName || undefined,
+        randomSeed: Date.now() + i * 7919, // different prime-offset seeds
+      };
+      
+      const candidate = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, finalConfig);
+      const metrics = computeFairnessMetrics(candidate);
+      
+      if (metrics.score < bestScore) {
+        bestScore = metrics.score;
+        bestPreviews = candidate;
+        bestMetrics = metrics;
+      }
+    }
+    
+    const previews = bestPreviews || autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, {
+      ...hotelConfig, hotelName: hotelName || undefined
+    });
     setAssignmentPreviews(previews);
+    setFairnessMetrics(bestMetrics || computeFairnessMetrics(previews));
     setPreviewHistory([]);
     setStep('preview');
   };
