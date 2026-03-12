@@ -31,7 +31,9 @@ import {
   CHECKOUT_MINUTES,
   DAILY_MINUTES,
   BREAK_TIME_MINUTES,
-  HotelAssignmentConfig
+  HotelAssignmentConfig,
+  computeFairnessMetrics,
+  FairnessMetrics
 } from '@/lib/roomAssignmentAlgorithm';
 import { getLocalDateString } from '@/lib/utils';
 
@@ -112,6 +114,9 @@ export function AutoRoomAssignment({
   // Wing proximity map for smart assignments
   const [wingProximity, setWingProximity] = useState<WingProximityMap | undefined>(undefined);
   const [roomAffinity, setRoomAffinity] = useState<RoomAffinityMap | undefined>(undefined);
+
+  // Fairness metrics for current preview
+  const [fairnessMetrics, setFairnessMetrics] = useState<FairnessMetrics | null>(null);
 
   // Public area assignments (post-room assignment step)
   const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map());
@@ -415,15 +420,34 @@ export function AutoRoomAssignment({
       }
     }
     
-    // Pass hotel name and random seed for regenerate
-    const finalConfig: HotelAssignmentConfig = {
-      ...hotelConfig,
-      hotelName: hotelName || undefined,
-      randomSeed: assignmentPreviews.length > 0 ? Date.now() : undefined, // randomize on regenerate
-    };
+    // Best-of-N generation: run 10 candidates with different seeds, pick fairest
+    const NUM_CANDIDATES = 10;
+    let bestPreviews: AssignmentPreview[] | null = null;
+    let bestScore = Infinity;
+    let bestMetrics: FairnessMetrics | null = null;
     
-    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, finalConfig);
+    for (let i = 0; i < NUM_CANDIDATES; i++) {
+      const finalConfig: HotelAssignmentConfig = {
+        ...hotelConfig,
+        hotelName: hotelName || undefined,
+        randomSeed: Date.now() + i * 7919, // different prime-offset seeds
+      };
+      
+      const candidate = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, finalConfig);
+      const metrics = computeFairnessMetrics(candidate);
+      
+      if (metrics.score < bestScore) {
+        bestScore = metrics.score;
+        bestPreviews = candidate;
+        bestMetrics = metrics;
+      }
+    }
+    
+    const previews = bestPreviews || autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, {
+      ...hotelConfig, hotelName: hotelName || undefined
+    });
     setAssignmentPreviews(previews);
+    setFairnessMetrics(bestMetrics || computeFairnessMetrics(previews));
     setPreviewHistory([]);
     setStep('preview');
   };
@@ -1194,6 +1218,23 @@ ${activePreviews.map(preview => {
                     <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-blue-600">T</span>{t('autoAssign.towel')}</span>
                     <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-orange-600">C</span>Clean Room</span>
                   </div>
+                  {/* Fairness diagnostics */}
+                  {fairnessMetrics && (
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className={`font-medium ${fairnessMetrics.checkoutDiff <= 1 ? 'text-green-600' : 'text-destructive'}`}>
+                        CO±{fairnessMetrics.checkoutDiff}
+                      </span>
+                      <span className={`font-medium ${fairnessMetrics.dailyDiff <= 2 ? 'text-green-600' : 'text-destructive'}`}>
+                        Daily±{fairnessMetrics.dailyDiff}
+                      </span>
+                      <span className={`font-medium ${fairnessMetrics.totalDiff <= 2 ? 'text-green-600' : fairnessMetrics.totalDiff <= 3 ? 'text-amber-600' : 'text-destructive'}`}>
+                        Total±{fairnessMetrics.totalDiff}
+                      </span>
+                      <span className={`font-medium ${fairnessMetrics.timeSpreadMinutes <= 75 ? 'text-green-600' : fairnessMetrics.timeSpreadMinutes <= 120 ? 'text-amber-600' : 'text-destructive'}`}>
+                        ⏱{fairnessMetrics.timeSpreadMinutes}m
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Multi-column layout: all housekeepers side by side */}
