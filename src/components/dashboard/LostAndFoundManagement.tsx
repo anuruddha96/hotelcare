@@ -59,12 +59,30 @@ export function LostAndFoundManagement() {
     setLoading(true);
     try {
       const endDate = endOfDay(selectedDate);
-
-      console.log('Fetching lost and found up to date:', format(selectedDate, 'yyyy-MM-dd'));
-
-      // Get user's assigned hotel
       const userHotel = profile?.assigned_hotel;
 
+      // Resolve hotel name via hotel_configurations for proper matching
+      let resolvedHotelNames: string[] = [];
+      if (userHotel) {
+        const { data: hotelConfigs } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_id, hotel_name');
+        
+        if (hotelConfigs) {
+          const match = hotelConfigs.find(
+            c => c.hotel_id === userHotel || c.hotel_name === userHotel
+          );
+          if (match) {
+            resolvedHotelNames = [match.hotel_id, match.hotel_name].filter(Boolean);
+          } else {
+            resolvedHotelNames = [userHotel];
+          }
+        } else {
+          resolvedHotelNames = [userHotel];
+        }
+      }
+
+      // Fetch ALL uncollected items + date-filtered claimed items
       const { data, error } = await supabase
         .from('lost_and_found')
         .select(`
@@ -74,8 +92,12 @@ export function LostAndFoundManagement() {
             hotel
           )
         `)
-        .lte('found_date', format(endDate, 'yyyy-MM-dd'))
         .order('found_date', { ascending: false });
+
+      if (error) {
+        console.error('Query error:', error);
+        throw error;
+      }
       
       // Fetch reporter profiles separately
       if (data && data.length > 0) {
@@ -85,7 +107,6 @@ export function LostAndFoundManagement() {
           .select('id, full_name')
           .in('id', reporterIds);
         
-        // Map profiles to items
         if (profiles) {
           const profileMap = new Map(profiles.map(p => [p.id, p]));
           data.forEach((item: any) => {
@@ -93,21 +114,24 @@ export function LostAndFoundManagement() {
           });
         }
       }
-
-      if (error) {
-        console.error('Query error:', error);
-        throw error;
-      }
       
-      // Filter by user's assigned hotel
       let filteredData = data || [];
-      if (userHotel && filteredData.length > 0) {
+
+      // Filter by hotel
+      if (resolvedHotelNames.length > 0) {
         filteredData = filteredData.filter((item: any) => 
-          item.rooms?.hotel === userHotel
+          resolvedHotelNames.includes(item.rooms?.hotel)
         );
       }
+
+      // Show all uncollected items regardless of date, 
+      // plus claimed items only up to the selected date
+      const endDateStr = format(endDate, 'yyyy-MM-dd');
+      filteredData = filteredData.filter((item: any) => {
+        if (item.status !== 'claimed') return true; // uncollected: always show
+        return item.found_date <= endDateStr; // claimed: respect date filter
+      });
       
-      console.log('Found items:', filteredData?.length || 0, filteredData);
       setItems(filteredData as any || []);
     } catch (error: any) {
       console.error('Error fetching lost and found:', error);
