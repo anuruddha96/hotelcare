@@ -138,7 +138,7 @@ export function SupervisorApprovalView() {
   const [bulkApproving, setBulkApproving] = useState<string | null>(null);
   const [bulkProgress, setBulkProgress] = useState(0);
   const [collapsedHotels, setCollapsedHotels] = useState<Set<string>>(new Set());
-
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   // Group assignments by hotel
   const hotelGroups = useMemo(() => {
     const groups: Record<string, PendingAssignment[]> = {};
