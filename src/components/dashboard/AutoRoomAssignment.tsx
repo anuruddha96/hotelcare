@@ -1255,8 +1255,8 @@ ${activePreviews.map(preview => {
                           <div className="flex items-center justify-between mt-0.5">
                             <p className="text-[10px] text-muted-foreground">
                               {checkoutRooms.length}co · {dailyRooms.length}d
-                              {towelCount > 0 && <> · <span className="text-red-600 font-semibold">{towelCount}T</span></>}
-                              {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}C</span></>}
+                              {towelCount > 0 && <> · <span className="text-blue-600 font-semibold">{towelCount}T</span></>}
+                              {linenCount > 0 && <> · <span className="text-orange-600 font-semibold">{linenCount}C</span></>}
                             </p>
                             <span className={`text-[10px] font-medium ${isOverShift ? 'text-destructive' : 'text-muted-foreground'}`}>
                               {formatMinutesToTime(preview.totalWithBreak)}

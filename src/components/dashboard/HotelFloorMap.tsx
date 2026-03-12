@@ -113,8 +113,8 @@ function RoomChip({ room, editMode, assignStatus, staffName, onRoomClick, isSele
           >
             {room.room_number}
             {room.bed_type === 'shabath' && <span className="text-[7px] text-blue-700 font-bold ml-0.5">SH</span>}
-            {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-red-600 text-white">T</span>}
-            {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-purple-600 text-white">LC</span>}
+            {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-blue-600 text-white">T</span>}
+            {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-orange-500 text-white">C</span>}
             {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-green-600 text-white">RC</span>}
             {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-orange-500 text-white">🧺</span>}
           </button>
