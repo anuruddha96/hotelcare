@@ -866,9 +866,9 @@ ${activePreviews.map(preview => {
                   {p.dailyCount}
                 </div>
                 <div className={`px-2 py-1.5 text-center ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
-                  {towelCount > 0 && <span className="text-red-600 font-semibold">{towelCount}T</span>}
+                  {towelCount > 0 && <span className="text-blue-600 font-semibold">{towelCount}T</span>}
                   {towelCount > 0 && linenCount > 0 && ' '}
-                  {linenCount > 0 && <span className="text-red-600 font-semibold">{linenCount}C</span>}
+                  {linenCount > 0 && <span className="text-orange-600 font-semibold">{linenCount}C</span>}
                   {towelCount === 0 && linenCount === 0 && '—'}
                 </div>
                 <div className={`px-2 py-1.5 text-right ${p.exceedsShift ? 'text-destructive font-semibold' : ''} ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
