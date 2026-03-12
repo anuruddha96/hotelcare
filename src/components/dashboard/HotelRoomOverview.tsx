@@ -625,6 +625,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     <option value="Twin Beds">Twin Beds</option>
                     <option value="Twin Beds Separated">Twin Beds Separated</option>
                     <option value="Single Bed">Single Bed</option>
+                    <option value="Baby Bed">Baby Bed</option>
                     <option value="Extra Cot Added">Extra Cot Added</option>
                   </select>
                 </div>
