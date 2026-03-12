@@ -1,95 +1,44 @@
 
 
-## Plan: Auto-Assign Towel Change, Custom Bed Types, Improved Sorting, and Housekeeper Card Visibility
+## Plan: Fix Lost & Found Visibility, Attendance for Managers, and Simplify Approval Cards
 
-### Summary of Changes (4 areas)
+### Issue 1: Lost & Found Not Showing for Hotel Ottofiori
 
----
+**Root Cause**: The hotel filtering at line 104-108 uses a strict equality check (`item.rooms?.hotel === userHotel`), but hotel names may be stored differently (slug vs display name). More importantly, the query filters by `.lte('found_date', ...)` which only shows items found up to the selected date — but **uncollected items** (status != 'claimed') from ANY date should always appear regardless of date selection.
 
-### 1. Auto-Assign: Manual Towel Change Toggle Before Assignment
-
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`**
-
-In Step 1 (select-staff), after the staff grid, add a new section "Pre-Assignment Room Settings" that lists all dirty rooms and allows managers to toggle `towel_change_required` for each room before generating the preview. This lets managers plan towel changes in the morning.
-
-- Add a collapsible section below staff selection showing all `dirtyRooms` in a compact grid
-- Each room chip has a small towel icon toggle button (T) that updates the local state and the DB `rooms.towel_change_required`
-- When toggled, the room's towel status flows into the algorithm (already supported via `calculateRoomTime` and `calculateRoomWeight`)
-- Also add a "Select All Towel Change" button for bulk toggling
+**Fix** in `src/components/dashboard/LostAndFoundManagement.tsx`:
+1. Fetch ALL uncollected items (status = 'pending' or 'reported') regardless of date, PLUS items matching the selected date filter.
+2. Add hotel name resolution via `hotel_configurations` (same pattern as other components) so `assigned_hotel` slug matches room hotel names.
 
 ---
 
-### 2. Custom Bed Requirements (Budapest Hotel Use Case)
+### Issue 2: Managers Cannot See Attendance Records
 
-**Database Migration:** Add a `bed_configuration` text column to `rooms` table (nullable). This stores the specific bed arrangement set by managers (e.g., "Twin beds separated", "Double bed", "Extra cot"). The existing `bed_type` column has limited values (`single`, `double`, `queen`, `triple`, `shabath`) — this new column stores the **current guest requirement** which can change per stay.
+**Root Cause**: The SQL function `get_attendance_records_hotel_filtered` at line 118 uses `AND p.assigned_hotel = current_user_hotel` — a strict equality. If the manager's `assigned_hotel` is stored as a slug (e.g., `memories-budapest`) but staff profiles store the full name (e.g., `Hotel Memories Budapest`), no records match.
 
-```sql
-ALTER TABLE rooms ADD COLUMN IF NOT EXISTS bed_configuration text DEFAULT NULL;
-```
+**Fix**: Update the SQL function to resolve hotel name variations via `hotel_configurations`, matching the pattern used elsewhere. Compare both `hotel_id` and `hotel_name` from `hotel_configurations`.
 
-**File: `src/components/dashboard/HotelRoomOverview.tsx`** — In the room chip dialog, add a "Bed Configuration" field (text input or dropdown with common options + custom) under Room Settings. Only managers/admins can set it. Options: "Double Bed", "Twin Beds", "Twin Beds Separated", "Extra Cot Added", "Single Bed", or custom text.
-
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`** — Fetch `bed_configuration` in the rooms query. Show it on room chips in the preview (small icon/label like "🛏️ Twin Sep").
-
-**File: `src/components/dashboard/AssignedRoomCard.tsx`** — Display `bed_configuration` prominently in a dedicated info row (alongside floor number) so housekeepers clearly see what bed arrangement the guest needs. Show it with a bed icon and distinct styling.
-
-**File: `src/components/dashboard/MobileHousekeepingView.tsx`** — Include `bed_configuration` in the rooms query.
-
-**File: `src/components/dashboard/HousekeepingStaffView.tsx`** — Include `bed_configuration` in the rooms query.
-
-**File: `src/lib/roomAssignmentAlgorithm.ts`** — Add `bed_configuration` to `RoomForAssignment` interface.
+**File**: New migration SQL
 
 ---
 
-### 3. Fix Room Priority/Sorting Order
+### Issue 3: Simplify Approval Cards for Managers
 
-Current sorting logic in `HousekeepingStaffView.tsx` and `MobileHousekeepingView.tsx` is almost correct but has issues:
-- Checkout rooms waiting for guest (`ready_to_clean=false`) should sort AFTER daily rooms that are ready
-- Ready-to-clean checkout rooms should be first
-- Same floor rooms should be grouped together
-- High priority rooms should always be at top (after in-progress)
+**Current state**: Each card shows: room number, floor, type, DND badge, bed config badge, speed indicator, wait time, 4-cell stats grid (cleaned by, started, completed, duration), notes section, photo thumbnails, inline linen summary, CompletionDataView component, special requirements (T/C), and action buttons. This is too much information at first glance.
 
-**New sort order (all 3 files + PendingRoomsDialog):**
-
-1. `in_progress` always first
-2. High priority rooms (`priority >= 3`) — regardless of type
-3. Ready checkout rooms (`checkout_cleaning` + `ready_to_clean=true`)
-4. Daily rooms — grouped by floor, then room number
-5. Checkout rooms waiting (`checkout_cleaning` + `ready_to_clean=false`) — at bottom
-6. Completed rooms last
-
-**Files to update sorting:**
-- `src/components/dashboard/HousekeepingStaffView.tsx` (lines 174-208)
-- `src/components/dashboard/MobileHousekeepingView.tsx` (lines 189-223)
-- `src/components/dashboard/PendingRoomsDialog.tsx` (lines 86-91) — replace simple numeric sort with the same priority logic
+**Fix** in `src/components/dashboard/SupervisorApprovalView.tsx`:
+1. **Keep prominent**: Room number, cleaning type, cleaned-by name, duration + speed indicator, and action buttons (Approve / Reassign).
+2. **Keep visible but compact**: Special requirements (T/C badges), notes (if any).
+3. **Move to expandable "Details" section**: Linen summary, completion photos, CompletionDataView, start/complete times, bed config, DND badge. These are available on tap but don't clutter the default view.
+4. Remove the 4-cell stats grid — replace with a single line: "Cleaned by **Name** · **Duration** · Started HH:MM".
 
 ---
 
-### 4. Redesign AssignedRoomCard Special Instructions Visibility
-
-**File: `src/components/dashboard/AssignedRoomCard.tsx`**
-
-Currently, towel/linen badges are small badges in the header. Bed configuration doesn't exist yet. Manager notes are shown but could be more prominent. Redesign the top of the card to have a **"Special Instructions" banner** that consolidates:
-
-- Towel change required → prominent yellow banner with icon
-- Linen change required → prominent purple banner with icon  
-- Bed configuration → prominent blue banner with bed icon and the configuration text
-- Manager notes → already amber banner (keep as-is)
-
-Move these from small header badges to a dedicated, unmissable section right after the card header, before room details. Use larger text and bolder styling.
-
----
-
-### Files Changed Summary
+### Summary of Changes
 
 | File | Changes |
 |------|---------|
-| **Migration** | Add `bed_configuration` column to `rooms` |
-| `AutoRoomAssignment.tsx` | Add towel change toggle section in Step 1, fetch `bed_configuration`, show on preview chips |
-| `HotelRoomOverview.tsx` | Add bed configuration selector in room chip dialog |
-| `AssignedRoomCard.tsx` | Redesign special instructions section with prominent banners for towel/linen/bed config |
-| `HousekeepingStaffView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `MobileHousekeepingView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `PendingRoomsDialog.tsx` | Fix sorting to match housekeeper priority order, fetch `bed_configuration` and show it |
-| `roomAssignmentAlgorithm.ts` | Add `bed_configuration` to `RoomForAssignment` interface |
+| `src/components/dashboard/LostAndFoundManagement.tsx` | Always show uncollected items regardless of date; add hotel name resolution |
+| `src/components/dashboard/SupervisorApprovalView.tsx` | Simplify approval cards: compact header with key info, expandable details section |
+| New migration | Fix `get_attendance_records_hotel_filtered` to resolve hotel name via `hotel_configurations` |
 
