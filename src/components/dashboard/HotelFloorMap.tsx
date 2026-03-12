@@ -125,8 +125,8 @@ function RoomChip({ room, editMode, assignStatus, staffName, onRoomClick, isSele
           {room.room_category && <p className="text-[10px]">{room.room_category}</p>}
           {room.bed_type === 'shabath' && <p className="text-blue-600">✡ Shabath Room</p>}
           {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
-          {room.towel_change_required && <p className="text-red-600">🔄 Towel Change</p>}
-          {room.linen_change_required && <p className="text-red-600">🛏️ Bed Linen Change</p>}
+          {room.towel_change_required && <p className="text-blue-600">🔄 Towel Change</p>}
+          {room.linen_change_required && <p className="text-orange-600">🛏️ Clean Room (C)</p>}
           {roomFlags.roomCleaning && <p className="text-green-600">🧹 Room Cleaning</p>}
           {roomFlags.collectExtraTowels && <p className="text-orange-600">🧺 Collect Extra Towels</p>}
           {staffName && <p>Assigned: {staffName}</p>}
