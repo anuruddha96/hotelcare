@@ -542,7 +542,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🛏️ Bed Linen (LC)</span>
+                  <span>🛏️ Change Room (C)</span>
                   <span className="text-[10px]">{room.linen_change_required ? '✓ Required' : 'Off'}</span>
                 </button>
                 <button

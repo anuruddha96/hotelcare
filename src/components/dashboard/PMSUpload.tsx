@@ -605,16 +605,17 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               isEarlyCheckout = true;
             }
 
-            // Cleaning cycle: T, T, RC repeating every 6 days from day 3
-            // Day 3: T, Day 5: T, Day 7: RC, Day 9: T, Day 11: T, Day 13: RC, ...
+            // Cleaning cycle: T and C alternating every 2 days from day 3
+            // Day 3, 7, 11, 15: Towel Change (T)
+            // Day 5, 9, 13, 17: Change Room (C) — full linen/bed change
             if (guestNightsStayed >= 3) {
-              const cyclePosition = (guestNightsStayed - 3) % 6;
-              if (cyclePosition === 0 || cyclePosition === 2) {
-                // Towel Change days: 3, 5, 9, 11, 15, 17...
+              const cyclePosition = (guestNightsStayed - 3) % 4;
+              if (cyclePosition === 0) {
+                // Towel Change days: 3, 7, 11, 15...
                 towelChangeRequired = true;
                 linenChangeRequired = false;
-              } else if (cyclePosition === 4) {
-                // Room Cleaning days: 7, 13, 19...
+              } else if (cyclePosition === 2) {
+                // Change Room days: 5, 9, 13, 17...
                 linenChangeRequired = true;
                 towelChangeRequired = false;
               }

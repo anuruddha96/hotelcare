@@ -343,9 +343,26 @@ export function HousekeepingStaffManagement() {
         query = query.eq('organization_slug', profileData.organization_slug);
       }
 
-      // For managers, also filter by hotel if they have one assigned
+      // For managers, resolve hotel name variations before filtering
+      let hotelVariations: string[] = [];
       if (profileData?.assigned_hotel && !['admin', 'top_management'].includes(currentUserRole)) {
-        query = query.eq('assigned_hotel', profileData.assigned_hotel);
+        const managerHotel = profileData.assigned_hotel;
+        hotelVariations.push(managerHotel);
+        
+        // Look up hotel_configurations to get both hotel_id and hotel_name
+        const { data: hotelConfigs } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_id, hotel_name')
+          .or(`hotel_id.eq.${managerHotel},hotel_name.eq.${managerHotel}`);
+        
+        if (hotelConfigs && hotelConfigs.length > 0) {
+          hotelConfigs.forEach(hc => {
+            if (!hotelVariations.includes(hc.hotel_id)) hotelVariations.push(hc.hotel_id);
+            if (!hotelVariations.includes(hc.hotel_name)) hotelVariations.push(hc.hotel_name);
+          });
+        }
+        
+        query = query.in('assigned_hotel', hotelVariations);
       }
 
       const { data, error } = await query.order('full_name');
