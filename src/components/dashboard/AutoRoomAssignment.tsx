@@ -415,7 +415,14 @@ export function AutoRoomAssignment({
       }
     }
     
-    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, hotelConfig);
+    // Pass hotel name and random seed for regenerate
+    const finalConfig: HotelAssignmentConfig = {
+      ...hotelConfig,
+      hotelName: hotelName || undefined,
+      randomSeed: assignmentPreviews.length > 0 ? Date.now() : undefined, // randomize on regenerate
+    };
+    
+    const previews = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, finalConfig);
     setAssignmentPreviews(previews);
     setPreviewHistory([]);
     setStep('preview');
