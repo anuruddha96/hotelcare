@@ -645,8 +645,9 @@ export function autoAssignRooms(
       const bFloor = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
       const aWingBonus = leastWings.has(aWing) ? 0 : 100;
       const bWingBonus = leastWings.has(bWing) ? 0 : 100;
-      const aFloorPenalty = getFloorSpreadPenalty(leastRooms, aFloor);
-      const bFloorPenalty = getFloorSpreadPenalty(leastRooms, bFloor);
+      // 2x floor penalty multiplier to strongly prevent cross-floor moves
+      const aFloorPenalty = getFloorSpreadPenalty(leastRooms, aFloor) * 2;
+      const bFloorPenalty = getFloorSpreadPenalty(leastRooms, bFloor) * 2;
       const aSeqBonus = getSequenceBonus(a.room_number, leastRooms) * 10;
       const bSeqBonus = getSequenceBonus(b.room_number, leastRooms) * 10;
       const aAffinityPenalty = getAffinityLoss(a.room_number, mostRooms.map(r => r.room_number), affinityMap) * 50;

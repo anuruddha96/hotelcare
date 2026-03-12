@@ -750,7 +750,7 @@ ${activePreviews.map(preview => {
       ${sortByRoom(preview.rooms).map((room, i) => {
         const specials: string[] = [];
         if (room.towel_change_required) specials.push('🧺 Towel');
-        if (room.linen_change_required) specials.push('🛏️ Change Room');
+        if (room.linen_change_required) specials.push('🛏️ Clean Room (C)');
         if (room.bed_configuration) specials.push(`Bed: ${room.bed_configuration}`);
         return `<tr class="${room.is_checkout_room ? 'type-co' : 'type-daily'}">
           <td>${i + 1}</td>
