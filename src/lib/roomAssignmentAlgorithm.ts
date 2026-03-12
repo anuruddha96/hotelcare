@@ -1,5 +1,5 @@
 // Room Assignment Algorithm - FAIRNESS-FIRST approach
-// Priority: 1) Equal checkout distribution 2) Fair C/daily distribution 3) Zone proximity
+// Priority: 1) Equal checkout distribution 2) Fair daily distribution 3) Zone proximity
 
 // Time constants (in minutes)
 export const CHECKOUT_MINUTES = 45;
@@ -47,9 +47,16 @@ export interface AssignmentPreview {
   overageMinutes: number;
 }
 
-// ─── HOTEL MEMORIES BUDAPEST ZONE MAPPING ───
-// Room-number-based zones that reflect actual physical proximity
+// Fairness metrics for quality scoring
+export interface FairnessMetrics {
+  checkoutDiff: number;
+  dailyDiff: number;
+  totalDiff: number;
+  timeSpreadMinutes: number;
+  score: number; // lower = better
+}
 
+// ─── HOTEL MEMORIES BUDAPEST ZONE MAPPING ───
 const MEMORIES_ZONES: Record<string, string[]> = {
   'ground': ['002', '004', '006', '008', '010', '032', '034', '036', '038', '040', '042', '044'],
   'f1-left': ['101', '102', '103', '104', '105', '106', '107', '108', '109', '110', '111', '112', '113', '114', '115', '117', '119', '121', '123', '125', '127'],
@@ -57,7 +64,6 @@ const MEMORIES_ZONES: Record<string, string[]> = {
   'f2-f3': ['201', '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '212', '213', '214', '215', '216', '217', '302', '304', '306', '308'],
 };
 
-// Build reverse lookup: room_number -> zone
 const MEMORIES_ROOM_TO_ZONE: Record<string, string> = {};
 for (const [zone, rooms] of Object.entries(MEMORIES_ZONES)) {
   for (const room of rooms) {
@@ -73,7 +79,6 @@ export function isHotelMemoriesBudapest(hotelName: string | undefined | null): b
   return hotelName === 'Hotel Memories Budapest';
 }
 
-// Apply zone-based wing override for Memories Budapest
 export function applyMemoriesZones(rooms: RoomForAssignment[]): RoomForAssignment[] {
   return rooms.map(room => ({
     ...room,
@@ -83,31 +88,22 @@ export function applyMemoriesZones(rooms: RoomForAssignment[]): RoomForAssignmen
 
 // Calculate estimated time for a room in minutes
 export function calculateRoomTime(room: RoomForAssignment): number {
-  // Towel change only (not checkout, not linen change)
   if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
-    return TOWEL_CHANGE_MINUTES; // 10 min
+    return TOWEL_CHANGE_MINUTES;
   }
-
-  // Clean Room (C) - daily with linen change
   if (room.linen_change_required && !room.is_checkout_room) {
-    return LINEN_CHANGE_MINUTES; // 15 min total
+    return LINEN_CHANGE_MINUTES;
   }
-
-  // Daily cleaning (no special flags)
   if (!room.is_checkout_room) {
-    return DAILY_MINUTES; // 15 min
+    return DAILY_MINUTES;
   }
-
-  // Checkout room - time based on capacity
   const capacity = room.room_capacity || 2;
-  if (capacity >= 4) return 60;     // Quad
-  if (capacity >= 3) return 55;     // Triple
-  
-  // Queen/Double/Twin (capacity 2 or less) - use size if available
+  if (capacity >= 4) return 60;
+  if (capacity >= 3) return 55;
   const size = room.room_size_sqm || 0;
   if (size >= 40) return 60;
   if (size >= 28) return 50;
-  return CHECKOUT_MINUTES; // 45 min default
+  return CHECKOUT_MINUTES;
 }
 
 export function calculateTimeEstimation(rooms: RoomForAssignment[]): {
@@ -137,7 +133,7 @@ export function calculateRoomWeight(room: RoomForAssignment): number {
   }
   let weight = room.is_checkout_room ? 1.5 : 1.0;
   if (room.linen_change_required && !room.is_checkout_room) {
-    weight += 0.5; // Clean Room (C) adds significant weight
+    weight += 0.5;
   }
   if (room.towel_change_required && !room.is_checkout_room) {
     weight += 0.2;
@@ -145,7 +141,6 @@ export function calculateRoomWeight(room: RoomForAssignment): number {
   const capacity = room.room_capacity || 2;
   if (capacity >= 4) weight += 0.8;
   else if (capacity >= 3) weight += 0.4;
-  
   const size = room.room_size_sqm || 20;
   if (size >= 40) weight += 1.0;
   else if (size >= 28) weight += 0.6;
@@ -159,7 +154,6 @@ export function getFloorFromRoomNumber(roomNumber: string): number {
   return Math.floor(num / 100);
 }
 
-// Wing proximity map type
 export type WingProximityMap = Record<string, Record<string, number>>;
 export type RoomAffinityMap = Map<string, number>;
 
@@ -203,7 +197,7 @@ export interface HotelAssignmentConfig {
   wingZoneMapping?: Record<string, string>;
   staffPreferences?: Record<string, string[]>;
   hotelName?: string;
-  randomSeed?: number; // For regenerate: adds slight randomization
+  randomSeed?: number;
 }
 
 // ─── HELPER FUNCTIONS ───
@@ -223,25 +217,21 @@ function getStaffZones(rooms: RoomForAssignment[]): Set<string> {
 }
 
 // Zone-aware fit score (lower = better)
-// Rooms in the same zone = 0 penalty. Different zone = penalty based on zone distance.
 function zoneFitScore(room: RoomForAssignment, staffRooms: RoomForAssignment[]): number {
   if (staffRooms.length === 0) return 0;
   const roomZone = getZone(room);
   const zones = getStaffZones(staffRooms);
   
-  if (zones.has(roomZone)) return 0; // Same zone = perfect
+  if (zones.has(roomZone)) return 0;
   
-  // Penalty for each additional zone
   const zoneCount = zones.size + 1;
-  if (zoneCount >= 4) return 1000; // Never allow 4+ zones
-  if (zoneCount >= 3) return 300;  // Very strongly avoid 3 zones
+  if (zoneCount >= 4) return 100; // Penalize but don't block
+  if (zoneCount >= 3) return 60;
   
-  // For 2 zones: check if they are adjacent
-  // F2-F3 zone is considered adjacent since rooms 302-308 are near 201-217
   const existingZones = Array.from(zones);
   const isAdjacent = existingZones.some(z => areZonesAdjacent(z, roomZone));
   
-  return isAdjacent ? 20 : 100; // Adjacent zones = mild penalty, distant = heavy
+  return isAdjacent ? 10 : 40;
 }
 
 function areZonesAdjacent(zoneA: string, zoneB: string): boolean {
@@ -254,12 +244,10 @@ function areZonesAdjacent(zoneA: string, zoneB: string): boolean {
   return adjacencyMap[zoneA]?.includes(zoneB) || adjacencyMap[zoneB]?.includes(zoneA) || false;
 }
 
-// Room proximity score (lower = closer, better)
 function roomProximityScore(room: RoomForAssignment, staffRooms: RoomForAssignment[]): number {
   if (staffRooms.length === 0) return 0;
   const num = parseInt(room.room_number, 10);
   if (isNaN(num)) return 0;
-  
   let closestDist = Infinity;
   for (const existing of staffRooms) {
     const existingNum = parseInt(existing.room_number, 10);
@@ -270,7 +258,7 @@ function roomProximityScore(room: RoomForAssignment, staffRooms: RoomForAssignme
   return closestDist === Infinity ? 0 : closestDist;
 }
 
-// Affinity bonus for placing a room with existing rooms
+// Affinity bonus - CAPPED to prevent snowball
 function getAffinityBonus(
   roomNumber: string, existingRoomNumbers: string[], affinityMap?: RoomAffinityMap
 ): number {
@@ -280,10 +268,10 @@ function getAffinityBonus(
     const score = affinityMap.get(affinityKey(roomNumber, existing));
     if (score) bonus += score;
   }
-  return bonus;
+  // Cap at 3.0 to prevent rich-get-richer
+  return Math.min(bonus, 3.0);
 }
 
-// Sort rooms optimally for display: checkouts first, then by zone, then room number
 function sortRoomsOptimally(rooms: RoomForAssignment[]): RoomForAssignment[] {
   return [...rooms].sort((a, b) => {
     if (a.is_checkout_room && !b.is_checkout_room) return -1;
@@ -295,13 +283,40 @@ function sortRoomsOptimally(rooms: RoomForAssignment[]): RoomForAssignment[] {
   });
 }
 
-// Seeded pseudo-random for regenerate (deterministic given seed)
 function seededRandom(seed: number): () => number {
   let s = seed;
   return () => {
     s = (s * 1664525 + 1013904223) & 0x7fffffff;
     return (s / 0x7fffffff);
   };
+}
+
+// ─── FAIRNESS SCORING ───
+
+export function computeFairnessMetrics(previews: AssignmentPreview[]): FairnessMetrics {
+  const active = previews.filter(p => p.rooms.length > 0);
+  if (active.length <= 1) {
+    return { checkoutDiff: 0, dailyDiff: 0, totalDiff: 0, timeSpreadMinutes: 0, score: 0 };
+  }
+  
+  const checkouts = active.map(p => p.checkoutCount);
+  const dailies = active.map(p => p.dailyCount);
+  const totals = active.map(p => p.rooms.length);
+  const times = active.map(p => p.estimatedMinutes);
+  
+  const checkoutDiff = Math.max(...checkouts) - Math.min(...checkouts);
+  const dailyDiff = Math.max(...dailies) - Math.min(...dailies);
+  const totalDiff = Math.max(...totals) - Math.min(...totals);
+  const timeSpreadMinutes = Math.max(...times) - Math.min(...times);
+  
+  // Score: heavily penalize count imbalances, then time spread
+  const score = 
+    checkoutDiff * 2000 +
+    dailyDiff * 800 +
+    totalDiff * 400 +
+    timeSpreadMinutes * 5;
+  
+  return { checkoutDiff, dailyDiff, totalDiff, timeSpreadMinutes, score };
 }
 
 // ─── MAIN ALGORITHM: FAIRNESS-FIRST ───
@@ -313,7 +328,7 @@ export function autoAssignRooms(
   affinityMap?: RoomAffinityMap,
   hotelConfig?: HotelAssignmentConfig
 ): AssignmentPreview[] {
-  const config = { ...{ affinityBonusMultiplier: 15 }, ...hotelConfig };
+  const config = { ...{ affinityBonusMultiplier: 5 }, ...hotelConfig };
   const rand = config.randomSeed ? seededRandom(config.randomSeed) : () => 0;
   
   if (staff.length === 0 || rooms.length === 0) {
@@ -327,8 +342,6 @@ export function autoAssignRooms(
 
   // Apply zone mapping
   let allRooms = [...rooms];
-  
-  // For Hotel Memories Budapest: override wings with room-number-based zones
   if (isHotelMemoriesBudapest(config.hotelName)) {
     allRooms = applyMemoriesZones(allRooms);
   } else if (config.wingZoneMapping) {
@@ -342,22 +355,55 @@ export function autoAssignRooms(
 
   // Initialize per-staff state
   const assignments = new Map<string, RoomForAssignment[]>();
-  const staffWeights = new Map<string, number>();
+  const staffMinutes = new Map<string, number>();
   staff.forEach(s => {
     assignments.set(s.id, []);
-    staffWeights.set(s.id, 0);
+    staffMinutes.set(s.id, 0);
   });
 
   // ─── CATEGORIZE ROOMS ───
   const checkoutRooms = allRooms.filter(r => r.is_checkout_room);
   const dailyRooms = allRooms.filter(r => !r.is_checkout_room);
-  const dailyCleanRooms = dailyRooms.filter(r => r.linen_change_required); // C rooms (heavier)
-  const dailyNormalRooms = dailyRooms.filter(r => !r.linen_change_required); // T or normal rooms
+  const dailyCleanRooms = dailyRooms.filter(r => r.linen_change_required);
+  const dailyNormalRooms = dailyRooms.filter(r => !r.linen_change_required);
 
   const staffCount = staff.length;
+  
+  // ─── FAIRNESS TARGETS ───
+  const targetCheckoutMin = Math.floor(checkoutRooms.length / staffCount);
+  const targetCheckoutMax = Math.ceil(checkoutRooms.length / staffCount);
+  const targetDailyMin = Math.floor(dailyRooms.length / staffCount);
+  const targetDailyMax = Math.ceil(dailyRooms.length / staffCount);
+  const totalRoomCount = allRooms.length;
+  const targetTotalMin = Math.floor(totalRoomCount / staffCount);
+  const targetTotalMax = Math.ceil(totalRoomCount / staffCount);
+  const totalMinutes = allRooms.reduce((s, r) => s + calculateRoomTime(r), 0);
+  const targetMinutesPerStaff = totalMinutes / staffCount;
+
+  // Helper: get staff's current counts
+  function getStaffCounts(staffId: string) {
+    const rooms = assignments.get(staffId)!;
+    const checkouts = rooms.filter(r => r.is_checkout_room).length;
+    const daily = rooms.filter(r => !r.is_checkout_room).length;
+    const minutes = staffMinutes.get(staffId)!;
+    return { checkouts, daily, total: rooms.length, minutes };
+  }
+
+  // Overload penalty: quadratic ramp when over target
+  function overloadPenalty(current: number, targetMax: number): number {
+    if (current < targetMax) return 0;
+    const over = current - targetMax + 1;
+    return over * over * 50; // quadratic: 50, 200, 450, 800...
+  }
+
+  // Minute deficit score: how far below average (negative = needs more work)
+  function minuteDeficitScore(staffId: string): number {
+    const mins = staffMinutes.get(staffId)!;
+    return mins - targetMinutesPerStaff; // negative = under-loaded
+  }
 
   // ─── PHASE 1: DISTRIBUTE CHECKOUTS EVENLY ───
-  // Group checkouts by zone, then distribute round-robin
+  // Group checkouts by zone, then distribute round-robin respecting fairness
   const checkoutsByZone = new Map<string, RoomForAssignment[]>();
   checkoutRooms.forEach(r => {
     const z = getZone(r);
@@ -365,45 +411,43 @@ export function autoAssignRooms(
     checkoutsByZone.get(z)!.push(r);
   });
 
-  // Sort zone groups by size (largest first) for better distribution
   const checkoutZoneGroups = Array.from(checkoutsByZone.entries())
     .sort((a, b) => b[1].length - a[1].length);
 
-  // Assign checkout zone groups to staff, keeping zones together
-  for (const [zone, zoneRooms] of checkoutZoneGroups) {
-    // Sort rooms within zone by room number
+  for (const [, zoneRooms] of checkoutZoneGroups) {
     zoneRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
     
     for (const room of zoneRooms) {
-      // Find best staff: fewest checkouts first, then best zone fit
       const candidates = staff.map(s => {
+        const counts = getStaffCounts(s.id);
         const sRooms = assignments.get(s.id)!;
-        const sCheckouts = sRooms.filter(r => r.is_checkout_room).length;
         const fitScore = zoneFitScore(room, sRooms);
         const proxScore = roomProximityScore(room, sRooms);
         const affinityBonus = getAffinityBonus(
           room.room_number, sRooms.map(r => r.room_number), affinityMap
-        ) * (config.affinityBonusMultiplier || 15);
-        const randomPerturbation = rand() * 5; // slight randomness for regenerate
+        ) * (config.affinityBonusMultiplier || 5);
+        const randomPerturbation = rand() * 2; // tiny tie-breaker
         
-        // Primary: checkout count (heavily weighted to enforce equality)
-        // Secondary: zone fit
-        // Tertiary: proximity within zone
+        // PRIMARY: checkout count fairness (massive weight)
+        // SECONDARY: minute balance
+        // TERTIARY: zone fit (soft)
+        const fairnessPenalty = counts.checkouts * 500 + overloadPenalty(counts.checkouts, targetCheckoutMax);
+        const minutePenalty = Math.max(0, counts.minutes - targetMinutesPerStaff) * 2;
+        
         return {
           id: s.id,
-          checkouts: sCheckouts,
-          score: sCheckouts * 1000 + fitScore * 10 + proxScore - affinityBonus + randomPerturbation
+          score: fairnessPenalty + minutePenalty + fitScore + proxScore * 0.5 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
       const bestId = candidates[0].id;
       assignments.get(bestId)!.push(room);
-      staffWeights.set(bestId, staffWeights.get(bestId)! + calculateRoomWeight(room));
+      staffMinutes.set(bestId, staffMinutes.get(bestId)! + calculateRoomTime(room));
     }
   }
 
   // ─── PHASE 2: DISTRIBUTE CLEAN ROOM (C) DAILY ROOMS FAIRLY ───
-  // Staff with fewer checkouts should get more C rooms to balance workload
+  // Staff with fewer checkouts / lower minutes get priority
   const cleanByZone = new Map<string, RoomForAssignment[]>();
   dailyCleanRooms.forEach(r => {
     const z = getZone(r);
@@ -414,29 +458,34 @@ export function autoAssignRooms(
   const cleanZoneGroups = Array.from(cleanByZone.entries())
     .sort((a, b) => b[1].length - a[1].length);
 
-  for (const [zone, zoneRooms] of cleanZoneGroups) {
+  for (const [, zoneRooms] of cleanZoneGroups) {
     zoneRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
     
     for (const room of zoneRooms) {
       const candidates = staff.map(s => {
+        const counts = getStaffCounts(s.id);
         const sRooms = assignments.get(s.id)!;
-        const weight = staffWeights.get(s.id)!;
         const fitScore = zoneFitScore(room, sRooms);
         const proxScore = roomProximityScore(room, sRooms);
         const affinityBonus = getAffinityBonus(
           room.room_number, sRooms.map(r => r.room_number), affinityMap
-        ) * (config.affinityBonusMultiplier || 15);
-        const randomPerturbation = rand() * 3;
+        ) * (config.affinityBonusMultiplier || 5);
+        const randomPerturbation = rand() * 2;
+        
+        // PRIMARY: daily count fairness + minute balance
+        const dailyPenalty = counts.daily * 200 + overloadPenalty(counts.daily, targetDailyMax);
+        const minutePenalty = Math.max(0, counts.minutes - targetMinutesPerStaff) * 3;
+        const totalPenalty = overloadPenalty(counts.total, targetTotalMax);
         
         return {
           id: s.id,
-          score: weight * 5 + fitScore * 10 + proxScore - affinityBonus + randomPerturbation
+          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 0.3 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
       const bestId = candidates[0].id;
       assignments.get(bestId)!.push(room);
-      staffWeights.set(bestId, staffWeights.get(bestId)! + calculateRoomWeight(room));
+      staffMinutes.set(bestId, staffMinutes.get(bestId)! + calculateRoomTime(room));
     }
   }
 
@@ -451,37 +500,54 @@ export function autoAssignRooms(
   const normalZoneGroups = Array.from(normalByZone.entries())
     .sort((a, b) => b[1].length - a[1].length);
 
-  for (const [zone, zoneRooms] of normalZoneGroups) {
+  for (const [, zoneRooms] of normalZoneGroups) {
     zoneRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
     
     for (const room of zoneRooms) {
       const candidates = staff.map(s => {
+        const counts = getStaffCounts(s.id);
         const sRooms = assignments.get(s.id)!;
-        const weight = staffWeights.get(s.id)!;
         const fitScore = zoneFitScore(room, sRooms);
         const proxScore = roomProximityScore(room, sRooms);
         const affinityBonus = getAffinityBonus(
           room.room_number, sRooms.map(r => r.room_number), affinityMap
-        ) * (config.affinityBonusMultiplier || 15);
-        const randomPerturbation = rand() * 3;
+        ) * (config.affinityBonusMultiplier || 5);
+        const randomPerturbation = rand() * 2;
+        
+        // PRIMARY: daily count + total count fairness + minute balance
+        const dailyPenalty = counts.daily * 200 + overloadPenalty(counts.daily, targetDailyMax);
+        const minutePenalty = Math.max(0, counts.minutes - targetMinutesPerStaff) * 3;
+        const totalPenalty = overloadPenalty(counts.total, targetTotalMax);
         
         return {
           id: s.id,
-          score: weight * 5 + fitScore * 10 + proxScore - affinityBonus + randomPerturbation
+          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 0.3 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
       const bestId = candidates[0].id;
       assignments.get(bestId)!.push(room);
-      staffWeights.set(bestId, staffWeights.get(bestId)! + calculateRoomWeight(room));
+      staffMinutes.set(bestId, staffMinutes.get(bestId)! + calculateRoomTime(room));
     }
   }
 
-  // ─── PHASE 4: FINAL REBALANCING ───
+  // ─── PHASE 4: MULTI-PASS REBALANCING ───
+  
+  // Helper to move a room between staff
+  function moveRoomInternal(roomToMove: RoomForAssignment, fromId: string, toId: string) {
+    const fromRooms = assignments.get(fromId)!;
+    const toRooms = assignments.get(toId)!;
+    const idx = fromRooms.indexOf(roomToMove);
+    if (idx === -1) return;
+    fromRooms.splice(idx, 1);
+    toRooms.push(roomToMove);
+    const time = calculateRoomTime(roomToMove);
+    staffMinutes.set(fromId, staffMinutes.get(fromId)! - time);
+    staffMinutes.set(toId, staffMinutes.get(toId)! + time);
+  }
+
   // 4a: Ensure checkout equality (max diff of 1)
-  let eqIter = 0;
-  while (eqIter < 20) {
-    eqIter++;
+  for (let iter = 0; iter < 30; iter++) {
     const coCounts = staff.map(s => ({
       id: s.id,
       checkouts: assignments.get(s.id)!.filter(r => r.is_checkout_room).length
@@ -495,26 +561,47 @@ export function autoAssignRooms(
     const leastRooms = assignments.get(least.id)!;
     const movableCheckouts = mostRooms.filter(r => r.is_checkout_room);
     
+    // Pick best-fit checkout to move (zone is secondary, fairness is primary)
     const scored = movableCheckouts.map(room => {
       const fit = zoneFitScore(room, leastRooms);
       const prox = roomProximityScore(room, leastRooms);
-      return { room, score: fit + prox };
+      return { room, score: fit + prox * 0.5 };
     }).sort((a, b) => a.score - b.score);
 
     if (scored.length === 0) break;
-    const roomToMove = scored[0].room;
-    const rw = calculateRoomWeight(roomToMove);
-    
-    mostRooms.splice(mostRooms.indexOf(roomToMove), 1);
-    leastRooms.push(roomToMove);
-    staffWeights.set(most.id, staffWeights.get(most.id)! - rw);
-    staffWeights.set(least.id, staffWeights.get(least.id)! + rw);
+    moveRoomInternal(scored[0].room, most.id, least.id);
   }
 
-  // 4b: Room count rebalancing (max diff of 2 total rooms)
-  let countIter = 0;
-  while (countIter < 20) {
-    countIter++;
+  // 4b: Ensure daily equality (max diff of 2)
+  for (let iter = 0; iter < 30; iter++) {
+    const dailyCounts = staff.map(s => ({
+      id: s.id,
+      daily: assignments.get(s.id)!.filter(r => !r.is_checkout_room).length
+    })).sort((a, b) => b.daily - a.daily);
+    
+    const most = dailyCounts[0];
+    const least = dailyCounts[dailyCounts.length - 1];
+    if (most.daily - least.daily <= 2) break;
+
+    const mostRooms = assignments.get(most.id)!;
+    const leastRooms = assignments.get(least.id)!;
+    
+    // Move a daily room - allow cross-zone if needed for fairness
+    const movable = mostRooms
+      .filter(r => !r.is_checkout_room)
+      .map(room => ({
+        room,
+        score: zoneFitScore(room, leastRooms) + roomProximityScore(room, leastRooms) * 0.3
+      }))
+      .sort((a, b) => a.score - b.score);
+
+    if (movable.length === 0) break;
+    // No hard zone-block: fairness always wins
+    moveRoomInternal(movable[0].room, most.id, least.id);
+  }
+
+  // 4c: Ensure total room count balance (max diff of 2)
+  for (let iter = 0; iter < 30; iter++) {
     const counts = staff.map(s => ({
       id: s.id, count: assignments.get(s.id)!.length
     })).sort((a, b) => b.count - a.count);
@@ -526,67 +613,97 @@ export function autoAssignRooms(
     const mostRooms = assignments.get(most.id)!;
     const leastRooms = assignments.get(least.id)!;
     
-    // Prefer moving daily rooms that fit the target's zones
+    // Prefer moving daily rooms; fallback to any room
     const movable = mostRooms
-      .filter(r => !r.is_checkout_room)
       .map(room => ({
         room,
-        score: zoneFitScore(room, leastRooms) * 2 + roomProximityScore(room, leastRooms)
+        isCheckout: room.is_checkout_room,
+        score: (room.is_checkout_room ? 100 : 0) + zoneFitScore(room, leastRooms) + roomProximityScore(room, leastRooms) * 0.3
       }))
       .sort((a, b) => a.score - b.score);
 
     if (movable.length === 0) break;
-    // Don't move if it would break zone clustering badly
-    if (movable[0].score >= 200) break;
     
-    const roomToMove = movable[0].room;
-    const rw = calculateRoomWeight(roomToMove);
-
-    mostRooms.splice(mostRooms.indexOf(roomToMove), 1);
-    leastRooms.push(roomToMove);
-    staffWeights.set(most.id, staffWeights.get(most.id)! - rw);
-    staffWeights.set(least.id, staffWeights.get(least.id)! + rw);
+    // Check that moving a checkout wouldn't break checkout balance
+    const candidate = movable[0];
+    if (candidate.isCheckout) {
+      const mostCO = mostRooms.filter(r => r.is_checkout_room).length;
+      const leastCO = leastRooms.filter(r => r.is_checkout_room).length;
+      if (leastCO + 1 - (mostCO - 1) > 1) {
+        // Moving this checkout would break CO balance; try next non-checkout
+        const dailyCandidate = movable.find(m => !m.isCheckout);
+        if (!dailyCandidate) break;
+        moveRoomInternal(dailyCandidate.room, most.id, least.id);
+        continue;
+      }
+    }
+    
+    moveRoomInternal(candidate.room, most.id, least.id);
   }
 
-  // 4c: Weight rebalancing - if weight diff > 25%, swap rooms between heavy/light staff
-  const totalWeight = Array.from(staffWeights.values()).reduce((a, b) => a + b, 0);
-  const avgWeight = totalWeight / staffCount;
-  let weightIter = 0;
-  while (weightIter < 15) {
-    weightIter++;
-    const sorted = Array.from(staffWeights.entries()).sort((a, b) => b[1] - a[1]);
-    const [heavyId, heavyW] = sorted[0];
-    const [lightId, lightW] = sorted[sorted.length - 1];
-    if (heavyW - lightW < avgWeight * 0.25) break;
+  // 4d: Time spread rebalancing via swaps
+  // If time spread > 75 min, try swapping rooms between heaviest and lightest
+  for (let iter = 0; iter < 20; iter++) {
+    const sorted = staff.map(s => ({
+      id: s.id, minutes: staffMinutes.get(s.id)!
+    })).sort((a, b) => b.minutes - a.minutes);
+    
+    const heavy = sorted[0];
+    const light = sorted[sorted.length - 1];
+    if (heavy.minutes - light.minutes <= 75) break;
 
-    const heavyRooms = assignments.get(heavyId)!;
-    const lightRooms = assignments.get(lightId)!;
+    const heavyRooms = assignments.get(heavy.id)!;
+    const lightRooms = assignments.get(light.id)!;
 
-    let bestRoom: RoomForAssignment | null = null;
-    let bestScore = Infinity;
-
-    for (const room of heavyRooms) {
-      if (room.is_checkout_room) continue;
-      const w = calculateRoomWeight(room);
-      const newDiff = Math.abs((heavyW - w) - (lightW + w));
-      if (newDiff >= heavyW - lightW) continue;
-
-      const fit = zoneFitScore(room, lightRooms);
-      if (fit >= 200) continue; // Don't break zone clustering
-      
-      const score = newDiff + fit;
-      if (score < bestScore) {
-        bestScore = score;
-        bestRoom = room;
+    // Try to find a swap: move heavy daily room to light, and light daily room to heavy
+    // that reduces the time spread
+    let bestSwap: { heavyRoom: RoomForAssignment; lightRoom: RoomForAssignment; newSpread: number } | null = null;
+    
+    for (const hRoom of heavyRooms) {
+      if (hRoom.is_checkout_room) continue;
+      const hTime = calculateRoomTime(hRoom);
+      for (const lRoom of lightRooms) {
+        if (lRoom.is_checkout_room) continue;
+        const lTime = calculateRoomTime(lRoom);
+        if (hTime <= lTime) continue; // swap must reduce heavy's time
+        
+        const newHeavyMin = heavy.minutes - hTime + lTime;
+        const newLightMin = light.minutes + hTime - lTime;
+        const newSpread = Math.abs(newHeavyMin - newLightMin);
+        
+        if (newSpread < heavy.minutes - light.minutes) {
+          if (!bestSwap || newSpread < bestSwap.newSpread) {
+            bestSwap = { heavyRoom: hRoom, lightRoom: lRoom, newSpread };
+          }
+        }
       }
     }
 
-    if (!bestRoom) break;
-    const rw = calculateRoomWeight(bestRoom);
-    heavyRooms.splice(heavyRooms.indexOf(bestRoom), 1);
-    lightRooms.push(bestRoom);
-    staffWeights.set(heavyId, heavyW - rw);
-    staffWeights.set(lightId, lightW + rw);
+    if (!bestSwap) {
+      // Fallback: try simple move of a daily room from heavy to light
+      const movable = heavyRooms.filter(r => !r.is_checkout_room);
+      if (movable.length === 0) break;
+      // Find room whose time would best reduce spread
+      const best = movable.map(room => {
+        const t = calculateRoomTime(room);
+        const newSpread = Math.abs((heavy.minutes - t) - (light.minutes + t));
+        return { room, newSpread };
+      }).sort((a, b) => a.newSpread - b.newSpread)[0];
+      
+      if (best.newSpread >= heavy.minutes - light.minutes) break;
+      
+      // Check it doesn't break daily/total balance
+      const heavyDaily = heavyRooms.filter(r => !r.is_checkout_room).length;
+      const lightDaily = lightRooms.filter(r => !r.is_checkout_room).length;
+      if (heavyDaily - 1 < lightDaily + 1 - 2) break; // would create daily imbalance
+      
+      moveRoomInternal(best.room, heavy.id, light.id);
+      continue;
+    }
+
+    // Execute swap
+    moveRoomInternal(bestSwap.heavyRoom, heavy.id, light.id);
+    moveRoomInternal(bestSwap.lightRoom, light.id, heavy.id);
   }
 
   // ─── BUILD FINAL PREVIEW ───
@@ -597,7 +714,7 @@ export function autoAssignRooms(
       staffId: s.id,
       staffName: s.full_name,
       rooms: staffRooms,
-      totalWeight: staffWeights.get(s.id) || 0,
+      totalWeight: staffRooms.reduce((sum, r) => sum + calculateRoomWeight(r), 0),
       checkoutCount: staffRooms.filter(r => r.is_checkout_room).length,
       dailyCount: staffRooms.filter(r => !r.is_checkout_room).length,
       ...timeEstimate
