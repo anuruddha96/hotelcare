@@ -34,8 +34,7 @@ import {
   CheckCheck,
   Layers,
   BedDouble,
-  DoorClosed,
-  Image
+  DoorClosed
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -138,7 +137,7 @@ export function SupervisorApprovalView() {
   const [bulkApproving, setBulkApproving] = useState<string | null>(null);
   const [bulkProgress, setBulkProgress] = useState(0);
   const [collapsedHotels, setCollapsedHotels] = useState<Set<string>>(new Set());
-
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   // Group assignments by hotel
   const hotelGroups = useMemo(() => {
     const groups: Record<string, PendingAssignment[]> = {};
@@ -690,262 +689,260 @@ export function SupervisorApprovalView() {
     );
   }
 
+
+  const toggleCardExpand = (id: string) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const renderAssignmentCard = (assignment: PendingAssignment) => {
     const durationMins = getDurationMinutes(assignment.started_at, assignment.completed_at);
     const speedIndicator = assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
     const SpeedIcon = speedIndicator?.icon || Timer;
-    const waitingMins = getMinutesSince(assignment.completed_at);
+    const isExpanded = expandedCards.has(assignment.id);
+    const hasDetails = !!(
+      completionPhotoUrls[assignment.id]?.length ||
+      linenSummaries[assignment.id]?.length ||
+      assignment.rooms?.bed_configuration ||
+      assignment.rooms?.is_dnd
+    );
 
     return (
       <Card key={assignment.id} className={`border shadow-sm hover:shadow-md transition-all duration-200 ${
         speedIndicator?.severity === 'warning' ? 'border-l-4 border-l-orange-400' : 'border-l-4 border-l-green-400'
       }`}>
-        <CardContent className="p-3 sm:p-4 space-y-3">
-          {/* Compact Header Row */}
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap">
+        <CardContent className="p-3 sm:p-4 space-y-2">
+          {/* Compact Header: Room + Type + Speed + Actions */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
               <span className="text-base font-bold text-foreground">
                 Room {assignment.rooms?.room_number || 'N/A'}
               </span>
-              {assignment.rooms?.floor_number && (
-                <Badge variant="outline" className="text-[10px] bg-muted px-1.5 py-0">
-                  F{assignment.rooms.floor_number}
-                </Badge>
-              )}
               <Badge variant="outline" className="bg-muted text-foreground border-border text-[10px] px-1.5 py-0">
                 {getAssignmentTypeLabel(assignment.assignment_type)}
               </Badge>
-              {assignment.rooms?.is_dnd && (
-                <Badge className="text-[10px] bg-orange-100 text-orange-800 border border-orange-300 px-1.5 py-0">
-                  DND
-                </Badge>
-              )}
-              {assignment.rooms?.bed_configuration && (
-                <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 px-1.5 py-0">
-                  <BedDouble className="h-3 w-3 mr-0.5" />
-                  {assignment.rooms.bed_configuration}
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5">
               {speedIndicator && (
                 <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${speedIndicator.color}`}>
                   <SpeedIcon className="h-3 w-3 mr-0.5" />
                   {speedIndicator.label}
                 </Badge>
               )}
-              {waitingMins > 30 && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-50 text-red-700 border-red-200">
-                  ⏰ {waitingMins}m
-                </Badge>
-              )}
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                onClick={() => handleApproval(assignment.id)}
+                className="bg-green-600 hover:bg-green-700 text-white h-7 px-2 text-xs"
+                size="sm"
+              >
+                <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                Approve
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedAssignment(assignment.id);
+                  setReassignDialogOpen(true);
+                }}
+                className="h-7 px-2 text-xs"
+                size="sm"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
             </div>
           </div>
 
-          {/* Stats Grid - always 2 cols on mobile, 4 on desktop */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div className="flex items-center gap-1.5 p-2 bg-muted/50 rounded-lg min-w-0">
-              <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <div className="min-w-0">
-                <p className="text-[10px] text-muted-foreground leading-none">Cleaned by</p>
-                <p className="text-xs font-semibold text-foreground truncate">
-                  {assignment.profiles?.full_name || 'Unknown'}
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-1.5 p-2 bg-muted/50 rounded-lg">
-              <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <div>
-                <p className="text-[10px] text-muted-foreground leading-none">Started</p>
-                <p className="text-xs font-semibold text-foreground">
-                  {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 p-2 bg-muted/50 rounded-lg">
-              <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
-              <div>
-                <p className="text-[10px] text-muted-foreground leading-none">Completed</p>
-                <p className="text-xs font-semibold text-foreground">
-                  {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              </div>
-            </div>
-
-            {assignment.started_at && (
-              <div className={`flex items-center gap-1.5 p-2 rounded-lg ${
-                speedIndicator?.severity === 'warning' ? 'bg-orange-50 border border-orange-200' : 'bg-green-50 border border-green-200'
-              }`}>
-                <Timer className={`h-3.5 w-3.5 shrink-0 ${
-                  speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'
-                }`} />
-                <div>
-                  <p className={`text-[10px] leading-none ${speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'}`}>Duration</p>
-                  <p className={`text-xs font-bold ${
-                    speedIndicator?.severity === 'warning' ? 'text-orange-800' : 'text-green-800'
-                  }`}>
-                    {calculateDuration(assignment.started_at, assignment.completed_at)}
-                  </p>
-                </div>
-              </div>
+          {/* Single-line summary: Cleaned by · Duration · Started */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
+            <User className="h-3 w-3 shrink-0" />
+            <span className="font-semibold text-foreground">{assignment.profiles?.full_name || 'Unknown'}</span>
+            <span>·</span>
+            {assignment.started_at ? (
+              <>
+                <Timer className={`h-3 w-3 shrink-0 ${speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'}`} />
+                <span className={`font-bold ${speedIndicator?.severity === 'warning' ? 'text-orange-700' : 'text-green-700'}`}>
+                  {calculateDuration(assignment.started_at, assignment.completed_at)}
+                </span>
+                <span>·</span>
+                <span>Started {new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </>
+            ) : (
+              <span>Duration N/A</span>
             )}
           </div>
 
-          {/* Notes */}
-          {assignment.notes && (
-            <div className="relative p-4 bg-amber-50 rounded-lg border border-amber-200">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                <div>
-                  <h4 className="font-semibold text-amber-900 text-sm mb-1">📝 Notes</h4>
-                  <p className="text-sm text-amber-800">{assignment.notes}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Inline Photo Thumbnails */}
-          {completionPhotoUrls[assignment.id] && completionPhotoUrls[assignment.id].length > 0 && (
-            <div className="flex items-center gap-2">
-              <Image className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div className="flex items-center gap-1.5">
-                {completionPhotoUrls[assignment.id].slice(0, 4).map((url, idx) => (
-                  <img
-                    key={idx}
-                    src={url}
-                    alt={`Completion photo ${idx + 1}`}
-                    className="h-12 w-12 rounded-md object-cover border border-border"
-                  />
-                ))}
-                {completionPhotoUrls[assignment.id].length > 4 && (
-                  <div className="h-12 w-12 rounded-md bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground border border-border">
-                    +{completionPhotoUrls[assignment.id].length - 4}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Inline Dirty Linen Summary */}
-          {linenSummaries[assignment.id] && linenSummaries[assignment.id].length > 0 && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-medium text-muted-foreground">🧺 Linen:</span>
-              {linenSummaries[assignment.id].map((item, idx) => (
-                <Badge key={idx} variant="outline" className="text-xs bg-muted/50">
-                  {item.display_name}: {item.count}
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          {/* Completion Data */}
-          <CompletionDataView
-            assignmentId={assignment.id}
-            roomId={assignment.room_id}
-            assignmentDate={assignment.assignment_date}
-            housekeeperId={assignment.assigned_to}
-          />
-
-          {/* Special Requirements */}
+          {/* Special Requirements - always visible when present */}
           {(assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {assignment.rooms.towel_change_required && (
-                <div className="p-2.5 bg-blue-500 text-white rounded-lg text-sm font-medium flex items-center gap-2">
-                  🏺 Towel Change ({assignment.rooms.guest_nights_stayed || 0} nights)
-                </div>
+                <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0.5">
+                  🏺 Towel Change
+                </Badge>
               )}
               {assignment.rooms.linen_change_required && (
-                <div className="p-2.5 bg-purple-500 text-white rounded-lg text-sm font-medium flex items-center gap-2">
-                  🛏️ Linen Change ({assignment.rooms.guest_nights_stayed || 0} nights)
-                </div>
+                <Badge className="bg-purple-500 text-white text-[10px] px-1.5 py-0.5">
+                  🛏️ Linen Change
+                </Badge>
               )}
             </div>
           )}
 
-          {/* Actions */}
-          <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border">
-            <Button
-              onClick={() => handleApproval(assignment.id)}
-              className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
-              size="sm"
-            >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              {t('supervisor.approveTask')}
-            </Button>
-            
-            <Dialog 
-              open={reassignDialogOpen && selectedAssignment === assignment.id} 
-              onOpenChange={(open) => {
-                setReassignDialogOpen(open);
-                if (!open) {
-                  setSelectedAssignment(null);
-                  setSelectedHousekeeper('');
-                }
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  onClick={() => setSelectedAssignment(assignment.id)}
-                  className="w-full sm:w-auto"
-                  size="sm"
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  {t('supervisor.reassignRoom')}
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>
-                    {t('supervisor.reassignRoomTitle')} {assignment.rooms?.room_number}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-2 block">
-                      {t('supervisor.selectHousekeeper')}
-                    </label>
-                    <Select value={selectedHousekeeper} onValueChange={setSelectedHousekeeper}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('supervisor.chooseHousekeeper')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {staff.map((person) => (
-                          <SelectItem key={person.id} value={person.id}>
-                            {person.full_name} ({person.nickname})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+          {/* Notes - always visible when present */}
+          {assignment.notes && (
+            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
+              <p className="text-xs text-amber-800">{assignment.notes}</p>
+            </div>
+          )}
+
+          {/* Expandable Details */}
+          {hasDetails && (
+            <div>
+              <button
+                onClick={() => toggleCardExpand(assignment.id)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                Details
+              </button>
+
+              {isExpanded && (
+                <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
+                  {/* DND & Bed Config */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {assignment.rooms?.is_dnd && (
+                      <Badge className="text-[10px] bg-orange-100 text-orange-800 border border-orange-300 px-1.5 py-0">
+                        DND
+                      </Badge>
+                    )}
+                    {assignment.rooms?.bed_configuration && (
+                      <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 px-1.5 py-0">
+                        <BedDouble className="h-3 w-3 mr-0.5" />
+                        {assignment.rooms.bed_configuration}
+                      </Badge>
+                    )}
+                    {assignment.rooms?.floor_number && (
+                      <Badge variant="outline" className="text-[10px] bg-muted px-1.5 py-0">
+                        F{assignment.rooms.floor_number}
+                      </Badge>
+                    )}
                   </div>
-                  <div className="flex justify-end gap-3">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => {
-                        setReassignDialogOpen(false);
-                        setSelectedAssignment(null);
-                        setSelectedHousekeeper('');
-                      }}
-                    >
-                      {t('common.cancel')}
-                    </Button>
-                    <Button 
-                      onClick={handleReassignment}
-                      disabled={!selectedHousekeeper}
-                    >
-                      {t('supervisor.confirmReassign')}
-                    </Button>
+
+                  {/* Start/Complete times */}
+                  <div className="text-xs text-muted-foreground">
+                    Started: {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    {' · '}
+                    Completed: {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
+
+                  {/* Photos */}
+                  {completionPhotoUrls[assignment.id] && completionPhotoUrls[assignment.id].length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      {completionPhotoUrls[assignment.id].slice(0, 4).map((url, idx) => (
+                        <img
+                          key={idx}
+                          src={url}
+                          alt={`Photo ${idx + 1}`}
+                          className="h-10 w-10 rounded object-cover border border-border"
+                        />
+                      ))}
+                      {completionPhotoUrls[assignment.id].length > 4 && (
+                        <div className="h-10 w-10 rounded bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground border border-border">
+                          +{completionPhotoUrls[assignment.id].length - 4}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Linen */}
+                  {linenSummaries[assignment.id] && linenSummaries[assignment.id].length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-muted-foreground">🧺 Linen:</span>
+                      {linenSummaries[assignment.id].map((item, idx) => (
+                        <Badge key={idx} variant="outline" className="text-[10px] bg-muted/50 px-1 py-0">
+                          {item.display_name}: {item.count}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Completion Data */}
+                  <CompletionDataView
+                    assignmentId={assignment.id}
+                    roomId={assignment.room_id}
+                    assignmentDate={assignment.assignment_date}
+                    housekeeperId={assignment.assigned_to}
+                  />
                 </div>
-              </DialogContent>
-            </Dialog>
-          </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     );
   };
+
+  {/* Reassign Dialog - shared */}
+  const renderReassignDialog = () => (
+    <Dialog 
+      open={reassignDialogOpen} 
+      onOpenChange={(open) => {
+        setReassignDialogOpen(open);
+        if (!open) {
+          setSelectedAssignment(null);
+          setSelectedHousekeeper('');
+        }
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {t('supervisor.reassignRoomTitle')} {pendingAssignments.find(a => a.id === selectedAssignment)?.rooms?.room_number}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-foreground mb-2 block">
+              {t('supervisor.selectHousekeeper')}
+            </label>
+            <Select value={selectedHousekeeper} onValueChange={setSelectedHousekeeper}>
+              <SelectTrigger>
+                <SelectValue placeholder={t('supervisor.chooseHousekeeper')} />
+              </SelectTrigger>
+              <SelectContent>
+                {staff.map((person) => (
+                  <SelectItem key={person.id} value={person.id}>
+                    {person.full_name} ({person.nickname})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setReassignDialogOpen(false);
+                setSelectedAssignment(null);
+                setSelectedHousekeeper('');
+              }}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button 
+              onClick={handleReassignment}
+              disabled={!selectedHousekeeper}
+            >
+              {t('supervisor.confirmReassign')}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 
   return (
     <div className="space-y-6">
@@ -1468,6 +1465,9 @@ export function SupervisorApprovalView() {
           <ApprovalHistoryView />
         </TabsContent>
       </Tabs>
+
+      {/* Shared Reassign Dialog */}
+      {renderReassignDialog()}
     </div>
   );
 }
