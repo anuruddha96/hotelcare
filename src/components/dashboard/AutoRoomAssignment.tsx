@@ -1218,6 +1218,23 @@ ${activePreviews.map(preview => {
                     <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-blue-600">T</span>{t('autoAssign.towel')}</span>
                     <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-orange-600">C</span>Clean Room</span>
                   </div>
+                  {/* Fairness diagnostics */}
+                  {fairnessMetrics && (
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className={`font-medium ${fairnessMetrics.checkoutDiff <= 1 ? 'text-green-600' : 'text-destructive'}`}>
+                        CO±{fairnessMetrics.checkoutDiff}
+                      </span>
+                      <span className={`font-medium ${fairnessMetrics.dailyDiff <= 2 ? 'text-green-600' : 'text-destructive'}`}>
+                        Daily±{fairnessMetrics.dailyDiff}
+                      </span>
+                      <span className={`font-medium ${fairnessMetrics.totalDiff <= 2 ? 'text-green-600' : fairnessMetrics.totalDiff <= 3 ? 'text-amber-600' : 'text-destructive'}`}>
+                        Total±{fairnessMetrics.totalDiff}
+                      </span>
+                      <span className={`font-medium ${fairnessMetrics.timeSpreadMinutes <= 75 ? 'text-green-600' : fairnessMetrics.timeSpreadMinutes <= 120 ? 'text-amber-600' : 'text-destructive'}`}>
+                        ⏱{fairnessMetrics.timeSpreadMinutes}m
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Multi-column layout: all housekeepers side by side */}
