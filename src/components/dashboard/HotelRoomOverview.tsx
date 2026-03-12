@@ -417,6 +417,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
                 if (bc.includes('Twin')) return 'TW';
                 if (bc.includes('Single')) return 'SGL';
+                if (bc.includes('Baby')) return '👶BB';
                 if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
                 return bc.substring(0, 3).toUpperCase();
               })()}
@@ -542,7 +543,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🛏️ Change Room (C)</span>
+                  <span>🛏️ Clean Room (C)</span>
                   <span className="text-[10px]">{room.linen_change_required ? '✓ Required' : 'Off'}</span>
                 </button>
                 <button
@@ -624,6 +625,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     <option value="Twin Beds">Twin Beds</option>
                     <option value="Twin Beds Separated">Twin Beds Separated</option>
                     <option value="Single Bed">Single Bed</option>
+                    <option value="Baby Bed">Baby Bed</option>
                     <option value="Extra Cot Added">Extra Cot Added</option>
                   </select>
                 </div>
@@ -951,7 +953,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   { label: t('legend.noShow'), cls: 'ring-2 ring-red-600 bg-muted', hint: UI_HINTS["room.noShow"] },
                   { label: t('legend.earlyCheckout'), cls: 'ring-2 ring-orange-500 bg-muted', hint: UI_HINTS["room.earlyCheckout"] },
                   { label: t('legend.towelChange'), cls: 'bg-red-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
-                  { label: t('legend.bedLinenChange'), cls: 'bg-purple-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'LC', hint: UI_HINTS["room.linenChange"] },
+                  { label: 'Clean Room', cls: 'bg-purple-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C', hint: UI_HINTS["room.linenChange"] },
                   { label: t('legend.roomCleaning'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: t('legend.roomCleaningHint') },
                   { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: t('legend.extraTowelsHint') },
                   { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },

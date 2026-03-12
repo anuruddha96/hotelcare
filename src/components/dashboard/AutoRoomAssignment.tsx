@@ -750,7 +750,7 @@ ${activePreviews.map(preview => {
       ${sortByRoom(preview.rooms).map((room, i) => {
         const specials: string[] = [];
         if (room.towel_change_required) specials.push('🧺 Towel');
-        if (room.linen_change_required) specials.push('🛏️ Change Room');
+        if (room.linen_change_required) specials.push('🛏️ Clean Room (C)');
         if (room.bed_configuration) specials.push(`Bed: ${room.bed_configuration}`);
         return `<tr class="${room.is_checkout_room ? 'type-co' : 'type-daily'}">
           <td>${i + 1}</td>
@@ -1185,7 +1185,7 @@ ${activePreviews.map(preview => {
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-200 border border-amber-400"></span>{t('autoAssign.checkout')}</span>
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-200 border border-blue-400"></span>{t('autoAssign.daily')}</span>
                     <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">T</span>{t('autoAssign.towel')}</span>
-                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">L</span>{t('autoAssign.linen')}</span>
+                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">C</span>Clean Room</span>
                   </div>
                 </div>
 
@@ -1249,7 +1249,7 @@ ${activePreviews.map(preview => {
                             <p className="text-[10px] text-muted-foreground">
                               {checkoutRooms.length}co · {dailyRooms.length}d
                               {towelCount > 0 && <> · <span className="text-red-600 font-semibold">{towelCount}T</span></>}
-                              {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}L</span></>}
+                              {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}C</span></>}
                             </p>
                             <span className={`text-[10px] font-medium ${isOverShift ? 'text-destructive' : 'text-muted-foreground'}`}>
                               {formatMinutesToTime(preview.totalWithBreak)}

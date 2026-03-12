@@ -215,17 +215,19 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [backgroundUpload]);
 
-  // Check if this is the first upload of the day
+  // Check if this is the first upload of the day (hotel-specific)
   const checkFirstUploadToday = (): boolean => {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-    const lastUploadDate = localStorage.getItem('pms_last_upload_date');
+    const hotelKey = `pms_last_upload_date_${selectedHotel || 'unknown'}`;
+    const lastUploadDate = localStorage.getItem(hotelKey);
     return lastUploadDate !== today;
   };
 
-  // Mark today as having an upload
+  // Mark today as having an upload (hotel-specific)
   const markUploadToday = () => {
     const today = new Date().toISOString().split('T')[0];
-    localStorage.setItem('pms_last_upload_date', today);
+    const hotelKey = `pms_last_upload_date_${selectedHotel || 'unknown'}`;
+    localStorage.setItem(hotelKey, today);
   };
 
   // Enhanced room number extraction based on provided mappings
@@ -456,14 +458,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             }
           }
 
-          // Batch reset towel/linen change flags to prevent stale data from previous uploads
+          // Batch reset towel/linen change flags AND bed_configuration to prevent stale data from previous uploads
           const { error: tcResetError } = await supabase
             .from('rooms')
-            .update({ towel_change_required: false, linen_change_required: false })
+            .update({ towel_change_required: false, linen_change_required: false, bed_configuration: null } as any)
             .eq('hotel', hotelNameForFilter);
           
           if (tcResetError) {
-            console.warn(`Error resetting T/RC flags for ${hotelNameForFilter}:`, tcResetError);
+            console.warn(`Error resetting T/RC/bed_config flags for ${hotelNameForFilter}:`, tcResetError);
           } else {
             // Verify T/RC reset
             const { count: tcStillOn } = await supabase
@@ -475,7 +477,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               console.error(`T/RC reset FAILED - ${tcStillOn} rooms still have flags set. Likely RLS issue.`);
               toast.error(`Towel/linen reset failed for ${tcStillOn} rooms. Contact admin.`);
             } else {
-              console.log(`Reset towel/linen change flags for all rooms in ${hotelNameForFilter}`);
+              console.log(`Reset towel/linen/bed_config flags for all rooms in ${hotelNameForFilter}`);
             }
           }
 
