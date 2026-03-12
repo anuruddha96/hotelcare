@@ -1466,6 +1466,9 @@ export function SupervisorApprovalView() {
           <ApprovalHistoryView />
         </TabsContent>
       </Tabs>
+
+      {/* Shared Reassign Dialog */}
+      {renderReassignDialog()}
     </div>
   );
 }
