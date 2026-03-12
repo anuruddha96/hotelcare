@@ -1185,7 +1185,7 @@ ${activePreviews.map(preview => {
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-200 border border-amber-400"></span>{t('autoAssign.checkout')}</span>
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-200 border border-blue-400"></span>{t('autoAssign.daily')}</span>
                     <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">T</span>{t('autoAssign.towel')}</span>
-                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">L</span>{t('autoAssign.linen')}</span>
+                    <span className="flex items-center gap-1"><span className="text-[10px] font-bold text-red-600">C</span>Clean Room</span>
                   </div>
                 </div>
 
