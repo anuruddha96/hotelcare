@@ -815,7 +815,7 @@ ${activePreviews.map(preview => {
           <span className="text-[10px] px-0.5 font-bold text-red-600">T</span>
         )}
         {room.linen_change_required && (
-          <span className="text-[10px] px-0.5 font-bold text-red-600">L</span>
+          <span className="text-[10px] px-0.5 font-bold text-red-600">C</span>
         )}
         {room.bed_configuration && (
           <span className="text-[9px] px-0.5 opacity-70">🛏️{room.bed_configuration.length > 8 ? room.bed_configuration.substring(0, 8) : room.bed_configuration}</span>
