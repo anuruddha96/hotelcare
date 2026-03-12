@@ -1249,7 +1249,7 @@ ${activePreviews.map(preview => {
                             <p className="text-[10px] text-muted-foreground">
                               {checkoutRooms.length}co · {dailyRooms.length}d
                               {towelCount > 0 && <> · <span className="text-red-600 font-semibold">{towelCount}T</span></>}
-                              {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}L</span></>}
+                              {linenCount > 0 && <> · <span className="text-red-600 font-semibold">{linenCount}C</span></>}
                             </p>
                             <span className={`text-[10px] font-medium ${isOverShift ? 'text-destructive' : 'text-muted-foreground'}`}>
                               {formatMinutesToTime(preview.totalWithBreak)}
