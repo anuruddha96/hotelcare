@@ -31,7 +31,9 @@ import {
   CHECKOUT_MINUTES,
   DAILY_MINUTES,
   BREAK_TIME_MINUTES,
-  HotelAssignmentConfig
+  HotelAssignmentConfig,
+  computeFairnessMetrics,
+  FairnessMetrics
 } from '@/lib/roomAssignmentAlgorithm';
 import { getLocalDateString } from '@/lib/utils';
 
