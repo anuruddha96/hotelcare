@@ -592,7 +592,7 @@ export function autoAssignRooms(
     
     const mostCO = checkoutCounts[0];
     const leastCO = checkoutCounts[checkoutCounts.length - 1];
-    if (mostCO.checkouts - leastCO.checkouts <= 2) break;
+    if (mostCO.checkouts - leastCO.checkouts <= 1) break;
 
     const mostRooms = assignments.get(mostCO.id)!;
     const leastRooms = assignments.get(leastCO.id)!;
