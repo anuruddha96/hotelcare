@@ -1,95 +1,84 @@
 
+Goal: Fix Auto Room Assignment so results are consistently fair (no more 13 daily vs 3 daily), while keeping practical floor/zone proximity.
 
-## Plan: Auto-Assign Towel Change, Custom Bed Types, Improved Sorting, and Housekeeper Card Visibility
+What is causing the bad assignments now:
+1) Daily distribution has no hard fairness cap; zone clustering can dominate.
+2) Rebalancing stops early if zone penalty is high, even when count imbalance is huge.
+3) Affinity bonus is additive and can snowball toward already-loaded staff.
+4) Regenerate currently accepts the first random result, so bad random outcomes are shown.
 
-### Summary of Changes (4 areas)
+Implementation plan
 
----
+1) Add hard fairness guardrails in `src/lib/roomAssignmentAlgorithm.ts`
+- Compute per-run targets:
+  - checkout min/max = floor/ceil(total_checkouts / staff_count)
+  - daily min/max = floor/ceil(total_daily / staff_count)
+  - total-room min/max
+  - target minutes per staff
+- During assignment, apply strong penalties for assigning beyond max when others are still below min.
+- Keep proximity as a soft rule, not a rule that can override major fairness.
 
-### 1. Auto-Assign: Manual Towel Change Toggle Before Assignment
+2) Fix daily-phase scoring so one person cannot absorb a whole heavy daily block
+- In Phase 2 (Clean Room C) and Phase 3 (remaining daily):
+  - prioritize staff with lowest daily count deficit and lowest minute deficit
+  - keep zone proximity as tie-breaker / secondary factor
+- Add overload penalty ramps (quadratic) for daily over-allocation.
+- Keep C-room compensation: staff with fewer checkout rooms should preferentially receive C rooms.
 
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`**
+3) Rework final rebalance into fairness-first passes
+- Add explicit passes in order:
+  a) checkout diff <= 1  
+  b) daily diff <= 2  
+  c) total rooms diff <= 2  
+  d) minute spread within threshold (e.g. <= 60–75 min)
+- Allow controlled cross-zone moves when imbalance is severe (instead of current hard stop at score >= 200).
+- Add swap fallback (one-for-one) when direct moves are blocked.
 
-In Step 1 (select-staff), after the staff grid, add a new section "Pre-Assignment Room Settings" that lists all dirty rooms and allows managers to toggle `towel_change_required` for each room before generating the preview. This lets managers plan towel changes in the morning.
+4) Stabilize affinity and randomization
+- Cap/normalize affinity bonus (avoid “rich-get-richer” accumulation).
+- Reduce random perturbation amplitude significantly.
+- Keep random only as tie-breaker, never enough to break fairness targets.
 
-- Add a collapsible section below staff selection showing all `dirtyRooms` in a compact grid
-- Each room chip has a small towel icon toggle button (T) that updates the local state and the DB `rooms.towel_change_required`
-- When toggled, the room's towel status flows into the algorithm (already supported via `calculateRoomTime` and `calculateRoomWeight`)
-- Also add a "Select All Towel Change" button for bulk toggling
+5) Make Regenerate quality-controlled in `src/components/dashboard/AutoRoomAssignment.tsx`
+- On generate/regenerate:
+  - run multiple seeds (e.g. 8–12 candidates)
+  - score each candidate with a fairness score (heavy penalties for checkout/daily/total/minute imbalance)
+  - choose best candidate only
+- This keeps regenerate useful but prevents absurd outputs.
 
----
+6) Add fairness diagnostics in preview header (small, manager-friendly)
+- Show compact metrics:
+  - “CO diff”, “Daily diff”, “Total diff”, “Time spread”
+- If thresholds are exceeded, show warning so manager knows to drag-adjust or regenerate.
 
-### 2. Custom Bed Requirements (Budapest Hotel Use Case)
+Technical details (implementation thresholds)
+- Hard targets:
+  - checkout: max-min <= 1
+  - daily: max-min <= 2
+  - total rooms: max-min <= 2
+  - time spread: configurable default 75 min
+- Candidate score (concept):
+  - fairness penalties (counts + minutes) = primary
+  - zone/floor proximity = secondary
+  - affinity bonus = capped tertiary
+  - random = tiny tie-breaker only
 
-**Database Migration:** Add a `bed_configuration` text column to `rooms` table (nullable). This stores the specific bed arrangement set by managers (e.g., "Twin beds separated", "Double bed", "Extra cot"). The existing `bed_type` column has limited values (`single`, `double`, `queen`, `triple`, `shabath`) — this new column stores the **current guest requirement** which can change per stay.
+Files to update
+- `src/lib/roomAssignmentAlgorithm.ts`
+  - fairness quotas
+  - revised phase scoring
+  - improved rebalance passes + swap fallback
+  - affinity normalization + reduced random impact
+- `src/components/dashboard/AutoRoomAssignment.tsx`
+  - multi-candidate regenerate (best-of-N)
+  - fairness score selection
+  - compact fairness diagnostics in preview
 
-```sql
-ALTER TABLE rooms ADD COLUMN IF NOT EXISTS bed_configuration text DEFAULT NULL;
-```
-
-**File: `src/components/dashboard/HotelRoomOverview.tsx`** — In the room chip dialog, add a "Bed Configuration" field (text input or dropdown with common options + custom) under Room Settings. Only managers/admins can set it. Options: "Double Bed", "Twin Beds", "Twin Beds Separated", "Extra Cot Added", "Single Bed", or custom text.
-
-**File: `src/components/dashboard/AutoRoomAssignment.tsx`** — Fetch `bed_configuration` in the rooms query. Show it on room chips in the preview (small icon/label like "🛏️ Twin Sep").
-
-**File: `src/components/dashboard/AssignedRoomCard.tsx`** — Display `bed_configuration` prominently in a dedicated info row (alongside floor number) so housekeepers clearly see what bed arrangement the guest needs. Show it with a bed icon and distinct styling.
-
-**File: `src/components/dashboard/MobileHousekeepingView.tsx`** — Include `bed_configuration` in the rooms query.
-
-**File: `src/components/dashboard/HousekeepingStaffView.tsx`** — Include `bed_configuration` in the rooms query.
-
-**File: `src/lib/roomAssignmentAlgorithm.ts`** — Add `bed_configuration` to `RoomForAssignment` interface.
-
----
-
-### 3. Fix Room Priority/Sorting Order
-
-Current sorting logic in `HousekeepingStaffView.tsx` and `MobileHousekeepingView.tsx` is almost correct but has issues:
-- Checkout rooms waiting for guest (`ready_to_clean=false`) should sort AFTER daily rooms that are ready
-- Ready-to-clean checkout rooms should be first
-- Same floor rooms should be grouped together
-- High priority rooms should always be at top (after in-progress)
-
-**New sort order (all 3 files + PendingRoomsDialog):**
-
-1. `in_progress` always first
-2. High priority rooms (`priority >= 3`) — regardless of type
-3. Ready checkout rooms (`checkout_cleaning` + `ready_to_clean=true`)
-4. Daily rooms — grouped by floor, then room number
-5. Checkout rooms waiting (`checkout_cleaning` + `ready_to_clean=false`) — at bottom
-6. Completed rooms last
-
-**Files to update sorting:**
-- `src/components/dashboard/HousekeepingStaffView.tsx` (lines 174-208)
-- `src/components/dashboard/MobileHousekeepingView.tsx` (lines 189-223)
-- `src/components/dashboard/PendingRoomsDialog.tsx` (lines 86-91) — replace simple numeric sort with the same priority logic
-
----
-
-### 4. Redesign AssignedRoomCard Special Instructions Visibility
-
-**File: `src/components/dashboard/AssignedRoomCard.tsx`**
-
-Currently, towel/linen badges are small badges in the header. Bed configuration doesn't exist yet. Manager notes are shown but could be more prominent. Redesign the top of the card to have a **"Special Instructions" banner** that consolidates:
-
-- Towel change required → prominent yellow banner with icon
-- Linen change required → prominent purple banner with icon  
-- Bed configuration → prominent blue banner with bed icon and the configuration text
-- Manager notes → already amber banner (keep as-is)
-
-Move these from small header badges to a dedicated, unmissable section right after the card header, before room details. Use larger text and bolder styling.
-
----
-
-### Files Changed Summary
-
-| File | Changes |
-|------|---------|
-| **Migration** | Add `bed_configuration` column to `rooms` |
-| `AutoRoomAssignment.tsx` | Add towel change toggle section in Step 1, fetch `bed_configuration`, show on preview chips |
-| `HotelRoomOverview.tsx` | Add bed configuration selector in room chip dialog |
-| `AssignedRoomCard.tsx` | Redesign special instructions section with prominent banners for towel/linen/bed config |
-| `HousekeepingStaffView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `MobileHousekeepingView.tsx` | Fix sorting, add `bed_configuration` to query |
-| `PendingRoomsDialog.tsx` | Fix sorting to match housekeeper priority order, fetch `bed_configuration` and show it |
-| `roomAssignmentAlgorithm.ts` | Add `bed_configuration` to `RoomForAssignment` interface |
-
+Validation after implementation
+- Reproduce current 71-room / 5-staff Memories scenario.
+- Expected result envelope:
+  - checkouts mostly 6–7 each
+  - daily mostly 7–8 each (not 13 vs 3)
+  - total rooms around 13–15 each
+  - no extreme outlier column after regenerate
+- Click Regenerate 5+ times and verify all generated previews remain within fairness bounds.
