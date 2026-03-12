@@ -115,6 +115,9 @@ export function AutoRoomAssignment({
   const [wingProximity, setWingProximity] = useState<WingProximityMap | undefined>(undefined);
   const [roomAffinity, setRoomAffinity] = useState<RoomAffinityMap | undefined>(undefined);
 
+  // Fairness metrics for current preview
+  const [fairnessMetrics, setFairnessMetrics] = useState<FairnessMetrics | null>(null);
+
   // Public area assignments (post-room assignment step)
   const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map());
 
