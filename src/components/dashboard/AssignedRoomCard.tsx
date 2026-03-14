@@ -251,7 +251,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         .update({ 
           status: 'completed',
           completed_at: now,
-          notes: `${assignment.notes || ''}\n[NO_SERVICE] Guest declined cleaning service`.trim()
+          notes: `${assignment.notes || ''}\n[NO_SERVICE] Guest confirmed no service required`.trim()
         })
         .eq('id', assignment.id);
 
