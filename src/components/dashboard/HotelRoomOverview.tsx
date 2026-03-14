@@ -48,6 +48,7 @@ interface AssignmentData {
   started_at: string | null;
   supervisor_approved: boolean | null;
   ready_to_clean: boolean | null;
+  notes: string | null;
 }
 
 interface PublicAreaTask {
