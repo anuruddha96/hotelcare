@@ -181,7 +181,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean')
+          .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, notes')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
