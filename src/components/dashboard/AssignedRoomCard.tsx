@@ -935,7 +935,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
             {/* No Service Button - when guest declines cleaning */}
             {assignment.status === 'assigned' && assignment.assignment_type === 'daily_cleaning' && !isCheckoutWaiting && (
-              <Dialog open={noServiceDialogOpen} onOpenChange={setNoServiceDialogOpen}>
+              <Dialog open={noServiceDialogOpen} onOpenChange={(open) => {
+                setNoServiceDialogOpen(open);
+                if (!open) setNoServiceConsent(false);
+              }}>
                 <DialogTrigger asChild>
                   <Button
                     size="lg"
@@ -943,35 +946,47 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     className="w-full sm:w-auto border-gray-400 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                   >
                     <Ban className="h-5 w-5" />
-                    {t('housekeeping.noService') || 'No Service'}
+                    {t('housekeeping.noService')}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader>
                     <DialogTitle className="text-xl font-bold">
-                      🚫 {t('housekeeping.noServiceTitle') || 'Mark as No Service'}
+                      🚫 {t('housekeeping.noServiceTitle')}
                     </DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4">
                     <p className="text-sm text-muted-foreground">
-                      {t('housekeeping.noServiceConfirm') || `Are you sure the guest in Room ${assignment.rooms?.room_number || 'N/A'} declined cleaning service?`}
+                      {t('housekeeping.noServiceConfirm')}
                     </p>
                     <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 rounded-lg">
                       <p className="text-sm text-amber-800 dark:text-amber-200">
-                        {t('housekeeping.noServiceNote') || 'This will mark the room as completed without cleaning. The manager will be able to see this in reports.'}
+                        {t('housekeeping.noServiceNote')}
                       </p>
+                    </div>
+                    {/* Mandatory guest consent checkbox */}
+                    <div className="flex items-start gap-3 p-3 bg-muted/50 border border-border rounded-lg">
+                      <Checkbox
+                        id="no-service-consent"
+                        checked={noServiceConsent}
+                        onCheckedChange={(checked) => setNoServiceConsent(checked === true)}
+                        className="mt-0.5"
+                      />
+                      <label htmlFor="no-service-consent" className="text-sm font-medium leading-snug cursor-pointer select-none">
+                        {t('housekeeping.noServiceConsent')}
+                      </label>
                     </div>
                     <div className="flex gap-2">
                       <Button 
                         onClick={markAsNoService} 
-                        disabled={noServiceLoading}
-                        className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-semibold"
+                        disabled={noServiceLoading || !noServiceConsent}
+                        className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-semibold disabled:opacity-50"
                       >
-                        {noServiceLoading ? '...' : (t('housekeeping.confirmNoService') || 'Confirm No Service')}
+                        {noServiceLoading ? '...' : t('housekeeping.confirmNoService')}
                       </Button>
                       <Button 
                         variant="outline" 
-                        onClick={() => setNoServiceDialogOpen(false)}
+                        onClick={() => { setNoServiceDialogOpen(false); setNoServiceConsent(false); }}
                       >
                         {t('common.cancel')}
                       </Button>

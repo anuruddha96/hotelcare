@@ -790,11 +790,26 @@ export function SupervisorApprovalView() {
             </div>
           )}
 
+          {/* No Service Badge */}
+          {assignment.notes?.includes('[NO_SERVICE]') && (
+            <Badge className="bg-gray-500 text-white text-[10px] px-1.5 py-0.5">
+              🚫 {t('housekeeping.noServiceBadge') || 'No Service'}
+            </Badge>
+          )}
+
           {/* Notes - always visible when present */}
           {assignment.notes && (
-            <div className="p-2 bg-amber-50 rounded-md border border-amber-200 flex items-start gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
-              <p className="text-xs text-amber-800">{assignment.notes}</p>
+            <div className={`p-2 rounded-md border flex items-start gap-1.5 ${
+              assignment.notes.includes('[NO_SERVICE]')
+                ? 'bg-gray-50 border-gray-300 dark:bg-gray-900/30 dark:border-gray-600'
+                : 'bg-amber-50 border-amber-200'
+            }`}>
+              <AlertTriangle className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${
+                assignment.notes.includes('[NO_SERVICE]') ? 'text-gray-500' : 'text-amber-600'
+              }`} />
+              <p className={`text-xs ${
+                assignment.notes.includes('[NO_SERVICE]') ? 'text-gray-700 dark:text-gray-300' : 'text-amber-800'
+              }`}>{assignment.notes}</p>
             </div>
           )}
 

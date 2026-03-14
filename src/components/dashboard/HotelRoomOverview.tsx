@@ -400,7 +400,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {assignment?.ready_to_clean && isCheckout && !(assignment?.status === 'completed' && assignment?.supervisor_approved) && (
             <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
           )}
-          {assignment?.status === 'completed' && assignment?.supervisor_approved && <span className="ml-0.5 text-[9px]">✅</span>}
+          {assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
+          {assignment?.status === 'completed' && assignment?.supervisor_approved && !assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 text-[9px]">✅</span>}
           {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
           {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
           {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
