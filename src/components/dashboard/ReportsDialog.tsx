@@ -590,6 +590,7 @@ export function ReportsDialog({ trigger }: ReportsDialogProps) {
                 <SelectItem value="rooms">🏨 Room Status & Utilization</SelectItem>
                 <SelectItem value="sla">⏱️ SLA Compliance</SelectItem>
                 <SelectItem value="operational">📊 Operational Summary</SelectItem>
+                <SelectItem value="no_service">🚫 No Service History</SelectItem>
               </SelectContent>
             </Select>
           </div>
