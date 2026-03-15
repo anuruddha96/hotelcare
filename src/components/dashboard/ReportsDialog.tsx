@@ -489,6 +489,60 @@ export function ReportsDialog({ trigger }: ReportsDialogProps) {
     };
   };
 
+  const generateNoServiceReport = async () => {
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const fromDate = dateRange?.from || weekAgo;
+    const toDate = dateRange?.to || new Date();
+
+    let query = supabase
+      .from('room_assignments')
+      .select('*, rooms!inner(room_number, hotel, room_type, bed_type, floor_number), profiles!room_assignments_assigned_to_fkey(full_name, nickname)')
+      .ilike('notes', '%[NO_SERVICE]%')
+      .gte('assignment_date', format(fromDate, 'yyyy-MM-dd'))
+      .lte('assignment_date', format(toDate, 'yyyy-MM-dd'))
+      .order('assignment_date', { ascending: false });
+
+    if (selectedHotel && selectedHotel !== 'all') {
+      query = query.eq('rooms.hotel', selectedHotel);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Group by room to show frequency
+    const roomFrequency = new Map<string, number>();
+    data?.forEach((a: any) => {
+      const key = a.rooms?.room_number || a.room_id;
+      roomFrequency.set(key, (roomFrequency.get(key) || 0) + 1);
+    });
+
+    const excelData = data?.map((assignment: any) => {
+      const room = assignment.rooms;
+      const housekeeper = assignment.profiles;
+      const roomNum = room?.room_number || 'N/A';
+
+      return {
+        'Date': format(new Date(assignment.assignment_date), 'yyyy-MM-dd'),
+        'Hotel': room?.hotel || 'N/A',
+        'Room Number': roomNum,
+        'Room Type': room?.room_type || 'N/A',
+        'Bed Type': room?.bed_type || 'N/A',
+        'Floor': room?.floor_number || 'N/A',
+        'Housekeeper': housekeeper?.full_name || 'Unknown',
+        'Times Skipped (Period)': roomFrequency.get(roomNum) || 1,
+        'Needs Extra Towels': (roomFrequency.get(roomNum) || 0) >= 2 ? 'Yes' : 'No',
+        'Needs Linen Change': (roomFrequency.get(roomNum) || 0) >= 3 ? 'Yes' : 'No',
+        'Notes': assignment.notes?.replace('[NO_SERVICE]', '').trim() || 'N/A',
+      };
+    }) || [];
+
+    return {
+      data: excelData,
+      fileName: `no-service-report-${format(new Date(), 'yyyy-MM-dd')}.csv`
+    };
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
