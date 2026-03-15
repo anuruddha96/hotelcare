@@ -66,6 +66,11 @@ export function ReportsDialog({ trigger }: ReportsDialogProps) {
           excelData = opResult.data;
           fileName = opResult.fileName;
           break;
+        case 'no_service':
+          const nsResult = await generateNoServiceReport();
+          excelData = nsResult.data;
+          fileName = nsResult.fileName;
+          break;
         default:
           throw new Error('Invalid report type selected');
       }
