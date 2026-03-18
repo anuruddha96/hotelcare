@@ -782,17 +782,62 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode) => {
+  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily') => {
+    e.preventDefault();
+    setDragOverSection(null);
+    const roomId = e.dataTransfer.getData('roomId');
+    const roomNumber = e.dataTransfer.getData('roomNumber');
+    const sourceType = e.dataTransfer.getData('sourceType');
+    if (!roomId || sourceType === targetType) return;
+
+    const newIsCheckout = targetType === 'checkout';
+    const newAssignmentType = newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning';
+    const assignment = assignmentMap.get(roomId);
+
+    // Optimistic update
+    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout } : r));
+
+    try {
+      const updates: Promise<any>[] = [
+        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId).then(),
+      ];
+      if (assignment) {
+        updates.push(
+          supabase.from('room_assignments').update({ assignment_type: newAssignmentType } as any).eq('room_id', roomId).eq('assignment_date', selectedDate).then()
+        );
+      }
+      await Promise.all(updates);
+      toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+      await fetchData();
+    } catch {
+      toast.error('Failed to switch room type');
+      await fetchData(); // revert
+    }
+  };
+
+  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily') => {
     const floors = groupByFloor(roomList);
     const dndCount = roomList.filter(r => r.is_dnd).length;
+    const isDragOver = dragOverSection === sectionType;
 
     return (
-      <div className="space-y-2">
+      <div
+        className={`space-y-2 rounded-lg transition-all duration-200 ${
+          isDragOver ? 'ring-2 ring-primary/40 bg-primary/5 p-2 -m-2' : ''
+        }`}
+        onDragOver={isManagerOrAdmin ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverSection(sectionType); } : undefined}
+        onDragEnter={isManagerOrAdmin ? (e) => { e.preventDefault(); setDragOverSection(sectionType); } : undefined}
+        onDragLeave={isManagerOrAdmin ? (e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverSection(null);
+        } : undefined}
+        onDrop={isManagerOrAdmin ? (e) => handleDrop(e, sectionType) : undefined}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {icon}
             <span className="text-sm font-semibold">{title}</span>
             <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
+            {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">Drop here</Badge>}
           </div>
           {dndCount > 0 && (
             <Badge variant="outline" className="text-purple-600 border-purple-300 text-xs">
