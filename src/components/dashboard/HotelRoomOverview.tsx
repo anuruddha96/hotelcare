@@ -155,6 +155,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverNotes, setPopoverNotes] = useState<string>('');
+  const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | null>(null);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
@@ -375,10 +376,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const chipContent = (
       <div 
         className="flex flex-col items-center gap-0.5"
+        draggable={isManagerOrAdmin ? true : undefined}
+        onDragStart={isManagerOrAdmin ? (e) => {
+          e.dataTransfer.setData('roomId', room.id);
+          e.dataTransfer.setData('roomNumber', room.room_number);
+          e.dataTransfer.setData('sourceType', isCheckout ? 'checkout' : 'daily');
+          e.dataTransfer.effectAllowed = 'move';
+          (e.currentTarget as HTMLElement).style.opacity = '0.5';
+        } : undefined}
+        onDragEnd={isManagerOrAdmin ? (e) => {
+          (e.currentTarget as HTMLElement).style.opacity = '1';
+          setDragOverSection(null);
+        } : undefined}
         onClick={() => handleRoomClick(room)}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
         onMouseLeave={handleHoverLeave}
-        style={{ cursor: canInteractWithRooms ? 'pointer' : 'default' }}
+        style={{ cursor: isManagerOrAdmin ? 'grab' : canInteractWithRooms ? 'pointer' : 'default' }}
       >
         <div
           className={`
@@ -769,17 +782,63 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode) => {
+  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily') => {
+    e.preventDefault();
+    setDragOverSection(null);
+    const roomId = e.dataTransfer.getData('roomId');
+    const roomNumber = e.dataTransfer.getData('roomNumber');
+    const sourceType = e.dataTransfer.getData('sourceType');
+    if (!roomId || sourceType === targetType) return;
+
+    const newIsCheckout = targetType === 'checkout';
+    const newAssignmentType = newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning';
+    const assignment = assignmentMap.get(roomId);
+
+    // Optimistic update
+    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout } : r));
+
+    try {
+      const updates = [];
+      updates.push(
+        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId)
+      );
+      if (assignment) {
+        updates.push(
+          supabase.from('room_assignments').update({ assignment_type: newAssignmentType } as any).eq('room_id', roomId).eq('assignment_date', selectedDate)
+        );
+      }
+      await Promise.all(updates);
+      toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+      await fetchData();
+    } catch {
+      toast.error('Failed to switch room type');
+      await fetchData(); // revert
+    }
+  };
+
+  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily') => {
     const floors = groupByFloor(roomList);
     const dndCount = roomList.filter(r => r.is_dnd).length;
+    const isDragOver = dragOverSection === sectionType;
 
     return (
-      <div className="space-y-2">
+      <div
+        className={`space-y-2 rounded-lg transition-all duration-200 ${
+          isDragOver ? 'ring-2 ring-primary/40 bg-primary/5 p-2 -m-2' : ''
+        }`}
+        onDragOver={isManagerOrAdmin ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverSection(sectionType); } : undefined}
+        onDragEnter={isManagerOrAdmin ? (e) => { e.preventDefault(); setDragOverSection(sectionType); } : undefined}
+        onDragLeave={isManagerOrAdmin ? (e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverSection(null);
+        } : undefined}
+        onDrop={isManagerOrAdmin ? (e) => handleDrop(e, sectionType) : undefined}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {icon}
             <span className="text-sm font-semibold">{title}</span>
             <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
+            {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">Drop here</Badge>}
           </div>
           {dndCount > 0 && (
             <Badge variant="outline" className="text-purple-600 border-purple-300 text-xs">
@@ -988,9 +1047,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             />
           ) : (
             <>
-              {renderSection('Checkout Rooms', checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />)}
-              <div className="border-t border-border/50" />
-              {renderSection('Daily Rooms', dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />)}
+               {renderSection('Checkout Rooms', checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
+               <div className="border-t border-border/50" />
+               {renderSection('Daily Rooms', dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
             </>
           )}
           {publicAreaTasks.length > 0 && (
