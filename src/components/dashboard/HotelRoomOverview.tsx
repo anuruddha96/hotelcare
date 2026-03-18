@@ -376,10 +376,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const chipContent = (
       <div 
         className="flex flex-col items-center gap-0.5"
+        draggable={isManagerOrAdmin ? true : undefined}
+        onDragStart={isManagerOrAdmin ? (e) => {
+          e.dataTransfer.setData('roomId', room.id);
+          e.dataTransfer.setData('roomNumber', room.room_number);
+          e.dataTransfer.setData('sourceType', isCheckout ? 'checkout' : 'daily');
+          e.dataTransfer.effectAllowed = 'move';
+          (e.currentTarget as HTMLElement).style.opacity = '0.5';
+        } : undefined}
+        onDragEnd={isManagerOrAdmin ? (e) => {
+          (e.currentTarget as HTMLElement).style.opacity = '1';
+          setDragOverSection(null);
+        } : undefined}
         onClick={() => handleRoomClick(room)}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
         onMouseLeave={handleHoverLeave}
-        style={{ cursor: canInteractWithRooms ? 'pointer' : 'default' }}
+        style={{ cursor: isManagerOrAdmin ? 'grab' : canInteractWithRooms ? 'pointer' : 'default' }}
       >
         <div
           className={`
