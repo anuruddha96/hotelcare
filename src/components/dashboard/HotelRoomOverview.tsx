@@ -798,9 +798,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout } : r));
 
     try {
-      const updates: Promise<any>[] = [
-        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId),
-      ];
+      const updates = [];
+      updates.push(
+        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId)
+      );
       if (assignment) {
         updates.push(
           supabase.from('room_assignments').update({ assignment_type: newAssignmentType } as any).eq('room_id', roomId).eq('assignment_date', selectedDate)
