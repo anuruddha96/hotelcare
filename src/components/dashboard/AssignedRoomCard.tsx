@@ -1321,15 +1321,68 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           </div>
         )}
 
-        {/* Room Status Indicator */}
-        {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
-          <div className="flex items-center gap-3 p-4 bg-muted/50 border border-border rounded-lg shadow-sm">
-            <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t('actions.roomStatusAlert')}</p>
-              <p className="text-lg font-semibold text-foreground capitalize">
-                {t('roomCard.roomStatus')}: {assignment.rooms.status}
-              </p>
+        {/* Messages Section - Two-way communication */}
+        {assignment.status === 'in_progress' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                {t('roomCard.messages') || 'Messages'}
+              </span>
+            </div>
+            
+            {/* Message thread */}
+            {messages.filter(m => m.note_type === 'message').length > 0 && (
+              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                {messages.filter(m => m.note_type === 'message').map(msg => {
+                  const isOwnMessage = msg.created_by === user?.id;
+                  return (
+                    <div key={msg.id} className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-xs ${
+                        isOwnMessage 
+                          ? 'bg-primary/10 text-foreground' 
+                          : 'bg-muted text-foreground'
+                      }`}>
+                        <p>{translatedMessages[msg.id] || msg.content}</p>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[10px] text-muted-foreground">
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {!translatedMessages[msg.id] && (
+                            <button
+                              className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+                              onClick={() => handleTranslateMessage(msg.id, msg.content)}
+                              disabled={translatingMsgId === msg.id}
+                            >
+                              {translatingMsgId === msg.id ? <LucideLoader className="h-2.5 w-2.5 animate-spin" /> : <Globe className="h-2.5 w-2.5" />}
+                              {t('roomCard.translateNote') || 'Translate'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Reply input */}
+            <div className="flex gap-2">
+              <Textarea
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder={t('roomCard.typeMessage') || 'Type a message...'}
+                className="min-h-[36px] text-xs resize-none flex-1"
+                rows={1}
+              />
+              <Button
+                size="sm"
+                onClick={sendMessage}
+                disabled={sendingMessage || !newMessage.trim()}
+                className="h-9 px-3 self-end"
+              >
+                {sendingMessage ? <LucideLoader className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />}
+              </Button>
             </div>
           </div>
         )}
