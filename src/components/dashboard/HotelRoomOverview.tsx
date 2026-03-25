@@ -798,10 +798,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout } : r));
 
     try {
-      const updates: Promise<any>[] = [];
-      updates.push(
-        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId).then()
-      );
+      const roomUpdate = supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId);
+      const promises: any[] = [roomUpdate];
       if (assignment) {
         const assignmentUpdate: any = { assignment_type: newAssignmentType };
         if (newIsCheckout) {
@@ -809,11 +807,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         } else {
           assignmentUpdate.ready_to_clean = null;
         }
-        updates.push(
-          supabase.from('room_assignments').update(assignmentUpdate).eq('room_id', roomId).eq('assignment_date', selectedDate).then()
+        promises.push(
+          supabase.from('room_assignments').update(assignmentUpdate).eq('room_id', roomId).eq('assignment_date', selectedDate)
         );
       }
-      await Promise.all(updates);
+      await Promise.all(promises);
       toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
       await fetchData();
     } catch {
