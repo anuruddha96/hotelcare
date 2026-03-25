@@ -800,11 +800,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     try {
       const updates: Promise<any>[] = [];
       updates.push(
-        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId)
+        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId).then()
       );
       if (assignment) {
-        // When switching to checkout, set ready_to_clean=false (waiting for guest checkout)
-        // When switching to daily, set ready_to_clean=null (no checkout gate needed)
         const assignmentUpdate: any = { assignment_type: newAssignmentType };
         if (newIsCheckout) {
           assignmentUpdate.ready_to_clean = false;
@@ -812,7 +810,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           assignmentUpdate.ready_to_clean = null;
         }
         updates.push(
-          supabase.from('room_assignments').update(assignmentUpdate).eq('room_id', roomId).eq('assignment_date', selectedDate)
+          supabase.from('room_assignments').update(assignmentUpdate).eq('room_id', roomId).eq('assignment_date', selectedDate).then()
         );
       }
       await Promise.all(updates);
