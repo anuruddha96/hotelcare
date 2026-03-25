@@ -34,7 +34,10 @@ import {
   CheckCheck,
   Layers,
   BedDouble,
-  DoorClosed
+  DoorClosed,
+  Globe,
+  Loader2 as LucideLoader,
+  MessageSquare
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
