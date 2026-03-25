@@ -12,7 +12,7 @@ import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban } from 'lucide-react';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 
 import { Textarea } from '@/components/ui/textarea';
@@ -156,6 +156,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverNotes, setPopoverNotes] = useState<string>('');
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | null>(null);
+  const [managerMessage, setManagerMessage] = useState('');
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
@@ -756,6 +757,74 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 </div>
               )}
 
+              {/* Send Message to Housekeeper */}
+              {isManagerOrAdmin && assignment && (
+                <div className="border-t border-border pt-1.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">💬 Message Housekeeper</p>
+                  <div className="flex gap-1">
+                    <input
+                      className="flex-1 text-xs p-1.5 rounded border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                      placeholder="Type message..."
+                      value={managerMessage}
+                      onChange={(e) => setManagerMessage(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).nextElementSibling?.dispatchEvent(new Event('click', { bubbles: true })); } }}
+                    />
+                    <button
+                      className="px-2 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                      disabled={!managerMessage.trim() || actionLoading === `msg-${room.id}`}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!managerMessage.trim()) return;
+                        setActionLoading(`msg-${room.id}`);
+                        try {
+                          const userId = (await supabase.auth.getUser()).data.user?.id;
+                          const { error } = await supabase.from('housekeeping_notes').insert({
+                            room_id: room.id,
+                            assignment_id: null,
+                            content: managerMessage,
+                            note_type: 'message',
+                            created_by: userId
+                          } as any);
+                          if (error) throw error;
+                          setManagerMessage('');
+                          toast.success(`Message sent for Room ${room.room_number}`);
+                        } catch { toast.error('Failed to send'); }
+                        finally { setActionLoading(null); }
+                      }}
+                    >
+                      <MessageSquare className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* No Service Override */}
+              {isManagerOrAdmin && assignment && !assignment.notes?.includes('[NO_SERVICE]') && (
+                <button
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  disabled={actionLoading === `ns-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`ns-${room.id}`);
+                    try {
+                      const now = new Date().toISOString();
+                      const currentNotes = assignment.notes || '';
+                      await supabase.from('room_assignments').update({
+                        status: 'completed',
+                        completed_at: now,
+                        notes: `${currentNotes}\n[NO_SERVICE] Manager override`.trim()
+                      } as any).eq('room_id', room.id).eq('assignment_date', selectedDate);
+                      toast.success(`Room ${room.room_number} marked No Service`);
+                      await fetchData();
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <Ban className="h-3 w-3" /> Mark No Service
+                </button>
+              )}
+
               {/* Settings link */}
               {isManagerOrAdmin && (
                 <button
@@ -798,16 +867,20 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout } : r));
 
     try {
-      const updates = [];
-      updates.push(
-        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId)
-      );
+      const roomUpdate = supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId);
+      const promises: any[] = [roomUpdate];
       if (assignment) {
-        updates.push(
-          supabase.from('room_assignments').update({ assignment_type: newAssignmentType } as any).eq('room_id', roomId).eq('assignment_date', selectedDate)
+        const assignmentUpdate: any = { assignment_type: newAssignmentType };
+        if (newIsCheckout) {
+          assignmentUpdate.ready_to_clean = false;
+        } else {
+          assignmentUpdate.ready_to_clean = null;
+        }
+        promises.push(
+          supabase.from('room_assignments').update(assignmentUpdate).eq('room_id', roomId).eq('assignment_date', selectedDate)
         );
       }
-      await Promise.all(updates);
+      await Promise.all(promises);
       toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
       await fetchData();
     } catch {

@@ -104,6 +104,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noServiceLoading, setNoServiceLoading] = useState(false);
   const [noServiceConsent, setNoServiceConsent] = useState(false);
 
+  // Messaging state
+  const [messages, setMessages] = useState<any[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [translatingMsgId, setTranslatingMsgId] = useState<string | null>(null);
+  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+
   // Priority and styling - static glow for high priority
   const isHighPriority = assignment.priority >= 3;
   const showPriorityGlow = isHighPriority && assignment.status !== 'completed' && assignment.status !== 'in_progress';
@@ -146,6 +153,26 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       supabase.removeChannel(channel);
     };
   }, [user]);
+
+  // Fetch messages for this assignment
+  useEffect(() => {
+    const fetchMessages = async () => {
+      const { data } = await supabase
+        .from('housekeeping_notes')
+        .select('id, content, note_type, created_by, created_at, is_resolved')
+        .eq('room_id', assignment.room_id)
+        .eq('assignment_id', assignment.id)
+        .order('created_at', { ascending: true });
+      setMessages(data || []);
+    };
+    fetchMessages();
+
+    const channel = supabase
+      .channel(`notes-${assignment.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'housekeeping_notes', filter: `assignment_id=eq.${assignment.id}` }, () => fetchMessages())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [assignment.id, assignment.room_id]);
 
   // Update current photos when assignment changes
   useEffect(() => {
@@ -580,6 +607,45 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
+  const sendMessage = async () => {
+    if (!newMessage.trim()) return;
+    setSendingMessage(true);
+    try {
+      const { error } = await supabase
+        .from('housekeeping_notes')
+        .insert({
+          room_id: assignment.room_id,
+          assignment_id: assignment.id,
+          content: newMessage,
+          note_type: 'message',
+          created_by: (await supabase.auth.getUser()).data.user?.id
+        });
+      if (error) throw error;
+      setNewMessage('');
+      toast.success(t('roomCard.messageSent') || 'Message sent');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error('Failed to send message');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const handleTranslateMessage = async (msgId: string, text: string) => {
+    setTranslatingMsgId(msgId);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-note', {
+        body: { text, targetLanguage: language }
+      });
+      if (error) throw error;
+      setTranslatedMessages(prev => ({ ...prev, [msgId]: data.translatedText }));
+    } catch {
+      toast.error('Translation failed');
+    } finally {
+      setTranslatingMsgId(null);
+    }
+  };
+
   const getAssignmentTypeLabel = (type: string) => {
     switch (type) {
       case 'daily_cleaning':
@@ -855,55 +921,47 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         </div>
       )}
 
-      <CardContent className="space-y-6">
-        {/* Room Details */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-            <MapPin className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t('room.hotel')}</p>
-              <p className="text-lg font-semibold text-foreground">{assignment.rooms?.hotel || 'Unknown Hotel'}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-            <BedDouble className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t('common.floor')}</p>
-              <p className="text-lg font-semibold text-foreground">
-                {assignment.rooms?.floor_number !== undefined && assignment.rooms?.floor_number !== null 
-                  ? `${t('common.floor')} ${assignment.rooms.floor_number}` 
-                  : t('roomCard.floorUnavailable')
-                }
-              </p>
-            </div>
-          </div>
-          {assignment.rooms?.room_name && (
-            <div className="col-span-2 p-3 bg-muted/50 rounded-lg border border-border">
-              <p className="text-sm font-medium text-muted-foreground">{t('roomCard.roomName')}</p>
-              <p className="text-lg font-semibold text-foreground">{assignment.rooms.room_name}</p>
-            </div>
-          )}
-          {assignment.estimated_duration && assignment.status === 'in_progress' && (
-            <div className="col-span-2 flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-border">
-              <div className="flex items-center gap-3">
-                <Clock className="h-5 w-5 text-primary" />
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">{t('roomCard.estimatedTime')}</p>
-                  <p className="text-lg font-semibold text-foreground">{assignment.estimated_duration} {t('common.minutes')}</p>
-                </div>
-              </div>
-              {assignment.started_at && (
-                <div className="bg-background px-3 py-2 rounded-md shadow-sm border border-border">
-                  <PausableTimerComponent 
-                    assignmentId={assignment.id}
-                    startedAt={assignment.started_at} 
-                    userId={user?.id || ''}
-                  />
-                </div>
-              )}
-            </div>
+      <CardContent className="space-y-4">
+        {/* Compact Room Info Line */}
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-3 w-3" />
+            <span>{t('common.floor')} {assignment.rooms?.floor_number ?? '?'}</span>
+            <span>·</span>
+            <span>{assignment.rooms?.hotel || 'Unknown'}</span>
+            {assignment.rooms?.room_name && (
+              <>
+                <span>·</span>
+                <span className="font-medium text-foreground">{assignment.rooms.room_name}</span>
+              </>
             )}
           </div>
+          {/* Room Status as small badge */}
+          {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
+              {assignment.rooms.status}
+            </Badge>
+          )}
+        </div>
+
+        {/* Timer - compact for in-progress */}
+        {assignment.estimated_duration && assignment.status === 'in_progress' && (
+          <div className="flex items-center justify-between p-2 bg-muted/30 rounded-lg">
+            <div className="flex items-center gap-2 text-sm">
+              <Clock className="h-4 w-4 text-primary" />
+              <span className="font-medium">{assignment.estimated_duration} {t('common.minutes')}</span>
+            </div>
+            {assignment.started_at && (
+              <div className="bg-background px-2 py-1 rounded-md shadow-sm border border-border">
+                <PausableTimerComponent 
+                  assignmentId={assignment.id}
+                  startedAt={assignment.started_at} 
+                  userId={user?.id || ''}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="space-y-4">
@@ -1263,15 +1321,68 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           </div>
         )}
 
-        {/* Room Status Indicator */}
-        {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
-          <div className="flex items-center gap-3 p-4 bg-muted/50 border border-border rounded-lg shadow-sm">
-            <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t('actions.roomStatusAlert')}</p>
-              <p className="text-lg font-semibold text-foreground capitalize">
-                {t('roomCard.roomStatus')}: {assignment.rooms.status}
-              </p>
+        {/* Messages Section - Two-way communication */}
+        {assignment.status === 'in_progress' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                {t('roomCard.messages') || 'Messages'}
+              </span>
+            </div>
+            
+            {/* Message thread */}
+            {messages.filter(m => m.note_type === 'message').length > 0 && (
+              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                {messages.filter(m => m.note_type === 'message').map(msg => {
+                  const isOwnMessage = msg.created_by === user?.id;
+                  return (
+                    <div key={msg.id} className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-xs ${
+                        isOwnMessage 
+                          ? 'bg-primary/10 text-foreground' 
+                          : 'bg-muted text-foreground'
+                      }`}>
+                        <p>{translatedMessages[msg.id] || msg.content}</p>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[10px] text-muted-foreground">
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {!translatedMessages[msg.id] && (
+                            <button
+                              className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+                              onClick={() => handleTranslateMessage(msg.id, msg.content)}
+                              disabled={translatingMsgId === msg.id}
+                            >
+                              {translatingMsgId === msg.id ? <LucideLoader className="h-2.5 w-2.5 animate-spin" /> : <Globe className="h-2.5 w-2.5" />}
+                              {t('roomCard.translateNote') || 'Translate'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Reply input */}
+            <div className="flex gap-2">
+              <Textarea
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder={t('roomCard.typeMessage') || 'Type a message...'}
+                className="min-h-[36px] text-xs resize-none flex-1"
+                rows={1}
+              />
+              <Button
+                size="sm"
+                onClick={sendMessage}
+                disabled={sendingMessage || !newMessage.trim()}
+                className="h-9 px-3 self-end"
+              >
+                {sendingMessage ? <LucideLoader className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />}
+              </Button>
             </div>
           </div>
         )}

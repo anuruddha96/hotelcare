@@ -34,7 +34,10 @@ import {
   CheckCheck,
   Layers,
   BedDouble,
-  DoorClosed
+  DoorClosed,
+  Globe,
+  Loader2 as LucideLoader,
+  MessageSquare
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -119,7 +122,7 @@ function getMinutesSince(dateStr: string): number {
 }
 
 export function SupervisorApprovalView() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { showNotification } = useNotifications();
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
   const [pendingMaintenanceTickets, setPendingMaintenanceTickets] = useState<any[]>([]);
@@ -138,6 +141,9 @@ export function SupervisorApprovalView() {
   const [bulkProgress, setBulkProgress] = useState(0);
   const [collapsedHotels, setCollapsedHotels] = useState<Set<string>>(new Set());
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [housekeeperNotes, setHousekeeperNotes] = useState<Record<string, any[]>>({});
+  const [translatedApprovalMsgs, setTranslatedApprovalMsgs] = useState<Record<string, string>>({});
+  const [translatingApprovalMsg, setTranslatingApprovalMsg] = useState<string | null>(null);
   // Group assignments by hotel
   const hotelGroups = useMemo(() => {
     const groups: Record<string, PendingAssignment[]> = {};
@@ -421,10 +427,11 @@ export function SupervisorApprovalView() {
       setPendingAssignments(assignmentData || []);
       setEarlySignoutRequests(earlySignoutData || []);
 
-      // Load completion photo thumbnails and dirty linen summaries
+      // Load completion photo thumbnails, dirty linen summaries, and housekeeper messages
       if (assignmentData && assignmentData.length > 0) {
         loadCompletionPhotos(assignmentData);
         loadLinenSummaries(assignmentData, dateStr);
+        loadHousekeeperNotes(assignmentData);
       }
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
@@ -466,9 +473,45 @@ export function SupervisorApprovalView() {
           }));
         }
       }
-      setLinenSummaries(prev => ({ ...prev, ...summaryMap }));
+    setLinenSummaries(prev => ({ ...prev, ...summaryMap }));
     } catch (e) {
       console.error('Error loading linen summaries:', e);
+    }
+  };
+
+  const loadHousekeeperNotes = async (assignments: any[]) => {
+    try {
+      const roomIds = assignments.map((a: any) => a.room_id);
+      const { data, error } = await supabase
+        .from('housekeeping_notes')
+        .select('id, content, note_type, created_by, created_at, room_id, assignment_id')
+        .in('room_id', roomIds)
+        .eq('note_type', 'message')
+        .order('created_at', { ascending: true });
+      if (error || !data) return;
+      const notesMap: Record<string, any[]> = {};
+      for (const a of assignments) {
+        const roomNotes = data.filter((d: any) => d.room_id === a.room_id);
+        if (roomNotes.length > 0) notesMap[a.id] = roomNotes;
+      }
+      setHousekeeperNotes(prev => ({ ...prev, ...notesMap }));
+    } catch (e) {
+      console.error('Error loading housekeeper notes:', e);
+    }
+  };
+
+  const handleTranslateApprovalMsg = async (msgId: string, text: string) => {
+    setTranslatingApprovalMsg(msgId);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-note', {
+        body: { text, targetLanguage: language }
+      });
+      if (error) throw error;
+      setTranslatedApprovalMsgs(prev => ({ ...prev, [msgId]: data.translatedText }));
+    } catch {
+      toast.error('Translation failed');
+    } finally {
+      setTranslatingApprovalMsg(null);
     }
   };
 
@@ -810,6 +853,35 @@ export function SupervisorApprovalView() {
               <p className={`text-xs ${
                 assignment.notes.includes('[NO_SERVICE]') ? 'text-gray-700 dark:text-gray-300' : 'text-amber-800'
               }`}>{assignment.notes}</p>
+            </div>
+          )}
+
+          {/* Housekeeper Messages with Translate */}
+          {housekeeperNotes[assignment.id] && housekeeperNotes[assignment.id].length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground uppercase">
+                <MessageSquare className="h-3 w-3" /> Housekeeper Messages
+              </div>
+              {housekeeperNotes[assignment.id].map(msg => (
+                <div key={msg.id} className="p-2 bg-muted/50 rounded-md border border-border">
+                  <p className="text-xs text-foreground">{translatedApprovalMsgs[msg.id] || msg.content}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {!translatedApprovalMsgs[msg.id] && (
+                      <button
+                        className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+                        onClick={() => handleTranslateApprovalMsg(msg.id, msg.content)}
+                        disabled={translatingApprovalMsg === msg.id}
+                      >
+                        {translatingApprovalMsg === msg.id ? <LucideLoader className="h-2.5 w-2.5 animate-spin" /> : <Globe className="h-2.5 w-2.5" />}
+                        Translate
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
