@@ -951,18 +951,17 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <Clock className="h-4 w-4 text-primary" />
               <span className="font-medium">{assignment.estimated_duration} {t('common.minutes')}</span>
             </div>
-              {assignment.started_at && (
-                <div className="bg-background px-3 py-2 rounded-md shadow-sm border border-border">
-                  <PausableTimerComponent 
-                    assignmentId={assignment.id}
-                    startedAt={assignment.started_at} 
-                    userId={user?.id || ''}
-                  />
-                </div>
-              )}
-            </div>
+            {assignment.started_at && (
+              <div className="bg-background px-2 py-1 rounded-md shadow-sm border border-border">
+                <PausableTimerComponent 
+                  assignmentId={assignment.id}
+                  startedAt={assignment.started_at} 
+                  userId={user?.id || ''}
+                />
+              </div>
             )}
           </div>
+        )}
 
         {/* Action Buttons */}
         <div className="space-y-4">
