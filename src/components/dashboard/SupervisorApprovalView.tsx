@@ -427,10 +427,11 @@ export function SupervisorApprovalView() {
       setPendingAssignments(assignmentData || []);
       setEarlySignoutRequests(earlySignoutData || []);
 
-      // Load completion photo thumbnails and dirty linen summaries
+      // Load completion photo thumbnails, dirty linen summaries, and housekeeper messages
       if (assignmentData && assignmentData.length > 0) {
         loadCompletionPhotos(assignmentData);
         loadLinenSummaries(assignmentData, dateStr);
+        loadHousekeeperNotes(assignmentData);
       }
     } catch (error) {
       console.error('Error fetching pending assignments:', error);
