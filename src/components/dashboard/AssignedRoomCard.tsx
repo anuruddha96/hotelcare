@@ -921,43 +921,36 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         </div>
       )}
 
-      <CardContent className="space-y-6">
-        {/* Room Details */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-            <MapPin className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t('room.hotel')}</p>
-              <p className="text-lg font-semibold text-foreground">{assignment.rooms?.hotel || 'Unknown Hotel'}</p>
-            </div>
+      <CardContent className="space-y-4">
+        {/* Compact Room Info Line */}
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-3 w-3" />
+            <span>{t('common.floor')} {assignment.rooms?.floor_number ?? '?'}</span>
+            <span>·</span>
+            <span>{assignment.rooms?.hotel || 'Unknown'}</span>
+            {assignment.rooms?.room_name && (
+              <>
+                <span>·</span>
+                <span className="font-medium text-foreground">{assignment.rooms.room_name}</span>
+              </>
+            )}
           </div>
-          <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-            <BedDouble className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t('common.floor')}</p>
-              <p className="text-lg font-semibold text-foreground">
-                {assignment.rooms?.floor_number !== undefined && assignment.rooms?.floor_number !== null 
-                  ? `${t('common.floor')} ${assignment.rooms.floor_number}` 
-                  : t('roomCard.floorUnavailable')
-                }
-              </p>
-            </div>
-          </div>
-          {assignment.rooms?.room_name && (
-            <div className="col-span-2 p-3 bg-muted/50 rounded-lg border border-border">
-              <p className="text-sm font-medium text-muted-foreground">{t('roomCard.roomName')}</p>
-              <p className="text-lg font-semibold text-foreground">{assignment.rooms.room_name}</p>
-            </div>
+          {/* Room Status as small badge */}
+          {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
+              {assignment.rooms.status}
+            </Badge>
           )}
-          {assignment.estimated_duration && assignment.status === 'in_progress' && (
-            <div className="col-span-2 flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-border">
-              <div className="flex items-center gap-3">
-                <Clock className="h-5 w-5 text-primary" />
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">{t('roomCard.estimatedTime')}</p>
-                  <p className="text-lg font-semibold text-foreground">{assignment.estimated_duration} {t('common.minutes')}</p>
-                </div>
-              </div>
+        </div>
+
+        {/* Timer - compact for in-progress */}
+        {assignment.estimated_duration && assignment.status === 'in_progress' && (
+          <div className="flex items-center justify-between p-2 bg-muted/30 rounded-lg">
+            <div className="flex items-center gap-2 text-sm">
+              <Clock className="h-4 w-4 text-primary" />
+              <span className="font-medium">{assignment.estimated_duration} {t('common.minutes')}</span>
+            </div>
               {assignment.started_at && (
                 <div className="bg-background px-3 py-2 rounded-md shadow-sm border border-border">
                   <PausableTimerComponent 
