@@ -154,6 +154,26 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     };
   }, [user]);
 
+  // Fetch messages for this assignment
+  useEffect(() => {
+    const fetchMessages = async () => {
+      const { data } = await supabase
+        .from('housekeeping_notes')
+        .select('id, content, note_type, created_by, created_at, is_resolved')
+        .eq('room_id', assignment.room_id)
+        .eq('assignment_id', assignment.id)
+        .order('created_at', { ascending: true });
+      setMessages(data || []);
+    };
+    fetchMessages();
+
+    const channel = supabase
+      .channel(`notes-${assignment.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'housekeeping_notes', filter: `assignment_id=eq.${assignment.id}` }, () => fetchMessages())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [assignment.id, assignment.room_id]);
+
   // Update current photos when assignment changes
   useEffect(() => {
     setCurrentPhotos(assignment.completion_photos || []);
