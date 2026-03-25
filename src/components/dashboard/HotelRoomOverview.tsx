@@ -12,7 +12,7 @@ import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban } from 'lucide-react';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 
 import { Textarea } from '@/components/ui/textarea';
