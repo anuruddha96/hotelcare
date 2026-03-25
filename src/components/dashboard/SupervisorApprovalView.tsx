@@ -856,6 +856,35 @@ export function SupervisorApprovalView() {
             </div>
           )}
 
+          {/* Housekeeper Messages with Translate */}
+          {housekeeperNotes[assignment.id] && housekeeperNotes[assignment.id].length > 0 && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground uppercase">
+                <MessageSquare className="h-3 w-3" /> Housekeeper Messages
+              </div>
+              {housekeeperNotes[assignment.id].map(msg => (
+                <div key={msg.id} className="p-2 bg-muted/50 rounded-md border border-border">
+                  <p className="text-xs text-foreground">{translatedApprovalMsgs[msg.id] || msg.content}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {!translatedApprovalMsgs[msg.id] && (
+                      <button
+                        className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+                        onClick={() => handleTranslateApprovalMsg(msg.id, msg.content)}
+                        disabled={translatingApprovalMsg === msg.id}
+                      >
+                        {translatingApprovalMsg === msg.id ? <LucideLoader className="h-2.5 w-2.5 animate-spin" /> : <Globe className="h-2.5 w-2.5" />}
+                        Translate
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Expandable Details */}
           {hasDetails && (
             <div>
