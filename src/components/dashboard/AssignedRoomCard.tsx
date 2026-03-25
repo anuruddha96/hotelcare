@@ -104,6 +104,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noServiceLoading, setNoServiceLoading] = useState(false);
   const [noServiceConsent, setNoServiceConsent] = useState(false);
 
+  // Messaging state
+  const [messages, setMessages] = useState<any[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [translatingMsgId, setTranslatingMsgId] = useState<string | null>(null);
+  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+
   // Priority and styling - static glow for high priority
   const isHighPriority = assignment.priority >= 3;
   const showPriorityGlow = isHighPriority && assignment.status !== 'completed' && assignment.status !== 'in_progress';
