@@ -156,6 +156,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverNotes, setPopoverNotes] = useState<string>('');
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | null>(null);
+  const [managerMessage, setManagerMessage] = useState('');
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
