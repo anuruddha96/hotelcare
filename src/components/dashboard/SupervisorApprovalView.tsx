@@ -122,7 +122,7 @@ function getMinutesSince(dateStr: string): number {
 }
 
 export function SupervisorApprovalView() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { showNotification } = useNotifications();
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
   const [pendingMaintenanceTickets, setPendingMaintenanceTickets] = useState<any[]>([]);
