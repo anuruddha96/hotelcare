@@ -473,9 +473,45 @@ export function SupervisorApprovalView() {
           }));
         }
       }
-      setLinenSummaries(prev => ({ ...prev, ...summaryMap }));
+    setLinenSummaries(prev => ({ ...prev, ...summaryMap }));
     } catch (e) {
       console.error('Error loading linen summaries:', e);
+    }
+  };
+
+  const loadHousekeeperNotes = async (assignments: any[]) => {
+    try {
+      const roomIds = assignments.map((a: any) => a.room_id);
+      const { data, error } = await supabase
+        .from('housekeeping_notes')
+        .select('id, content, note_type, created_by, created_at, room_id, assignment_id')
+        .in('room_id', roomIds)
+        .eq('note_type', 'message')
+        .order('created_at', { ascending: true });
+      if (error || !data) return;
+      const notesMap: Record<string, any[]> = {};
+      for (const a of assignments) {
+        const roomNotes = data.filter((d: any) => d.room_id === a.room_id);
+        if (roomNotes.length > 0) notesMap[a.id] = roomNotes;
+      }
+      setHousekeeperNotes(prev => ({ ...prev, ...notesMap }));
+    } catch (e) {
+      console.error('Error loading housekeeper notes:', e);
+    }
+  };
+
+  const handleTranslateApprovalMsg = async (msgId: string, text: string) => {
+    setTranslatingApprovalMsg(msgId);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-note', {
+        body: { text, targetLanguage: language }
+      });
+      if (error) throw error;
+      setTranslatedApprovalMsgs(prev => ({ ...prev, [msgId]: data.translatedText }));
+    } catch {
+      toast.error('Translation failed');
+    } finally {
+      setTranslatingApprovalMsg(null);
     }
   };
 
