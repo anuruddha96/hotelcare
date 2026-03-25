@@ -607,6 +607,45 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
+  const sendMessage = async () => {
+    if (!newMessage.trim()) return;
+    setSendingMessage(true);
+    try {
+      const { error } = await supabase
+        .from('housekeeping_notes')
+        .insert({
+          room_id: assignment.room_id,
+          assignment_id: assignment.id,
+          content: newMessage,
+          note_type: 'message',
+          created_by: (await supabase.auth.getUser()).data.user?.id
+        });
+      if (error) throw error;
+      setNewMessage('');
+      toast.success(t('roomCard.messageSent') || 'Message sent');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error('Failed to send message');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const handleTranslateMessage = async (msgId: string, text: string) => {
+    setTranslatingMsgId(msgId);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-note', {
+        body: { text, targetLanguage: language }
+      });
+      if (error) throw error;
+      setTranslatedMessages(prev => ({ ...prev, [msgId]: data.translatedText }));
+    } catch {
+      toast.error('Translation failed');
+    } finally {
+      setTranslatingMsgId(null);
+    }
+  };
+
   const getAssignmentTypeLabel = (type: string) => {
     switch (type) {
       case 'daily_cleaning':
