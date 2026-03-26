@@ -74,6 +74,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Checkout Clean',
     'roomCard.deepClean': 'Deep Clean',
     'roomCard.maintenance': 'Maintenance',
+    'roomCard.messages': 'Messages',
+    'roomCard.typeMessage': 'Type a message...',
+    'roomCard.messageSent': 'Message sent',
+    'roomCard.translate': 'Translate',
     
     // Photo Categories
     'photoCategory.trashBin': 'Trash Bin',
