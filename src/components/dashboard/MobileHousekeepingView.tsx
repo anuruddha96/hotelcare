@@ -413,7 +413,58 @@ export function MobileHousekeepingView() {
         </Card>
       </div>
 
-      {/* Today's Tasks */}
+      {/* DND & No Service Filter Cards - Only show when count > 0 */}
+      {(() => {
+        const noServiceCount = allAssignments.filter(a => a.notes?.includes('[NO_SERVICE]')).length;
+        const dndCount = allAssignments.filter(a => (a as any).is_dnd === true).length;
+        if (noServiceCount === 0 && dndCount === 0) return null;
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            {noServiceCount > 0 && (
+              <Card 
+                className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+                  statusFilter === 'no_service' 
+                    ? 'ring-2 ring-gray-500 bg-gray-100 shadow-lg border-gray-500' 
+                    : 'bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 border-gray-200 dark:border-gray-700 hover:shadow-md'
+                }`}
+                onClick={() => setStatusFilter(statusFilter === 'no_service' ? null : 'no_service')}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Ban className="h-4 w-4 text-gray-600" />
+                    <div className="min-w-0">
+                      <p className="text-xl font-bold text-gray-700 dark:text-gray-300">{noServiceCount}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">🚫 No Service</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {dndCount > 0 && (
+              <Card 
+                className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+                  statusFilter === 'dnd' 
+                    ? 'ring-2 ring-red-500 bg-red-100 shadow-lg border-red-500' 
+                    : 'bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950 dark:to-red-900 border-red-200 dark:border-red-800 hover:shadow-md'
+                }`}
+                onClick={() => setStatusFilter(statusFilter === 'dnd' ? null : 'dnd')}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <BellOff className="h-4 w-4 text-red-600" />
+                    <div className="min-w-0">
+                      <p className="text-xl font-bold text-red-700 dark:text-red-300">{dndCount}</p>
+                      <p className="text-xs text-red-600 dark:text-red-400 font-medium">🔕 DND</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        );
+      })()}
+
+
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">{t('housekeeping.todaysTasks')}</h3>
