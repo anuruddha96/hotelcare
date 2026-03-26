@@ -212,8 +212,16 @@ export function MobileHousekeepingView() {
         return aRoomNum - bRoomNum;
       });
 
-      // If no specific filter, exclude completed tasks for cleaner view
-      if (!statusFilter) {
+      // Store all assignments for DND/NS counting
+      setAllAssignments(assignmentsData);
+
+      // Apply special filters client-side
+      if (statusFilter === 'no_service') {
+        assignmentsData = assignmentsData.filter((a: any) => a.notes?.includes('[NO_SERVICE]'));
+      } else if (statusFilter === 'dnd') {
+        assignmentsData = assignmentsData.filter((a: any) => a.is_dnd === true);
+      } else if (!statusFilter) {
+        // If no specific filter, exclude completed tasks for cleaner view
         assignmentsData = assignmentsData.filter((a: any) => a.status !== 'completed');
       }
       
