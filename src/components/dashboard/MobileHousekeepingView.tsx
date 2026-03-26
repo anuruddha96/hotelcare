@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle, Camera, Shirt, MapPin } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle, Camera, Shirt, MapPin, Ban, BellOff } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
