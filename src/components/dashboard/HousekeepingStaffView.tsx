@@ -139,8 +139,8 @@ export function HousekeepingStaffView() {
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate);
 
-      // Apply status filter if set
-      if (statusFilter && statusFilter !== 'total') {
+      // Apply status filter - skip for special filters (no_service, dnd) as they need full list
+      if (statusFilter && statusFilter !== 'total' && statusFilter !== 'no_service' && statusFilter !== 'dnd') {
         query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
       }
 
