@@ -54,11 +54,12 @@ export function MobileHousekeepingView() {
   const isMobile = useIsMobile();
   const { t } = useTranslation();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
   const [publicTasks, setPublicTasks] = useState<any[]>([]);
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | 'no_service' | 'dnd' | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
   const [linenDialogOpen, setLinenDialogOpen] = useState(false);
