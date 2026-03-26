@@ -1368,6 +1368,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Dọn Dẹp Trả Phòng',
     'roomCard.deepClean': 'Dọn Dẹp Sâu',
     'roomCard.maintenance': 'Bảo Trì',
+    'roomCard.messages': 'Tin Nhắn',
+    'roomCard.typeMessage': 'Nhập tin nhắn...',
+    'roomCard.messageSent': 'Đã gửi tin nhắn',
+    'roomCard.translate': 'Dịch',
     
     // Dashboard
     'dashboard.tickets': 'Tickets',
