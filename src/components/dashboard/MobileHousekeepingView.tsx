@@ -147,8 +147,8 @@ export function MobileHousekeepingView() {
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate);
 
-      // Apply status filter if set
-      if (statusFilter && statusFilter !== 'total') {
+      // Apply status filter if set - skip for special filters
+      if (statusFilter && statusFilter !== 'total' && statusFilter !== 'no_service' && statusFilter !== 'dnd') {
         query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
       }
 
