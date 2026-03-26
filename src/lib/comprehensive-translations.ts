@@ -1894,6 +1894,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Гарах Цэвэрлэгээ',
     'roomCard.deepClean': 'Гүнзгий Цэвэрлэгээ',
     'roomCard.maintenance': 'Засвар Үйлчилгээ',
+    'roomCard.messages': 'Мессеж',
+    'roomCard.typeMessage': 'Мессеж бичих...',
+    'roomCard.messageSent': 'Мессеж илгээгдсэн',
+    'roomCard.translate': 'Орчуулах',
     
     // Dashboard
     'dashboard.tickets': 'Тасалбар',
