@@ -966,7 +966,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         {/* Action Buttons */}
         <div className="space-y-4">
           {/* Primary Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-6">
           {assignment.status === 'assigned' && !isCheckoutWaiting && (
               <HoldButton
                 size="lg"

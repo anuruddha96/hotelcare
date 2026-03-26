@@ -2437,6 +2437,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Távozó Takarítás',
     'roomCard.deepClean': 'Mély Takarítás',
     'roomCard.maintenance': 'Karbantartás',
+    'roomCard.messages': 'Üzenetek',
+    'roomCard.typeMessage': 'Írj üzenetet...',
+    'roomCard.messageSent': 'Üzenet elküldve',
+    'roomCard.translate': 'Fordítás',
     
     // Photo Categories
     'photoCategory.trashBin': 'Szemétkosár',
