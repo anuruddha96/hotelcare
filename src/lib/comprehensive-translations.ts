@@ -74,6 +74,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Checkout Clean',
     'roomCard.deepClean': 'Deep Clean',
     'roomCard.maintenance': 'Maintenance',
+    'roomCard.messages': 'Messages',
+    'roomCard.typeMessage': 'Type a message...',
+    'roomCard.messageSent': 'Message sent',
+    'roomCard.translate': 'Translate',
     
     // Photo Categories
     'photoCategory.trashBin': 'Trash Bin',
@@ -771,6 +775,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Limpieza de Salida',
     'roomCard.deepClean': 'Limpieza Profunda',
     'roomCard.maintenance': 'Mantenimiento',
+    'roomCard.messages': 'Mensajes',
+    'roomCard.typeMessage': 'Escribe un mensaje...',
+    'roomCard.messageSent': 'Mensaje enviado',
+    'roomCard.translate': 'Traducir',
     
     // Photo Categories
     'photoCategory.trashBin': 'Papelera',
@@ -1360,6 +1368,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Dọn Dẹp Trả Phòng',
     'roomCard.deepClean': 'Dọn Dẹp Sâu',
     'roomCard.maintenance': 'Bảo Trì',
+    'roomCard.messages': 'Tin Nhắn',
+    'roomCard.typeMessage': 'Nhập tin nhắn...',
+    'roomCard.messageSent': 'Đã gửi tin nhắn',
+    'roomCard.translate': 'Dịch',
     
     // Dashboard
     'dashboard.tickets': 'Tickets',
@@ -1882,6 +1894,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Гарах Цэвэрлэгээ',
     'roomCard.deepClean': 'Гүнзгий Цэвэрлэгээ',
     'roomCard.maintenance': 'Засвар Үйлчилгээ',
+    'roomCard.messages': 'Мессеж',
+    'roomCard.typeMessage': 'Мессеж бичих...',
+    'roomCard.messageSent': 'Мессеж илгээгдсэн',
+    'roomCard.translate': 'Орчуулах',
     
     // Dashboard
     'dashboard.tickets': 'Тасалбар',
@@ -2421,6 +2437,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Távozó Takarítás',
     'roomCard.deepClean': 'Mély Takarítás',
     'roomCard.maintenance': 'Karbantartás',
+    'roomCard.messages': 'Üzenetek',
+    'roomCard.typeMessage': 'Írj üzenetet...',
+    'roomCard.messageSent': 'Üzenet elküldve',
+    'roomCard.translate': 'Fordítás',
     
     // Photo Categories
     'photoCategory.trashBin': 'Szemétkosár',

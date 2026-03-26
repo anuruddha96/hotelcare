@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle, Camera, Shirt, MapPin } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle, Camera, Shirt, MapPin, Ban, BellOff } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
@@ -54,11 +54,12 @@ export function MobileHousekeepingView() {
   const isMobile = useIsMobile();
   const { t } = useTranslation();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
   const [publicTasks, setPublicTasks] = useState<any[]>([]);
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | 'no_service' | 'dnd' | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
   const [linenDialogOpen, setLinenDialogOpen] = useState(false);
@@ -146,8 +147,8 @@ export function MobileHousekeepingView() {
         .eq('assigned_to', user.id)
         .eq('assignment_date', selectedDate);
 
-      // Apply status filter if set
-      if (statusFilter && statusFilter !== 'total') {
+      // Apply status filter if set - skip for special filters
+      if (statusFilter && statusFilter !== 'total' && statusFilter !== 'no_service' && statusFilter !== 'dnd') {
         query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
       }
 
@@ -211,8 +212,16 @@ export function MobileHousekeepingView() {
         return aRoomNum - bRoomNum;
       });
 
-      // If no specific filter, exclude completed tasks for cleaner view
-      if (!statusFilter) {
+      // Store all assignments for DND/NS counting
+      setAllAssignments(assignmentsData);
+
+      // Apply special filters client-side
+      if (statusFilter === 'no_service') {
+        assignmentsData = assignmentsData.filter((a: any) => a.notes?.includes('[NO_SERVICE]'));
+      } else if (statusFilter === 'dnd') {
+        assignmentsData = assignmentsData.filter((a: any) => a.is_dnd === true);
+      } else if (!statusFilter) {
+        // If no specific filter, exclude completed tasks for cleaner view
         assignmentsData = assignmentsData.filter((a: any) => a.status !== 'completed');
       }
       
@@ -404,7 +413,58 @@ export function MobileHousekeepingView() {
         </Card>
       </div>
 
-      {/* Today's Tasks */}
+      {/* DND & No Service Filter Cards - Only show when count > 0 */}
+      {(() => {
+        const noServiceCount = allAssignments.filter(a => a.notes?.includes('[NO_SERVICE]')).length;
+        const dndCount = allAssignments.filter(a => (a as any).is_dnd === true).length;
+        if (noServiceCount === 0 && dndCount === 0) return null;
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            {noServiceCount > 0 && (
+              <Card 
+                className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+                  statusFilter === 'no_service' 
+                    ? 'ring-2 ring-gray-500 bg-gray-100 shadow-lg border-gray-500' 
+                    : 'bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 border-gray-200 dark:border-gray-700 hover:shadow-md'
+                }`}
+                onClick={() => setStatusFilter(statusFilter === 'no_service' ? null : 'no_service')}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Ban className="h-4 w-4 text-gray-600" />
+                    <div className="min-w-0">
+                      <p className="text-xl font-bold text-gray-700 dark:text-gray-300">{noServiceCount}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">🚫 No Service</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {dndCount > 0 && (
+              <Card 
+                className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
+                  statusFilter === 'dnd' 
+                    ? 'ring-2 ring-red-500 bg-red-100 shadow-lg border-red-500' 
+                    : 'bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950 dark:to-red-900 border-red-200 dark:border-red-800 hover:shadow-md'
+                }`}
+                onClick={() => setStatusFilter(statusFilter === 'dnd' ? null : 'dnd')}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <BellOff className="h-4 w-4 text-red-600" />
+                    <div className="min-w-0">
+                      <p className="text-xl font-bold text-red-700 dark:text-red-300">{dndCount}</p>
+                      <p className="text-xs text-red-600 dark:text-red-400 font-medium">🔕 DND</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        );
+      })()}
+
+
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">{t('housekeeping.todaysTasks')}</h3>
