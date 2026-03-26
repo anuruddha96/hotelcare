@@ -775,6 +775,10 @@ export const additionalTranslations = {
     'roomCard.checkoutClean': 'Limpieza de Salida',
     'roomCard.deepClean': 'Limpieza Profunda',
     'roomCard.maintenance': 'Mantenimiento',
+    'roomCard.messages': 'Mensajes',
+    'roomCard.typeMessage': 'Escribe un mensaje...',
+    'roomCard.messageSent': 'Mensaje enviado',
+    'roomCard.translate': 'Traducir',
     
     // Photo Categories
     'photoCategory.trashBin': 'Papelera',
