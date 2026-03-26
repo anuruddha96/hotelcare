@@ -786,7 +786,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 🛏️ {t('roomCard.linenChange')}
               </Badge>
             )}
-            {assignment.rooms?.guest_nights_stayed && assignment.rooms.guest_nights_stayed > 0 && (
+            {(assignment.rooms?.guest_nights_stayed ?? 0) > 0 && (
               <Badge 
                 variant="outline" 
                 className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full flex-shrink-0"
