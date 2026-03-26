@@ -1,72 +1,58 @@
 
 
-## Plan: Housekeeper-Manager Communication, Card Redesign, and No Service Fixes
+## Plan: Fix Room Card UI Issues, Missing Translations, Stray "0", and Add DND/No Service Filters
 
-### Issue 1: Drag-and-Drop Room Type Changes Not Reflected on Housekeeper Side
+### Issue 1: Missing Translations — "ROOMCARD.MESSAGES" and "roomCard.typeMessage" placeholders
 
-**Root Cause**: The `handleDrop` in `HotelRoomOverview.tsx` correctly updates `rooms.is_checkout_room` and `room_assignments.assignment_type` in the DB. The housekeeper's `HousekeepingStaffView` has a realtime subscription on `room_assignments` UPDATE events, which triggers `fetchAssignments()`. This should work — but the subscription filters by `assigned_to=eq.${user.id}`, so the UPDATE event should fire. The likely gap is that the housekeeper's `AssignedRoomCard` reads `assignment_type` from the initial fetch and doesn't re-render when the parent refetches. This actually works because `setAssignments` replaces state.
+**Root Cause**: The keys `roomCard.messages`, `roomCard.typeMessage`, and `roomCard.messageSent` are not in `comprehensive-translations.ts`. The `t()` function returns the raw key, and the fallback `|| 'Messages'` works for the heading but the placeholder still shows the raw key.
 
-**Verification needed**: The realtime channel listens on UPDATE. The drag-drop updates `room_assignments.assignment_type`. This should trigger the subscription. The system should already work. Add a `ready_to_clean` reset when switching daily→checkout (set to false so it shows "waiting for checkout") and set to null/true when switching checkout→daily.
-
-**Fix**: In `handleDrop`, when switching to checkout, also set `ready_to_clean: false`. When switching to daily, set `ready_to_clean: null`. This ensures housekeeper cards show correct state.
-
-**File**: `src/components/dashboard/HotelRoomOverview.tsx`
+**Fix**: Add `roomCard.messages`, `roomCard.typeMessage`, and `roomCard.messageSent` to all language blocks in `src/lib/comprehensive-translations.ts`.
 
 ---
 
-### Issue 2: Two-Way Manager-Housekeeper Messaging with Translation
+### Issue 2: Stray "0" Number on Room Cards
 
-**Current state**: Managers send notes via room flags (`cleanNotes`). Housekeepers can translate via AI button. Housekeepers can add notes via `housekeeping_notes` table. But there's no reply/conversation UI.
+**Root Cause**: Line 789 in `AssignedRoomCard.tsx`:
+```jsx
+{assignment.rooms?.guest_nights_stayed && assignment.rooms.guest_nights_stayed > 0 && (...)}
+```
+When `guest_nights_stayed` is `0`, JavaScript evaluates `0 && ...` as `0`, and React renders `0` as visible text.
 
-**Fix**:
-1. In `AssignedRoomCard.tsx`, add a "Messages" section that shows `housekeeping_notes` for this assignment as a chat-style thread (manager notes on left, housekeeper notes on right).
-2. Each message bubble has a small "Translate" button that calls `translate-note` edge function.
-3. Housekeepers can type a reply in their language. The note is saved to `housekeeping_notes` with `created_by` = housekeeper's ID.
-4. Managers see these notes in the approval view / room overview popover, with their own translate button.
-
-**Files**: `src/components/dashboard/AssignedRoomCard.tsx`, `src/components/dashboard/SupervisorApprovalView.tsx`
+**Fix**: Change to `{(assignment.rooms?.guest_nights_stayed ?? 0) > 0 && (...)}` to prevent falsy `0` from rendering.
 
 ---
 
-### Issue 3: No Service Button UI Fix
+### Issue 3: No Service Button UI Overlap with "Press & Hold to Start"
 
-**Current state**: The No Service button renders correctly in code (line 937-997) but the screenshot shows it with a "Press & Hold to Start" label above it, which is confusing. The button is inside a Dialog trigger and should just be a simple click → dialog.
+**Root Cause**: The Start button (HoldButton) at line 971 and the No Service button at line 995 are both inside a `flex flex-col` container (line 969). The HoldButton renders "Press & Hold to Start" text below itself (via its internal `holdText` prop), and the No Service button sits directly underneath, causing visual overlap.
 
 **Fix**: 
-- Remove any "Press & Hold" text near the No Service button — it's for the Start button only
-- Make the confirmation dialog use the user's app-selected language (already uses `t()` keys)
-- After marking No Service, update the room's notes with `[NO_SERVICE]` flag so HotelRoomOverview chips show "NS" indicator in real-time
-
-**File**: `src/components/dashboard/AssignedRoomCard.tsx`
+- Add proper spacing between the Start HoldButton and the No Service button. The HoldButton already has `pb-8` wrapper on its `relative` div — but the No Service button is a sibling outside that wrapper. Wrap the Start button area with proper margin-bottom, and ensure the No Service button has clear separation.
+- Remove the `pb-8` hack from the Start button wrapper and instead use proper `gap` spacing in the parent flex container.
 
 ---
 
-### Issue 4: Redesign In-Progress Room Card — Remove Clutter, Highlight Important Info
+### Issue 4: Header Badge Layout — Too Many Badges Cluttering the Top
 
-**Current state** (from screenshot): Shows Hotel name block + Floor block taking large space, Room Name block, then Estimated Time. User wants: cleaning type, special requests, and notes at the top. Hotel/floor should be minimal. Room status should be a small inline badge, not a large alert block.
+**Current state**: The header area has two rows of flex-wrapped badges (status, checkout indicator, towel change, linen change, night count, priority, in-progress, assignment type). On mobile these wrap messily.
 
-**Fix** in `AssignedRoomCard.tsx`:
-1. **Remove** the large Hotel/Floor grid boxes (lines 860-906). Replace with a single compact line: "Floor 3 · Hotel Ottofiori" in small text under the room number.
-2. **Remove** the separate Room Name block. Show room name inline next to room number in the header.
-3. **Move** estimated time + timer to a compact inline badge next to the status badge in the header area.
-4. **Keep** special instructions section exactly where it is (already between header and content — good).
-5. **Replace** the Room Status Alert block (lines 1266-1277) with a small inline badge: just show "Dirty" / "Occupied" as a colored pill next to room number, not a large card.
-6. **Result**: Card shows Room 305 (TRP-305) · Floor 3 · Dirty → then special instructions → then action buttons. Much more compact.
-
-**File**: `src/components/dashboard/AssignedRoomCard.tsx`
+**Fix**: Reorganize badge layout:
+- Row 1: Room number + Status badge + special instruction count badge (keep as-is)
+- Row 2: Assignment type + key requirement badges (towel, linen, priority) in a single clean flex-wrap row with consistent small sizing
+- Remove duplicate "In Progress" badge (it's already shown in the status badge)
 
 ---
 
-### Issue 5: More Manager Options on Room Chips in Hotel Room Overview
+### Issue 5: DND and No Service Filter Buttons for Housekeepers
 
-**Current popover options**: Toggle towels, linen, ready-to-clean, notes, room size, bed config, switch type.
+**Current state**: Filter cards only show: Total, Completed, In Progress, Waiting. No way to filter DND or No Service rooms.
 
-**Additional options to add**:
-- Quick "No Service" override (mark a room as no-service from manager side)
-- "Priority" toggle (set high priority flag on assignment)
-- "Send Message to Housekeeper" — inline text input that saves to `housekeeping_notes` and shows on the housekeeper's card
-
-**File**: `src/components/dashboard/HotelRoomOverview.tsx`
+**Fix** in both `HousekeepingStaffView.tsx` and `MobileHousekeepingView.tsx`:
+1. Expand `statusFilter` type to include `'no_service'` and `'dnd'`
+2. Count DND rooms (where `is_dnd === true`) and No Service rooms (where notes contain `[NO_SERVICE]`) from the full assignment list
+3. Add two additional small filter cards below the main 4: "🚫 No Service" (gray) and "🔕 DND" (orange) — only show when count > 0
+4. When filtering by `no_service`, show assignments where notes include `[NO_SERVICE]`; when filtering by `dnd`, show assignments where `is_dnd === true`
+5. Update the fetch query to NOT filter by status when these special filters are active (since no-service rooms are marked as 'completed')
 
 ---
 
@@ -74,7 +60,8 @@
 
 | File | Changes |
 |------|---------|
-| `src/components/dashboard/AssignedRoomCard.tsx` | Compact card layout: remove large hotel/floor/status blocks; inline room name + floor + status as small text; add chat-style messages section with translate buttons; fix No Service button UI |
-| `src/components/dashboard/HotelRoomOverview.tsx` | Set `ready_to_clean` on drag-drop type switch; add manager message input and priority toggle to room chip popover |
-| `src/components/dashboard/SupervisorApprovalView.tsx` | Show housekeeper reply notes with translate button |
+| `src/lib/comprehensive-translations.ts` | Add `roomCard.messages`, `roomCard.typeMessage`, `roomCard.messageSent` in all languages |
+| `src/components/dashboard/AssignedRoomCard.tsx` | Fix `guest_nights_stayed` falsy 0 render; fix Start/No Service button spacing; clean up duplicate In Progress badge; reorganize badge layout |
+| `src/components/dashboard/HousekeepingStaffView.tsx` | Add DND and No Service filter cards; expand statusFilter type; compute DND/NS counts |
+| `src/components/dashboard/MobileHousekeepingView.tsx` | Same DND and No Service filter cards for mobile view |
 
