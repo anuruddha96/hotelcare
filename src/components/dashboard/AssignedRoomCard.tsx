@@ -754,7 +754,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               }
             </Badge>
             {hasSpecialInstructions && (
-              <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 animate-pulse flex-shrink-0">
+              <Badge 
+                variant="destructive" 
+                className="text-[10px] px-1.5 py-0.5 animate-pulse flex-shrink-0 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setWarningInfoOpen(true);
+                }}
+              >
                 ⚠️ {instructionCount}
               </Badge>
             )}
