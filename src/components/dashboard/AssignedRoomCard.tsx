@@ -103,6 +103,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noServiceDialogOpen, setNoServiceDialogOpen] = useState(false);
   const [noServiceLoading, setNoServiceLoading] = useState(false);
   const [noServiceConsent, setNoServiceConsent] = useState(false);
+  const [warningInfoOpen, setWarningInfoOpen] = useState(false);
 
   // Messaging state
   const [messages, setMessages] = useState<any[]>([]);
@@ -754,7 +755,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               }
             </Badge>
             {hasSpecialInstructions && (
-              <Badge variant="destructive" className="text-[10px] px-1.5 py-0.5 animate-pulse flex-shrink-0">
+              <Badge 
+                variant="destructive" 
+                className="text-[10px] px-1.5 py-0.5 animate-pulse flex-shrink-0 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setWarningInfoOpen(true);
+                }}
+              >
                 ⚠️ {instructionCount}
               </Badge>
             )}
@@ -966,29 +974,32 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         {/* Action Buttons */}
         <div className="space-y-4">
           {/* Primary Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-6">
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Wrap HoldButton in a div with bottom padding to accommodate the absolute "Press & Hold" text */}
           {assignment.status === 'assigned' && !isCheckoutWaiting && (
-              <HoldButton
-                size="lg"
-                holdDuration={2000}
-                onHoldComplete={() => {
-                  console.log('Hold complete, starting room...');
-                  updateAssignmentStatus('in_progress');
-                }}
-                disabled={loading}
-                className="w-full sm:w-auto select-none"
-                style={{
-                  WebkitUserSelect: 'none',
-                  WebkitTouchCallout: 'none',
-                  userSelect: 'none'
-                }}
-                holdText={t('housekeeping.holdToStart')}
-                releaseText={t('housekeeping.keepHolding')}
-                data-training="start-room-button"
-              >
-                <Play className="h-5 w-5" />
-                {t('housekeeping.start')}
-              </HoldButton>
+              <div className="pb-7 w-full sm:w-auto">
+                <HoldButton
+                  size="lg"
+                  holdDuration={2000}
+                  onHoldComplete={() => {
+                    console.log('Hold complete, starting room...');
+                    updateAssignmentStatus('in_progress');
+                  }}
+                  disabled={loading}
+                  className="w-full sm:w-auto select-none"
+                  style={{
+                    WebkitUserSelect: 'none',
+                    WebkitTouchCallout: 'none',
+                    userSelect: 'none'
+                  }}
+                  holdText={t('housekeeping.holdToStart')}
+                  releaseText={t('housekeeping.keepHolding')}
+                  data-training="start-room-button"
+                >
+                  <Play className="h-5 w-5" />
+                  {t('housekeeping.start')}
+                </HoldButton>
+              </div>
             )}
 
             {/* No Service Button - when guest declines cleaning */}
@@ -1468,6 +1479,62 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           window.location.reload();
         }}
       />
+
+      {/* Warning Info Dialog - explains special instructions to housekeepers */}
+      <Dialog open={warningInfoOpen} onOpenChange={setWarningInfoOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              ⚠️ {t('housekeeping.specialInstructions') || 'Special Instructions'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {t('housekeeping.warningExplanation') || 'This room has special instructions that require your attention before cleaning:'}
+            </p>
+            <ul className="space-y-2 text-sm">
+              {assignment.rooms?.towel_change_required && (
+                <li className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/30 rounded-md">
+                  🧺 {t('roomCard.towelChange') || 'Towel Change Required'}
+                </li>
+              )}
+              {assignment.rooms?.linen_change_required && (
+                <li className="flex items-center gap-2 p-2 bg-purple-50 dark:bg-purple-950/30 rounded-md">
+                  🛏️ {t('roomCard.bedLinenChange') || 'Bed Linen Change'}
+                </li>
+              )}
+              {roomFlags.roomCleaning && (
+                <li className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-md">
+                  🧹 {t('roomCard.roomCleaning') || 'Full Room Cleaning'}
+                </li>
+              )}
+              {roomFlags.collectExtraTowels && (
+                <li className="flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-950/30 rounded-md">
+                  🧺 {t('roomCard.collectExtraTowels') || 'Collect Extra Towels'}
+                </li>
+              )}
+              {assignment.rooms?.bed_configuration && (
+                <li className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-md">
+                  🛌 {t('roomCard.bedConfiguration') || 'Bed Configuration'}: {assignment.rooms.bed_configuration}
+                </li>
+              )}
+              {hasManagerNotes && (
+                <li className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                  📝 {t('roomCard.managerNotes') || 'Manager Notes'}
+                </li>
+              )}
+              {assignment.notes && (
+                <li className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                  📋 {t('housekeeping.assignmentNotes') || 'Assignment Notes'}
+                </li>
+              )}
+            </ul>
+            <p className="text-xs text-muted-foreground italic">
+              {t('housekeeping.warningNoAction') || 'No action required — just review before starting.'}
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
