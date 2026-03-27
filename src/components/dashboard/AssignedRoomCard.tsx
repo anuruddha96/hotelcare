@@ -1479,6 +1479,62 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           window.location.reload();
         }}
       />
+
+      {/* Warning Info Dialog - explains special instructions to housekeepers */}
+      <Dialog open={warningInfoOpen} onOpenChange={setWarningInfoOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              ⚠️ {t('housekeeping.specialInstructions') || 'Special Instructions'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {t('housekeeping.warningExplanation') || 'This room has special instructions that require your attention before cleaning:'}
+            </p>
+            <ul className="space-y-2 text-sm">
+              {assignment.rooms?.towel_change_required && (
+                <li className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/30 rounded-md">
+                  🧺 {t('roomCard.towelChange') || 'Towel Change Required'}
+                </li>
+              )}
+              {assignment.rooms?.linen_change_required && (
+                <li className="flex items-center gap-2 p-2 bg-purple-50 dark:bg-purple-950/30 rounded-md">
+                  🛏️ {t('roomCard.bedLinenChange') || 'Bed Linen Change'}
+                </li>
+              )}
+              {roomFlags.roomCleaning && (
+                <li className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-md">
+                  🧹 {t('roomCard.roomCleaning') || 'Full Room Cleaning'}
+                </li>
+              )}
+              {roomFlags.collectExtraTowels && (
+                <li className="flex items-center gap-2 p-2 bg-orange-50 dark:bg-orange-950/30 rounded-md">
+                  🧺 {t('roomCard.collectExtraTowels') || 'Collect Extra Towels'}
+                </li>
+              )}
+              {assignment.rooms?.bed_configuration && (
+                <li className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-md">
+                  🛌 {t('roomCard.bedConfiguration') || 'Bed Configuration'}: {assignment.rooms.bed_configuration}
+                </li>
+              )}
+              {hasManagerNotes && (
+                <li className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                  📝 {t('roomCard.managerNotes') || 'Manager Notes'}
+                </li>
+              )}
+              {assignment.notes && (
+                <li className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                  📋 {t('housekeeping.assignmentNotes') || 'Assignment Notes'}
+                </li>
+              )}
+            </ul>
+            <p className="text-xs text-muted-foreground italic">
+              {t('housekeeping.warningNoAction') || 'No action required — just review before starting.'}
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
