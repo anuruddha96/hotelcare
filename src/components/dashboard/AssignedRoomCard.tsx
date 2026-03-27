@@ -976,27 +976,29 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Wrap HoldButton in a div with bottom padding to accommodate the absolute "Press & Hold" text */}
           {assignment.status === 'assigned' && !isCheckoutWaiting && (
-              <HoldButton
-                size="lg"
-                holdDuration={2000}
-                onHoldComplete={() => {
-                  console.log('Hold complete, starting room...');
-                  updateAssignmentStatus('in_progress');
-                }}
-                disabled={loading}
-                className="w-full sm:w-auto select-none"
-                style={{
-                  WebkitUserSelect: 'none',
-                  WebkitTouchCallout: 'none',
-                  userSelect: 'none'
-                }}
-                holdText={t('housekeeping.holdToStart')}
-                releaseText={t('housekeeping.keepHolding')}
-                data-training="start-room-button"
-              >
-                <Play className="h-5 w-5" />
-                {t('housekeeping.start')}
-              </HoldButton>
+              <div className="pb-7 w-full sm:w-auto">
+                <HoldButton
+                  size="lg"
+                  holdDuration={2000}
+                  onHoldComplete={() => {
+                    console.log('Hold complete, starting room...');
+                    updateAssignmentStatus('in_progress');
+                  }}
+                  disabled={loading}
+                  className="w-full sm:w-auto select-none"
+                  style={{
+                    WebkitUserSelect: 'none',
+                    WebkitTouchCallout: 'none',
+                    userSelect: 'none'
+                  }}
+                  holdText={t('housekeeping.holdToStart')}
+                  releaseText={t('housekeeping.keepHolding')}
+                  data-training="start-room-button"
+                >
+                  <Play className="h-5 w-5" />
+                  {t('housekeeping.start')}
+                </HoldButton>
+              </div>
             )}
 
             {/* No Service Button - when guest declines cleaning */}
