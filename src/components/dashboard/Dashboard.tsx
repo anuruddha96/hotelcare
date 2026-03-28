@@ -674,8 +674,8 @@ export function Dashboard() {
                 </div>
                 <div className="flex gap-2">
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-full sm:w-[130px]">
-                      <SelectValue placeholder="Status" />
+                    <SelectTrigger className="w-full sm:w-[140px] truncate">
+                      <SelectValue placeholder={t('common.status')} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">{t('tickets.allStatus')}</SelectItem>
