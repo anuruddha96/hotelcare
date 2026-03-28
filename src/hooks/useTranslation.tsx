@@ -903,6 +903,11 @@ const translations = {
     'roomCard.guestStayed': 'A vendég',
     'roomCard.nights': 'éjszakát töltött',
     'roomCard.roomStatusAlert': 'Szoba Állapot Figyelmeztetés',
+    'roomCard.details': 'Részletek',
+    'roomCard.towelChange': 'Törölköző Csere',
+    'roomCard.linenChange': 'Ágynemű Csere',
+    'roomCard.night': 'Éjszaka',
+    'roomCard.floorUnavailable': 'Emelet info nem elérhető',
     
     // Create Room
     'createRoom.title': 'Create New Room',
