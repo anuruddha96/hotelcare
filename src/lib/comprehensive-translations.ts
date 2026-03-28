@@ -1868,6 +1868,25 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Thêm hướng dẫn đặc biệt...',
     'publicArea.assign': 'Phân công',
     'publicArea.assigning': 'Đang phân...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'Tất Cả Phòng Ban',
+    'tickets.reception': 'Lễ Tân',
+    'tickets.frontOffice': 'Văn Phòng',
+    'tickets.noMatchFilters': 'Không có phiếu nào phù hợp với bộ lọc',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Yêu Cầu Tan Ca Sớm Đã Gửi',
+    'attendance.earlySignOutSubmittedDesc': 'Giám sát sẽ xem xét yêu cầu. Bạn không thể làm việc cho đến khi được phê duyệt.',
+    'attendance.earlySignOutError': 'Gửi yêu cầu tan ca sớm thất bại',
+    'attendance.breakStartTitle': 'Thời Gian Nghỉ Ngơi',
+    'attendance.breakEndTitle': 'Tràn Đầy Năng Lượng!',
+    'attendance.breakStartDesc': 'Tận hưởng giờ nghỉ! 🌸',
+    'attendance.breakEndDesc': 'Chào mừng trở lại! Hãy làm việc tuyệt vời ⚡',
+    'attendance.breakUpdateError': 'Cập nhật trạng thái nghỉ thất bại',
+    'attendance.notSignedOut': 'Chưa Ký Ra',
+    'attendance.working': 'Đang Làm Việc',
+    'attendance.completed': 'Hoàn Thành',
   },
   
   mn: {
