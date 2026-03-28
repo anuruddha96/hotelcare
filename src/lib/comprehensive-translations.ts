@@ -3099,5 +3099,24 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Különleges utasítások hozzáadása...',
     'publicArea.assign': 'Kiosztás',
     'publicArea.assigning': 'Kiosztás...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'Összes Részleg',
+    'tickets.reception': 'Recepció',
+    'tickets.frontOffice': 'Front Office',
+    'tickets.noMatchFilters': 'Nincs a szűrőknek megfelelő jegy',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Korai Távozási Kérelem Elküldve',
+    'attendance.earlySignOutSubmittedDesc': 'A felettesed átnézi a kérelmedet. Nem dolgozhatsz, amíg nem hagyják jóvá.',
+    'attendance.earlySignOutError': 'Nem sikerült elküldeni a korai távozási kérelmet',
+    'attendance.breakStartTitle': 'Ideje Pihenni és Feltöltődni',
+    'attendance.breakEndTitle': 'Feltöltődve és Készen Állsz!',
+    'attendance.breakStartDesc': 'Élvezd a szüneted! 🌸',
+    'attendance.breakEndDesc': 'Üdv újra! Csináljunk nagyszerű dolgokat ⚡',
+    'attendance.breakUpdateError': 'Nem sikerült frissíteni a szünet állapotát',
+    'attendance.notSignedOut': 'Nem Jelentkezett Ki',
+    'attendance.working': 'Dolgozik',
+    'attendance.completed': 'Befejezett',
   },
 };
