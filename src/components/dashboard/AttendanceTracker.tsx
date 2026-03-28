@@ -450,8 +450,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
     if (error) {
       toast({
-        title: "Error",
-        description: "Failed to update break status",
+        title: t('common.error'),
+        description: t('attendance.breakUpdateError') || "Failed to update break status",
         variant: "destructive"
       });
     } else {
