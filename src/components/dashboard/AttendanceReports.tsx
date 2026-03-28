@@ -324,7 +324,7 @@ export const AttendanceReports = () => {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="text-center py-8">Loading...</div>
+            <div className="text-center py-8">{t('common.loading')}</div>
           ) : (
             <Table>
               <TableHeader>
