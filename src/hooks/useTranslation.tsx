@@ -1645,6 +1645,11 @@ const translations = {
     'roomCard.guestStayed': 'Khách đã ở',
     'roomCard.nights': 'đêm',
     'roomCard.roomStatusAlert': 'Cảnh Báo Trạng Thái Phòng',
+    'roomCard.details': 'Chi Tiết',
+    'roomCard.towelChange': 'Thay Khăn',
+    'roomCard.linenChange': 'Thay Ra Giường',
+    'roomCard.night': 'Đêm',
+    'roomCard.floorUnavailable': 'Thông tin tầng không có',
     
     // Task Status
     'tasks.totalForToday': 'Tổng Nhiệm Vụ Hôm Nay',
