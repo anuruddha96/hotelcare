@@ -719,8 +719,8 @@ export function Dashboard() {
             ) : filteredTickets.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' || departmentFilter !== 'all'
-                  ? 'No tickets match your filters'
-                  : 'No tickets found'}
+                  ? (t('tickets.noMatchFilters') || 'No tickets match your filters')
+                  : t('tickets.noResults')}
               </div>
             ) : (
               <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">

@@ -1880,6 +1880,11 @@ const translations = {
     'roomCard.guestStayed': 'Зочин',
     'roomCard.nights': 'шөнө байсан',
     'roomCard.roomStatusAlert': 'Өрөөний Төлөвийн Анхааруулга',
+    'roomCard.details': 'Дэлгэрэнгүй',
+    'roomCard.towelChange': 'Алчуур Солих',
+    'roomCard.linenChange': 'Ор Дэр Солих',
+    'roomCard.night': 'Шөнө',
+    'roomCard.floorUnavailable': 'Давхарын мэдээлэл байхгүй',
     
     // Task Status
     'tasks.totalForToday': 'Өнөөдрийн Нийт Даалгаврууд',

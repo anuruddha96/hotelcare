@@ -947,7 +947,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* Room Status as small badge */}
           {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
-              {assignment.rooms.status}
+              {assignment.rooms.status === 'dirty' ? t('rooms.dirty') : 
+               assignment.rooms.status === 'maintenance' ? t('rooms.maintenance') :
+               assignment.rooms.status === 'out_of_order' ? t('rooms.outOfOrder') :
+               assignment.rooms.status}
             </Badge>
           )}
         </div>

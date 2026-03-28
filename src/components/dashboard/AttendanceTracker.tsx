@@ -615,7 +615,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                             <SelectItem key={breakType.id} value={breakType.name}>
                               <div className="flex items-center gap-2">
                                 <IconComponent className="h-4 w-4" />
-                                {breakType.display_name} ({breakType.duration_minutes} minutes)
+                                {breakType.display_name} ({breakType.duration_minutes} {t('common.minutes')})
                               </div>
                             </SelectItem>
                           );
