@@ -1320,6 +1320,25 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Agregar instrucciones especiales...',
     'publicArea.assign': 'Asignar',
     'publicArea.assigning': 'Asignando...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'Todos los Departamentos',
+    'tickets.reception': 'Recepción',
+    'tickets.frontOffice': 'Oficina Principal',
+    'tickets.noMatchFilters': 'No hay tickets que coincidan con sus filtros',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Solicitud de Salida Anticipada Enviada',
+    'attendance.earlySignOutSubmittedDesc': 'Su supervisor revisará su solicitud. No puede trabajar hasta que sea aprobada.',
+    'attendance.earlySignOutError': 'Error al enviar solicitud de salida anticipada',
+    'attendance.breakStartTitle': 'Hora de Descansar y Recargar',
+    'attendance.breakEndTitle': '¡Energizado y Listo!',
+    'attendance.breakStartDesc': '¡Disfruta tu descanso! 🌸',
+    'attendance.breakEndDesc': '¡Bienvenido de vuelta! Hagamos grandes cosas ⚡',
+    'attendance.breakUpdateError': 'Error al actualizar el estado del descanso',
+    'attendance.notSignedOut': 'No Firmó Salida',
+    'attendance.working': 'Trabajando',
+    'attendance.completed': 'Completado',
   },
   
   vi: {
