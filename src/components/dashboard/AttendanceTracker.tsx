@@ -458,10 +458,12 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       const selectedBreak = breakTypes.find(bt => bt.name === selectedBreakType);
       
       toast({
-        title: isStartingBreak ? "Time to Rest & Recharge" : "Energized & Ready to Go!",
+        title: isStartingBreak 
+          ? (t('attendance.breakStartTitle') || "Time to Rest & Recharge") 
+          : (t('attendance.breakEndTitle') || "Energized & Ready to Go!"),
         description: isStartingBreak 
-          ? "Enjoy your break! 🌸"
-          : "Welcome back! Let's make great things happen ⚡"
+          ? (t('attendance.breakStartDesc') || "Enjoy your break! 🌸")
+          : (t('attendance.breakEndDesc') || "Welcome back! Let's make great things happen ⚡")
       });
       fetchTodaysAttendance();
     }
