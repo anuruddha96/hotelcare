@@ -689,11 +689,11 @@ export function Dashboard() {
                       <SelectValue placeholder="Priority" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Priority</SelectItem>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
+                      <SelectItem value="all">{t('tickets.allPriority')}</SelectItem>
+                      <SelectItem value="low">{t('tickets.priority.low')}</SelectItem>
+                      <SelectItem value="medium">{t('tickets.priority.medium')}</SelectItem>
+                      <SelectItem value="high">{t('tickets.priority.high')}</SelectItem>
+                      <SelectItem value="urgent">{t('tickets.priority.urgent')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
