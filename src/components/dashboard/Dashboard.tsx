@@ -697,8 +697,8 @@ export function Dashboard() {
                     </SelectContent>
                   </Select>
                   <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-                    <SelectTrigger className="w-full sm:w-[150px]">
-                      <SelectValue placeholder="Department" />
+                    <SelectTrigger className="w-full sm:w-[160px] truncate">
+                      <SelectValue placeholder={t('tickets.department') || 'Department'} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">{t('tickets.allDepartments') || 'All Departments'}</SelectItem>
