@@ -385,8 +385,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       } catch (error) {
         console.error('Error creating early signout request:', error);
         toast({
-          title: "Error",
-          description: "Failed to submit early sign-out request",
+          title: t('common.error'),
+          description: t('attendance.earlySignOutError') || "Failed to submit early sign-out request",
           variant: "destructive"
         });
       }
