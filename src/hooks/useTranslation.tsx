@@ -1399,6 +1399,11 @@ const translations = {
     'roomCard.guestStayed': 'El huésped se quedó',
     'roomCard.nights': 'noches',
     'roomCard.roomStatusAlert': 'Alerta de Estado de Habitación',
+    'roomCard.details': 'Detalles',
+    'roomCard.towelChange': 'Cambio de Toallas',
+    'roomCard.linenChange': 'Cambio de Ropa de Cama',
+    'roomCard.night': 'Noche',
+    'roomCard.floorUnavailable': 'Info de piso no disponible',
     
     // Task Status
     'tasks.totalForToday': 'Total de Tareas para Hoy',
