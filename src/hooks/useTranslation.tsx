@@ -903,6 +903,11 @@ const translations = {
     'roomCard.guestStayed': 'A vendég',
     'roomCard.nights': 'éjszakát töltött',
     'roomCard.roomStatusAlert': 'Szoba Állapot Figyelmeztetés',
+    'roomCard.details': 'Részletek',
+    'roomCard.towelChange': 'Törölköző Csere',
+    'roomCard.linenChange': 'Ágynemű Csere',
+    'roomCard.night': 'Éjszaka',
+    'roomCard.floorUnavailable': 'Emelet info nem elérhető',
     
     // Create Room
     'createRoom.title': 'Create New Room',
@@ -1394,6 +1399,11 @@ const translations = {
     'roomCard.guestStayed': 'El huésped se quedó',
     'roomCard.nights': 'noches',
     'roomCard.roomStatusAlert': 'Alerta de Estado de Habitación',
+    'roomCard.details': 'Detalles',
+    'roomCard.towelChange': 'Cambio de Toallas',
+    'roomCard.linenChange': 'Cambio de Ropa de Cama',
+    'roomCard.night': 'Noche',
+    'roomCard.floorUnavailable': 'Info de piso no disponible',
     
     // Task Status
     'tasks.totalForToday': 'Total de Tareas para Hoy',
@@ -1635,6 +1645,11 @@ const translations = {
     'roomCard.guestStayed': 'Khách đã ở',
     'roomCard.nights': 'đêm',
     'roomCard.roomStatusAlert': 'Cảnh Báo Trạng Thái Phòng',
+    'roomCard.details': 'Chi Tiết',
+    'roomCard.towelChange': 'Thay Khăn',
+    'roomCard.linenChange': 'Thay Ra Giường',
+    'roomCard.night': 'Đêm',
+    'roomCard.floorUnavailable': 'Thông tin tầng không có',
     
     // Task Status
     'tasks.totalForToday': 'Tổng Nhiệm Vụ Hôm Nay',
@@ -1865,6 +1880,11 @@ const translations = {
     'roomCard.guestStayed': 'Зочин',
     'roomCard.nights': 'шөнө байсан',
     'roomCard.roomStatusAlert': 'Өрөөний Төлөвийн Анхааруулга',
+    'roomCard.details': 'Дэлгэрэнгүй',
+    'roomCard.towelChange': 'Алчуур Солих',
+    'roomCard.linenChange': 'Ор Дэр Солих',
+    'roomCard.night': 'Шөнө',
+    'roomCard.floorUnavailable': 'Давхарын мэдээлэл байхгүй',
     
     // Task Status
     'tasks.totalForToday': 'Өнөөдрийн Нийт Даалгаврууд',

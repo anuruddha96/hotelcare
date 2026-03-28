@@ -374,8 +374,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         if (error) throw error;
 
         toast({
-          title: "Early Sign-Out Request Submitted",
-          description: "Your supervisor will review your request. You cannot work until it's approved.",
+          title: t('attendance.earlySignOutSubmitted') || "Early Sign-Out Request Submitted",
+          description: t('attendance.earlySignOutSubmittedDesc') || "Your supervisor will review your request. You cannot work until it's approved.",
           variant: "default"
         });
         
@@ -385,8 +385,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       } catch (error) {
         console.error('Error creating early signout request:', error);
         toast({
-          title: "Error",
-          description: "Failed to submit early sign-out request",
+          title: t('common.error'),
+          description: t('attendance.earlySignOutError') || "Failed to submit early sign-out request",
           variant: "destructive"
         });
       }
@@ -450,18 +450,20 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
     if (error) {
       toast({
-        title: "Error",
-        description: "Failed to update break status",
+        title: t('common.error'),
+        description: t('attendance.breakUpdateError') || "Failed to update break status",
         variant: "destructive"
       });
     } else {
       const selectedBreak = breakTypes.find(bt => bt.name === selectedBreakType);
       
       toast({
-        title: isStartingBreak ? "Time to Rest & Recharge" : "Energized & Ready to Go!",
+        title: isStartingBreak 
+          ? (t('attendance.breakStartTitle') || "Time to Rest & Recharge") 
+          : (t('attendance.breakEndTitle') || "Energized & Ready to Go!"),
         description: isStartingBreak 
-          ? "Enjoy your break! 🌸"
-          : "Welcome back! Let's make great things happen ⚡"
+          ? (t('attendance.breakStartDesc') || "Enjoy your break! 🌸")
+          : (t('attendance.breakEndDesc') || "Welcome back! Let's make great things happen ⚡")
       });
       fetchTodaysAttendance();
     }
@@ -613,7 +615,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                             <SelectItem key={breakType.id} value={breakType.name}>
                               <div className="flex items-center gap-2">
                                 <IconComponent className="h-4 w-4" />
-                                {breakType.display_name} ({breakType.duration_minutes} minutes)
+                                {breakType.display_name} ({breakType.duration_minutes} {t('common.minutes')})
                               </div>
                             </SelectItem>
                           );

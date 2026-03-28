@@ -712,6 +712,25 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Add any special instructions...',
     'publicArea.assign': 'Assign',
     'publicArea.assigning': 'Assigning...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'All Departments',
+    'tickets.reception': 'Reception',
+    'tickets.frontOffice': 'Front Office',
+    'tickets.noMatchFilters': 'No tickets match your filters',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Early Sign-Out Request Submitted',
+    'attendance.earlySignOutSubmittedDesc': "Your supervisor will review your request. You cannot work until it's approved.",
+    'attendance.earlySignOutError': 'Failed to submit early sign-out request',
+    'attendance.breakStartTitle': 'Time to Rest & Recharge',
+    'attendance.breakEndTitle': 'Energized & Ready to Go!',
+    'attendance.breakStartDesc': 'Enjoy your break! 🌸',
+    'attendance.breakEndDesc': "Welcome back! Let's make great things happen ⚡",
+    'attendance.breakUpdateError': 'Failed to update break status',
+    'attendance.notSignedOut': 'Not Signed Out',
+    'attendance.working': 'Working',
+    'attendance.completed': 'Completed',
   },
 
   es: {
@@ -1301,6 +1320,25 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Agregar instrucciones especiales...',
     'publicArea.assign': 'Asignar',
     'publicArea.assigning': 'Asignando...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'Todos los Departamentos',
+    'tickets.reception': 'Recepción',
+    'tickets.frontOffice': 'Oficina Principal',
+    'tickets.noMatchFilters': 'No hay tickets que coincidan con sus filtros',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Solicitud de Salida Anticipada Enviada',
+    'attendance.earlySignOutSubmittedDesc': 'Su supervisor revisará su solicitud. No puede trabajar hasta que sea aprobada.',
+    'attendance.earlySignOutError': 'Error al enviar solicitud de salida anticipada',
+    'attendance.breakStartTitle': 'Hora de Descansar y Recargar',
+    'attendance.breakEndTitle': '¡Energizado y Listo!',
+    'attendance.breakStartDesc': '¡Disfruta tu descanso! 🌸',
+    'attendance.breakEndDesc': '¡Bienvenido de vuelta! Hagamos grandes cosas ⚡',
+    'attendance.breakUpdateError': 'Error al actualizar el estado del descanso',
+    'attendance.notSignedOut': 'No Firmó Salida',
+    'attendance.working': 'Trabajando',
+    'attendance.completed': 'Completado',
   },
   
   vi: {
@@ -1830,6 +1868,25 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Thêm hướng dẫn đặc biệt...',
     'publicArea.assign': 'Phân công',
     'publicArea.assigning': 'Đang phân...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'Tất Cả Phòng Ban',
+    'tickets.reception': 'Lễ Tân',
+    'tickets.frontOffice': 'Văn Phòng',
+    'tickets.noMatchFilters': 'Không có phiếu nào phù hợp với bộ lọc',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Yêu Cầu Tan Ca Sớm Đã Gửi',
+    'attendance.earlySignOutSubmittedDesc': 'Giám sát sẽ xem xét yêu cầu. Bạn không thể làm việc cho đến khi được phê duyệt.',
+    'attendance.earlySignOutError': 'Gửi yêu cầu tan ca sớm thất bại',
+    'attendance.breakStartTitle': 'Thời Gian Nghỉ Ngơi',
+    'attendance.breakEndTitle': 'Tràn Đầy Năng Lượng!',
+    'attendance.breakStartDesc': 'Tận hưởng giờ nghỉ! 🌸',
+    'attendance.breakEndDesc': 'Chào mừng trở lại! Hãy làm việc tuyệt vời ⚡',
+    'attendance.breakUpdateError': 'Cập nhật trạng thái nghỉ thất bại',
+    'attendance.notSignedOut': 'Chưa Ký Ra',
+    'attendance.working': 'Đang Làm Việc',
+    'attendance.completed': 'Hoàn Thành',
   },
   
   mn: {
@@ -2383,6 +2440,25 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Тусгай зааварчилгаа нэмэх...',
     'publicArea.assign': 'Хуваарилах',
     'publicArea.assigning': 'Хуваарилж байна...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'Бүх Хэлтэс',
+    'tickets.reception': 'Ресепшн',
+    'tickets.frontOffice': 'Оффис',
+    'tickets.noMatchFilters': 'Шүүлтүүрт тохирох тасалбар олдсонгүй',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Эрт Гарах Хүсэлт Илгээсэн',
+    'attendance.earlySignOutSubmittedDesc': 'Таны удирдагч хүсэлтийг шалгана. Зөвшөөрөгдөх хүртэл ажиллах боломжгүй.',
+    'attendance.earlySignOutError': 'Эрт гарах хүсэлт илгээх амжилтгүй',
+    'attendance.breakStartTitle': 'Амрах Цаг',
+    'attendance.breakEndTitle': 'Эрч Хүчтэй Буцаж Ирлээ!',
+    'attendance.breakStartDesc': 'Завсарлагаагаа сайхан өнгөрүүлээрэй! 🌸',
+    'attendance.breakEndDesc': 'Тавтай морилно уу! Агуу зүйлс хийцгээе ⚡',
+    'attendance.breakUpdateError': 'Завсарлагааны төлөв шинэчлэх амжилтгүй',
+    'attendance.notSignedOut': 'Гараагүй',
+    'attendance.working': 'Ажиллаж Байна',
+    'attendance.completed': 'Дуусгасан',
   },
   
   hu: {
@@ -3023,5 +3099,24 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Különleges utasítások hozzáadása...',
     'publicArea.assign': 'Kiosztás',
     'publicArea.assigning': 'Kiosztás...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'Összes Részleg',
+    'tickets.reception': 'Recepció',
+    'tickets.frontOffice': 'Front Office',
+    'tickets.noMatchFilters': 'Nincs a szűrőknek megfelelő jegy',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Korai Távozási Kérelem Elküldve',
+    'attendance.earlySignOutSubmittedDesc': 'A felettesed átnézi a kérelmedet. Nem dolgozhatsz, amíg nem hagyják jóvá.',
+    'attendance.earlySignOutError': 'Nem sikerült elküldeni a korai távozási kérelmet',
+    'attendance.breakStartTitle': 'Ideje Pihenni és Feltöltődni',
+    'attendance.breakEndTitle': 'Feltöltődve és Készen Állsz!',
+    'attendance.breakStartDesc': 'Élvezd a szüneted! 🌸',
+    'attendance.breakEndDesc': 'Üdv újra! Csináljunk nagyszerű dolgokat ⚡',
+    'attendance.breakUpdateError': 'Nem sikerült frissíteni a szünet állapotát',
+    'attendance.notSignedOut': 'Nem Jelentkezett Ki',
+    'attendance.working': 'Dolgozik',
+    'attendance.completed': 'Befejezett',
   },
 };

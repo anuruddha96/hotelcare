@@ -738,7 +738,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <CardTitle className="text-xl sm:text-2xl font-bold text-foreground truncate">
-              Room {assignment.rooms?.room_number || 'N/A'}
+              {t('common.room')} {assignment.rooms?.room_number || 'N/A'}
             </CardTitle>
             <Badge 
               className={`${getStatusColor(assignment.status)} font-semibold px-3 py-1 text-xs uppercase tracking-wide rounded-full shadow-sm flex-shrink-0`}
@@ -947,7 +947,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* Room Status as small badge */}
           {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
-              {assignment.rooms.status}
+              {assignment.rooms.status === 'dirty' ? t('rooms.dirty') : 
+               assignment.rooms.status === 'maintenance' ? t('rooms.maintenance') :
+               assignment.rooms.status === 'out_of_order' ? t('rooms.outOfOrder') :
+               assignment.rooms.status}
             </Badge>
           )}
         </div>

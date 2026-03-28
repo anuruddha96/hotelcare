@@ -674,38 +674,38 @@ export function Dashboard() {
                 </div>
                 <div className="flex gap-2">
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-full sm:w-[130px]">
-                      <SelectValue placeholder="Status" />
+                    <SelectTrigger className="w-full sm:w-[140px] truncate">
+                      <SelectValue placeholder={t('common.status')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="open">Open</SelectItem>
-                      <SelectItem value="in_progress">In Progress</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="all">{t('tickets.allStatus')}</SelectItem>
+                      <SelectItem value="open">{t('tickets.open')}</SelectItem>
+                      <SelectItem value="in_progress">{t('tickets.inProgress')}</SelectItem>
+                      <SelectItem value="completed">{t('tickets.completed')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                    <SelectTrigger className="w-full sm:w-[130px]">
-                      <SelectValue placeholder="Priority" />
+                    <SelectTrigger className="w-full sm:w-[140px] truncate">
+                      <SelectValue placeholder={t('common.priority')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Priority</SelectItem>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
+                      <SelectItem value="all">{t('tickets.allPriority')}</SelectItem>
+                      <SelectItem value="low">{t('tickets.priority.low')}</SelectItem>
+                      <SelectItem value="medium">{t('tickets.priority.medium')}</SelectItem>
+                      <SelectItem value="high">{t('tickets.priority.high')}</SelectItem>
+                      <SelectItem value="urgent">{t('tickets.priority.urgent')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-                    <SelectTrigger className="w-full sm:w-[150px]">
-                      <SelectValue placeholder="Department" />
+                    <SelectTrigger className="w-full sm:w-[160px] truncate">
+                      <SelectValue placeholder={t('tickets.department') || 'Department'} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Departments</SelectItem>
-                      <SelectItem value="maintenance">Maintenance</SelectItem>
-                      <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                      <SelectItem value="reception">Reception</SelectItem>
-                      <SelectItem value="front_office">Front Office</SelectItem>
+                      <SelectItem value="all">{t('tickets.allDepartments') || 'All Departments'}</SelectItem>
+                      <SelectItem value="maintenance">{t('rooms.maintenance')}</SelectItem>
+                      <SelectItem value="housekeeping">{t('dashboard.housekeeping')}</SelectItem>
+                      <SelectItem value="reception">{t('tickets.reception') || 'Reception'}</SelectItem>
+                      <SelectItem value="front_office">{t('tickets.frontOffice') || 'Front Office'}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -719,8 +719,8 @@ export function Dashboard() {
             ) : filteredTickets.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' || departmentFilter !== 'all'
-                  ? 'No tickets match your filters'
-                  : 'No tickets found'}
+                  ? (t('tickets.noMatchFilters') || 'No tickets match your filters')
+                  : t('tickets.noResults')}
               </div>
             ) : (
               <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
