@@ -200,17 +200,17 @@ export const AttendanceReports = () => {
     switch (status) {
       case 'checked_in':
         if (isFromPastDay) {
-          return <Badge className="bg-red-500 text-white whitespace-nowrap text-xs">Not Signed Out</Badge>;
+          return <Badge className="bg-red-500 text-white whitespace-nowrap text-xs">{t('attendance.notSignedOut') || 'Not Signed Out'}</Badge>;
         }
-        return <Badge className="bg-green-500 text-white">Working</Badge>;
+        return <Badge className="bg-green-500 text-white">{t('attendance.working') || 'Working'}</Badge>;
       case 'on_break':
-        return <Badge className="bg-yellow-500 text-white">On Break</Badge>;
+        return <Badge className="bg-yellow-500 text-white">{t('attendance.onBreak')}</Badge>;
       case 'checked_out':
-        return <Badge className="bg-gray-500 text-white">Completed</Badge>;
+        return <Badge className="bg-gray-500 text-white">{t('attendance.completed') || 'Completed'}</Badge>;
       case 'auto_signout':
-        return <Badge className="bg-orange-600 text-white whitespace-nowrap text-xs">Auto Signed Out</Badge>;
+        return <Badge className="bg-orange-600 text-white whitespace-nowrap text-xs">{t('attendance.autoSignedOut')}</Badge>;
       case 'forgot_signout':
-        return <Badge className="bg-amber-500 text-white whitespace-nowrap text-xs">Forgot Sign Out</Badge>;
+        return <Badge className="bg-amber-500 text-white whitespace-nowrap text-xs">{t('attendance.forgotSignOut')}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
