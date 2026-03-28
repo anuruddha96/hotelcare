@@ -2440,6 +2440,25 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Тусгай зааварчилгаа нэмэх...',
     'publicArea.assign': 'Хуваарилах',
     'publicArea.assigning': 'Хуваарилж байна...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'Бүх Хэлтэс',
+    'tickets.reception': 'Ресепшн',
+    'tickets.frontOffice': 'Оффис',
+    'tickets.noMatchFilters': 'Шүүлтүүрт тохирох тасалбар олдсонгүй',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Эрт Гарах Хүсэлт Илгээсэн',
+    'attendance.earlySignOutSubmittedDesc': 'Таны удирдагч хүсэлтийг шалгана. Зөвшөөрөгдөх хүртэл ажиллах боломжгүй.',
+    'attendance.earlySignOutError': 'Эрт гарах хүсэлт илгээх амжилтгүй',
+    'attendance.breakStartTitle': 'Амрах Цаг',
+    'attendance.breakEndTitle': 'Эрч Хүчтэй Буцаж Ирлээ!',
+    'attendance.breakStartDesc': 'Завсарлагаагаа сайхан өнгөрүүлээрэй! 🌸',
+    'attendance.breakEndDesc': 'Тавтай морилно уу! Агуу зүйлс хийцгээе ⚡',
+    'attendance.breakUpdateError': 'Завсарлагааны төлөв шинэчлэх амжилтгүй',
+    'attendance.notSignedOut': 'Гараагүй',
+    'attendance.working': 'Ажиллаж Байна',
+    'attendance.completed': 'Дуусгасан',
   },
   
   hu: {
