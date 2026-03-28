@@ -374,8 +374,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         if (error) throw error;
 
         toast({
-          title: "Early Sign-Out Request Submitted",
-          description: "Your supervisor will review your request. You cannot work until it's approved.",
+          title: t('attendance.earlySignOutSubmitted') || "Early Sign-Out Request Submitted",
+          description: t('attendance.earlySignOutSubmittedDesc') || "Your supervisor will review your request. You cannot work until it's approved.",
           variant: "default"
         });
         
