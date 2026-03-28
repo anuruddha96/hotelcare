@@ -701,11 +701,11 @@ export function Dashboard() {
                       <SelectValue placeholder="Department" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Departments</SelectItem>
-                      <SelectItem value="maintenance">Maintenance</SelectItem>
-                      <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                      <SelectItem value="reception">Reception</SelectItem>
-                      <SelectItem value="front_office">Front Office</SelectItem>
+                      <SelectItem value="all">{t('tickets.allDepartments') || 'All Departments'}</SelectItem>
+                      <SelectItem value="maintenance">{t('rooms.maintenance')}</SelectItem>
+                      <SelectItem value="housekeeping">{t('dashboard.housekeeping')}</SelectItem>
+                      <SelectItem value="reception">{t('tickets.reception') || 'Reception'}</SelectItem>
+                      <SelectItem value="front_office">{t('tickets.frontOffice') || 'Front Office'}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
