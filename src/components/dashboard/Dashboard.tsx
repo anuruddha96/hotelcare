@@ -678,10 +678,10 @@ export function Dashboard() {
                       <SelectValue placeholder="Status" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="open">Open</SelectItem>
-                      <SelectItem value="in_progress">In Progress</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="all">{t('tickets.allStatus')}</SelectItem>
+                      <SelectItem value="open">{t('tickets.open')}</SelectItem>
+                      <SelectItem value="in_progress">{t('tickets.inProgress')}</SelectItem>
+                      <SelectItem value="completed">{t('tickets.completed')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={priorityFilter} onValueChange={setPriorityFilter}>
