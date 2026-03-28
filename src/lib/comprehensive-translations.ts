@@ -712,6 +712,25 @@ export const additionalTranslations = {
     'publicArea.notesPlaceholder': 'Add any special instructions...',
     'publicArea.assign': 'Assign',
     'publicArea.assigning': 'Assigning...',
+
+    // Tickets - Dashboard filters
+    'tickets.allDepartments': 'All Departments',
+    'tickets.reception': 'Reception',
+    'tickets.frontOffice': 'Front Office',
+    'tickets.noMatchFilters': 'No tickets match your filters',
+
+    // Attendance - missing toast translations
+    'attendance.earlySignOutSubmitted': 'Early Sign-Out Request Submitted',
+    'attendance.earlySignOutSubmittedDesc': "Your supervisor will review your request. You cannot work until it's approved.",
+    'attendance.earlySignOutError': 'Failed to submit early sign-out request',
+    'attendance.breakStartTitle': 'Time to Rest & Recharge',
+    'attendance.breakEndTitle': 'Energized & Ready to Go!',
+    'attendance.breakStartDesc': 'Enjoy your break! 🌸',
+    'attendance.breakEndDesc': "Welcome back! Let's make great things happen ⚡",
+    'attendance.breakUpdateError': 'Failed to update break status',
+    'attendance.notSignedOut': 'Not Signed Out',
+    'attendance.working': 'Working',
+    'attendance.completed': 'Completed',
   },
 
   es: {
