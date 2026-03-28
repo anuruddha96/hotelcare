@@ -685,8 +685,8 @@ export function Dashboard() {
                     </SelectContent>
                   </Select>
                   <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                    <SelectTrigger className="w-full sm:w-[130px]">
-                      <SelectValue placeholder="Priority" />
+                    <SelectTrigger className="w-full sm:w-[140px] truncate">
+                      <SelectValue placeholder={t('common.priority')} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">{t('tickets.allPriority')}</SelectItem>
