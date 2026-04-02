@@ -273,7 +273,7 @@ export function HousekeepingStaffManagement() {
     }
   }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole, hotelsLoading, fetchHotelsForManager]);
 
-  // Check username availability when full_name changes
+  // Check username availability using real sequence number
   const checkUsernameAvailability = useCallback(async (fullName: string, orgSlug: string) => {
     if (!fullName.trim() || !orgSlug) {
       setUsernameStatus('idle');
@@ -291,21 +291,21 @@ export function HousekeepingStaffManagement() {
     setUsernameStatus('checking');
     
     try {
-      // Check for existing usernames with the same first name pattern in this organization
+      // Query the real sequence table to get the next number
       const { data, error } = await supabase
-        .from('profiles')
-        .select('nickname')
+        .from('housekeeper_username_sequence')
+        .select('last_sequence_number')
         .eq('organization_slug', orgSlug)
-        .ilike('nickname', `${firstName}_%`);
+        .maybeSingle();
 
       if (error) throw error;
 
-      const count = data?.length || 0;
-      setExistingUsernameCount(count);
+      const nextNumber = (data?.last_sequence_number ?? 0) + 1;
+      setExistingUsernameCount(nextNumber - 1);
       
-      // Generate preview username (next available number)
-      const nextNumber = String(count + 1).padStart(3, '0');
-      setPreviewUsername(`${firstName}_${nextNumber}`);
+      // Generate preview username using real sequence
+      const paddedNumber = String(nextNumber).padStart(3, '0');
+      setPreviewUsername(`${firstName}_${paddedNumber}`);
       setUsernameStatus('available');
     } catch (error) {
       console.error('Error checking username:', error);
@@ -755,17 +755,22 @@ export function HousekeepingStaffManagement() {
                       </>
                     )}
                     {usernameStatus === 'available' && previewUsername && (
-                      <>
-                        <CheckCircle2 className="h-3 w-3 text-green-600" />
-                        <span className="text-green-600">
-                          Username will be: <strong>{previewUsername}</strong>
-                          {existingUsernameCount > 0 && (
-                            <span className="text-muted-foreground ml-1">
-                              ({existingUsernameCount} existing with same first name)
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3 text-green-600" />
+                          <span className="text-green-600">
+                            Username: <strong>{previewUsername}</strong>
+                          </span>
+                        </div>
+                        {!newStaffData.use_custom_password && (
+                          <div className="flex items-center gap-1 ml-4">
+                            <Key className="h-3 w-3 text-blue-500" />
+                            <span className="text-blue-600">
+                              Password: <strong>{newStaffData.full_name.trim().split(' ')[0]}@{previewUsername.split('_').pop()}</strong>
                             </span>
-                          )}
-                        </span>
-                      </>
+                          </div>
+                        )}
+                      </div>
                     )}
                     {usernameStatus === 'idle' && (
                       <span className="text-muted-foreground">
@@ -885,7 +890,7 @@ export function HousekeepingStaffManagement() {
                   
                   {!newStaffData.use_custom_password && (
                     <p className="text-xs text-muted-foreground">
-                      A secure password will be auto-generated if custom password is not set
+                      Default password format: <strong>FirstName@XXX</strong> (e.g., Petra@021)
                     </p>
                   )}
                 </div>

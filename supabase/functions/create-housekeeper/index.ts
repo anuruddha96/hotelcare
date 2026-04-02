@@ -123,7 +123,7 @@ export const handler = async (req: Request): Promise<Response> => {
 
     const generatedPassword = (password && String(password).trim().length
       ? String(password).trim()
-      : `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`);
+      : `${firstName}@${String(sequenceNumber).padStart(3, '0')}`);
 
     // Sanitize username and org slug for email to avoid invalid characters
     const sanitizedUsername = sanitizeForEmail(generatedUsername);
