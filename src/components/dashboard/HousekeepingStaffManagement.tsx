@@ -755,17 +755,22 @@ export function HousekeepingStaffManagement() {
                       </>
                     )}
                     {usernameStatus === 'available' && previewUsername && (
-                      <>
-                        <CheckCircle2 className="h-3 w-3 text-green-600" />
-                        <span className="text-green-600">
-                          Username will be: <strong>{previewUsername}</strong>
-                          {existingUsernameCount > 0 && (
-                            <span className="text-muted-foreground ml-1">
-                              ({existingUsernameCount} existing with same first name)
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3 text-green-600" />
+                          <span className="text-green-600">
+                            Username: <strong>{previewUsername}</strong>
+                          </span>
+                        </div>
+                        {!newStaffData.use_custom_password && (
+                          <div className="flex items-center gap-1 ml-4">
+                            <Key className="h-3 w-3 text-blue-500" />
+                            <span className="text-blue-600">
+                              Password: <strong>{newStaffData.full_name.trim().split(' ')[0]}@{previewUsername.split('_').pop()}</strong>
                             </span>
-                          )}
-                        </span>
-                      </>
+                          </div>
+                        )}
+                      </div>
                     )}
                     {usernameStatus === 'idle' && (
                       <span className="text-muted-foreground">
