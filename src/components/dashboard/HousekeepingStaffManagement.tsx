@@ -890,7 +890,7 @@ export function HousekeepingStaffManagement() {
                   
                   {!newStaffData.use_custom_password && (
                     <p className="text-xs text-muted-foreground">
-                      A secure password will be auto-generated if custom password is not set
+                      Default password format: <strong>FirstName@XXX</strong> (e.g., Petra@021)
                     </p>
                   )}
                 </div>
