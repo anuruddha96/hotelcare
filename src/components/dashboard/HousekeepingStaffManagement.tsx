@@ -273,7 +273,7 @@ export function HousekeepingStaffManagement() {
     }
   }, [newStaffData.organization_slug, currentUserOrgSlug, allHotels, isSuperAdmin, currentUserRole, hotelsLoading, fetchHotelsForManager]);
 
-  // Check username availability when full_name changes
+  // Check username availability using real sequence number
   const checkUsernameAvailability = useCallback(async (fullName: string, orgSlug: string) => {
     if (!fullName.trim() || !orgSlug) {
       setUsernameStatus('idle');
@@ -291,21 +291,21 @@ export function HousekeepingStaffManagement() {
     setUsernameStatus('checking');
     
     try {
-      // Check for existing usernames with the same first name pattern in this organization
+      // Query the real sequence table to get the next number
       const { data, error } = await supabase
-        .from('profiles')
-        .select('nickname')
+        .from('housekeeper_username_sequence')
+        .select('last_sequence_number')
         .eq('organization_slug', orgSlug)
-        .ilike('nickname', `${firstName}_%`);
+        .maybeSingle();
 
       if (error) throw error;
 
-      const count = data?.length || 0;
-      setExistingUsernameCount(count);
+      const nextNumber = (data?.last_sequence_number ?? 0) + 1;
+      setExistingUsernameCount(nextNumber - 1);
       
-      // Generate preview username (next available number)
-      const nextNumber = String(count + 1).padStart(3, '0');
-      setPreviewUsername(`${firstName}_${nextNumber}`);
+      // Generate preview username using real sequence
+      const paddedNumber = String(nextNumber).padStart(3, '0');
+      setPreviewUsername(`${firstName}_${paddedNumber}`);
       setUsernameStatus('available');
     } catch (error) {
       console.error('Error checking username:', error);
