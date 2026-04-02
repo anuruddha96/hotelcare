@@ -88,10 +88,11 @@ serve(async (req) => {
       });
     }
 
-    // Non-admin users can only delete housekeepers in their hotel
+    // Non-admin users can only delete staff in their hotel (housekeeping, maintenance, managers)
     if (callerRole !== 'admin') {
-      if (targetProfile.role !== 'housekeeping') {
-        return new Response(JSON.stringify({ error: "You can only delete housekeeping staff" }), {
+      const deletableRoles = ['housekeeping', 'maintenance', 'manager', 'housekeeping_manager'];
+      if (!deletableRoles.includes(targetProfile.role)) {
+        return new Response(JSON.stringify({ error: "You cannot delete users with this role" }), {
           status: 403,
           headers: { "Content-Type": "application/json", ...corsHeaders },
         });
