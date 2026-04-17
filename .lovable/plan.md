@@ -1,47 +1,53 @@
 
 
-## Plan: Real Username Preview & Standardized Default Passwords
+## Plan: Fix White Screen After Coffee Table Photo + Add Android PWA Install
 
-### Problem
-1. **Username preview is fake**: The client counts `profiles.nickname ILIKE 'FirstName_%'` to guess the next number, but the server uses `get_next_housekeeper_sequence` (an atomic counter). These diverge over time.
-2. **Default password is random**: Server generates `RD` + random hex. User wants `FirstName@XXX` format (e.g., `Petra@021`).
+### Issue 1: White screen after coffee table photo capture (Natali's bug)
 
-### Changes
+**Investigation needed**: I need to inspect the photo capture flow in `EnhancedImageCaptureDialog.tsx` / `SimplifiedPhotoCapture.tsx` / `CompletionChecklistDialog.tsx` to find what happens specifically after the coffee table photo step. Likely root causes (based on prior similar issues):
 
-**File: `src/components/dashboard/HousekeepingStaffManagement.tsx`**
+1. **Async gesture-chain break**: After `await` on a heavy operation (image compression, upload, base64 conversion), the next photo input click silently fails on Android Chrome, leaving a blank state.
+2. **Memory pressure**: Large base64 previews (Object URLs not revoked) accumulate, causing the WebView to crash/blank on mid-range Android devices after several captures.
+3. **State race**: `currentStep` advances but the next step's render throws (e.g., undefined photo type), and the error boundary shows nothing.
 
-1. Replace the `checkUsernameAvailability` function: instead of querying `profiles` and counting, call the RPC `get_next_housekeeper_sequence` in **peek mode** — but since the RPC increments the counter, we cannot call it for preview. Instead, query `housekeeper_username_sequence` table directly to read `last_sequence_number` and show `last_sequence_number + 1` as preview.
-   ```typescript
-   const { data } = await supabase
-     .from('housekeeper_username_sequence')
-     .select('last_sequence_number')
-     .eq('organization_slug', orgSlug)
-     .maybeSingle();
-   const nextNumber = (data?.last_sequence_number ?? 0) + 1;
-   setPreviewUsername(`${firstName}_${String(nextNumber).padStart(3, '0')}`);
-   ```
+**Fix approach**:
+- Wrap the capture/upload flow in try/catch with a visible fallback UI (no more silent white screen).
+- Revoke `URL.createObjectURL` previews after upload; convert/compress images via `createImageBitmap` + canvas instead of FileReader base64 to cut memory ~4x.
+- Pre-create the next file input synchronously inside the click handler, then run async upload after — preserving the gesture chain on Android.
+- Add an error boundary around the checklist dialog content so a render error shows a "Retry" button instead of a blank screen.
+- Add console logging at each step transition so future reports surface in logs.
 
-2. Show the default password preview below the username preview: `Password: FirstName@XXX` (when custom password is not enabled).
+### Issue 2: Android install-to-home-screen + push notifications
 
-**File: `supabase/functions/create-housekeeper/index.ts`**
+The app already has `public/service-worker.js` and `serviceWorkerManager.ts` registered (visible in console: "Service Worker registered successfully"). What's **missing** for Android install:
 
-3. Change the default password generation (line 124-126) from random hex to the standardized format:
-   ```typescript
-   const generatedPassword = (password && String(password).trim().length
-     ? String(password).trim()
-     : `${firstName}@${String(sequenceNumber).padStart(3, '0')}`);
-   ```
+1. **`public/manifest.webmanifest`** with `name`, `short_name`, `start_url: "/"`, `display: "standalone"`, `background_color`, `theme_color`, and `icons` (192px + 512px, with `purpose: "any maskable"`).
+2. **`<link rel="manifest">`** + theme-color meta in `index.html`.
+3. **PWA icons** in `/public/` (192, 512, maskable variants) — generated from existing favicon/logo.
+4. **Install prompt UI**: Capture `beforeinstallprompt`, show a small "Install App" button in the Header (Android Chrome only — iOS Safari uses the existing add-to-home-screen instructions). Hide once installed (`appinstalled` event or `display-mode: standalone`).
+5. **Service worker tweak**: Existing SW is fine for notifications; just ensure it doesn't aggressively cache HTML (current code has empty fetch handler — good, no cache pollution risk).
 
-### RLS Note
-The `housekeeper_username_sequence` table currently only has a service-role policy. We need to add a SELECT policy for authenticated users so managers can read the current sequence number.
+**Important PWA constraints from project guidelines**:
+- Do NOT add `vite-plugin-pwa` (it caches builds and breaks the Lovable preview iframe).
+- The existing manual SW already skips caching — we keep it that way.
+- Guard the install banner to only render outside iframes / preview hosts so the editor preview isn't affected.
+- Notifications already work (existing `useNotificationPreferences` + service worker push handler) — we just make sure the install flow surfaces the "Enable notifications" banner right after install.
 
-**New migration**: Add RLS policy allowing authenticated users to SELECT from `housekeeper_username_sequence`.
+### Files to change
 
-### Summary
+| File | Change |
+|------|--------|
+| `src/components/dashboard/SimplifiedPhotoCapture.tsx` (and/or `EnhancedImageCaptureDialog.tsx`) | Wrap capture in try/catch, revoke object URLs, preserve gesture chain, add step logging |
+| `src/components/dashboard/CompletionChecklistDialog.tsx` | Wrap checklist body in error boundary with Retry |
+| New: `src/components/ErrorBoundary.tsx` | Reusable error boundary |
+| New: `public/manifest.webmanifest` | PWA manifest |
+| New: `public/icon-192.png`, `public/icon-512.png`, `public/icon-maskable-512.png` | PWA icons (generated from existing branding) |
+| `index.html` | Add `<link rel="manifest">`, theme-color, apple-touch-icon |
+| New: `src/components/InstallAppPrompt.tsx` | `beforeinstallprompt` capture + install button (Android Chrome) |
+| `src/components/layout/Header.tsx` | Mount `<InstallAppPrompt />` |
+| `public/service-worker.js` | Minor: ensure no HTML caching (already fine), keep push handler |
 
-| File | Changes |
-|------|---------|
-| `src/components/dashboard/HousekeepingStaffManagement.tsx` | Query real sequence number for preview; show default password preview |
-| `supabase/functions/create-housekeeper/index.ts` | Change default password to `FirstName@XXX` format |
-| New migration | Add SELECT RLS policy on `housekeeper_username_sequence` for authenticated users |
+### Out of scope / notes
+- True native Android app (Capacitor) is **not** included — the user asked for "download to home screen and work like an app", which is exactly the PWA install flow above.
+- iOS users keep the existing add-to-home-screen instructions (iOS doesn't support `beforeinstallprompt`).
 
