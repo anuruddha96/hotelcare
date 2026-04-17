@@ -9,6 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,6 +89,20 @@ export function SimplifiedPhotoCapture({
       checkCameraPermission();
     }
   }, [open, assignmentId]);
+
+  // Revoke any blob: object URLs when dialog closes / unmounts (memory safety on Android)
+  useEffect(() => {
+    return () => {
+      categorizedPhotos.forEach((p) => {
+        if (p.dataUrl.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(p.dataUrl);
+          } catch {}
+        }
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const checkCameraPermission = async () => {
     try {
@@ -259,48 +274,65 @@ export function SimplifiedPhotoCapture({
 
     if (!context) return;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    context.drawImage(video, 0, 0);
+    console.log('[PhotoCapture] Capturing photo for category:', currentCategory.key);
 
-    canvas.toBlob(async (blob) => {
-      if (blob) {
-        const photoUrl = URL.createObjectURL(blob);
-        const photoId = `${currentCategory.key}_${Date.now()}_${Math.random()}`;
-        
-        // Add new photo (allow multiple per category)
-        const newPhoto = {
-          category: currentCategory.key,
-          categoryName: currentCategory.translationKey,
-          dataUrl: photoUrl,
-          blob
-        };
-        
-        setCategorizedPhotos(prev => [...prev, newPhoto]);
-        toast.success(`${t(currentCategory.translationKey)} ${t('photoCapture.photoCaptured')}`);
-        stopCamera();
+    try {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0);
 
-        // Auto-save the photo immediately
-        setUploadingPhotos(prev => new Set(prev).add(photoId));
-        
+      const blob: Blob | null = await new Promise((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', 0.85)
+      );
+
+      // Free canvas memory immediately (critical on Android)
+      canvas.width = 0;
+      canvas.height = 0;
+
+      if (!blob) {
+        toast.error(t('photoCapture.cameraStartError') || 'Capture failed');
+        return;
+      }
+
+      const photoUrl = URL.createObjectURL(blob);
+      const photoId = `${currentCategory.key}_${Date.now()}_${Math.random()}`;
+      const capturedCategory = currentCategory; // snapshot to avoid stale closure
+      const capturedIndex = currentCategoryIndex;
+
+      const newPhoto: CategorizedPhoto = {
+        category: capturedCategory.key,
+        categoryName: capturedCategory.translationKey,
+        dataUrl: photoUrl,
+        blob,
+      };
+
+      setCategorizedPhotos((prev) => [...prev, newPhoto]);
+      toast.success(`${t(capturedCategory.translationKey)} ${t('photoCapture.photoCaptured')}`);
+      stopCamera();
+
+      setUploadingPhotos((prev) => new Set(prev).add(photoId));
+
+      // Run upload in background; do NOT block UI transitions
+      (async () => {
         try {
-          const fileName = `${user.id}/${roomNumber}/${currentCategory.key}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-          
+          const fileName = `${user.id}/${roomNumber}/${capturedCategory.key}_${Date.now()}_${Math.random()
+            .toString(36)
+            .substring(7)}.jpg`;
+
           const { data, error } = await supabase.storage
             .from('room-photos')
             .upload(fileName, blob, {
               contentType: 'image/jpeg',
               cacheControl: '3600',
-              upsert: false
+              upsert: false,
             });
 
           if (error) throw error;
 
-          const { data: { publicUrl } } = supabase.storage
-            .from('room-photos')
-            .getPublicUrl(data.path);
+          const {
+            data: { publicUrl },
+          } = supabase.storage.from('room-photos').getPublicUrl(data.path);
 
-          // Update the assignment with the new photo URL
           if (assignmentId) {
             const { data: existingAssignment } = await supabase
               .from('room_assignments')
@@ -309,52 +341,49 @@ export function SimplifiedPhotoCapture({
               .single();
 
             const currentPhotos = existingAssignment?.completion_photos || [];
-            
+
             await supabase
               .from('room_assignments')
               .update({
-                completion_photos: [...currentPhotos, publicUrl]
+                completion_photos: [...currentPhotos, publicUrl],
               })
               .eq('id', assignmentId);
           }
 
-          setUploadingPhotos(prev => {
+          setUploadingPhotos((prev) => {
             const next = new Set(prev);
             next.delete(photoId);
             return next;
           });
-          setUploadedPhotos(prev => new Set(prev).add(photoId));
-          toast.success(`${t(currentCategory.translationKey)} photo saved!`, { duration: 2000 });
-        } catch (error: any) {
-          console.error('Auto-save error:', error);
-          setUploadingPhotos(prev => {
+          setUploadedPhotos((prev) => new Set(prev).add(photoId));
+          console.log('[PhotoCapture] Saved photo:', capturedCategory.key);
+        } catch (uploadErr: any) {
+          console.error('[PhotoCapture] Upload error:', uploadErr);
+          setUploadingPhotos((prev) => {
             const next = new Set(prev);
             next.delete(photoId);
             return next;
           });
-          toast.error(`Failed to save ${t(currentCategory.translationKey)} photo`);
+          toast.error(`Failed to save ${t(capturedCategory.translationKey)} photo`);
         }
-        
-        // Check if this is the last category and all have at least one photo
-        const updatedPhotos = [...categorizedPhotos, newPhoto];
-        
-        const allCategoriesHavePhotos = PHOTO_CATEGORIES.every(cat => 
-          updatedPhotos.some(p => p.category === cat.key)
-        );
-        
-        if (allCategoriesHavePhotos && currentCategoryIndex === PHOTO_CATEGORIES.length - 1) {
-          // Show save confirmation after a brief delay
-          setTimeout(() => {
-            setShowSaveConfirmation(true);
-          }, 800);
-        } else if (currentCategoryIndex < PHOTO_CATEGORIES.length - 1) {
-          // Auto-advance to next category if not the last one
-          setTimeout(() => {
-            setCurrentCategoryIndex(prev => prev + 1);
-          }, 500);
-        }
+      })();
+
+      // Advance UI synchronously after capture (no setTimeout race)
+      const allCategoriesHavePhotos = PHOTO_CATEGORIES.every((cat) =>
+        cat.key === capturedCategory.key ||
+        categorizedPhotos.some((p) => p.category === cat.key)
+      );
+
+      if (allCategoriesHavePhotos && capturedIndex === PHOTO_CATEGORIES.length - 1) {
+        setTimeout(() => setShowSaveConfirmation(true), 600);
+      } else if (capturedIndex < PHOTO_CATEGORIES.length - 1) {
+        setTimeout(() => setCurrentCategoryIndex((prev) => prev + 1), 400);
       }
-    }, 'image/jpeg', 0.95);
+    } catch (err: any) {
+      console.error('[PhotoCapture] capturePhoto fatal error:', err);
+      toast.error('Photo capture failed. Please try again.');
+      stopCamera();
+    }
   }, [currentCategory, currentCategoryIndex, categorizedPhotos, stopCamera, t, user, roomNumber, assignmentId]);
 
 
@@ -471,6 +500,11 @@ export function SimplifiedPhotoCapture({
             </DialogHeader>
 
             <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-6" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <ErrorBoundary
+                fallbackTitle="Photo capture issue"
+                fallbackMessage="Something went wrong with the photo step. Tap Retry to continue capturing."
+                onReset={() => stopCamera()}
+              >
               <div className="space-y-4 sm:space-y-6 max-w-2xl mx-auto">
                 {/* Progress Bar */}
                 <div className="space-y-2">
@@ -790,6 +824,7 @@ export function SimplifiedPhotoCapture({
                   </div>
                 )}
               </div>
+              </ErrorBoundary>
             </div>
           </div>
         </DialogContent>
