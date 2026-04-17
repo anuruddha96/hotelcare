@@ -824,6 +824,7 @@ export function SimplifiedPhotoCapture({
                   </div>
                 )}
               </div>
+              </ErrorBoundary>
             </div>
           </div>
         </DialogContent>
