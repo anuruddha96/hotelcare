@@ -9,6 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,6 +89,20 @@ export function SimplifiedPhotoCapture({
       checkCameraPermission();
     }
   }, [open, assignmentId]);
+
+  // Revoke any blob: object URLs when dialog closes / unmounts (memory safety on Android)
+  useEffect(() => {
+    return () => {
+      categorizedPhotos.forEach((p) => {
+        if (p.dataUrl.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(p.dataUrl);
+          } catch {}
+        }
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const checkCameraPermission = async () => {
     try {
