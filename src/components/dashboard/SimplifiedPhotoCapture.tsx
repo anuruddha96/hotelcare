@@ -500,6 +500,11 @@ export function SimplifiedPhotoCapture({
             </DialogHeader>
 
             <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-6" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <ErrorBoundary
+                fallbackTitle="Photo capture issue"
+                fallbackMessage="Something went wrong with the photo step. Tap Retry to continue capturing."
+                onReset={() => stopCamera()}
+              >
               <div className="space-y-4 sm:space-y-6 max-w-2xl mx-auto">
                 {/* Progress Bar */}
                 <div className="space-y-2">
