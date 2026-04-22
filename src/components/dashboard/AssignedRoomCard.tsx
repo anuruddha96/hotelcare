@@ -686,8 +686,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  const badgeTextClass = "min-w-0 max-w-full whitespace-normal break-words leading-tight text-center";
-
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
   const hasManagerNotes = !!roomFlags.cleanNotes;
