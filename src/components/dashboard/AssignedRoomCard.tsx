@@ -686,6 +686,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
+  const badgeTextClass = "min-w-0 max-w-full whitespace-normal break-words leading-tight text-center";
+
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
   const hasManagerNotes = !!roomFlags.cleanNotes;
@@ -741,7 +743,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               {t('common.room')} {assignment.rooms?.room_number || 'N/A'}
             </CardTitle>
             <Badge 
-              className={`${getStatusColor(assignment.status)} font-semibold px-3 py-1 text-xs uppercase tracking-wide rounded-full shadow-sm flex-shrink-0`}
+              className={`${getStatusColor(assignment.status)} font-semibold px-3 py-1 text-xs uppercase rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center`}
             >
               {isCheckoutWaiting
                 ? (t('housekeeping.guestInRoom') || 'Guest in room')
@@ -772,7 +774,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {isCheckoutWaiting && (
               <Badge 
                 variant="default" 
-                className="bg-orange-500 text-white font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 animate-pulse"
+                className="bg-orange-500 text-white font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 animate-pulse max-w-full whitespace-normal break-words leading-tight text-center"
               >
                 🚪 {t('housekeeping.assignmentType.checkoutClean') || 'Checkout'}
               </Badge>
@@ -781,7 +783,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {assignment.rooms?.towel_change_required && (
               <Badge 
                 variant="default" 
-                className="bg-blue-100 text-blue-800 border-blue-200 font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0"
+                className="bg-primary/10 text-primary border-primary/20 font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
                 🏺 {t('roomCard.towelChange')}
               </Badge>
@@ -789,7 +791,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {assignment.rooms?.linen_change_required && (
               <Badge 
                 variant="default" 
-                className="bg-purple-100 text-purple-800 border-purple-200 font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0"
+                className="bg-accent text-accent-foreground border-border font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
                 🛏️ {t('roomCard.linenChange')}
               </Badge>
@@ -797,7 +799,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {(assignment.rooms?.guest_nights_stayed ?? 0) > 0 && (
               <Badge 
                 variant="outline" 
-                className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full flex-shrink-0"
+                className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
                 🌙 {t('roomCard.night')} {assignment.rooms.guest_nights_stayed}
               </Badge>
@@ -806,7 +808,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {assignment.priority > 1 && assignment.status !== 'in_progress' && (
               <Badge 
                 variant="outline" 
-                className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0 animate-pulse`}
+                className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0 animate-pulse max-w-full whitespace-normal break-words leading-tight text-center`}
               >
                 ⭐ {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
               </Badge>
@@ -814,7 +816,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {assignment.status === 'in_progress' && (
               <Badge 
                 variant="default"
-                className="bg-amber-500 text-white font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 animate-pulse"
+                className="bg-primary text-primary-foreground font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 animate-pulse max-w-full whitespace-normal break-words leading-tight text-center"
               >
                 🔥 {t('housekeeping.inProgress')}
               </Badge>
@@ -822,7 +824,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {!isCheckoutWaiting && (
               <Badge 
                 variant="outline" 
-                className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full hover:bg-muted/80 transition-colors flex-shrink-0"
+                className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full hover:bg-muted/80 transition-colors flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
                 {getAssignmentTypeLabel(assignment.assignment_type)}
               </Badge>
