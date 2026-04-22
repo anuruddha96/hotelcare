@@ -1903,6 +1903,11 @@ const translations = {
     'roomCard.details': 'Дэлгэрэнгүй',
     'roomCard.towelChange': 'Алчуур Солих',
     'roomCard.linenChange': 'Ор Дэр Солих',
+    'roomCard.bedLinenChange': 'Ор дэр солих',
+    'roomCard.bedConfiguration': 'Орны тохиргоо',
+    'roomCard.roomCleaning': 'Өрөө бүрэн цэвэрлэх',
+    'roomCard.collectExtraTowels': 'Нэмэлт алчуур цуглуулах',
+    'roomCard.collectExtraTowelsDesc': 'Ресепшн нэмэлт алчуур өгсөн — цуглуулна уу',
     'roomCard.night': 'Шөнө',
     'roomCard.floorUnavailable': 'Давхарын мэдээлэл байхгүй',
     
