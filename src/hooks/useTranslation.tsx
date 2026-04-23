@@ -828,6 +828,12 @@ const translations = {
     'tickets.priority.medium': 'Közepes',
     'tickets.priority.low': 'Alacsony',
     'tickets.create.success': 'Jegy sikeresen létrehozva',
+    'tickets.title': 'Cím',
+    'tickets.description': 'Leírás',
+    'tickets.priority': 'Prioritás',
+    'tickets.status': 'Állapot',
+    'tickets.assignedTo': 'Hozzárendelve',
+    'tickets.createdBy': 'Létrehozta',
     'tickets.create.error': 'Jegy létrehozása nem sikerült',
     
     // Room Management
@@ -1383,6 +1389,12 @@ const translations = {
     'dashboard.myTasks': 'Mis Tareas',
     'dashboard.workStatus': 'Estado de Trabajo',
     'dashboard.housekeeping': 'Limpieza',
+    'tickets.title': 'Título',
+    'tickets.description': 'Descripción',
+    'tickets.priority': 'Prioridad',
+    'tickets.status': 'Estado',
+    'tickets.assignedTo': 'Asignado a',
+    'tickets.createdBy': 'Creado por',
     
     // Minibar Tracking
     'minibar.usage': 'Uso del Minibar',
@@ -1637,6 +1649,12 @@ const translations = {
     'dashboard.title': 'Bảng Điều Khiển Quản Lý Khách Sạn',
     'dashboard.subtitle': 'Quản lý tất cả yêu cầu dịch vụ của RD Hotels',
     'dashboard.myTasks': 'Nhiệm Vụ Của Tôi',
+    'tickets.title': 'Tiêu đề',
+    'tickets.description': 'Mô tả',
+    'tickets.priority': 'Mức ưu tiên',
+    'tickets.status': 'Trạng thái',
+    'tickets.assignedTo': 'Giao cho',
+    'tickets.createdBy': 'Tạo bởi',
     
     // Room Details
     'room.roomName': 'Tên Phòng',
@@ -1877,6 +1895,12 @@ const translations = {
     'dashboard.workStatus': 'Ирц',
     'dashboard.manageUsers': 'Хэрэглэгч удирдах',
     'dashboard.newTicket': 'Шинэ Тасалбар',
+    'tickets.title': 'Гарчиг',
+    'tickets.description': 'Тайлбар',
+    'tickets.priority': 'Тэргүүлэх зэрэг',
+    'tickets.status': 'Төлөв',
+    'tickets.assignedTo': 'Хариуцагч',
+    'tickets.createdBy': 'Үүсгэсэн',
     
     // Room Details
     'room.roomName': 'Өрөөний Нэр',
