@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
 import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
@@ -2119,6 +2119,52 @@ const translations = {
 type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.en;
 
+const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn'];
+const LANGUAGE_STORAGE_KEYS = ['preferred_language', 'preferred-language'] as const;
+const TRANSLATION_BUNDLE_CACHE_PREFIX = 'translation_bundle_';
+
+const isLanguage = (value: string | null): value is Language =>
+  !!value && supportedLanguages.includes(value as Language);
+
+const getStoredLanguage = (): Language | null => {
+  for (const key of LANGUAGE_STORAGE_KEYS) {
+    const stored = localStorage.getItem(key);
+    if (isLanguage(stored)) return stored;
+  }
+
+  return null;
+};
+
+const persistLanguage = (lang: Language) => {
+  LANGUAGE_STORAGE_KEYS.forEach((key) => localStorage.setItem(key, lang));
+};
+
+const getStaticTranslationBundle = (lang: Language): Record<string, string> => ({
+  ...(translations[lang] ?? {}),
+  ...(additionalTranslations[lang] ?? {}),
+  ...(expandedTranslations[lang] ?? {}),
+  ...(notificationTranslations[lang as keyof typeof notificationTranslations] ?? {}),
+  ...(dashboardTranslations[lang as keyof typeof dashboardTranslations] ?? {}),
+  ...(pmsTranslations[lang] ?? {}),
+});
+
+const getCachedTranslationBundle = (lang: Language): Record<string, string> => {
+  try {
+    const cached = localStorage.getItem(`${TRANSLATION_BUNDLE_CACHE_PREFIX}${lang}`);
+    return cached ? JSON.parse(cached) : {};
+  } catch {
+    return {};
+  }
+};
+
+const persistTranslationBundle = (lang: Language, bundle: Record<string, string>) => {
+  try {
+    localStorage.setItem(`${TRANSLATION_BUNDLE_CACHE_PREFIX}${lang}`, JSON.stringify(bundle));
+  } catch {
+    // Ignore quota/private-mode failures; static translations still render synchronously.
+  }
+};
+
 interface TranslationContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
@@ -2129,14 +2175,20 @@ const TranslationContext = createContext<TranslationContextType | null>(null);
 
 export function TranslationProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>(() => {
-    const stored = localStorage.getItem('preferred-language') as Language;
+    const stored = getStoredLanguage();
     if (stored) return stored;
     
-    const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn'];
     const browserLang = navigator.language?.split('-')[0]?.toLowerCase();
     const detected = supportedLanguages.find(l => l === browserLang);
     return detected || 'en';
   });
+
+  const [cachedBundles] = useState<Record<Language, Record<string, string>>>(() =>
+    supportedLanguages.reduce((bundles, lang) => {
+      bundles[lang] = getCachedTranslationBundle(lang);
+      return bundles;
+    }, {} as Record<Language, Record<string, string>>)
+  );
 
   // Load custom translations from localStorage
   const [customTranslations, setCustomTranslations] = useState<any>(() => {
@@ -2148,58 +2200,35 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     }
   });
 
+  const activeBundle = useMemo(() => {
+    const customBundle = Object.entries(customTranslations).reduce((bundle, [key, values]: [string, any]) => {
+      if (values?.[language]) bundle[key] = values[language];
+      return bundle;
+    }, {} as Record<string, string>);
+
+    return {
+      ...cachedBundles[language],
+      ...getStaticTranslationBundle(language),
+      ...customBundle,
+    };
+  }, [cachedBundles, customTranslations, language]);
+
+  const englishBundle = useMemo(() => ({
+    ...cachedBundles.en,
+    ...getStaticTranslationBundle('en'),
+  }), [cachedBundles]);
+
+  useEffect(() => {
+    persistTranslationBundle(language, activeBundle);
+  }, [activeBundle, language]);
+
   const t = (key: TranslationKey | string): string => {
-    // First check custom translations
-    if (customTranslations[key]?.[language]) {
-      return customTranslations[key][language];
-    }
-    
-    // Check all translation sources in current language FIRST
-    const mainTranslation = translations[language]?.[key];
-    if (mainTranslation) return mainTranslation;
-    
-    const additionalTranslation = additionalTranslations[language]?.[key];
-    if (additionalTranslation) return additionalTranslation;
-    
-    const expandedTranslation = expandedTranslations[language]?.[key];
-    if (expandedTranslation) return expandedTranslation;
-    
-    // Check notification and dashboard translations
-    const notificationTranslation = notificationTranslations[language as keyof typeof notificationTranslations]?.[key as keyof typeof notificationTranslations.en];
-    if (notificationTranslation) return notificationTranslation;
-    
-    const dashboardTranslation = dashboardTranslations[language as keyof typeof dashboardTranslations]?.[key as keyof typeof dashboardTranslations.en];
-    if (dashboardTranslation) return dashboardTranslation;
-
-    const pmsTranslation = pmsTranslations[language]?.[key];
-    if (pmsTranslation) return pmsTranslation;
-    
-    // Only fall back to English if not found in current language
-    const enMain = translations.en[key];
-    if (enMain) return enMain;
-    
-    const enAdditional = additionalTranslations.en[key];
-    if (enAdditional) return enAdditional;
-    
-    const enExpanded = expandedTranslations.en[key];
-    if (enExpanded) return enExpanded;
-    
-    // Check English notification and dashboard translations
-    const enNotification = notificationTranslations.en[key as keyof typeof notificationTranslations.en];
-    if (enNotification) return enNotification;
-    
-    const enDashboard = dashboardTranslations.en[key as keyof typeof dashboardTranslations.en];
-    if (enDashboard) return enDashboard;
-
-    const enPms = pmsTranslations.en[key];
-    if (enPms) return enPms;
-    
-    return key;
+    return activeBundle[key] || englishBundle[key] || key;
   };
 
   const changeLanguage = (lang: Language) => {
     setLanguage(lang);
-    localStorage.setItem('preferred-language', lang);
+    persistLanguage(lang);
   };
 
   return (
