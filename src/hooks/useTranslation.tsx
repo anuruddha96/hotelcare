@@ -2139,13 +2139,19 @@ const persistLanguage = (lang: Language) => {
   LANGUAGE_STORAGE_KEYS.forEach((key) => localStorage.setItem(key, lang));
 };
 
+const toStringBundle = (source: Record<string, unknown> | undefined): Record<string, string> =>
+  Object.entries(source ?? {}).reduce((bundle, [key, value]) => {
+    if (typeof value === 'string') bundle[key] = value;
+    return bundle;
+  }, {} as Record<string, string>);
+
 const getStaticTranslationBundle = (lang: Language): Record<string, string> => ({
-  ...(translations[lang] ?? {}),
-  ...(additionalTranslations[lang] ?? {}),
-  ...(expandedTranslations[lang] ?? {}),
-  ...(notificationTranslations[lang as keyof typeof notificationTranslations] ?? {}),
-  ...(dashboardTranslations[lang as keyof typeof dashboardTranslations] ?? {}),
-  ...(pmsTranslations[lang] ?? {}),
+  ...toStringBundle(translations[lang]),
+  ...toStringBundle(additionalTranslations[lang]),
+  ...toStringBundle(expandedTranslations[lang]),
+  ...toStringBundle(notificationTranslations[lang as keyof typeof notificationTranslations]),
+  ...toStringBundle(dashboardTranslations[lang as keyof typeof dashboardTranslations]),
+  ...toStringBundle(pmsTranslations[lang]),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {
