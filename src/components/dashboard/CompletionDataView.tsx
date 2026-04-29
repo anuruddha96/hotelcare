@@ -249,13 +249,13 @@ export function CompletionDataView({
     <div className="space-y-3">
       <h4 className="font-semibold text-foreground flex items-center gap-2">
         <ImageIcon className="h-4 w-4" />
-        Captured Data During Cleaning
+        {t('completion.capturedData')}
       </h4>
 
       {!hasData && (
         <Card className="p-4 bg-amber-50 border-amber-200">
           <p className="text-sm text-amber-800 text-center">
-            ⚠️ No photos or data captured during cleaning. Please verify with housekeeper.
+            {t('completion.noCapturedData')}
           </p>
         </Card>
       )}
@@ -269,14 +269,14 @@ export function CompletionDataView({
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Camera className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-900">Room Photos</span>
+                    <span className="text-sm font-medium text-blue-900">{t('completion.roomPhotos')}</span>
                   </div>
                   <Badge variant="secondary" className="bg-blue-200 text-blue-800">
                     {completionPhotos.length}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-1 text-xs text-blue-700">
-                  <span>View photos</span>
+                  <span>{t('completion.viewPhotos')}</span>
                   <ChevronRight className="h-3 w-3" />
                 </div>
               </Card>
@@ -376,14 +376,14 @@ export function CompletionDataView({
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Shirt className="h-4 w-4 text-purple-600" />
-                    <span className="text-sm font-medium text-purple-900">Dirty Linen</span>
+                    <span className="text-sm font-medium text-purple-900">{t('completion.dirtyLinen')}</span>
                   </div>
                   <Badge variant="secondary" className="bg-purple-200 text-purple-800">
                     {dirtyLinen.reduce((sum, item) => sum + item.count, 0)}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-1 text-xs text-purple-700">
-                  <span>View collected items</span>
+                  <span>{t('completion.viewCollectedItems')}</span>
                   <ChevronRight className="h-3 w-3" />
                 </div>
               </Card>
