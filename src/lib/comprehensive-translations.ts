@@ -379,6 +379,22 @@ export const additionalTranslations = {
     'supervisor.towelChangeRequired': 'Towel Change Required',
     'supervisor.linenChangeRequired': 'Linen Change Required',
     'supervisor.confirmReassign': 'Confirm Reassignment',
+
+    // Completion data view
+    'completion.capturedData': 'Captured Data During Cleaning',
+    'completion.noCapturedData': '⚠️ No photos or data captured during cleaning. Please verify with housekeeper.',
+    'completion.roomPhotos': 'Room Photos',
+    'completion.viewPhotos': 'View photos',
+    'completion.dndPhotos': 'DND Photos',
+    'completion.viewDndEvidence': 'View DND evidence',
+    'completion.dirtyLinen': 'Dirty Linen',
+    'completion.viewCollectedItems': 'View collected items',
+    'completion.minibar': 'Minibar',
+    'completion.viewConsumption': 'View consumption',
+    'completion.lostAndFound': 'Lost & Found',
+    'completion.reviewItems': 'Review items',
+    'completion.maintenance': '⚠️ Maintenance',
+    'completion.requiresAttention': 'REQUIRES ATTENTION',
     
     // Approval History
     'approvalHistory.title': 'Approval History',
