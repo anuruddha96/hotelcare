@@ -356,9 +356,12 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const performCheckOut = async () => {
     if (!currentRecord || !location) return;
 
-    // Check if this is an early sign-out (between 8 PM and 4 AM)
+    // "Early sign-out" = signing out before the typical end-of-shift (18:00 / 6 PM).
+    // Anything between 04:00 and 18:00 is treated as an early sign-out that requires
+    // supervisor approval. Late-evening sign-outs (after 20:00) are also treated as
+    // early so a request lands in the manager's pending approvals queue.
     const currentHour = new Date().getHours();
-    const isEarlySignout = currentHour >= 20 || currentHour < 4;
+    const isEarlySignout = currentHour < 18 && currentHour >= 4;
 
     if (isEarlySignout) {
       // Create an early sign-out request instead of checking out immediately
