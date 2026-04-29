@@ -1078,7 +1078,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {showLegend ? t('legend.hideLegend') : t('legend.showLegend')}
             </button>
             {showLegend && (
-              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-3 gap-y-1.5 mt-2 p-2 rounded-md bg-muted/30 border border-border/50">
                 {[
                   { label: t('legend.approvedClean'), cls: 'bg-emerald-200 border-emerald-500', hint: t('legend.approvedCleanHint') },
                   { label: t('legend.dirtyAssigned'), cls: 'bg-amber-200 border-amber-500', hint: t('legend.dirtyAssignedHint') },
