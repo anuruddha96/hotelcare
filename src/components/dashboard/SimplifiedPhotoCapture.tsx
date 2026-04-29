@@ -731,18 +731,19 @@ export function SimplifiedPhotoCapture({
                     <Button
                       type="button"
                       onClick={uploadPhotos}
-                      disabled={isUploading}
+                      disabled={isUploading || uploadingPhotos.size > 0 || !allPhotosComplete}
+                      title={!allPhotosComplete ? t('photoCapture.incompleteWarning') : (uploadingPhotos.size > 0 ? t('common.uploading') : '')}
                       className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
-                      variant={allPhotosComplete ? "default" : "secondary"}
+                      variant={allPhotosComplete && uploadingPhotos.size === 0 ? "default" : "secondary"}
                     >
-                      {isUploading ? (
+                      {isUploading || uploadingPhotos.size > 0 ? (
                         <>{t('common.uploading')}</>
                       ) : (
                         <>
                           <CheckCircle className="h-4 w-4 mr-1 sm:mr-2 flex-shrink-0" />
                           <span className="hidden sm:inline">{t('photoCapture.savePhotos')}</span>
                           <span className="sm:hidden">Save</span>
-                          <span className="ml-1">({categorizedPhotos.length})</span>
+                          <span className="ml-1">({categorizedPhotos.length}/{PHOTO_CATEGORIES.length})</span>
                         </>
                       )}
                     </Button>

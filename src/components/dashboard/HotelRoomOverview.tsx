@@ -150,7 +150,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [showLegend, setShowLegend] = useState(true);
+  const [showLegend, setShowLegend] = useState(false);
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -1003,60 +1003,63 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   return (
     <>
       <Card className="border-primary/20">
-        <CardHeader className="pb-2 pt-3 px-4 space-y-2">
-          {/* Row 1: Title + room count */}
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
-              <Hotel className="h-4 w-4 text-primary" />
-              Hotel Room Overview
+        <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
+          {/* Row 1: Title + actions */}
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-sm sm:text-base font-semibold flex items-center gap-1.5 min-w-0">
+              <Hotel className="h-4 w-4 text-primary shrink-0" />
+              <span className="truncate">Hotel Room Overview</span>
             </CardTitle>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               {canViewFullOverview && (
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-6 px-2 text-xs"
+                  className="h-8 px-2 text-xs"
                   onClick={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
+                  aria-label={viewMode === 'list' ? 'Switch to map view' : 'Switch to list view'}
                 >
-                  <MapIcon className="h-3 w-3 mr-1" />
-                  {viewMode === 'list' ? 'Map' : 'List'}
+                  <MapIcon className="h-3.5 w-3.5 sm:mr-1" />
+                  <span className="hidden sm:inline">{viewMode === 'list' ? 'Map' : 'List'}</span>
                 </Button>
               )}
               <HelpTooltip hint={UI_HINTS["room.refresh"]}>
                 <Button
                   variant="default"
                   size="sm"
-                  className="h-7 px-3 text-xs font-semibold shadow-sm"
+                  className="h-8 px-2 sm:px-3 text-xs font-semibold shadow-sm"
                   onClick={handleRefresh}
                   disabled={refreshing}
+                  aria-label="Refresh"
                 >
-                  <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-                  {refreshing ? 'Refreshing...' : '🔄 Refresh'}
+                  <RefreshCw className={`h-3.5 w-3.5 sm:mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">{refreshing ? 'Refreshing...' : 'Refresh'}</span>
                 </Button>
               </HelpTooltip>
             </div>
           </div>
 
-          {/* Row 2: Stats badges */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" className="text-[10px] sm:text-xs">{rooms.length} rooms</Badge>
-            {noShowRooms.length > 0 && (
-              <Badge variant="outline" className="text-[10px] sm:text-xs font-semibold text-red-700 border-red-400 bg-red-50 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">
-                <UserX className="h-3 w-3 mr-0.5" />
-                {noShowRooms.length} No-Show
-              </Badge>
-            )}
-            {earlyCheckoutRooms.length > 0 && (
-              <Badge variant="outline" className="text-[10px] sm:text-xs font-semibold text-orange-700 border-orange-400 bg-orange-50 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700">
-                🔶 {earlyCheckoutRooms.length} Early C/O
-              </Badge>
-            )}
+          {/* Row 2: Compact stat grid */}
+          <div className="grid grid-cols-4 gap-2">
+            <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Total</div>
+              <div className="text-sm font-semibold leading-tight">{rooms.length}</div>
+            </div>
+            <div className={`rounded-lg border px-2 py-1.5 text-center ${earlyCheckoutRooms.length > 0 ? 'bg-orange-50 border-orange-200 dark:bg-orange-900/20 dark:border-orange-700' : 'bg-muted/40'}`}>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Early C/O</div>
+              <div className={`text-sm font-semibold leading-tight ${earlyCheckoutRooms.length > 0 ? 'text-orange-700 dark:text-orange-300' : ''}`}>{earlyCheckoutRooms.length}</div>
+            </div>
+            <div className={`rounded-lg border px-2 py-1.5 text-center ${noShowRooms.length > 0 ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700' : 'bg-muted/40'}`}>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">No-Show</div>
+              <div className={`text-sm font-semibold leading-tight ${noShowRooms.length > 0 ? 'text-red-700 dark:text-red-300' : ''}`}>{noShowRooms.length}</div>
+            </div>
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="text-[10px] sm:text-xs font-semibold cursor-help">
-                    ACT: {averageCleanTime !== null ? `${averageCleanTime}m` : '--'}
-                  </Badge>
+                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center cursor-help">
+                    <div className="text-[9px] uppercase tracking-wide text-muted-foreground">ACT</div>
+                    <div className="text-sm font-semibold leading-tight">{averageCleanTime !== null ? `${averageCleanTime}m` : '--'}</div>
+                  </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
                   {t('room.actTooltip')}
@@ -1065,7 +1068,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             </TooltipProvider>
           </div>
 
-          {/* Row 3: Toggle Legend */}
+          {/* Row 3: Toggle Legend (collapsed by default) */}
           <div>
             <button
               onClick={() => setShowLegend(prev => !prev)}
@@ -1075,7 +1078,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {showLegend ? t('legend.hideLegend') : t('legend.showLegend')}
             </button>
             {showLegend && (
-              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-3 gap-y-1.5 mt-2 p-2 rounded-md bg-muted/30 border border-border/50">
                 {[
                   { label: t('legend.approvedClean'), cls: 'bg-emerald-200 border-emerald-500', hint: t('legend.approvedCleanHint') },
                   { label: t('legend.dirtyAssigned'), cls: 'bg-amber-200 border-amber-500', hint: t('legend.dirtyAssignedHint') },

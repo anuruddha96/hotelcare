@@ -379,6 +379,22 @@ export const additionalTranslations = {
     'supervisor.towelChangeRequired': 'Towel Change Required',
     'supervisor.linenChangeRequired': 'Linen Change Required',
     'supervisor.confirmReassign': 'Confirm Reassignment',
+
+    // Completion data view
+    'completion.capturedData': 'Captured Data During Cleaning',
+    'completion.noCapturedData': '⚠️ No photos or data captured during cleaning. Please verify with housekeeper.',
+    'completion.roomPhotos': 'Room Photos',
+    'completion.viewPhotos': 'View photos',
+    'completion.dndPhotos': 'DND Photos',
+    'completion.viewDndEvidence': 'View DND evidence',
+    'completion.dirtyLinen': 'Dirty Linen',
+    'completion.viewCollectedItems': 'View collected items',
+    'completion.minibar': 'Minibar',
+    'completion.viewConsumption': 'View consumption',
+    'completion.lostAndFound': 'Lost & Found',
+    'completion.reviewItems': 'Review items',
+    'completion.maintenance': '⚠️ Maintenance',
+    'completion.requiresAttention': 'REQUIRES ATTENTION',
     
     // Approval History
     'approvalHistory.title': 'Approval History',
@@ -2674,10 +2690,29 @@ export const additionalTranslations = {
     // Supervisor
     'supervisor.approvals': 'Jóváhagyások',
     'supervisor.manageApprovals': 'Jóváhagyások kezelése és előzmények megtekintése',
+    'supervisor.pendingApprovals': 'Függőben lévő jóváhagyások',
+    'supervisor.approvalHistory': 'Jóváhagyási előzmények',
+    'supervisor.reviewCompletedTasks': 'Befejezett takarítási feladatok áttekintése',
     'supervisor.specialRequirements': 'Különleges Követelmények',
     'supervisor.towelChangeRequired': 'Törölközőcsere Szükséges',
     'supervisor.linenChangeRequired': 'Ágyneműcsere Szükséges',
     'supervisor.confirmReassign': 'Újbóli Hozzárendelés Megerősítése',
+
+    // Completion data view
+    'completion.capturedData': 'Rögzített adatok takarítás közben',
+    'completion.noCapturedData': 'Nincsenek rögzített adatok a takarítás során. Kérjük, ellenőrizze a takarítóval.',
+    'completion.roomPhotos': 'Szoba fotók',
+    'completion.viewPhotos': 'Fotók megtekintése',
+    'completion.dndPhotos': 'NE ZAVARJ fotók',
+    'completion.viewDndEvidence': 'Bizonyíték megtekintése',
+    'completion.dirtyLinen': 'Szennyes textília',
+    'completion.viewCollectedItems': 'Begyűjtött tételek megtekintése',
+    'completion.minibar': 'Minibár',
+    'completion.viewConsumption': 'Fogyasztás megtekintése',
+    'completion.lostAndFound': 'Talált tárgyak',
+    'completion.reviewItems': 'Tételek áttekintése',
+    'completion.maintenance': '⚠️ Karbantartás',
+    'completion.requiresAttention': 'FIGYELMET IGÉNYEL',
     
     // Approval History
     'approvalHistory.title': 'Jóváhagyási Előzmények',

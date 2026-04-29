@@ -90,7 +90,7 @@ export function EarlySignoutApprovalView() {
         if (request.status !== 'pending') return false;
         const requestTime = new Date(request.requested_at);
         const minutesSinceRequest = (now.getTime() - requestTime.getTime()) / 60000;
-        return minutesSinceRequest > 10;
+        return minutesSinceRequest > 60;
       });
 
       // Update expired requests
@@ -107,7 +107,7 @@ export function EarlySignoutApprovalView() {
         if (request.status === 'pending') {
           const requestTime = new Date(request.requested_at);
           const minutesSinceRequest = (now.getTime() - requestTime.getTime()) / 60000;
-          if (minutesSinceRequest > 10) {
+          if (minutesSinceRequest > 60) {
             return false; // Hide expired requests
           }
         }
