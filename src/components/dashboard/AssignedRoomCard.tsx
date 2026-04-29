@@ -298,17 +298,28 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   };
 
   const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
-    // Check for room photos on daily cleaning completion
+    // Check for room photos on daily cleaning completion - require ALL 5 categories
     if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
       const { data: assignmentData } = await supabase
         .from('room_assignments')
         .select('completion_photos')
         .eq('id', assignment.id)
         .single();
-      
-      if (!assignmentData?.completion_photos || assignmentData.completion_photos.length === 0) {
+
+      const photos: string[] = assignmentData?.completion_photos || [];
+      const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
+      const missing = requiredCategories.filter(cat => {
+        return !photos.some(url => {
+          const filename = url.split('/').pop() || '';
+          return filename.startsWith(cat + '_');
+        });
+      });
+
+      if (photos.length === 0 || missing.length > 0) {
         toast.error(t('actions.photosRequired'), {
-          description: t('actions.photosRequiredMessage'),
+          description: missing.length > 0
+            ? `${t('actions.photosRequiredMessage')} (Missing: ${missing.join(', ')})`
+            : t('actions.photosRequiredMessage'),
           duration: 6000
         });
         setDailyPhotoDialogOpen(true);
