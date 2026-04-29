@@ -2674,10 +2674,29 @@ export const additionalTranslations = {
     // Supervisor
     'supervisor.approvals': 'Jóváhagyások',
     'supervisor.manageApprovals': 'Jóváhagyások kezelése és előzmények megtekintése',
+    'supervisor.pendingApprovals': 'Függőben lévő jóváhagyások',
+    'supervisor.approvalHistory': 'Jóváhagyási előzmények',
+    'supervisor.reviewCompletedTasks': 'Befejezett takarítási feladatok áttekintése',
     'supervisor.specialRequirements': 'Különleges Követelmények',
     'supervisor.towelChangeRequired': 'Törölközőcsere Szükséges',
     'supervisor.linenChangeRequired': 'Ágyneműcsere Szükséges',
     'supervisor.confirmReassign': 'Újbóli Hozzárendelés Megerősítése',
+
+    // Completion data view
+    'completion.capturedData': 'Rögzített adatok takarítás közben',
+    'completion.noCapturedData': 'Nincsenek rögzített adatok a takarítás során. Kérjük, ellenőrizze a takarítóval.',
+    'completion.roomPhotos': 'Szoba fotók',
+    'completion.viewPhotos': 'Fotók megtekintése',
+    'completion.dndPhotos': 'NE ZAVARJ fotók',
+    'completion.viewDndEvidence': 'Bizonyíték megtekintése',
+    'completion.dirtyLinen': 'Szennyes textília',
+    'completion.viewCollectedItems': 'Begyűjtött tételek megtekintése',
+    'completion.minibar': 'Minibár',
+    'completion.viewConsumption': 'Fogyasztás megtekintése',
+    'completion.lostAndFound': 'Talált tárgyak',
+    'completion.reviewItems': 'Tételek áttekintése',
+    'completion.maintenance': '⚠️ Karbantartás',
+    'completion.requiresAttention': 'FIGYELMET IGÉNYEL',
     
     // Approval History
     'approvalHistory.title': 'Jóváhagyási Előzmények',
