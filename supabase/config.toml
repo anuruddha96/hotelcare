@@ -110,3 +110,18 @@ verify_jwt = true
 
 [functions.analyze-assignment-patterns]
 verify_jwt = true
+
+[functions.revenue-pickup-upload]
+verify_jwt = true
+
+[functions.revenue-engine-tick]
+verify_jwt = false
+
+[functions.breakfast-roster-upload]
+verify_jwt = true
+
+[functions.breakfast-lookup]
+verify_jwt = false
+
+[functions.previo-push-rates]
+verify_jwt = true
