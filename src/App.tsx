@@ -18,6 +18,9 @@ import ReservationDetail from "./pages/ReservationDetail";
 import Guests from "./pages/Guests";
 import GuestDetail from "./pages/GuestDetail";
 import ChannelManager from "./pages/ChannelManager";
+import Revenue from "./pages/Revenue";
+import RevenueHotelDetail from "./pages/RevenueHotelDetail";
+import Breakfast from "./pages/Breakfast";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +43,9 @@ const TenantRouter = () => {
         <Route path="/guests" element={<Guests />} />
         <Route path="/guests/:guestId" element={<GuestDetail />} />
         <Route path="/channel-manager" element={<ChannelManager />} />
+        <Route path="/revenue" element={<Revenue />} />
+        <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
+        <Route path="/bb" element={<Breakfast />} />
       </Routes>
     </TenantProvider>
   );
@@ -65,6 +71,9 @@ const App = () => (
                   <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   <Route path="/:organizationSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   
+                  {/* Public breakfast lookup (no auth) */}
+                  <Route path="/bb" element={<Breakfast />} />
+
                   {/* Multi-tenant routes */}
                   <Route path="/:organizationSlug/*" element={<TenantRouter />} />
                   
