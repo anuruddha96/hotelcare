@@ -5,7 +5,8 @@ import { HotelManagementView } from './HotelManagementView';
 import { TranslationManagement } from './TranslationManagement';
 import { PhotoCleanupManager } from '@/components/dashboard/PhotoCleanupManager';
 import PMSConfigurationManagement from './PMSConfigurationManagement';
-import { Building2, Hotel, Languages, HardDrive, Cable } from 'lucide-react';
+import { BreakfastCodeManagement } from './BreakfastCodeManagement';
+import { Building2, Hotel, Languages, HardDrive, Cable, Coffee } from 'lucide-react';
 
 export const AdminTabs = () => {
   return (
@@ -28,11 +29,19 @@ export const AdminTabs = () => {
             <Languages className="w-4 h-4" />
             Translations
           </TabsTrigger>
+          <TabsTrigger value="breakfast" className="gap-2">
+            <Coffee className="w-4 h-4" />
+            Breakfast
+          </TabsTrigger>
           <TabsTrigger value="system" className="gap-2">
             <HardDrive className="w-4 h-4" />
             System
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="breakfast">
+          <BreakfastCodeManagement />
+        </TabsContent>
 
         <TabsContent value="organizations">
           <OrganizationManagement />
