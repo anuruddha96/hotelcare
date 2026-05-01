@@ -2370,6 +2370,36 @@ export type Database = {
           },
         ]
       }
+      revenue_ai_insights: {
+        Row: {
+          created_at: string
+          focus_date: string | null
+          generated_by: string | null
+          hotel_id: string
+          id: string
+          organization_slug: string
+          payload: Json
+        }
+        Insert: {
+          created_at?: string
+          focus_date?: string | null
+          generated_by?: string | null
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          payload: Json
+        }
+        Update: {
+          created_at?: string
+          focus_date?: string | null
+          generated_by?: string | null
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          payload?: Json
+        }
+        Relationships: []
+      }
       revenue_alerts: {
         Row: {
           acknowledged_at: string | null

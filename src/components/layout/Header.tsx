@@ -16,7 +16,8 @@ import { RoomAssignmentSummary } from '@/components/dashboard/RoomAssignmentSumm
 import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge';
 import { TrainingHelpButton } from '@/components/training';
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
-import { LogOut, Settings, User } from 'lucide-react';
+import { LogOut, Settings, User, TrendingUp } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -115,6 +116,15 @@ export function Header() {
             <InstallAppPrompt />
             <TrainingHelpButton />
             
+            {(profile?.role === 'admin' || profile?.role === 'top_management') && (
+              <Link to={`/${profile?.organization_slug || 'rdhotels'}/revenue`}>
+                <Button variant="ghost" size="sm" className="gap-1 shrink-0" title="Revenue Management">
+                  <TrendingUp className="h-4 w-4" />
+                  <span className="hidden md:inline text-xs">Revenue</span>
+                </Button>
+              </Link>
+            )}
+
             {(profile?.role === 'admin' || profile?.role === 'manager') && (
               <>
                 <ReportsDialog />

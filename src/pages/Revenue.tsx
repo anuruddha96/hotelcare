@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw } from "lucide-react";
+import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles } from "lucide-react";
+import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 interface HotelStat {
   hotel_id: string;
@@ -17,6 +18,8 @@ interface HotelStat {
   last_snapshot: string | null;
   pending_recs: number;
   abnormal: boolean;
+  spark: { d: string; v: number }[];
+  hasFreshAI: boolean;
 }
 
 const ALLOWED = ["admin", "top_management"];
@@ -65,6 +68,16 @@ export default function Revenue() {
         .eq("hotel_id", h.hotel_id)
         .is("acknowledged_at", null)
         .eq("alert_type", "abnormal_pickup");
+      const { data: lastAI } = await supabase
+        .from("revenue_ai_insights")
+        .select("created_at")
+        .eq("hotel_id", h.hotel_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // Build 14-day spark from snapshot deltas (latest first → reverse for chronological)
+      const spark = (snaps ?? []).slice(0, 14).reverse().map((s, i) => ({ d: String(i), v: s.delta || 0 }));
 
       stats.push({
         hotel_id: h.hotel_id,
@@ -73,6 +86,8 @@ export default function Revenue() {
         last_snapshot: snaps?.[0]?.captured_at ?? null,
         pending_recs: recs?.length ?? 0,
         abnormal: (alerts?.length ?? 0) > 0,
+        spark,
+        hasFreshAI: lastAI ? (Date.now() - new Date(lastAI.created_at).getTime()) < 12 * 3600 * 1000 : false,
       });
     }
     setHotels(stats);
@@ -140,9 +155,12 @@ export default function Revenue() {
         {hotels.map((h) => (
           <Card key={h.hotel_id} className={h.abnormal ? "border-red-500" : ""}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center justify-between">
-                {h.hotel_name}
-                {h.abnormal && <Badge variant="destructive" className="gap-1"><AlertTriangle className="h-3 w-3" />Abnormal</Badge>}
+              <CardTitle className="text-base flex items-center justify-between gap-1">
+                <span className="truncate">{h.hotel_name}</span>
+                <span className="flex items-center gap-1">
+                  {h.hasFreshAI && <Badge variant="outline" className="gap-1 text-purple-700 border-purple-300"><Sparkles className="h-3 w-3" />AI</Badge>}
+                  {h.abnormal && <Badge variant="destructive" className="gap-1"><AlertTriangle className="h-3 w-3" />!</Badge>}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -150,8 +168,17 @@ export default function Revenue() {
                 {h.pickup_today >= 0
                   ? <TrendingUp className="h-4 w-4 text-green-600" />
                   : <TrendingDown className="h-4 w-4 text-red-600" />}
-                <span>Recent pickup Δ: <b>{h.pickup_today}</b></span>
+                <span>14d pickup Δ: <b>{h.pickup_today}</b></span>
               </div>
+              {h.spark.length > 1 && (
+                <div className="h-10">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={h.spark}>
+                      <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
               <div className="text-muted-foreground text-xs">
                 Last snapshot: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
               </div>
