@@ -119,7 +119,7 @@ export default function RevenueHotelDetail() {
     setHistory((hi ?? []) as Hist[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     if (lastInsight) {
-      setAiPayload(lastInsight.payload as AIPayload);
+      setAiPayload(lastInsight.payload as unknown as AIPayload);
       setAiGeneratedAt(lastInsight.created_at);
     }
   }
@@ -212,7 +212,7 @@ export default function RevenueHotelDetail() {
   }
 
   async function dismiss(rec: Rec) {
-    await supabase.from("rate_recommendations").update({ status: "dismissed", reviewed_by: profile?.id, reviewed_at: new Date().toISOString() }).eq("id", rec.id);
+    await supabase.from("rate_recommendations").update({ status: "expired", reviewed_by: profile?.id, reviewed_at: new Date().toISOString() }).eq("id", rec.id);
     void load();
   }
 
