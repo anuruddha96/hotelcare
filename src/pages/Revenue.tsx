@@ -68,6 +68,16 @@ export default function Revenue() {
         .eq("hotel_id", h.hotel_id)
         .is("acknowledged_at", null)
         .eq("alert_type", "abnormal_pickup");
+      const { data: lastAI } = await supabase
+        .from("revenue_ai_insights")
+        .select("created_at")
+        .eq("hotel_id", h.hotel_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // Build 14-day spark from snapshot deltas (latest first → reverse for chronological)
+      const spark = (snaps ?? []).slice(0, 14).reverse().map((s, i) => ({ d: String(i), v: s.delta || 0 }));
 
       stats.push({
         hotel_id: h.hotel_id,
@@ -76,6 +86,8 @@ export default function Revenue() {
         last_snapshot: snaps?.[0]?.captured_at ?? null,
         pending_recs: recs?.length ?? 0,
         abnormal: (alerts?.length ?? 0) > 0,
+        spark,
+        hasFreshAI: lastAI ? (Date.now() - new Date(lastAI.created_at).getTime()) < 12 * 3600 * 1000 : false,
       });
     }
     setHotels(stats);
