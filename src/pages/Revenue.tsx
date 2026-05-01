@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw } from "lucide-react";
+import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles } from "lucide-react";
+import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 interface HotelStat {
   hotel_id: string;
@@ -17,6 +18,8 @@ interface HotelStat {
   last_snapshot: string | null;
   pending_recs: number;
   abnormal: boolean;
+  spark: { d: string; v: number }[];
+  hasFreshAI: boolean;
 }
 
 const ALLOWED = ["admin", "top_management"];
