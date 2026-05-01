@@ -155,9 +155,12 @@ export default function Revenue() {
         {hotels.map((h) => (
           <Card key={h.hotel_id} className={h.abnormal ? "border-red-500" : ""}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center justify-between">
-                {h.hotel_name}
-                {h.abnormal && <Badge variant="destructive" className="gap-1"><AlertTriangle className="h-3 w-3" />Abnormal</Badge>}
+              <CardTitle className="text-base flex items-center justify-between gap-1">
+                <span className="truncate">{h.hotel_name}</span>
+                <span className="flex items-center gap-1">
+                  {h.hasFreshAI && <Badge variant="outline" className="gap-1 text-purple-700 border-purple-300"><Sparkles className="h-3 w-3" />AI</Badge>}
+                  {h.abnormal && <Badge variant="destructive" className="gap-1"><AlertTriangle className="h-3 w-3" />!</Badge>}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -165,8 +168,17 @@ export default function Revenue() {
                 {h.pickup_today >= 0
                   ? <TrendingUp className="h-4 w-4 text-green-600" />
                   : <TrendingDown className="h-4 w-4 text-red-600" />}
-                <span>Recent pickup Δ: <b>{h.pickup_today}</b></span>
+                <span>14d pickup Δ: <b>{h.pickup_today}</b></span>
               </div>
+              {h.spark.length > 1 && (
+                <div className="h-10">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={h.spark}>
+                      <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
               <div className="text-muted-foreground text-xs">
                 Last snapshot: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
               </div>
