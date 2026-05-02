@@ -408,6 +408,45 @@ export type Database = {
           },
         ]
       }
+      daily_rates: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          occupancy_pct: number | null
+          organization_slug: string
+          rate_eur: number
+          source: string
+          stay_date: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          occupancy_pct?: number | null
+          organization_slug: string
+          rate_eur: number
+          source?: string
+          stay_date: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          occupancy_pct?: number | null
+          organization_slug?: string
+          rate_eur?: number
+          source?: string
+          stay_date?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       department_access_config: {
         Row: {
           access_scope: string
@@ -969,6 +1008,48 @@ export type Database = {
         }
         Relationships: []
       }
+      hotel_events: {
+        Row: {
+          category: string
+          created_at: string
+          created_by: string | null
+          end_date: string | null
+          event_date: string
+          hotel_id: string
+          id: string
+          impact: string
+          notes: string | null
+          organization_slug: string
+          title: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          end_date?: string | null
+          event_date: string
+          hotel_id: string
+          id?: string
+          impact?: string
+          notes?: string | null
+          organization_slug: string
+          title: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          end_date?: string | null
+          event_date?: string
+          hotel_id?: string
+          id?: string
+          impact?: string
+          notes?: string | null
+          organization_slug?: string
+          title?: string
+        }
+        Relationships: []
+      }
       hotel_floor_layouts: {
         Row: {
           floor_number: number
@@ -1400,6 +1481,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      min_stay_rules: {
+        Row: {
+          hotel_id: string
+          id: string
+          min_nights: number
+          notes: string | null
+          organization_slug: string
+          stay_date: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          hotel_id: string
+          id?: string
+          min_nights?: number
+          notes?: string | null
+          organization_slug: string
+          stay_date: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          hotel_id?: string
+          id?: string
+          min_nights?: number
+          notes?: string | null
+          organization_slug?: string
+          stay_date?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       minibar_category_order: {
         Row: {
