@@ -1014,6 +1014,9 @@ export type Database = {
           hotel_id: string
           is_engine_enabled: boolean
           max_daily_change_eur: number
+          notify_email: string[]
+          notify_on: Json
+          notify_sms: string[]
           organization_slug: string
           pickup_increase_tiers: Json
           skip_within_days: number
@@ -1029,6 +1032,9 @@ export type Database = {
           hotel_id: string
           is_engine_enabled?: boolean
           max_daily_change_eur?: number
+          notify_email?: string[]
+          notify_on?: Json
+          notify_sms?: string[]
           organization_slug: string
           pickup_increase_tiers?: Json
           skip_within_days?: number
@@ -1044,6 +1050,9 @@ export type Database = {
           hotel_id?: string
           is_engine_enabled?: boolean
           max_daily_change_eur?: number
+          notify_email?: string[]
+          notify_on?: Json
+          notify_sms?: string[]
           organization_slug?: string
           pickup_increase_tiers?: Json
           skip_within_days?: number
@@ -1730,6 +1739,7 @@ export type Database = {
           hotel_id: string
           id: string
           organization_slug: string
+          snapshot_label: string | null
           source: string
           stay_date: string
           uploaded_by: string | null
@@ -1742,6 +1752,7 @@ export type Database = {
           hotel_id: string
           id?: string
           organization_slug: string
+          snapshot_label?: string | null
           source?: string
           stay_date: string
           uploaded_by?: string | null
@@ -1754,6 +1765,7 @@ export type Database = {
           hotel_id?: string
           id?: string
           organization_slug?: string
+          snapshot_label?: string | null
           source?: string
           stay_date?: string
           uploaded_by?: string | null
@@ -2053,6 +2065,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      rate_change_audit: {
+        Row: {
+          action: string
+          delta_eur: number | null
+          hotel_id: string
+          id: string
+          new_rate_eur: number | null
+          notes: string | null
+          old_rate_eur: number | null
+          organization_slug: string
+          payload: Json | null
+          performed_at: string
+          performed_by: string | null
+          recommendation_id: string | null
+          source: string | null
+          stay_date: string | null
+        }
+        Insert: {
+          action: string
+          delta_eur?: number | null
+          hotel_id: string
+          id?: string
+          new_rate_eur?: number | null
+          notes?: string | null
+          old_rate_eur?: number | null
+          organization_slug: string
+          payload?: Json | null
+          performed_at?: string
+          performed_by?: string | null
+          recommendation_id?: string | null
+          source?: string | null
+          stay_date?: string | null
+        }
+        Update: {
+          action?: string
+          delta_eur?: number | null
+          hotel_id?: string
+          id?: string
+          new_rate_eur?: number | null
+          notes?: string | null
+          old_rate_eur?: number | null
+          organization_slug?: string
+          payload?: Json | null
+          performed_at?: string
+          performed_by?: string | null
+          recommendation_id?: string | null
+          source?: string | null
+          stay_date?: string | null
+        }
+        Relationships: []
       }
       rate_history: {
         Row: {
@@ -3191,7 +3254,7 @@ export type Database = {
         Args: { p_reassign_to: string; p_user_id: string }
         Returns: Json
       }
-      expire_stale_recommendations: { Args: never; Returns: undefined }
+      expire_stale_recommendations: { Args: never; Returns: number }
       generate_ticket_number: { Args: never; Returns: string }
       get_assignable_staff:
         | {
