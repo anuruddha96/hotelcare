@@ -8,57 +8,42 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Sparkles, TrendingUp, TrendingDown, AlertTriangle,
-  Loader2, Check, Edit3, X, Wand2,
+  ArrowLeft, ChevronLeft, ChevronRight, Upload, TrendingUp, TrendingDown,
+  AlertTriangle, Loader2, Check, Edit3, X, Calendar as CalIcon, BarChart3,
+  Settings2, Sparkles, Plus,
 } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 
-interface Snap {
-  stay_date: string;
-  bookings_current: number;
-  bookings_last_year: number;
-  delta: number;
-  captured_at: string;
+interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
+interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
+interface DailyRate { stay_date: string; rate_eur: number; occupancy_pct: number | null; }
+interface Event { id: string; event_date: string; end_date: string | null; title: string; category: string; impact: string; notes: string | null; }
+interface MinStay { stay_date: string; min_nights: number; }
+interface Settings {
+  floor_price_eur: number; max_daily_change_eur: number; weekday_decrease_eur: number; weekend_decrease_eur: number;
+  abnormal_pickup_threshold: number; pickup_increase_tiers: { min: number; max: number; increase: number }[];
 }
-interface Rec {
-  id: string;
-  stay_date: string;
-  current_rate_eur: number | null;
-  recommended_rate_eur: number;
-  delta_eur: number;
-  reason: string | null;
-  status: string;
-}
-interface Hist { stay_date: string; new_rate_eur: number; changed_at: string; }
 
 interface Row {
-  date: string;
-  dow: string;
-  daysOut: number;
-  isWeekend: boolean;
-  bookingsNow: number | null;
-  bookingsPrev: number | null;
-  pickupDelta: number;
-  bookingsLY: number | null;
-  vsLY: number | null;
-  rate: number | null;
-  rec: Rec | null;
-  abnormal: boolean;
-}
-
-interface AIPayload {
-  summary: string;
-  top_increase_dates: { date: string; reason: string; suggested_delta_eur: number; confidence: string }[];
-  top_decrease_dates: { date: string; reason: string; suggested_delta_eur: number; confidence: string }[];
-  anomalies: { date: string; note: string }[];
-  strategy_notes: string;
+  date: string; dayNum: number; dow: number; isWeekend: boolean; daysOut: number;
+  rate: number | null; occupancy: number | null;
+  pickupDelta: number; bookingsNow: number | null; bookingsLY: number | null;
+  rec: Rec | null; suggestedRate: number | null; suggestedDelta: number | null;
+  abnormal: boolean; minNights: number | null; events: Event[];
 }
 
 const ALLOWED = ["admin", "top_management"];
-const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+
+function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
+function startOfMonth(d: Date) { const x = new Date(d); x.setUTCDate(1); x.setUTCHours(0,0,0,0); return x; }
+function addDays(d: Date, n: number) { const x = new Date(d); x.setUTCDate(x.getUTCDate()+n); return x; }
+function iso(d: Date) { return d.toISOString().slice(0,10); }
 
 export default function RevenueHotelDetail() {
   const { profile, loading } = useAuth();
@@ -68,16 +53,19 @@ export default function RevenueHotelDetail() {
   const [hotelName, setHotelName] = useState("");
   const [snapshots, setSnapshots] = useState<Snap[]>([]);
   const [recs, setRecs] = useState<Rec[]>([]);
-  const [history, setHistory] = useState<Hist[]>([]);
+  const [rates, setRates] = useState<DailyRate[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [minStays, setMinStays] = useState<MinStay[]>([]);
   const [abnormalDates, setAbnormalDates] = useState<Set<string>>(new Set());
+  const [settings, setSettings] = useState<Settings | null>(null);
 
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiPayload, setAiPayload] = useState<AIPayload | null>(null);
-  const [aiGeneratedAt, setAiGeneratedAt] = useState<string | null>(null);
-
-  const [askDate, setAskDate] = useState<string | null>(null);
-  const [askBusy, setAskBusy] = useState(false);
-  const [askResult, setAskResult] = useState<AIPayload | null>(null);
+  const [view, setView] = useState<"month"|"week">("month");
+  const [tab, setTab] = useState("prices");
+  const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -90,393 +78,598 @@ export default function RevenueHotelDetail() {
 
   async function load() {
     if (!hotelId) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const horizon = new Date();
-    horizon.setUTCDate(horizon.getUTCDate() + 120);
-    const horizonStr = horizon.toISOString().slice(0, 10);
-
-    const [{ data: h }, { data: s }, { data: r }, { data: hi }, { data: alerts }, { data: lastInsight }] =
-      await Promise.all([
-        supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotelId).maybeSingle(),
-        supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
-          .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonStr)
-          .order("captured_at", { ascending: false }).limit(3000),
-        supabase.from("rate_recommendations").select("*")
-          .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonStr)
-          .order("stay_date", { ascending: true }).limit(500),
-        supabase.from("rate_history").select("stay_date,new_rate_eur,changed_at")
-          .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonStr)
-          .order("changed_at", { ascending: false }).limit(500),
-        supabase.from("revenue_alerts").select("stay_date")
-          .eq("hotel_id", hotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
-        supabase.from("revenue_ai_insights").select("payload,created_at")
-          .eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-      ]);
+    const today = iso(new Date());
+    const horizon = iso(addDays(new Date(), 365));
+    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }] = await Promise.all([
+      supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotelId).maybeSingle(),
+      supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
+        .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon)
+        .order("captured_at", { ascending: false }).limit(5000),
+      supabase.from("rate_recommendations").select("*")
+        .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
+      (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct")
+        .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
+      (supabase as any).from("hotel_events").select("*").eq("hotel_id", hotelId)
+        .gte("event_date", today).lte("event_date", horizon).limit(500),
+      (supabase as any).from("min_stay_rules").select("stay_date,min_nights")
+        .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
+      supabase.from("revenue_alerts").select("stay_date").eq("hotel_id", hotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
+      supabase.from("hotel_revenue_settings").select("*").eq("hotel_id", hotelId).maybeSingle(),
+    ]);
 
     setHotelName(h?.hotel_name ?? hotelId);
     setSnapshots((s ?? []) as Snap[]);
     setRecs((r ?? []) as Rec[]);
-    setHistory((hi ?? []) as Hist[]);
+    setRates((dr ?? []) as DailyRate[]);
+    setEvents((ev ?? []) as Event[]);
+    setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
-    if (lastInsight) {
-      setAiPayload(lastInsight.payload as unknown as AIPayload);
-      setAiGeneratedAt(lastInsight.created_at);
-    }
+    setSettings(st as any);
   }
 
-  // Build per-date rows
-  const rows: Row[] = useMemo(() => {
-    const today = new Date(); today.setUTCHours(0, 0, 0, 0);
-    const byDate = new Map<string, Snap[]>();
-    for (const s of snapshots) {
-      const arr = byDate.get(s.stay_date) ?? [];
-      arr.push(s);
-      byDate.set(s.stay_date, arr);
-    }
-    const histByDate = new Map<string, number>();
-    for (const h of history) if (!histByDate.has(h.stay_date)) histByDate.set(h.stay_date, h.new_rate_eur);
+  // --- Build rows: for visible window (current month +/- buffer up to 365 days) ---
+  const rowsByDate = useMemo(() => {
+    const byDateSnaps = new Map<string, Snap[]>();
+    for (const s of snapshots) { const a = byDateSnaps.get(s.stay_date) ?? []; a.push(s); byDateSnaps.set(s.stay_date, a); }
+    const byDateRate = new Map(rates.map(r => [r.stay_date, r]));
     const recByDate = new Map<string, Rec>();
     for (const rec of recs) if (rec.status === "pending" && !recByDate.has(rec.stay_date)) recByDate.set(rec.stay_date, rec);
+    const minByDate = new Map(minStays.map(m => [m.stay_date, m.min_nights]));
+    const evByDate = new Map<string, Event[]>();
+    for (const e of events) {
+      const a = evByDate.get(e.event_date) ?? []; a.push(e); evByDate.set(e.event_date, a);
+    }
 
-    const out: Row[] = [];
-    for (let i = 0; i < 120; i++) {
-      const d = new Date(today); d.setUTCDate(today.getUTCDate() + i);
-      const date = d.toISOString().slice(0, 10);
-      const dow = d.getUTCDay();
-      const snaps = byDate.get(date) ?? [];
+    const today = new Date(); today.setUTCHours(0,0,0,0);
+    const map = new Map<string, Row>();
+    for (let i = 0; i < 365; i++) {
+      const d = addDays(today, i);
+      const date = iso(d);
+      const dow = (d.getUTCDay() + 6) % 7; // mon=0
+      const snaps = byDateSnaps.get(date) ?? [];
       const latest = snaps[0] ?? null;
       const prev = snaps[1] ?? null;
       const pickupDelta = latest && prev ? (latest.bookings_current - prev.bookings_current) : 0;
-      const ly = latest?.bookings_last_year ?? null;
-      out.push({
-        date, dow: DOW[dow], daysOut: i, isWeekend: dow === 5 || dow === 6,
-        bookingsNow: latest?.bookings_current ?? null,
-        bookingsPrev: prev?.bookings_current ?? null,
-        pickupDelta,
-        bookingsLY: ly,
-        vsLY: latest && ly != null ? latest.bookings_current - ly : null,
-        rate: histByDate.get(date) ?? null,
-        rec: recByDate.get(date) ?? null,
+      const rate = byDateRate.get(date)?.rate_eur ?? null;
+      const occ = byDateRate.get(date)?.occupancy_pct ?? null;
+      const rec = recByDate.get(date) ?? null;
+
+      // Rule-engine suggestion (when no pending rec)
+      let suggestedRate: number | null = null;
+      let suggestedDelta: number | null = null;
+      if (rate != null && settings) {
+        let delta = 0;
+        if (pickupDelta > 0) {
+          const tier = settings.pickup_increase_tiers.find(t => pickupDelta >= t.min && pickupDelta <= t.max);
+          if (tier) delta = tier.increase;
+        } else if ((latest?.bookings_current ?? 0) === 0 && i > 7) {
+          delta = -((dow === 4 || dow === 5) ? settings.weekend_decrease_eur : settings.weekday_decrease_eur);
+        }
+        delta = Math.max(-settings.max_daily_change_eur, Math.min(settings.max_daily_change_eur, delta));
+        const newRate = Math.max(settings.floor_price_eur, rate + delta);
+        if (newRate !== rate) {
+          suggestedRate = Math.round(newRate);
+          suggestedDelta = Math.round(newRate - rate);
+        }
+      }
+
+      map.set(date, {
+        date, dayNum: d.getUTCDate(), dow, isWeekend: dow === 5 || dow === 6, daysOut: i,
+        rate, occupancy: occ, pickupDelta,
+        bookingsNow: latest?.bookings_current ?? null, bookingsLY: latest?.bookings_last_year ?? null,
+        rec, suggestedRate, suggestedDelta,
         abnormal: abnormalDates.has(date),
+        minNights: minByDate.get(date) ?? null,
+        events: evByDate.get(date) ?? [],
       });
     }
+    return map;
+  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings]);
+
+  // Calendar grid for month view
+  const gridDays = useMemo(() => {
+    if (view === "week") {
+      const start = new Date(cursor);
+      const dow = (start.getUTCDay() + 6) % 7;
+      const monday = addDays(start, -dow);
+      return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+    }
+    const first = startOfMonth(cursor);
+    const offset = (first.getUTCDay() + 6) % 7;
+    const gridStart = addDays(first, -offset);
+    return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+  }, [cursor, view]);
+
+  const inMonth = (d: Date) => d.getUTCMonth() === cursor.getUTCMonth() && d.getUTCFullYear() === cursor.getUTCFullYear();
+
+  // Pickup tab data
+  const pickupChartData = useMemo(() => {
+    const out: { date: string; pickup: number; bookings: number; ly: number }[] = [];
+    for (let i = 0; i < 60; i++) {
+      const d = addDays(new Date(), i);
+      const r = rowsByDate.get(iso(d));
+      if (r) out.push({ date: iso(d).slice(5), pickup: r.pickupDelta, bookings: r.bookingsNow ?? 0, ly: r.bookingsLY ?? 0 });
+    }
     return out;
-  }, [snapshots, recs, history, abnormalDates]);
+  }, [rowsByDate]);
 
-  const kpis = useMemo(() => {
-    const sum7 = rows.slice(0, 7).reduce((a, r) => a + r.pickupDelta, 0);
-    const sum30 = rows.slice(0, 30).reduce((a, r) => a + r.pickupDelta, 0);
-    return {
-      pendingRecs: recs.filter(r => r.status === "pending").length,
-      abnormal: abnormalDates.size,
-      pickup7: sum7,
-      pickup30: sum30,
-    };
-  }, [rows, recs, abnormalDates]);
+  // Day-detail snapshots history
+  const dayHistory = useMemo(() => {
+    if (!selectedDate) return [];
+    return snapshots.filter(s => s.stay_date === selectedDate)
+      .sort((a,b) => a.captured_at.localeCompare(b.captured_at))
+      .map(s => ({ at: new Date(s.captured_at).toLocaleDateString(), bookings: s.bookings_current, ly: s.bookings_last_year }));
+  }, [selectedDate, snapshots]);
 
-  const trendData = useMemo(
-    () => rows.map(r => ({ date: r.date.slice(5), bookings: r.bookingsNow ?? 0, ly: r.bookingsLY ?? 0 })),
-    [rows]
-  );
+  const selectedRow = selectedDate ? rowsByDate.get(selectedDate) : null;
 
+  // --- Actions ---
   async function approve(rec: Rec) {
     const { error } = await supabase.from("rate_recommendations")
-      .update({ status: "approved", reviewed_by: profile?.id, reviewed_at: new Date().toISOString() })
-      .eq("id", rec.id);
+      .update({ status: "approved", reviewed_by: profile?.id, reviewed_at: new Date().toISOString() }).eq("id", rec.id);
     if (error) { toast.error(error.message); return; }
     await supabase.from("rate_history").insert({
       hotel_id: hotelId!, organization_slug: profile?.organization_slug ?? "rdhotels",
       stay_date: rec.stay_date, old_rate_eur: rec.current_rate_eur,
-      new_rate_eur: rec.recommended_rate_eur, source: "engine",
-      changed_by: profile?.id, notes: rec.reason ?? null,
+      new_rate_eur: rec.recommended_rate_eur, source: "engine", changed_by: profile?.id, notes: rec.reason ?? null,
     });
     toast.success("Approved");
     void load();
   }
 
-  async function override(rec: Rec) {
-    const v = prompt("New rate €", String(rec.recommended_rate_eur));
-    if (!v) return;
-    const newRate = parseFloat(v);
-    if (Number.isNaN(newRate)) return;
-    await supabase.from("rate_recommendations")
-      .update({ status: "overridden", recommended_rate_eur: newRate, reviewed_by: profile?.id, reviewed_at: new Date().toISOString() })
-      .eq("id", rec.id);
-    await supabase.from("rate_history").insert({
-      hotel_id: hotelId!, organization_slug: profile?.organization_slug ?? "rdhotels",
-      stay_date: rec.stay_date, old_rate_eur: rec.current_rate_eur,
-      new_rate_eur: newRate, source: "manual", changed_by: profile?.id, notes: "manual override",
-    });
-    toast.success("Overridden");
-    void load();
-  }
-
-  async function dismiss(rec: Rec) {
-    await supabase.from("rate_recommendations").update({ status: "expired", reviewed_by: profile?.id, reviewed_at: new Date().toISOString() }).eq("id", rec.id);
-    void load();
-  }
-
-  async function applyAISuggestion(item: { date: string; suggested_delta_eur: number; reason: string }) {
-    const currentRate = history.find(h => h.stay_date === item.date)?.new_rate_eur ?? null;
-    const newRate = (currentRate ?? 0) + item.suggested_delta_eur;
+  async function createRecFromSuggestion(row: Row) {
+    if (row.suggestedRate == null || row.rate == null) return;
     const { error } = await supabase.from("rate_recommendations").insert({
-      hotel_id: hotelId!,
-      organization_slug: profile?.organization_slug ?? "rdhotels",
-      stay_date: item.date,
-      current_rate_eur: currentRate,
-      recommended_rate_eur: Number(newRate.toFixed(2)),
-      delta_eur: item.suggested_delta_eur,
-      reason: `AI: ${item.reason}`,
-      status: "pending",
+      hotel_id: hotelId!, organization_slug: profile?.organization_slug ?? "rdhotels",
+      stay_date: row.date, current_rate_eur: row.rate,
+      recommended_rate_eur: row.suggestedRate, delta_eur: row.suggestedDelta!,
+      reason: `Engine: pickup Δ ${row.pickupDelta}`, status: "pending",
     });
     if (error) { toast.error(error.message); return; }
     toast.success("Recommendation created");
     void load();
   }
 
-  async function runAI(focus_date?: string) {
-    if (focus_date) { setAskBusy(true); setAskResult(null); } else { setAiBusy(true); }
-    const { data, error } = await supabase.functions.invoke("revenue-ai-analyze", {
-      body: { hotel_id: hotelId, focus_date },
-    });
-    if (focus_date) setAskBusy(false); else setAiBusy(false);
-    if (error) { toast.error(error.message); return; }
-    if (data?.error) { toast.error(data.error); return; }
-    if (focus_date) setAskResult(data.payload);
-    else { setAiPayload(data.payload); setAiGeneratedAt(new Date().toISOString()); toast.success("AI analysis updated"); }
+  async function pushApproved() {
+    setPushBusy(true);
+    const { data, error } = await supabase.functions.invoke("previo-push-rates", { body: { hotel_id: hotelId } });
+    setPushBusy(false);
+    if (error || data?.error) { toast.error(data?.error || error?.message || "Failed"); return; }
+    toast.success("Rates pushed to Previo");
   }
 
   return (
-    <div className="container mx-auto p-4 space-y-4">
-      <div className="flex items-center gap-2">
+    <div className="container mx-auto p-4 space-y-3">
+      {/* Header bar — RPG style */}
+      <div className="flex items-center gap-3 flex-wrap">
         <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Button>
-        <h1 className="text-2xl font-semibold">{hotelName}</h1>
+        <h1 className="text-xl font-semibold flex-1 min-w-0 truncate">{hotelName}</h1>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" onClick={() => setCursor(c => view === "week" ? addDays(c,-7) : addDays(startOfMonth(c),-1))}><ChevronLeft className="h-4 w-4" /></Button>
+          <div className="px-3 font-medium min-w-[140px] text-center">{view === "week" ? `Week of ${iso(gridDays[0]).slice(5)}` : fmtMonth(cursor)}</div>
+          <Button variant="outline" size="icon" onClick={() => setCursor(c => view === "week" ? addDays(c,7) : addDays(startOfMonth(c),35))}><ChevronRight className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" onClick={() => setCursor(startOfMonth(new Date()))}>Today</Button>
+        </div>
+        <div className="flex border rounded-md overflow-hidden">
+          <button className={`px-3 py-1 text-sm ${view==="week"?"bg-primary text-primary-foreground":""}`} onClick={() => setView("week")}>Week</button>
+          <button className={`px-3 py-1 text-sm ${view==="month"?"bg-primary text-primary-foreground":""}`} onClick={() => setView("month")}>Month</button>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
+        <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
+          {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Upload Prices
+        </Button>
       </div>
 
-      {/* KPI strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <Kpi label="Pickup 7d" value={kpis.pickup7} positive={kpis.pickup7 >= 0} />
-        <Kpi label="Pickup 30d" value={kpis.pickup30} positive={kpis.pickup30 >= 0} />
-        <Kpi label="Pending recs" value={kpis.pendingRecs} />
-        <Kpi label="Abnormal alerts" value={kpis.abnormal} alert={kpis.abnormal > 0} />
-      </div>
-
-      {/* AI Analysis */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center justify-between gap-2 flex-wrap">
-            <span className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-purple-600" /> AI Revenue Analyst</span>
-            <div className="flex items-center gap-2">
-              {aiGeneratedAt && <span className="text-xs text-muted-foreground">Last: {new Date(aiGeneratedAt).toLocaleString()}</span>}
-              <Button size="sm" onClick={() => runAI()} disabled={aiBusy}>
-                {aiBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Wand2 className="h-4 w-4 mr-1" />}
-                {aiPayload ? "Re-analyze" : "Generate analysis"}
-              </Button>
-            </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {!aiPayload && !aiBusy && (
-            <p className="text-sm text-muted-foreground">
-              Click <b>Generate analysis</b> to have AI review the latest pickup data and propose which dates to raise or lower prices.
-            </p>
-          )}
-          {aiPayload && (
-            <>
-              <p className="text-sm">{aiPayload.summary}</p>
-              <div className="grid md:grid-cols-2 gap-3">
-                <SuggestionList
-                  title="Increase candidates" icon={<TrendingUp className="h-4 w-4 text-green-600" />}
-                  items={aiPayload.top_increase_dates} onApply={applyAISuggestion}
-                />
-                <SuggestionList
-                  title="Decrease candidates" icon={<TrendingDown className="h-4 w-4 text-red-600" />}
-                  items={aiPayload.top_decrease_dates} onApply={applyAISuggestion}
-                />
-              </div>
-              {aiPayload.anomalies.length > 0 && (
-                <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm">
-                  <div className="font-semibold flex items-center gap-1 mb-1"><AlertTriangle className="h-4 w-4" /> Anomalies</div>
-                  <ul className="list-disc list-inside space-y-1">
-                    {aiPayload.anomalies.map((a, i) => <li key={i}><b>{a.date}</b> — {a.note}</li>)}
-                  </ul>
-                </div>
-              )}
-              {aiPayload.strategy_notes && (
-                <p className="text-xs text-muted-foreground italic">{aiPayload.strategy_notes}</p>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue="list">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="list">List</TabsTrigger>
-          <TabsTrigger value="calendar">Calendar</TabsTrigger>
-          <TabsTrigger value="trend">Trend</TabsTrigger>
+          <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Prices</TabsTrigger>
+          <TabsTrigger value="events">Events</TabsTrigger>
+          <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
+          <TabsTrigger value="pickup"><BarChart3 className="h-4 w-4 mr-1" />Pickup</TabsTrigger>
+          <TabsTrigger value="minstay">Min Stay</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="list">
-          <Card>
-            <CardContent className="p-0 overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-muted-foreground bg-muted/50 sticky top-0">
-                  <tr>
-                    <th className="p-2">Date</th><th>DOW</th><th>+d</th>
-                    <th>Bookings</th><th>Pickup Δ</th><th>vs LY</th>
-                    <th>Rate (PMS)</th><th>Recommendation</th><th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(r => (
-                    <tr key={r.date} className={`border-t ${r.abnormal ? "bg-red-50" : r.pickupDelta >= 3 ? "bg-green-50/60" : r.bookingsNow === 0 && r.daysOut > 14 ? "bg-amber-50/40" : ""}`}>
-                      <td className="p-2 font-mono">{r.date}</td>
-                      <td>{r.dow}{r.isWeekend && <span className="text-purple-600 ml-1">★</span>}</td>
-                      <td className="text-muted-foreground">{r.daysOut}</td>
-                      <td>{r.bookingsNow ?? "—"}{r.bookingsPrev != null && <span className="text-xs text-muted-foreground"> / was {r.bookingsPrev}</span>}</td>
-                      <td className={r.pickupDelta > 0 ? "text-green-700 font-semibold" : r.pickupDelta < 0 ? "text-red-700" : ""}>
-                        {r.pickupDelta > 0 ? "+" : ""}{r.pickupDelta}
-                        {r.abnormal && <Badge variant="destructive" className="ml-1 text-[10px]">!</Badge>}
-                      </td>
-                      <td className={r.vsLY != null && r.vsLY > 0 ? "text-green-700" : r.vsLY != null && r.vsLY < 0 ? "text-red-700" : ""}>
-                        {r.vsLY != null ? (r.vsLY > 0 ? "+" : "") + r.vsLY : "—"}
-                      </td>
-                      <td>{r.rate != null ? `€${r.rate}` : "—"}</td>
-                      <td className="text-xs">
-                        {r.rec ? (
-                          <span>
-                            <b>€{r.rec.recommended_rate_eur}</b>{" "}
-                            <span className={r.rec.delta_eur >= 0 ? "text-green-600" : "text-red-600"}>({r.rec.delta_eur > 0 ? "+" : ""}{r.rec.delta_eur}€)</span>
-                            <div className="text-muted-foreground">{r.rec.reason}</div>
-                          </span>
-                        ) : <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="space-x-1 whitespace-nowrap">
-                        {r.rec && (
-                          <>
-                            <Button size="icon" variant="outline" className="h-7 w-7" title="Approve" onClick={() => approve(r.rec!)}><Check className="h-3 w-3" /></Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Override" onClick={() => override(r.rec!)}><Edit3 className="h-3 w-3" /></Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Dismiss" onClick={() => dismiss(r.rec!)}><X className="h-3 w-3" /></Button>
-                          </>
-                        )}
-                        <Button size="icon" variant="ghost" className="h-7 w-7" title="Ask AI about this date" onClick={() => { setAskDate(r.date); setAskResult(null); void runAI(r.date); }}>
-                          <Sparkles className="h-3 w-3 text-purple-600" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
+        <TabsContent value="prices">
+          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices"
+            onSelect={setSelectedDate} />
         </TabsContent>
 
-        <TabsContent value="calendar">
-          <Card><CardContent className="p-3">
-            <div className="grid grid-cols-7 gap-1 text-xs">
-              {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => <div key={d} className="text-center font-semibold text-muted-foreground">{d}</div>)}
-              {(() => {
-                if (rows.length === 0) return null;
-                const first = new Date(rows[0].date);
-                const offset = (first.getUTCDay() + 6) % 7; // monday start
-                return Array.from({ length: offset }, (_, i) => <div key={"e"+i} />);
-              })()}
-              {rows.map(r => {
-                const intensity =
-                  r.pickupDelta >= 5 ? "bg-green-600 text-white" :
-                  r.pickupDelta >= 3 ? "bg-green-400 text-white" :
-                  r.pickupDelta >= 1 ? "bg-green-100" :
-                  r.pickupDelta <= -3 ? "bg-red-300" :
-                  r.pickupDelta < 0 ? "bg-red-100" :
-                  r.bookingsNow === 0 && r.daysOut > 14 ? "bg-amber-100" : "bg-muted/30";
-                return (
-                  <div key={r.date} className={`rounded p-1 text-center ${intensity} ${r.abnormal ? "ring-2 ring-red-600" : ""}`} title={`${r.date}: pickup Δ ${r.pickupDelta}`}>
-                    <div className="font-semibold">{r.date.slice(8)}</div>
-                    <div className="text-[10px]">{r.pickupDelta > 0 ? "+" : ""}{r.pickupDelta}</div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent></Card>
+        <TabsContent value="occupancy">
+          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="occupancy"
+            onSelect={setSelectedDate} />
         </TabsContent>
 
-        <TabsContent value="trend">
-          <Card><CardContent className="p-3 h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendData}>
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <RTooltip />
-                <Line type="monotone" dataKey="bookings" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="ly" stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent></Card>
+        <TabsContent value="events">
+          <EventsTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} events={events} onChange={load} />
+        </TabsContent>
+
+        <TabsContent value="minstay">
+          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="minstay"
+            onSelect={setSelectedDate} />
+        </TabsContent>
+
+        <TabsContent value="pickup">
+          <PickupTab data={pickupChartData} />
         </TabsContent>
       </Tabs>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base">Push to Previo</CardTitle></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Disabled until Previo Rate API endpoint and rate-plan IDs are configured.
-          <Button className="ml-2" disabled>Push approved rates</Button>
-        </CardContent>
-      </Card>
+      {/* Day detail side panel */}
+      <Sheet open={!!selectedDate} onOpenChange={(o) => !o && setSelectedDate(null)}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader><SheetTitle>{selectedDate}</SheetTitle></SheetHeader>
+          {selectedRow && (
+            <div className="space-y-4 mt-4 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <Stat label="Current rate" value={selectedRow.rate != null ? `€${selectedRow.rate}` : "—"} />
+                <Stat label="Occupancy" value={selectedRow.occupancy != null ? `${selectedRow.occupancy}%` : "—"} />
+                <Stat label="Pickup Δ" value={`${selectedRow.pickupDelta>0?"+":""}${selectedRow.pickupDelta}`}
+                  positive={selectedRow.pickupDelta>0} negative={selectedRow.pickupDelta<0} />
+                <Stat label="vs Last Year" value={selectedRow.bookingsLY != null ? `${selectedRow.bookingsNow}/${selectedRow.bookingsLY}` : "—"} />
+              </div>
 
-      <Dialog open={!!askDate} onOpenChange={(o) => { if (!o) { setAskDate(null); setAskResult(null); } }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-purple-600" /> AI insight for {askDate}</DialogTitle></DialogHeader>
-          {askBusy && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Analyzing…</div>}
-          {askResult && (
-            <div className="space-y-2 text-sm">
-              <p>{askResult.summary}</p>
-              {askResult.strategy_notes && <p className="text-xs text-muted-foreground italic">{askResult.strategy_notes}</p>}
+              {selectedRow.abnormal && (
+                <div className="rounded border border-red-300 bg-red-50 p-2 text-red-800 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" /> Abnormal pickup detected
+                </div>
+              )}
+
+              {selectedRow.events.length > 0 && (
+                <div className="rounded border p-2">
+                  <div className="font-semibold mb-1">Events</div>
+                  {selectedRow.events.map(e => (
+                    <div key={e.id} className="flex justify-between"><span>{e.title}</span><Badge variant="outline">{e.impact}</Badge></div>
+                  ))}
+                </div>
+              )}
+
+              {selectedRow.rec && (
+                <div className="rounded border-2 border-primary/40 p-3 space-y-2">
+                  <div className="font-semibold flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-purple-600" />
+                    Pending recommendation
+                  </div>
+                  <div className="text-2xl font-bold">
+                    €{selectedRow.rec.recommended_rate_eur}
+                    <span className={`text-sm ml-2 ${selectedRow.rec.delta_eur>=0?"text-green-600":"text-red-600"}`}>
+                      ({selectedRow.rec.delta_eur>0?"+":""}{selectedRow.rec.delta_eur}€)
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">{selectedRow.rec.reason}</div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => approve(selectedRow.rec!)}><Check className="h-4 w-4 mr-1" />Approve</Button>
+                    <Button size="sm" variant="outline" onClick={async () => {
+                      const v = prompt("New rate €", String(selectedRow.rec!.recommended_rate_eur));
+                      if (!v) return;
+                      const newRate = parseFloat(v);
+                      if (Number.isNaN(newRate)) return;
+                      await supabase.from("rate_recommendations").update({
+                        status: "overridden", recommended_rate_eur: newRate,
+                        reviewed_by: profile?.id, reviewed_at: new Date().toISOString(),
+                      }).eq("id", selectedRow.rec!.id);
+                      await supabase.from("rate_history").insert({
+                        hotel_id: hotelId!, organization_slug: profile?.organization_slug ?? "rdhotels",
+                        stay_date: selectedRow.rec!.stay_date, old_rate_eur: selectedRow.rec!.current_rate_eur,
+                        new_rate_eur: newRate, source: "manual", changed_by: profile?.id, notes: "manual override",
+                      });
+                      toast.success("Overridden"); void load();
+                    }}><Edit3 className="h-4 w-4 mr-1" />Override</Button>
+                    <Button size="sm" variant="ghost" onClick={async () => {
+                      await supabase.from("rate_recommendations").update({ status: "expired" }).eq("id", selectedRow.rec!.id);
+                      void load();
+                    }}><X className="h-4 w-4" /></Button>
+                  </div>
+                </div>
+              )}
+
+              {!selectedRow.rec && selectedRow.suggestedRate != null && (
+                <div className="rounded border p-3 space-y-2">
+                  <div className="font-semibold">Engine suggests</div>
+                  <div className="text-2xl font-bold">
+                    €{selectedRow.suggestedRate}
+                    <span className={`text-sm ml-2 ${selectedRow.suggestedDelta!>=0?"text-green-600":"text-red-600"}`}>
+                      ({selectedRow.suggestedDelta!>0?"+":""}{selectedRow.suggestedDelta}€)
+                    </span>
+                  </div>
+                  <Button size="sm" onClick={() => createRecFromSuggestion(selectedRow)}>
+                    <Plus className="h-4 w-4 mr-1" />Create recommendation
+                  </Button>
+                </div>
+              )}
+
+              <div>
+                <div className="font-semibold mb-2">Pickup history</div>
+                <div className="h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={dayHistory}>
+                      <XAxis dataKey="at" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <RTooltip />
+                      <Line type="monotone" dataKey="bookings" stroke="hsl(var(--primary))" strokeWidth={2} />
+                      <Line type="monotone" dataKey="ly" stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <DayMinStayEditor hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+                date={selectedDate!} value={selectedRow.minNights ?? 1} onSaved={load} />
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
+
+      <BulkEditDialog open={bulkOpen} onClose={() => setBulkOpen(false)} hotelId={hotelId!}
+        orgSlug={profile?.organization_slug ?? "rdhotels"} userId={profile?.id} rowsByDate={rowsByDate} onSaved={load} />
     </div>
   );
 }
 
-function Kpi({ label, value, positive, alert }: { label: string; value: number; positive?: boolean; alert?: boolean }) {
+// --- Calendar grid ---
+function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
+  days: Date[]; rowsByDate: Map<string, Row>; inMonth: (d: Date) => boolean;
+  variant: "prices"|"occupancy"|"minstay"; onSelect: (d: string) => void;
+}) {
   return (
-    <Card className={alert ? "border-red-500" : ""}>
-      <CardContent className="p-3">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className={`text-xl font-semibold ${positive === false ? "text-red-600" : positive === true ? "text-green-600" : ""}`}>
-          {value > 0 && positive !== undefined ? "+" : ""}{value}
+    <Card>
+      <CardContent className="p-2">
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {DOW_LABELS.map(d => <div key={d} className="text-center text-xs font-semibold text-muted-foreground py-1">{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {days.map(d => {
+            const date = iso(d);
+            const r = rowsByDate.get(date);
+            const muted = !inMonth(d);
+            return (
+              <button key={date} onClick={() => onSelect(date)}
+                className={`min-h-[88px] rounded-lg border text-left p-2 transition hover:border-primary
+                  ${muted ? "opacity-40" : ""}
+                  ${r?.abnormal ? "border-red-500 ring-1 ring-red-300" : ""}
+                  ${r?.events.length ? "bg-purple-50/40" : ""}`}>
+                <div className="flex items-center justify-between text-xs">
+                  <span className={`font-semibold ${r?.isWeekend ? "text-purple-700" : ""}`}>{d.getUTCDate()}</span>
+                  {variant === "prices" && r?.occupancy != null && (
+                    <span className="text-[10px] text-muted-foreground">{r.occupancy}%</span>
+                  )}
+                </div>
+
+                {variant === "prices" && (
+                  <div className="mt-1 space-y-0.5">
+                    <div className="text-sm font-bold">{r?.rate != null ? `€${r.rate}` : <span className="text-muted-foreground">—</span>}</div>
+                    {r?.rec && (
+                      <div className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded
+                        ${r.rec.delta_eur>=0?"bg-green-100 text-green-800":"bg-red-100 text-red-700"}`}>
+                        {r.rec.delta_eur>=0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
+                        €{r.rec.recommended_rate_eur}
+                      </div>
+                    )}
+                    {!r?.rec && r?.suggestedRate != null && (
+                      <div className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border
+                        ${r.suggestedDelta!>=0?"text-green-700 border-green-300":"text-red-700 border-red-300"}`}>
+                        {r.suggestedDelta!>=0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
+                        €{r.suggestedRate}
+                      </div>
+                    )}
+                    {r?.events && r.events.length > 0 && (
+                      <div className="text-[10px] text-purple-700 truncate" title={r.events.map(e=>e.title).join(", ")}>
+                        ★ {r.events[0].title}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {variant === "occupancy" && (
+                  <div className="mt-2">
+                    {r?.occupancy != null ? (
+                      <>
+                        <div className="text-lg font-bold">{r.occupancy}%</div>
+                        <div className="h-1.5 rounded bg-muted overflow-hidden">
+                          <div className={`h-full ${r.occupancy>=80?"bg-red-500":r.occupancy>=50?"bg-amber-400":"bg-green-500"}`}
+                            style={{ width: `${Math.min(100, r.occupancy)}%` }} />
+                        </div>
+                      </>
+                    ) : <span className="text-xs text-muted-foreground">—</span>}
+                  </div>
+                )}
+
+                {variant === "minstay" && (
+                  <div className="mt-2">
+                    <div className="text-lg font-bold">{r?.minNights ?? 1}<span className="text-xs text-muted-foreground"> nt</span></div>
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function SuggestionList({
-  title, icon, items, onApply,
-}: {
-  title: string; icon: React.ReactNode;
-  items: { date: string; reason: string; suggested_delta_eur: number; confidence: string }[];
-  onApply: (it: any) => void;
-}) {
+function Stat({ label, value, positive, negative }: { label: string; value: string; positive?: boolean; negative?: boolean }) {
   return (
-    <div className="rounded-md border p-2">
-      <div className="font-semibold text-sm flex items-center gap-1 mb-2">{icon} {title}</div>
-      {items.length === 0 && <div className="text-xs text-muted-foreground">None.</div>}
-      <ul className="space-y-1 text-sm">
-        {items.map((it, i) => (
-          <li key={i} className="flex items-center justify-between gap-2 border-t pt-1 first:border-t-0 first:pt-0">
-            <div>
-              <div><b className="font-mono">{it.date}</b> <Badge variant="outline" className="text-[10px]">{it.confidence}</Badge> <span className={it.suggested_delta_eur >= 0 ? "text-green-700" : "text-red-700"}>{it.suggested_delta_eur > 0 ? "+" : ""}{it.suggested_delta_eur}€</span></div>
-              <div className="text-xs text-muted-foreground">{it.reason}</div>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => onApply(it)}>Apply</Button>
-          </li>
-        ))}
-      </ul>
+    <div className="rounded border p-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`text-lg font-semibold ${positive?"text-green-600":negative?"text-red-600":""}`}>{value}</div>
     </div>
+  );
+}
+
+function PickupTab({ data }: { data: { date: string; pickup: number; bookings: number; ly: number }[] }) {
+  return (
+    <div className="space-y-3">
+      <Card><CardHeader className="pb-2"><CardTitle className="text-base">Daily pickup (next 60 days)</CardTitle></CardHeader>
+        <CardContent className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data}>
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} />
+              <RTooltip />
+              <Bar dataKey="pickup" fill="hsl(var(--primary))" />
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent></Card>
+      <Card><CardHeader className="pb-2"><CardTitle className="text-base">Bookings on the books vs Last Year</CardTitle></CardHeader>
+        <CardContent className="h-72">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data}>
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} />
+              <RTooltip />
+              <Line type="monotone" dataKey="bookings" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="ly" stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent></Card>
+    </div>
+  );
+}
+
+function EventsTab({ hotelId, orgSlug, events, onChange }: { hotelId: string; orgSlug: string; events: Event[]; onChange: () => void }) {
+  const [form, setForm] = useState({ event_date: "", title: "", impact: "medium", notes: "" });
+  async function add() {
+    if (!form.event_date || !form.title) { toast.error("Date and title required"); return; }
+    const { error } = await (supabase as any).from("hotel_events").insert({
+      hotel_id: hotelId, organization_slug: orgSlug, ...form,
+    });
+    if (error) { toast.error(error.message); return; }
+    setForm({ event_date: "", title: "", impact: "medium", notes: "" });
+    onChange();
+  }
+  async function remove(id: string) {
+    await (supabase as any).from("hotel_events").delete().eq("id", id);
+    onChange();
+  }
+  return (
+    <Card><CardContent className="p-4 space-y-3">
+      <div className="grid md:grid-cols-5 gap-2">
+        <Input type="date" value={form.event_date} onChange={e => setForm({...form, event_date: e.target.value})} />
+        <Input className="md:col-span-2" placeholder="Event title" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
+        <Select value={form.impact} onValueChange={v => setForm({...form, impact: v})}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="low">Low impact</SelectItem>
+            <SelectItem value="medium">Medium impact</SelectItem>
+            <SelectItem value="high">High impact</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button onClick={add}><Plus className="h-4 w-4 mr-1" />Add</Button>
+      </div>
+      <div className="border rounded divide-y">
+        {events.length === 0 && <div className="p-3 text-sm text-muted-foreground">No events yet.</div>}
+        {events.map(e => (
+          <div key={e.id} className="flex items-center justify-between p-2 text-sm">
+            <div><span className="font-mono">{e.event_date}</span> · <b>{e.title}</b> <Badge variant="outline" className="ml-1">{e.impact}</Badge></div>
+            <Button size="icon" variant="ghost" onClick={() => remove(e.id)}><X className="h-4 w-4" /></Button>
+          </div>
+        ))}
+      </div>
+    </CardContent></Card>
+  );
+}
+
+function DayMinStayEditor({ hotelId, orgSlug, date, value, onSaved }: { hotelId: string; orgSlug: string; date: string; value: number; onSaved: () => void }) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value, date]);
+  async function save() {
+    const { error } = await (supabase as any).from("min_stay_rules")
+      .upsert({ hotel_id: hotelId, organization_slug: orgSlug, stay_date: date, min_nights: v }, { onConflict: "hotel_id,stay_date" });
+    if (error) { toast.error(error.message); return; }
+    toast.success("Min stay saved"); onSaved();
+  }
+  return (
+    <div className="rounded border p-2">
+      <div className="font-semibold mb-1">Min stay</div>
+      <div className="flex gap-2 items-center">
+        <Input type="number" min={1} value={v} onChange={e => setV(parseInt(e.target.value)||1)} className="w-24" />
+        <span className="text-sm text-muted-foreground">nights</span>
+        <Button size="sm" onClick={save}>Save</Button>
+      </div>
+    </div>
+  );
+}
+
+function BulkEditDialog({ open, onClose, hotelId, orgSlug, userId, rowsByDate, onSaved }: {
+  open: boolean; onClose: () => void; hotelId: string; orgSlug: string; userId?: string;
+  rowsByDate: Map<string, Row>; onSaved: () => void;
+}) {
+  const [from, setFrom] = useState(iso(new Date()));
+  const [to, setTo] = useState(iso(addDays(new Date(), 30)));
+  const [mode, setMode] = useState<"percent"|"absolute">("percent");
+  const [amount, setAmount] = useState(5);
+  const [busy, setBusy] = useState(false);
+
+  async function apply() {
+    if (!from || !to) return;
+    setBusy(true);
+    const recs: any[] = [];
+    const start = new Date(from); const end = new Date(to);
+    for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
+      const date = iso(d);
+      const row = rowsByDate.get(date);
+      if (!row?.rate) continue;
+      const newRate = mode === "percent" ? Math.round(row.rate * (1 + amount/100)) : Math.round(row.rate + amount);
+      const delta = newRate - row.rate;
+      if (delta === 0) continue;
+      recs.push({
+        hotel_id: hotelId, organization_slug: orgSlug, stay_date: date,
+        current_rate_eur: row.rate, recommended_rate_eur: newRate, delta_eur: delta,
+        reason: `Bulk edit: ${mode==="percent"?`${amount>0?"+":""}${amount}%`:`${amount>0?"+":""}€${amount}`}`,
+        status: "approved", reviewed_by: userId, reviewed_at: new Date().toISOString(),
+      });
+    }
+    if (recs.length === 0) { setBusy(false); toast.error("No dates with prices in range"); return; }
+    const { error } = await supabase.from("rate_recommendations").insert(recs);
+    if (error) { setBusy(false); toast.error(error.message); return; }
+    // log to history
+    await supabase.from("rate_history").insert(recs.map(r => ({
+      hotel_id: r.hotel_id, organization_slug: r.organization_slug, stay_date: r.stay_date,
+      old_rate_eur: r.current_rate_eur, new_rate_eur: r.recommended_rate_eur, source: "manual",
+      changed_by: userId, notes: r.reason,
+    })));
+    setBusy(false);
+    toast.success(`Approved ${recs.length} dates`);
+    onClose(); onSaved();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={o => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Bulk Edit Prices</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div><Label>From</Label><Input type="date" value={from} onChange={e => setFrom(e.target.value)} /></div>
+            <div><Label>To</Label><Input type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>Mode</Label>
+              <Select value={mode} onValueChange={v => setMode(v as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percent">Percent (%)</SelectItem>
+                  <SelectItem value="absolute">Absolute (€)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Amount {mode === "percent" ? "(%)" : "(€)"}</Label>
+              <Input type="number" value={amount} onChange={e => setAmount(parseFloat(e.target.value)||0)} />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Creates approved recommendations and logs them to history. Click <b>Upload Prices</b> after to push to Previo.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={apply} disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />}Apply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
