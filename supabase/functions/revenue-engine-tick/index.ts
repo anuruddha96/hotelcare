@@ -152,8 +152,8 @@ serve(async (req) => {
       }
     }
 
-    // Expire stale
-    await supabase.rpc("expire_stale_recommendations").catch(() => {});
+    // Expire stale (errors swallowed; non-critical)
+    try { await supabase.rpc("expire_stale_recommendations"); } catch (_) { /* ignore */ }
 
     return new Response(
       JSON.stringify({ ok: true, recsCreated, alertsCreated, trigger }),
