@@ -626,7 +626,7 @@ function BulkEditDialog({ open, onClose, hotelId, orgSlug, userId, rowsByDate, o
     // log to history
     await supabase.from("rate_history").insert(recs.map(r => ({
       hotel_id: r.hotel_id, organization_slug: r.organization_slug, stay_date: r.stay_date,
-      old_rate_eur: r.current_rate_eur, new_rate_eur: r.recommended_rate_eur, source: "manual",
+      old_rate_eur: r.current_rate_eur, new_rate_eur: r.recommended_rate_eur, source: "bulk" as const,
       changed_by: userId, notes: r.reason,
     })));
     setBusy(false);
