@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles } from "lucide-react";
+import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 interface HotelStat {
@@ -20,6 +20,15 @@ interface HotelStat {
   abnormal: boolean;
   spark: { d: string; v: number }[];
   hasFreshAI: boolean;
+  last_label: string | null;
+}
+
+interface UploadJob {
+  file: File;
+  status: "queued" | "uploading" | "ok" | "err";
+  message?: string;
+  rows?: number;
+  hotel?: string;
 }
 
 const ALLOWED = ["admin", "top_management"];
@@ -30,8 +39,8 @@ export default function Revenue() {
   const navigate = useNavigate();
   const [hotels, setHotels] = useState<HotelStat[]>([]);
   const [busy, setBusy] = useState(false);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadHotel, setUploadHotel] = useState("");
+  const [jobs, setJobs] = useState<UploadJob[]>([]);
 
   useEffect(() => {
     if (loading) return;
@@ -51,39 +60,21 @@ export default function Revenue() {
 
     const stats: HotelStat[] = [];
     for (const h of hotelRows ?? []) {
-      const { data: snaps } = await supabase
-        .from("pickup_snapshots")
-        .select("delta, captured_at")
-        .eq("hotel_id", h.hotel_id)
-        .order("captured_at", { ascending: false })
-        .limit(50);
-      const { data: recs } = await supabase
-        .from("rate_recommendations")
-        .select("id")
-        .eq("hotel_id", h.hotel_id)
-        .eq("status", "pending");
-      const { data: alerts } = await supabase
-        .from("revenue_alerts")
-        .select("id")
-        .eq("hotel_id", h.hotel_id)
-        .is("acknowledged_at", null)
-        .eq("alert_type", "abnormal_pickup");
-      const { data: lastAI } = await supabase
-        .from("revenue_ai_insights")
-        .select("created_at")
-        .eq("hotel_id", h.hotel_id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const [{ data: snaps }, { data: recs }, { data: alerts }, { data: lastAI }] = await Promise.all([
+        supabase.from("pickup_snapshots").select("delta, captured_at, snapshot_label")
+          .eq("hotel_id", h.hotel_id).order("captured_at", { ascending: false }).limit(50),
+        supabase.from("rate_recommendations").select("id").eq("hotel_id", h.hotel_id).eq("status", "pending"),
+        supabase.from("revenue_alerts").select("id").eq("hotel_id", h.hotel_id).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
+        supabase.from("revenue_ai_insights").select("created_at").eq("hotel_id", h.hotel_id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
 
-      // Build 14-day spark from snapshot deltas (latest first → reverse for chronological)
       const spark = (snaps ?? []).slice(0, 14).reverse().map((s, i) => ({ d: String(i), v: s.delta || 0 }));
-
       stats.push({
         hotel_id: h.hotel_id,
         hotel_name: h.hotel_name,
         pickup_today: (snaps ?? []).reduce((a, r) => a + (r.delta || 0), 0),
         last_snapshot: snaps?.[0]?.captured_at ?? null,
+        last_label: snaps?.[0]?.snapshot_label ?? null,
         pending_recs: recs?.length ?? 0,
         abnormal: (alerts?.length ?? 0) > 0,
         spark,
@@ -94,17 +85,30 @@ export default function Revenue() {
     setBusy(false);
   }
 
-  async function doUpload() {
-    if (!uploadFile) { toast.error("Pick a file"); return; }
+  function pickFiles(files: FileList | null) {
+    if (!files) return;
+    const newJobs: UploadJob[] = Array.from(files).map((f) => ({ file: f, status: "queued" }));
+    setJobs((j) => [...j, ...newJobs]);
+  }
+
+  async function uploadAll() {
+    if (jobs.length === 0) { toast.error("Pick at least one file"); return; }
     setBusy(true);
-    const fd = new FormData();
-    fd.append("file", uploadFile);
-    if (uploadHotel) fd.append("hotel_id", uploadHotel);
-    const { data, error } = await supabase.functions.invoke("revenue-pickup-upload", { body: fd });
+    for (let i = 0; i < jobs.length; i++) {
+      if (jobs[i].status === "ok") continue;
+      setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "uploading" } : j));
+      const fd = new FormData();
+      fd.append("file", jobs[i].file);
+      if (uploadHotel) fd.append("hotel_id", uploadHotel);
+      const { data, error } = await supabase.functions.invoke("revenue-pickup-upload", { body: fd });
+      if (error || data?.error) {
+        const msg = data?.error || error?.message || "Failed";
+        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: msg } : j));
+      } else {
+        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "ok", rows: data.rows, hotel: data.hotel_id } : j));
+      }
+    }
     setBusy(false);
-    if (error) { toast.error(error.message); return; }
-    toast.success(`Uploaded ${data?.rows ?? 0} rows for ${data?.hotel_id}`);
-    setUploadFile(null);
     void load();
   }
 
@@ -116,38 +120,80 @@ export default function Revenue() {
     void load();
   }
 
+  async function exportAll(format: "csv" | "xlsx") {
+    const { data, error } = await supabase.functions.invoke("revenue-export", {
+      body: { format, kind: "recommendations" },
+    });
+    if (error) { toast.error(error.message); return; }
+    // data is a blob via supabase-js
+    const blob = data instanceof Blob ? data : new Blob([data as any]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `revenue-recommendations.${format}`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="container mx-auto p-4 space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}`)}>
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
           <h1 className="text-2xl font-semibold">Revenue Management</h1>
         </div>
-        <Button onClick={runEngine} variant="outline" disabled={busy}>
-          <RefreshCw className="h-4 w-4 mr-1" /> Run engine
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => exportAll("xlsx")} variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export XLSX</Button>
+          <Button onClick={() => exportAll("csv")} variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />CSV</Button>
+          <Button onClick={runEngine} variant="outline" disabled={busy}>
+            <RefreshCw className="h-4 w-4 mr-1" /> Run engine
+          </Button>
+        </div>
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Upload className="h-4 w-4" /> Upload Previo pickup XLSX</CardTitle></CardHeader>
-        <CardContent className="grid md:grid-cols-3 gap-3">
-          <div>
-            <Label>File</Label>
-            <Input type="file" accept=".xlsx" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} />
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Upload className="h-4 w-4" /> Upload Previo pickup XLSX (multiple allowed)</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid md:grid-cols-3 gap-3">
+            <div>
+              <Label>Files</Label>
+              <Input type="file" accept=".xlsx" multiple onChange={(e) => pickFiles(e.target.files)} />
+            </div>
+            <div>
+              <Label>Hotel (override if header missing)</Label>
+              <select className="w-full border rounded h-10 px-2 bg-background"
+                value={uploadHotel} onChange={(e) => setUploadHotel(e.target.value)}>
+                <option value="">Auto-detect from each file</option>
+                {hotels.map((h) => <option key={h.hotel_id} value={h.hotel_id}>{h.hotel_name}</option>)}
+              </select>
+            </div>
+            <div className="flex items-end gap-2">
+              <Button onClick={uploadAll} disabled={busy || jobs.length === 0} className="flex-1">
+                {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
+                Upload {jobs.length > 0 ? `(${jobs.length})` : ""}
+              </Button>
+              {jobs.length > 0 && <Button variant="ghost" onClick={() => setJobs([])}>Clear</Button>}
+            </div>
           </div>
-          <div>
-            <Label>Hotel (override if header missing)</Label>
-            <select className="w-full border rounded h-10 px-2 bg-background"
-              value={uploadHotel} onChange={(e) => setUploadHotel(e.target.value)}>
-              <option value="">Auto-detect from file</option>
-              {hotels.map((h) => <option key={h.hotel_id} value={h.hotel_id}>{h.hotel_name}</option>)}
-            </select>
-          </div>
-          <div className="flex items-end">
-            <Button onClick={doUpload} disabled={busy || !uploadFile} className="w-full">Upload</Button>
-          </div>
+          {jobs.length > 0 && (
+            <div className="border rounded divide-y">
+              {jobs.map((j, i) => (
+                <div key={i} className="flex items-center justify-between p-2 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {j.status === "ok" && <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />}
+                    {j.status === "err" && <XCircle className="h-4 w-4 text-red-600 shrink-0" />}
+                    {j.status === "uploading" && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
+                    {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
+                    <span className="truncate">{j.file.name}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground ml-2 shrink-0">
+                    {j.status === "ok" && `✓ ${j.rows} rows → ${j.hotel}`}
+                    {j.status === "err" && j.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -179,8 +225,9 @@ export default function Revenue() {
                   </ResponsiveContainer>
                 </div>
               )}
-              <div className="text-muted-foreground text-xs">
-                Last snapshot: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
+              <div className="text-muted-foreground text-xs truncate" title={h.last_label || ""}>
+                Last: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
+                {h.last_label && <> · {h.last_label}</>}
               </div>
               <div>Pending recommendations: <b>{h.pending_recs}</b></div>
               <Button size="sm" variant="outline" className="w-full"
