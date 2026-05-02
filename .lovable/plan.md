@@ -1,153 +1,94 @@
-## Goal
 
-Make Revenue Management precise and decision-ready. The current upload returns a non-2xx and all revenue tables are empty (0 snapshots, 0 recs, 0 alerts), so today the dashboard shows nothing. We will fix ingestion first, then upgrade the analytics, AI explanations, alerts/exports/approvals, and finish verifying the breakfast feature end-to-end.
+# Revenue Management — Room Price Genie parity
 
----
+Goal: bring the RPG screens you shared into Hotel Care's Revenue module, keep manual XLSX uploads working today, and prepare cleanly for PMS API hookup. Housekeeping is untouched — all changes are confined to `src/pages/Revenue*`, new admin sub-tabs, new edge functions, and new tables in the `revenue` domain.
 
-## Part 0 — Fix the upload (root cause of the empty dashboard)
+## What you'll get (matches each screenshot)
 
-The current `revenue-pickup-upload` parser assumes a fixed Previo layout (title in row 0, dates in row 2, values in row 4, columns grouped in 3s `[YYYY, YYYY-1, Change]`). The user's `pickup_report-2.xlsx` is a different shape and the function throws "Could not detect hotel" or "No date columns parsed".
+1. **Rooms Setup** — table of room types per hotel with: Name, Room in PMS, Rate in PMS, # Rooms, Reference vs Derived, Base Price, Derivation (% or absolute), Default Min/Max price. One reference room, others derive from it. "Total rooms" auto-sums.
+2. **Day-of-Week Adjustments** — 7 percent inputs (Mon–Sun) + bar chart (Local Market / Base Price / PMS Price).
+3. **Monthly Adjustments** — 12 percent inputs + same chart pattern.
+4. **Occupancy Strategy** — 5 sub-tabs: Target Occupancy (per month), Median Booking Window, Aggressiveness, Close Out Sales (Last Day), Shoulder Night Discounts.
+5. **Minimum Stay (Orphan Gap Correction)** — min nights, fixed-restriction override toggle, room-type multi-select.
+6. **Yielding Tags** — list + create dialog (tag name, room type, min/max %, aggressiveness, colour). Drives per-tag price shifts.
+7. **Lead Time Adjustments** — 9 buckets (6M+, 3M+, 1.5–3M, 4–6w, 2–4w, 1–2w, 4–7d, 2–3d, last day).
+8. **Surge Protection** — surge settings, protection price settings, surge event log.
+9. **Benchmarking / Reporting** — Active Listings, Nights Sold, Median Lead Time, Median LOS + daily Occupancy/ADR/RevPAR vs market.
+10. **Calendar with year-zoom** — Day / Week / Month / **Quarter (3-month)** / **Year (12 mini-months)** views, each cell shows price + occupancy chip + suggestion arrow. Click → existing day side-panel.
 
-Rewrite the parser to be robust:
-- Scan the first 15 rows for the title row and the date-header row (heuristic: row containing 5+ tokens that match `dd. MMM` or `YYYY-MM-DD`).
-- Auto-detect column groupings (1, 2, or 3 columns per date) from the year row.
-- If hotel is not detected, accept the manual hotel override (already passed from UI) without throwing.
-- Return a structured response: `{ hotel_id, parsed_dates, rows_inserted, skipped_rows, warnings[] }` so the UI can show what happened.
-- Add server-side logging of the first 5 rows when parsing fails so we can debug from edge function logs.
+## Daily auto-ingest (pre-PMS)
 
-UI: surface warnings in a toast + dropdown details panel after upload.
+You said you want files downloaded every morning per hotel. We build a generic **`revenue-daily-ingest`** scheduled edge function that:
+- Reads new `hotel_data_sources` rows (per hotel: kind = pickup / occupancy / rate / events; transport = http_url / email_inbox / sftp / manual; auth headers as a JSONB secret reference).
+- For `http_url` sources, fetches the file with the configured headers, runs the matching parser (we already have `revenue-pickup-upload` for pickup), stores raw blob in `revenue-uploads` storage bucket with `snapshot_label = source_name + date`, then calls the parser.
+- Logs every run into `revenue_ingest_runs` (status, rows, error, duration) → shown on Revenue dashboard as a "Last sync" badge per hotel.
+- Runs on `pg_cron` every day at 06:00 hotel-local time, plus a manual "Sync now" button per hotel.
 
-## Part 1 — Multi-file uploads per hotel, precise numbers
+For your Previo files specifically: today you upload manually; once you provide the Previo report URL + auth, the same ingest row works without code changes.
 
-- `Revenue.tsx` upload card: accept `multiple` files, queue them, upload sequentially, show per-file status (✓ rows / ✗ error). Allow uploading several days/snapshots at once for the same or different hotels.
-- New `pickup_snapshots.snapshot_label` (text, optional) to record source filename for traceability.
-- Engine math precision fix: `delta` already integer; switch all `Number(...)` casts to explicit `parseInt`/`parseFloat` with `Number.isFinite` guards so empty/blank cells become 0 only when intended (otherwise null), avoiding fake "0 pickup" rows triggering false decreases.
+## PMS connection prep (Previo + future)
 
-## Part 2 — Pickup-Date Explorer (new tab on hotel detail)
+- `pms_configurations` and `pms_room_mappings` already exist. We add **`pms_rate_plan_mappings`** (hotel_id, room_type_id, pms_rate_plan_id, channel) so "Upload Prices" knows exactly which plan to push.
+- Finish `previo-push-rates`: when called, it loads approved `rate_recommendations` for date range, joins to `pms_rate_plan_mappings`, calls Previo Rate API, writes results to `rate_history` and `rate_change_audit`. Function stays a stub for any plan that has no mapping (clear error toast).
+- A small **"PMS Connection" card** on each Hotel Detail page shows: connected/not, last sync, test-connection button. Until you fill in mappings, manual upload + manual push paths still work.
 
-New tab "Explorer" on `RevenueHotelDetail.tsx` and a global one on `Revenue.tsx`:
-- Filters: hotel (multi), date range, day-of-week, weekend-only toggle, "show only abnormal", "show only price-change candidates".
-- Table: stay_date, DOW, snapshots count, latest bookings, pickup last 24h / 7d / since-upload, vs LY, current rate.
-- Two charts (Recharts):
-  1. **Stacked area** of daily total bookings per stay_date over the last 30 capture timestamps (shows pickup pace per date).
-  2. **Bar chart** of pickup Δ per stay_date for the selected range (sortable by date / Δ).
-- "Run AI on this filtered set" button → calls `revenue-ai-analyze` with the filtered date list.
+## Database migration (single migration)
 
-## Part 3 — Per-tier driver breakdown in AI panel
+Tables created (RLS: admin + top_management for org/hotel):
+- `room_types` (id, hotel_id, organization_slug, name, pms_room_id, pms_rate_id, num_rooms, is_reference, derivation_mode `percent|absolute`, derivation_value, base_price_eur, min_price_eur, max_price_eur).
+- `dow_adjustments` (hotel_id, dow 0–6, percent).
+- `monthly_adjustments` (hotel_id, month 1–12, percent).
+- `lead_time_adjustments` (hotel_id, bucket enum, percent).
+- `occupancy_targets` (hotel_id, month 1–12, target_pct).
+- `occupancy_strategy` (hotel_id, median_booking_window, aggressiveness, close_out_last_day_pct, shoulder_discount_pct).
+- `yielding_tags` (id, hotel_id, name, room_type_id, min_pct, max_pct, aggressiveness, colour).
+- `min_stay_settings` (hotel_id, min_floor, allow_override_fixed, room_type_ids[]).
+- `surge_settings` (hotel_id, threshold_bookings, window_hours, only_after_days, recipients, send_email).
+- `surge_events` (hotel_id, stay_date, bookings_in_window, triggered_at, notified_at).
+- `benchmark_snapshots` (hotel_id, market_id, metric, day, value, comparison_value).
+- `hotel_data_sources` + `revenue_ingest_runs` for the auto-ingest engine.
+- Extend `hotel_revenue_settings` with `engine_uses_room_setup boolean` so the rule engine can pull the base price from `room_types.base_price_eur` instead of the floor when no `daily_rates` row exists.
 
-Today the AI panel only shows free-text reasons. Make every suggestion show the exact engine inputs:
+All tables have `(hotel_id, organization_slug)` and an RLS policy gated by `has_role(auth.uid(), 'admin'|'top_management')` and the same org/hotel as the user — identical pattern to the existing revenue tables.
 
-For each suggestion (increase or decrease) display a row with chips:
-- `Pickup since last snapshot: +N` 
-- `Tier matched: 4–5 → +€17`
-- `Current PMS rate: €X` → `Suggested: €Y` (`Δ €Z`)
-- `Floor: €F`, `Max daily change: €M` (and a red badge if either guard would clip it)
-- `vs LY: ±N`
-- `Days out: D`, `DOW: Sat ★` if weekend
-- `Confidence: high/medium/low` (from AI)
-- Source line: "AI reason: ..." (the model's free-text reason)
+## Engine update (deterministic, no AI — per your last decision)
 
-Update the `revenue-ai-analyze` edge function so the structured tool schema also requires:
-```
-drivers: { pickup_in_window:int, tier_label:string, tier_delta_eur:number,
-           current_rate_eur:number, floor_eur:number, max_change_eur:number,
-           vs_ly:int|null, days_out:int, dow:string, weekend:boolean }
-```
-We compute these deterministically server-side and pass them in the user message so the AI only labels confidence/reason, while we render the precise numbers from our own computation (not the model). This guarantees numeric accuracy.
+Suggested rate per day = `base_price` × DOW% × Month% × LeadTime% × OccupancyTargetMultiplier × YieldingTagShift × DerivationFactor (for derived rooms), then clamped to `[min_price, max_price]` and tier-pickup adjustment from `hotel_revenue_settings.pickup_increase_tiers`. Surge protection caps daily change. Each multiplier is shown as a chip in the day side-panel so you can see exactly why the price moved (precise numbers, every step explained).
 
-## Part 4 — Approval step + audit log
+## UI changes
 
-New table `rate_change_audit`:
-```
-id, hotel_id, organization_slug, stay_date,
-action ('approve' | 'override' | 'dismiss' | 'bulk_apply' | 'ai_apply' | 'engine_create'),
-old_rate_eur, new_rate_eur, delta_eur,
-recommendation_id (fk nullable), source ('engine'|'ai'|'manual'),
-performed_by uuid, performed_at, notes
-```
-RLS: read for admin + top_management of same org; insert via security-definer fn `log_rate_audit(...)`.
+- **`src/pages/Revenue.tsx`** — keep grid; add per-hotel "Last sync", "Sync now", and "Open settings" buttons.
+- **`src/pages/RevenueHotelDetail.tsx`** — keep current tabs; add **Quarter** and **Year** view buttons; add `RoomsSetupTab`, `DOWTab`, `MonthlyTab`, `OccupancyStrategyTab`, `MinStaySettingsTab`, `YieldingTagsTab`, `LeadTimeTab`, `SurgeProtectionTab`, `BenchmarkingTab` under a new "Pricing Strategy" sub-nav (matches RPG sidebar).
+- New components in `src/components/revenue/` (one file per tab) so the page file stays under 300 lines.
+- New `CalendarYearView` (12 mini-months grid) and `CalendarQuarterView` (3 months side-by-side) using the same `rowsByDate` map already built.
 
-Approval flow changes:
-- Approving a recommendation now opens a small confirm dialog showing before/after rate, delta, reason, drivers, and a required free-text "approval note" (optional but encouraged).
-- Server-side: every change in `rate_recommendations` and every insert into `rate_history` writes a corresponding `rate_change_audit` row (via DB trigger).
-- New "Audit log" tab on hotel detail with date filter, action filter, and CSV export.
+## Edge functions
 
-## Part 5 — Notifications
+- New: `revenue-daily-ingest` (scheduled + manual), `revenue-data-source-test` (one-shot fetch+preview), `revenue-recompute-suggestions` (re-run engine after settings change).
+- Updated: `revenue-engine-tick` to read all the new multipliers; `previo-push-rates` to honor `pms_rate_plan_mappings`.
 
-In-app:
-- New `notifications` rows (re-use existing `useNotifications` hook) on:
-  - new abnormal pickup alert
-  - ≥1 new pending recommendation per hotel (debounced per engine tick)
-  - AI analysis ready
+## Testing & verification (per your requirement)
 
-Email/SMS (configurable):
-- Extend `hotel_revenue_settings` with `notify_email text[]`, `notify_sms text[]`, `notify_on jsonb` (booleans for `abnormal`, `new_recs`, `ai_ready`).
-- Admin tab "Revenue settings" already implicit — add a new editor card per hotel to configure recipients and toggles.
-- Reuse existing `send-email-notification` and `send-sms-otp` edge functions (rename second internally not needed; we'll call a new `send-revenue-alert` thin wrapper that fans out).
+For each tab I will:
+1. Save a setting → reload → confirm round-trip via `supabase--read_query`.
+2. Trigger `revenue-recompute-suggestions` and check the suggested-rate chip changes correctly in the day panel (driver chips show the exact %).
+3. Run `revenue-daily-ingest` against a stub source → check `revenue_ingest_runs` row + a fresh `pickup_snapshots` row.
+4. End-to-end: bulk edit → approve → push (stub if no mapping, real if mapped) → audit log row visible.
+5. Smoke-test housekeeping (Auto-Assign, Team View, Cleaning start/finish) is unaffected — no shared tables modified.
 
-## Part 6 — Exports (CSV / XLSX)
+## Out of scope for this round (so we ship quickly)
 
-New edge function `revenue-export` (admin/top_management only):
-- Inputs: `hotel_id?` (or all), `from`, `to`, `format: 'csv'|'xlsx'`, `kind: 'recommendations'|'ai_insights'|'audit'|'pickup'`.
-- Returns a downloadable blob (XLSX built with `xlsx` esm package the other functions already use).
-- Front-end: "Export" menu on each tab (Recommendations, AI, Audit, Explorer).
+- Median Booking Window auto-calc from PMS reservations (needs PMS first; the field is editable manually now).
+- Channel-manager push beyond Previo.
+- Email/SMS surge alerts wiring (table + UI ready, sender hookup later).
 
-Recommendations export columns: hotel, date, DOW, days_out, current_rate, recommended_rate, delta, source (engine/ai), reason, confidence, status, drivers JSON.
+## Rollout order
 
-## Part 7 — Dashboard polish
-
-`Revenue.tsx`:
-- KPI strip across the top: total pending recs, abnormal alerts, snapshots uploaded today, AI analyses last 24h.
-- Each hotel card: replace flat "14d pickup Δ" with two sparklines (bookings vs LY), show last upload filename + time, "Open" + quick-action buttons (Run AI, Export).
-- Add a global "Pickup Explorer" page link.
-
-`RevenueHotelDetail.tsx`:
-- New tab order: Overview · Explorer · List · Calendar · Trend · Audit.
-- Overview = KPI strip + AI panel + per-tier breakdown table.
-
-```text
-Hotel detail tabs
-┌───────────────────────────────────────────────────────────────┐
-│ [Overview] [Explorer] [List] [Calendar] [Trend] [Audit]        │
-├───────────────────────────────────────────────────────────────┤
-│ KPIs · AI panel with per-tier driver chips · Approve dialog    │
-└───────────────────────────────────────────────────────────────┘
-```
-
-## Part 8 — Breakfast verification: end-to-end QA
-
-The breakfast feature is wired but never tested with real data (0 roster rows in DB, 4 codes exist). We will:
-
-1. Verify the public `/bb` page renders without auth (already implemented).
-2. Verify `breakfast-roster-upload` parses the `daily_overview ... 30. 4. - 1. 5..xlsx` format the user already uploaded — current parser expects sheet names like `YYYY-MM-DD`; the real file uses other names. Make the parser:
-   - Try sheet name regex first.
-   - Fall back to scanning for a `Date` cell or using the date the user picked in `BreakfastRosterUpload.tsx`.
-   - Better column heuristics for `arrival/ongoing/breakfast/lunch/dinner/all-inclusive`.
-3. Add a small "Test lookup" button next to each code in `BreakfastCodeManagement.tsx` that opens `/bb` prefilled.
-4. Add a "Recent uploads" list on the reception dashboard tile with row count, date, uploader.
-5. Add translations for the breakfast page (`hu/es/vi/mn`) — currently English only.
-6. Add a memory note `mem://features/breakfast` with hotel codes location and roster format.
-
-## Part 9 — Wiring & translations
-
-- Add Revenue + Audit + Explorer + per-tier breakdown strings to `comprehensive-translations.ts` (en/hu/es/vi/mn).
-- Update `mem://features/revenue` to document the new audit table, notification settings, and export function.
-
----
-
-## Technical notes
-
-- **DB migrations**:
-  - `rate_change_audit` table + RLS + trigger on `rate_recommendations` and `rate_history`.
-  - `pickup_snapshots.snapshot_label text`.
-  - `hotel_revenue_settings.notify_email text[] default '{}'`, `notify_sms text[] default '{}'`, `notify_on jsonb default '{"abnormal":true,"new_recs":true,"ai_ready":true}'`.
-- **Edge functions**: rewrite `revenue-pickup-upload` (robust parser + multi-file friendly), update `revenue-ai-analyze` (drivers in tool schema), new `revenue-export`, new `send-revenue-alert`, hardening of `breakfast-roster-upload`.
-- **Permissions**: every new function checks role ∈ {admin, top_management} except `breakfast-lookup` (public, already rate-limited).
-- **Numerical accuracy**: per-tier driver chips render values we compute, not values the LLM types. The model only contributes `confidence` + free-text reason. Floor and max-daily-change guards are applied before display, with a "clipped" badge when active.
-- **No Previo push** still gated (future, unchanged).
-
-## Out of scope (next iteration)
-
-- Live PMS pickup feed (still XLSX)
-- Per-room-type pricing
-- Actual SMS provider rotation
+1. Migration + RLS.
+2. Rooms Setup + DOW + Monthly + Lead Time + Occupancy Strategy + Min Stay + Yielding Tags + Surge tabs (UI + save/load).
+3. Engine update to use new multipliers.
+4. Year/Quarter calendar views.
+5. `revenue-daily-ingest` + `hotel_data_sources` UI.
+6. Previo push wiring with `pms_rate_plan_mappings`.
+7. Benchmarking tab (read-only from `benchmark_snapshots` with placeholder data until a market source is configured).
+8. End-to-end test pass; confirm housekeeping flows still green.
