@@ -166,22 +166,27 @@ export default function RevenueHotelDetail() {
       const occ = byDateRate.get(date)?.occupancy_pct ?? null;
       const rec = recByDate.get(date) ?? null;
 
-      // Rule-engine suggestion (when no pending rec)
+      // Rule-engine suggestion (when no pending rec) using full RPG multiplier stack
       let suggestedRate: number | null = null;
       let suggestedDelta: number | null = null;
-      if (rate != null && settings) {
-        let delta = 0;
-        if (pickupDelta > 0) {
-          const tier = settings.pickup_increase_tiers.find(t => pickupDelta >= t.min && pickupDelta <= t.max);
-          if (tier) delta = tier.increase;
-        } else if ((latest?.bookings_current ?? 0) === 0 && i > 7) {
-          delta = -((dow === 4 || dow === 5) ? settings.weekend_decrease_eur : settings.weekday_decrease_eur);
-        }
-        delta = Math.max(-settings.max_daily_change_eur, Math.min(settings.max_daily_change_eur, delta));
-        const newRate = Math.max(settings.floor_price_eur, rate + delta);
-        if (newRate !== rate) {
-          suggestedRate = Math.round(newRate);
-          suggestedDelta = Math.round(newRate - rate);
+      let pricingResult: any = null;
+      if (settings) {
+        const engineSettings: EngineSettings = {
+          floor_price_eur: settings.floor_price_eur,
+          max_daily_change_eur: settings.max_daily_change_eur,
+          weekday_decrease_eur: settings.weekday_decrease_eur,
+          weekend_decrease_eur: settings.weekend_decrease_eur,
+          pickup_increase_tiers: settings.pickup_increase_tiers,
+        };
+        pricingResult = computeSuggestedRate({
+          date, daysOut: i, dow,
+          isWeekend: dow === 5 || dow === 6,
+          currentRate: rate, occupancyPct: occ,
+          pickupDelta, bookingsNow: latest?.bookings_current ?? null,
+        }, engineSettings, multipliers);
+        if (pricingResult.finalRate && pricingResult.finalRate !== rate) {
+          suggestedRate = pricingResult.finalRate;
+          suggestedDelta = rate != null ? pricingResult.finalRate - rate : null;
         }
       }
 
@@ -193,10 +198,12 @@ export default function RevenueHotelDetail() {
         abnormal: abnormalDates.has(date),
         minNights: minByDate.get(date) ?? null,
         events: evByDate.get(date) ?? [],
-      });
+        pricingResult,
+        hasEvent: (evByDate.get(date) ?? []).length > 0,
+      } as any);
     }
     return map;
-  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings]);
+  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers]);
 
   // Calendar grid for month view
   const gridDays = useMemo(() => {
