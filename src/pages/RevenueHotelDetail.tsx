@@ -292,8 +292,9 @@ export default function RevenueHotelDetail() {
           <Button variant="ghost" size="sm" onClick={() => setCursor(startOfMonth(new Date()))}>Today</Button>
         </div>
         <div className="flex border rounded-md overflow-hidden">
-          <button className={`px-3 py-1 text-sm ${view==="week"?"bg-primary text-primary-foreground":""}`} onClick={() => setView("week")}>Week</button>
-          <button className={`px-3 py-1 text-sm ${view==="month"?"bg-primary text-primary-foreground":""}`} onClick={() => setView("month")}>Month</button>
+          {(["week","month","quarter","year"] as const).map(v => (
+            <button key={v} className={`px-3 py-1 text-sm capitalize ${view===v?"bg-primary text-primary-foreground":""}`} onClick={() => setView(v)}>{v}</button>
+          ))}
         </div>
         <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
         <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
