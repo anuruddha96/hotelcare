@@ -64,13 +64,16 @@ export default function RevenueHotelDetail() {
   const [abnormalDates, setAbnormalDates] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<Settings | null>(null);
 
-  const [view, setView] = useState<"month"|"week">("month");
+  const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("prices");
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [multipliers, setMultipliers] = useState<PricingMultipliers>({
+    dowPercent: {}, monthlyPercent: {}, leadTimePercent: {},
+  });
 
   useEffect(() => {
     if (loading) return;
