@@ -88,7 +88,7 @@ export default function RevenueHotelDetail() {
     if (!hotelId) return;
     const today = iso(new Date());
     const horizon = iso(addDays(new Date(), 365));
-    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }] = await Promise.all([
+    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }] = await Promise.all([
       supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon)
@@ -103,6 +103,12 @@ export default function RevenueHotelDetail() {
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
       supabase.from("revenue_alerts").select("stay_date").eq("hotel_id", hotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
       supabase.from("hotel_revenue_settings").select("*").eq("hotel_id", hotelId).maybeSingle(),
+      (supabase as any).from("room_types").select("base_price_eur,min_price_eur,max_price_eur,is_reference").eq("hotel_id", hotelId),
+      (supabase as any).from("dow_adjustments").select("dow,percent").eq("hotel_id", hotelId),
+      (supabase as any).from("monthly_adjustments").select("month,percent").eq("hotel_id", hotelId),
+      (supabase as any).from("lead_time_adjustments").select("bucket,percent").eq("hotel_id", hotelId),
+      (supabase as any).from("occupancy_targets").select("month,target_pct").eq("hotel_id", hotelId),
+      (supabase as any).from("occupancy_strategy").select("aggressiveness").eq("hotel_id", hotelId).maybeSingle(),
     ]);
 
     setHotelName(h?.hotel_name ?? hotelId);
@@ -113,6 +119,24 @@ export default function RevenueHotelDetail() {
     setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
+
+    const refRoom = (rooms ?? []).find((rt: any) => rt.is_reference) ?? (rooms ?? [])[0];
+    const dowMap: Record<number, number> = {};
+    for (const d of dow ?? []) dowMap[d.dow] = Number(d.percent) || 0;
+    const monMap: Record<number, number> = {};
+    for (const m of mon ?? []) monMap[m.month] = Number(m.percent) || 0;
+    const leadMap: Record<string, number> = {};
+    for (const l of lead ?? []) leadMap[l.bucket] = Number(l.percent) || 0;
+    const currentMonth = new Date().getMonth() + 1;
+    const occT0 = (occT ?? []).find((x: any) => x.month === currentMonth);
+    setMultipliers({
+      basePriceEur: refRoom?.base_price_eur ? Number(refRoom.base_price_eur) : undefined,
+      minPriceEur: refRoom?.min_price_eur ? Number(refRoom.min_price_eur) : undefined,
+      maxPriceEur: refRoom?.max_price_eur ? Number(refRoom.max_price_eur) : undefined,
+      dowPercent: dowMap, monthlyPercent: monMap, leadTimePercent: leadMap,
+      occupancyTargetPct: occT0?.target_pct ?? undefined,
+      occupancyAggressiveness: (occS as any)?.aggressiveness ?? "medium",
+    });
   }
 
   // --- Build rows: for visible window (current month +/- buffer up to 365 days) ---
