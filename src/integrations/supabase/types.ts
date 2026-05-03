@@ -4072,6 +4072,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      user_can_access_hotel: {
+        Args: { _hotel_id: string; _uid: string }
+        Returns: boolean
+      }
       user_can_view_ticket: { Args: { ticket_id: string }; Returns: boolean }
     }
     Enums: {
