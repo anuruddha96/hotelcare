@@ -1,94 +1,101 @@
+## Scope
 
-# Revenue Management — Room Price Genie parity
+Four parallel work items on the new RPG-style Revenue module:
+1. Fix RLS gaps in Phase-1 tables.
+2. Build Phase-2 settings tabs (Rooms, DOW, Monthly, Lead Time).
+3. Add Quarter (3-month) and Year (12-mini-month) calendar zoom views.
+4. Show rule-engine multipliers + driver chips in the day-detail side panel.
 
-Goal: bring the RPG screens you shared into Hotel Care's Revenue module, keep manual XLSX uploads working today, and prepare cleanly for PMS API hookup. Housekeeping is untouched — all changes are confined to `src/pages/Revenue*`, new admin sub-tabs, new edge functions, and new tables in the `revenue` domain.
+---
 
-## What you'll get (matches each screenshot)
+## 1. RLS verification & fixes
 
-1. **Rooms Setup** — table of room types per hotel with: Name, Room in PMS, Rate in PMS, # Rooms, Reference vs Derived, Base Price, Derivation (% or absolute), Default Min/Max price. One reference room, others derive from it. "Total rooms" auto-sums.
-2. **Day-of-Week Adjustments** — 7 percent inputs (Mon–Sun) + bar chart (Local Market / Base Price / PMS Price).
-3. **Monthly Adjustments** — 12 percent inputs + same chart pattern.
-4. **Occupancy Strategy** — 5 sub-tabs: Target Occupancy (per month), Median Booking Window, Aggressiveness, Close Out Sales (Last Day), Shoulder Night Discounts.
-5. **Minimum Stay (Orphan Gap Correction)** — min nights, fixed-restriction override toggle, room-type multi-select.
-6. **Yielding Tags** — list + create dialog (tag name, room type, min/max %, aggressiveness, colour). Drives per-tag price shifts.
-7. **Lead Time Adjustments** — 9 buckets (6M+, 3M+, 1.5–3M, 4–6w, 2–4w, 1–2w, 4–7d, 2–3d, last day).
-8. **Surge Protection** — surge settings, protection price settings, surge event log.
-9. **Benchmarking / Reporting** — Active Listings, Nights Sold, Median Lead Time, Median LOS + daily Occupancy/ADR/RevPAR vs market.
-10. **Calendar with year-zoom** — Day / Week / Month / **Quarter (3-month)** / **Year (12 mini-months)** views, each cell shows price + occupancy chip + suggestion arrow. Click → existing day side-panel.
+Findings from `20260502202638_..._.sql`:
 
-## Daily auto-ingest (pre-PMS)
+- **SELECT policy** (`rev_admin_read_*`) currently includes `manager` and `housekeeping_manager` — that's WRONG for revenue (housekeeping managers should not see pricing strategy/PMS rate-plan mappings/surge events). Tighten to `admin`, `top_management`, and a new `manager_can_view_revenue` flag-driven role: `manager` only.
+- **WRITE policy** is admin/top_management only — correct, but `manager` role is left unable to even read. We will allow `manager` SELECT (read-only on calendar settings, identical to existing `is_revenue_user` pattern) but keep WRITE locked to admin/top_management.
+- **`hotel_id` scoping missing**: policies only check `organization_slug`. A manager assigned to Hotel A could read settings for Hotel B in the same org. Add `AND (public.get_user_role(auth.uid()) IN ('admin','top_management') OR public.get_user_assigned_hotel(auth.uid()) = hotel_id OR public.get_user_assigned_hotel(auth.uid()) = public.get_hotel_name_from_id(hotel_id))`.
+- **`revenue_ingest_runs` and `surge_events`** need INSERT permission for the service role only — frontend should never insert these. Add an explicit `FOR INSERT ... USING (false)` for non-service callers (service-role bypasses RLS, so edge functions still work).
+- **`hotel_revenue_settings`** already uses `is_revenue_user` (admin + top_management) — leave as-is, but add hotel-scoping clause.
 
-You said you want files downloaded every morning per hotel. We build a generic **`revenue-daily-ingest`** scheduled edge function that:
-- Reads new `hotel_data_sources` rows (per hotel: kind = pickup / occupancy / rate / events; transport = http_url / email_inbox / sftp / manual; auth headers as a JSONB secret reference).
-- For `http_url` sources, fetches the file with the configured headers, runs the matching parser (we already have `revenue-pickup-upload` for pickup), stores raw blob in `revenue-uploads` storage bucket with `snapshot_label = source_name + date`, then calls the parser.
-- Logs every run into `revenue_ingest_runs` (status, rows, error, duration) → shown on Revenue dashboard as a "Last sync" badge per hotel.
-- Runs on `pg_cron` every day at 06:00 hotel-local time, plus a manual "Sync now" button per hotel.
+Plan: one new migration that DROPs the generic policies created in the last migration and re-creates them with hotel-scoping + role-tightening, plus a hotel-scope addition to `hotel_revenue_settings`, `pickup_snapshots`, `rate_recommendations`.
 
-For your Previo files specifically: today you upload manually; once you provide the Previo report URL + auth, the same ingest row works without code changes.
+---
 
-## PMS connection prep (Previo + future)
+## 2. Phase-2 settings UI (Rooms, DOW, Monthly, Lead Time)
 
-- `pms_configurations` and `pms_room_mappings` already exist. We add **`pms_rate_plan_mappings`** (hotel_id, room_type_id, pms_rate_plan_id, channel) so "Upload Prices" knows exactly which plan to push.
-- Finish `previo-push-rates`: when called, it loads approved `rate_recommendations` for date range, joins to `pms_rate_plan_mappings`, calls Previo Rate API, writes results to `rate_history` and `rate_change_audit`. Function stays a stub for any plan that has no mapping (clear error toast).
-- A small **"PMS Connection" card** on each Hotel Detail page shows: connected/not, last sync, test-connection button. Until you fill in mappings, manual upload + manual push paths still work.
+New folder `src/components/revenue/settings/` with one file per tab, each ~150 lines, autosave on blur:
 
-## Database migration (single migration)
+- `RoomsSetupTab.tsx` — table over `room_types` with columns Name, PMS Room, PMS Rate, # Rooms, Reference toggle, Derivation mode (% / €), Derivation value, Base €, Min €, Max €. "Add room" button, inline delete with confirm. Total-rooms footer.
+- `DOWTab.tsx` — 7 number inputs (Mon–Sun, %) over `dow_adjustments`. Recharts bar chart of resulting multiplier.
+- `MonthlyTab.tsx` — 12 inputs (Jan–Dec) over `monthly_adjustments` + bar chart.
+- `LeadTimeTab.tsx` — 9 inputs for buckets `6m_plus, 3m_plus, 1_5m_3m, 4w_6w, 2w_4w, 1w_2w, 4d_7d, 2d_3d, last_day` over `lead_time_adjustments`.
 
-Tables created (RLS: admin + top_management for org/hotel):
-- `room_types` (id, hotel_id, organization_slug, name, pms_room_id, pms_rate_id, num_rooms, is_reference, derivation_mode `percent|absolute`, derivation_value, base_price_eur, min_price_eur, max_price_eur).
-- `dow_adjustments` (hotel_id, dow 0–6, percent).
-- `monthly_adjustments` (hotel_id, month 1–12, percent).
-- `lead_time_adjustments` (hotel_id, bucket enum, percent).
-- `occupancy_targets` (hotel_id, month 1–12, target_pct).
-- `occupancy_strategy` (hotel_id, median_booking_window, aggressiveness, close_out_last_day_pct, shoulder_discount_pct).
-- `yielding_tags` (id, hotel_id, name, room_type_id, min_pct, max_pct, aggressiveness, colour).
-- `min_stay_settings` (hotel_id, min_floor, allow_override_fixed, room_type_ids[]).
-- `surge_settings` (hotel_id, threshold_bookings, window_hours, only_after_days, recipients, send_email).
-- `surge_events` (hotel_id, stay_date, bookings_in_window, triggered_at, notified_at).
-- `benchmark_snapshots` (hotel_id, market_id, metric, day, value, comparison_value).
-- `hotel_data_sources` + `revenue_ingest_runs` for the auto-ingest engine.
-- Extend `hotel_revenue_settings` with `engine_uses_room_setup boolean` so the rule engine can pull the base price from `room_types.base_price_eur` instead of the floor when no `daily_rates` row exists.
+Wire them into `RevenueHotelDetail.tsx` under a new sub-tab group "Pricing Strategy" so the existing Prices/Events/Pickup/Min Stay tabs stay first-class.
 
-All tables have `(hotel_id, organization_slug)` and an RLS policy gated by `has_role(auth.uid(), 'admin'|'top_management')` and the same org/hotel as the user — identical pattern to the existing revenue tables.
+Persistence pattern (matches existing settings flow): upsert by `(hotel_id, organization_slug, key)`, toast on save, optimistic UI.
 
-## Engine update (deterministic, no AI — per your last decision)
+---
 
-Suggested rate per day = `base_price` × DOW% × Month% × LeadTime% × OccupancyTargetMultiplier × YieldingTagShift × DerivationFactor (for derived rooms), then clamped to `[min_price, max_price]` and tier-pickup adjustment from `hotel_revenue_settings.pickup_increase_tiers`. Surge protection caps daily change. Each multiplier is shown as a chip in the day side-panel so you can see exactly why the price moved (precise numbers, every step explained).
+## 3. Year & Quarter calendar zoom
 
-## UI changes
+Two new components:
 
-- **`src/pages/Revenue.tsx`** — keep grid; add per-hotel "Last sync", "Sync now", and "Open settings" buttons.
-- **`src/pages/RevenueHotelDetail.tsx`** — keep current tabs; add **Quarter** and **Year** view buttons; add `RoomsSetupTab`, `DOWTab`, `MonthlyTab`, `OccupancyStrategyTab`, `MinStaySettingsTab`, `YieldingTagsTab`, `LeadTimeTab`, `SurgeProtectionTab`, `BenchmarkingTab` under a new "Pricing Strategy" sub-nav (matches RPG sidebar).
-- New components in `src/components/revenue/` (one file per tab) so the page file stays under 300 lines.
-- New `CalendarYearView` (12 mini-months grid) and `CalendarQuarterView` (3 months side-by-side) using the same `rowsByDate` map already built.
+- `src/components/revenue/CalendarQuarterView.tsx` — renders 3 months side-by-side (current + 2 ahead). Each cell is the same `DayCell` already used by month view, just with smaller padding. Re-uses `rowsByDate` map untouched.
+- `src/components/revenue/CalendarYearView.tsx` — 12 mini-months in a 4×3 (desktop) / 2×6 (tablet) / 1×12 (mobile) grid. Each cell is a 12×6 dot grid; cell colour = price-band gradient (green ▲, red ▼, neutral grey) derived from `suggestedDelta`. Hover/click drills into the existing day side-panel.
 
-## Edge functions
+Add a 4-button view switcher in the header: `Week | Month | Quarter | Year`. Year view loads the full 365-day window already fetched (no extra queries).
 
-- New: `revenue-daily-ingest` (scheduled + manual), `revenue-data-source-test` (one-shot fetch+preview), `revenue-recompute-suggestions` (re-run engine after settings change).
-- Updated: `revenue-engine-tick` to read all the new multipliers; `previo-push-rates` to honor `pms_rate_plan_mappings`.
+Layout follows attached RPG screenshots: month-name header on each mini-month, weekday header `M T W T F S S`, day numbers arranged on the proper weekday columns.
 
-## Testing & verification (per your requirement)
+---
 
-For each tab I will:
-1. Save a setting → reload → confirm round-trip via `supabase--read_query`.
-2. Trigger `revenue-recompute-suggestions` and check the suggested-rate chip changes correctly in the day panel (driver chips show the exact %).
-3. Run `revenue-daily-ingest` against a stub source → check `revenue_ingest_runs` row + a fresh `pickup_snapshots` row.
-4. End-to-end: bulk edit → approve → push (stub if no mapping, real if mapped) → audit log row visible.
-5. Smoke-test housekeeping (Auto-Assign, Team View, Cleaning start/finish) is unaffected — no shared tables modified.
+## 4. Driver-chip side panel
 
-## Out of scope for this round (so we ship quickly)
+Replace the existing day-panel "Reason" line with a structured **Pricing Drivers** section that mirrors the new engine formula:
 
-- Median Booking Window auto-calc from PMS reservations (needs PMS first; the field is editable manually now).
-- Channel-manager push beyond Previo.
-- Email/SMS surge alerts wiring (table + UI ready, sender hookup later).
+```text
+Base price          €120  (room_types.base_price_eur)
+× DOW (Sat)         ×1.15  (+15%)
+× Month (Aug)       ×1.10  (+10%)
+× Lead time (1–2w)  ×1.05  (+5%)
+× Occupancy target  ×1.08  (running 78% vs 70% goal)
+× Pickup tier       +€8    (tiers from hotel_revenue_settings)
+─────────────────────────
+Suggested rate      €172
+Clamped to [min, max]  €172
+```
 
-## Rollout order
+Each line is a chip with the source-table name as a tooltip, and a "Why this number?" link that opens the corresponding settings tab pre-filtered to that row. Chips are colour-coded: green (boost), red (cut), grey (neutral). When a setting is missing, chip shows "—" so the gap is obvious.
 
-1. Migration + RLS.
-2. Rooms Setup + DOW + Monthly + Lead Time + Occupancy Strategy + Min Stay + Yielding Tags + Surge tabs (UI + save/load).
-3. Engine update to use new multipliers.
-4. Year/Quarter calendar views.
-5. `revenue-daily-ingest` + `hotel_data_sources` UI.
-6. Previo push wiring with `pms_rate_plan_mappings`.
-7. Benchmarking tab (read-only from `benchmark_snapshots` with placeholder data until a market source is configured).
-8. End-to-end test pass; confirm housekeeping flows still green.
+We also extract the rule-engine logic from `RevenueHotelDetail.tsx` into `src/lib/revenuePricing.ts` (`computeSuggestedRate(row, settings, multipliers) → { rate, breakdown[] }`) so the same code drives both the chip render and the actual recommendation insert. The `rate_recommendations.reason` column gets the same breakdown serialised, so the existing approval/audit flow keeps full traceability.
+
+---
+
+## Technical details
+
+**Migration** (`supabase/migrations/<ts>_revenue_rls_tighten.sql`):
+- Drop and recreate generic policies for the 14 Phase-1 tables with hotel-scope + role-tighten.
+- Add `hotel_id` scope to `hotel_revenue_settings`, `pickup_snapshots`, `rate_recommendations`, `rate_history`, `rate_change_audit`, `revenue_alerts`.
+- New helper `public.user_can_access_hotel(_uid uuid, _hotel_id text) returns boolean` (SECURITY DEFINER) to keep the policies short and avoid duplication.
+
+**Files added**:
+- `src/components/revenue/settings/RoomsSetupTab.tsx`
+- `src/components/revenue/settings/DOWTab.tsx`
+- `src/components/revenue/settings/MonthlyTab.tsx`
+- `src/components/revenue/settings/LeadTimeTab.tsx`
+- `src/components/revenue/CalendarQuarterView.tsx`
+- `src/components/revenue/CalendarYearView.tsx`
+- `src/components/revenue/PricingDriverChips.tsx`
+- `src/lib/revenuePricing.ts`
+
+**Files edited**:
+- `src/pages/RevenueHotelDetail.tsx` — add sub-tabs, new view modes, integrate driver chips, swap inline engine math for `revenuePricing.ts`.
+
+**Hooks/queries**: each settings tab fetches its own table (single round-trip), so the existing `load()` in RevenueHotelDetail isn't slowed down. Quarter/Year views need no extra fetch — they reuse the 365-day buffer already loaded.
+
+**Housekeeping safety**: zero changes to housekeeping tables, RLS, or pages. All edits scoped to `revenue/`, the Phase-1 revenue tables, and the new helper function.
+
+**Out of scope** (deferred to next batch): Occupancy Strategy, Min-Stay settings, Yielding Tags, Surge Protection, Benchmarking, daily ingest engine, Previo push wiring — covered by later phases in `.lovable/plan.md`.
+
+**Verification after build**: I will (a) read back each new policy via `supabase--read_query` impersonating each role, (b) save & reload one row in each new settings tab, (c) toggle Year/Quarter/Month views and confirm cells render, (d) open a day with multipliers configured and confirm chips show the exact numbers, and (e) smoke-test housekeeping Auto-Assign and Team View to confirm no regression.
