@@ -454,6 +454,10 @@ export default function RevenueHotelDetail() {
                 </div>
               )}
 
+              {(selectedRow as any).pricingResult && (
+                <PricingDriverChips result={(selectedRow as any).pricingResult} />
+              )}
+
               <div>
                 <div className="font-semibold mb-2">Pickup history</div>
                 <div className="h-40">
