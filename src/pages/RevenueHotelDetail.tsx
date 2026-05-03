@@ -303,22 +303,27 @@ export default function RevenueHotelDetail() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Prices</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
           <TabsTrigger value="pickup"><BarChart3 className="h-4 w-4 mr-1" />Pickup</TabsTrigger>
           <TabsTrigger value="minstay">Min Stay</TabsTrigger>
+          <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
         </TabsList>
 
         <TabsContent value="prices">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices"
-            onSelect={setSelectedDate} />
+          {view === "year" ? (
+            <CalendarYearView monthsAhead={12} startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
+          ) : view === "quarter" ? (
+            <CalendarQuarterView startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
+          ) : (
+            <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices" onSelect={setSelectedDate} />
+          )}
         </TabsContent>
 
         <TabsContent value="occupancy">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="occupancy"
-            onSelect={setSelectedDate} />
+          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="occupancy" onSelect={setSelectedDate} />
         </TabsContent>
 
         <TabsContent value="events">
@@ -326,12 +331,43 @@ export default function RevenueHotelDetail() {
         </TabsContent>
 
         <TabsContent value="minstay">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="minstay"
-            onSelect={setSelectedDate} />
+          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="minstay" onSelect={setSelectedDate} />
         </TabsContent>
 
         <TabsContent value="pickup">
           <PickupTab data={pickupChartData} />
+        </TabsContent>
+
+        <TabsContent value="strategy" className="space-y-3">
+          <Tabs defaultValue="rooms">
+            <TabsList>
+              <TabsTrigger value="rooms">Rooms Setup</TabsTrigger>
+              <TabsTrigger value="dow">Day of Week</TabsTrigger>
+              <TabsTrigger value="month">Monthly</TabsTrigger>
+              <TabsTrigger value="lead">Lead Time</TabsTrigger>
+            </TabsList>
+            <TabsContent value="rooms">
+              <RoomsSetupTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} />
+            </TabsContent>
+            <TabsContent value="dow">
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+                table="dow_adjustments" keyColumn="dow"
+                slots={[{key:0,label:"Mon"},{key:1,label:"Tue"},{key:2,label:"Wed"},{key:3,label:"Thu"},{key:4,label:"Fri"},{key:5,label:"Sat"},{key:6,label:"Sun"}]}
+                title="Day-of-Week Adjustments" description="Boost or discount specific weekdays. Applied as a multiplier on top of base price." />
+            </TabsContent>
+            <TabsContent value="month">
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+                table="monthly_adjustments" keyColumn="month"
+                slots={MONTH_NAMES.map((m, i) => ({ key: i + 1, label: m }))}
+                title="Monthly Adjustments" description="Seasonal multipliers per calendar month." />
+            </TabsContent>
+            <TabsContent value="lead">
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+                table="lead_time_adjustments" keyColumn="bucket"
+                slots={Object.entries(LEAD_LABELS).map(([k, v]) => ({ key: k, label: v }))}
+                title="Lead Time Adjustments" description="Modify price based on how far ahead the booking is made." />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
 
