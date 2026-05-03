@@ -18,6 +18,11 @@ import {
   Settings2, Sparkles, Plus,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
+import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
+import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
+import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
+import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
+import PricingDriverChips from "@/components/revenue/PricingDriverChips";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
