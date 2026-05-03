@@ -18,6 +18,11 @@ import {
   Settings2, Sparkles, Plus,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
+import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
+import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
+import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
+import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
+import PricingDriverChips from "@/components/revenue/PricingDriverChips";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
@@ -59,13 +64,16 @@ export default function RevenueHotelDetail() {
   const [abnormalDates, setAbnormalDates] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<Settings | null>(null);
 
-  const [view, setView] = useState<"month"|"week">("month");
+  const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("prices");
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [multipliers, setMultipliers] = useState<PricingMultipliers>({
+    dowPercent: {}, monthlyPercent: {}, leadTimePercent: {},
+  });
 
   useEffect(() => {
     if (loading) return;
@@ -80,7 +88,7 @@ export default function RevenueHotelDetail() {
     if (!hotelId) return;
     const today = iso(new Date());
     const horizon = iso(addDays(new Date(), 365));
-    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }] = await Promise.all([
+    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }] = await Promise.all([
       supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon)
@@ -95,6 +103,12 @@ export default function RevenueHotelDetail() {
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
       supabase.from("revenue_alerts").select("stay_date").eq("hotel_id", hotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
       supabase.from("hotel_revenue_settings").select("*").eq("hotel_id", hotelId).maybeSingle(),
+      (supabase as any).from("room_types").select("base_price_eur,min_price_eur,max_price_eur,is_reference").eq("hotel_id", hotelId),
+      (supabase as any).from("dow_adjustments").select("dow,percent").eq("hotel_id", hotelId),
+      (supabase as any).from("monthly_adjustments").select("month,percent").eq("hotel_id", hotelId),
+      (supabase as any).from("lead_time_adjustments").select("bucket,percent").eq("hotel_id", hotelId),
+      (supabase as any).from("occupancy_targets").select("month,target_pct").eq("hotel_id", hotelId),
+      (supabase as any).from("occupancy_strategy").select("aggressiveness").eq("hotel_id", hotelId).maybeSingle(),
     ]);
 
     setHotelName(h?.hotel_name ?? hotelId);
@@ -105,6 +119,24 @@ export default function RevenueHotelDetail() {
     setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
+
+    const refRoom = (rooms ?? []).find((rt: any) => rt.is_reference) ?? (rooms ?? [])[0];
+    const dowMap: Record<number, number> = {};
+    for (const d of dow ?? []) dowMap[d.dow] = Number(d.percent) || 0;
+    const monMap: Record<number, number> = {};
+    for (const m of mon ?? []) monMap[m.month] = Number(m.percent) || 0;
+    const leadMap: Record<string, number> = {};
+    for (const l of lead ?? []) leadMap[l.bucket] = Number(l.percent) || 0;
+    const currentMonth = new Date().getMonth() + 1;
+    const occT0 = (occT ?? []).find((x: any) => x.month === currentMonth);
+    setMultipliers({
+      basePriceEur: refRoom?.base_price_eur ? Number(refRoom.base_price_eur) : undefined,
+      minPriceEur: refRoom?.min_price_eur ? Number(refRoom.min_price_eur) : undefined,
+      maxPriceEur: refRoom?.max_price_eur ? Number(refRoom.max_price_eur) : undefined,
+      dowPercent: dowMap, monthlyPercent: monMap, leadTimePercent: leadMap,
+      occupancyTargetPct: occT0?.target_pct ?? undefined,
+      occupancyAggressiveness: (occS as any)?.aggressiveness ?? "medium",
+    });
   }
 
   // --- Build rows: for visible window (current month +/- buffer up to 365 days) ---
@@ -134,22 +166,27 @@ export default function RevenueHotelDetail() {
       const occ = byDateRate.get(date)?.occupancy_pct ?? null;
       const rec = recByDate.get(date) ?? null;
 
-      // Rule-engine suggestion (when no pending rec)
+      // Rule-engine suggestion (when no pending rec) using full RPG multiplier stack
       let suggestedRate: number | null = null;
       let suggestedDelta: number | null = null;
-      if (rate != null && settings) {
-        let delta = 0;
-        if (pickupDelta > 0) {
-          const tier = settings.pickup_increase_tiers.find(t => pickupDelta >= t.min && pickupDelta <= t.max);
-          if (tier) delta = tier.increase;
-        } else if ((latest?.bookings_current ?? 0) === 0 && i > 7) {
-          delta = -((dow === 4 || dow === 5) ? settings.weekend_decrease_eur : settings.weekday_decrease_eur);
-        }
-        delta = Math.max(-settings.max_daily_change_eur, Math.min(settings.max_daily_change_eur, delta));
-        const newRate = Math.max(settings.floor_price_eur, rate + delta);
-        if (newRate !== rate) {
-          suggestedRate = Math.round(newRate);
-          suggestedDelta = Math.round(newRate - rate);
+      let pricingResult: any = null;
+      if (settings) {
+        const engineSettings: EngineSettings = {
+          floor_price_eur: settings.floor_price_eur,
+          max_daily_change_eur: settings.max_daily_change_eur,
+          weekday_decrease_eur: settings.weekday_decrease_eur,
+          weekend_decrease_eur: settings.weekend_decrease_eur,
+          pickup_increase_tiers: settings.pickup_increase_tiers,
+        };
+        pricingResult = computeSuggestedRate({
+          date, daysOut: i, dow,
+          isWeekend: dow === 5 || dow === 6,
+          currentRate: rate, occupancyPct: occ,
+          pickupDelta, bookingsNow: latest?.bookings_current ?? null,
+        }, engineSettings, multipliers);
+        if (pricingResult.finalRate && pricingResult.finalRate !== rate) {
+          suggestedRate = pricingResult.finalRate;
+          suggestedDelta = rate != null ? pricingResult.finalRate - rate : null;
         }
       }
 
@@ -161,10 +198,12 @@ export default function RevenueHotelDetail() {
         abnormal: abnormalDates.has(date),
         minNights: minByDate.get(date) ?? null,
         events: evByDate.get(date) ?? [],
-      });
+        pricingResult,
+        hasEvent: (evByDate.get(date) ?? []).length > 0,
+      } as any);
     }
     return map;
-  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings]);
+  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers]);
 
   // Calendar grid for month view
   const gridDays = useMemo(() => {
@@ -253,8 +292,9 @@ export default function RevenueHotelDetail() {
           <Button variant="ghost" size="sm" onClick={() => setCursor(startOfMonth(new Date()))}>Today</Button>
         </div>
         <div className="flex border rounded-md overflow-hidden">
-          <button className={`px-3 py-1 text-sm ${view==="week"?"bg-primary text-primary-foreground":""}`} onClick={() => setView("week")}>Week</button>
-          <button className={`px-3 py-1 text-sm ${view==="month"?"bg-primary text-primary-foreground":""}`} onClick={() => setView("month")}>Month</button>
+          {(["week","month","quarter","year"] as const).map(v => (
+            <button key={v} className={`px-3 py-1 text-sm capitalize ${view===v?"bg-primary text-primary-foreground":""}`} onClick={() => setView(v)}>{v}</button>
+          ))}
         </div>
         <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
         <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
@@ -263,22 +303,27 @@ export default function RevenueHotelDetail() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Prices</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
           <TabsTrigger value="pickup"><BarChart3 className="h-4 w-4 mr-1" />Pickup</TabsTrigger>
           <TabsTrigger value="minstay">Min Stay</TabsTrigger>
+          <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
         </TabsList>
 
         <TabsContent value="prices">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices"
-            onSelect={setSelectedDate} />
+          {view === "year" ? (
+            <CalendarYearView monthsAhead={12} startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
+          ) : view === "quarter" ? (
+            <CalendarQuarterView startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
+          ) : (
+            <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices" onSelect={setSelectedDate} />
+          )}
         </TabsContent>
 
         <TabsContent value="occupancy">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="occupancy"
-            onSelect={setSelectedDate} />
+          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="occupancy" onSelect={setSelectedDate} />
         </TabsContent>
 
         <TabsContent value="events">
@@ -286,12 +331,43 @@ export default function RevenueHotelDetail() {
         </TabsContent>
 
         <TabsContent value="minstay">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="minstay"
-            onSelect={setSelectedDate} />
+          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="minstay" onSelect={setSelectedDate} />
         </TabsContent>
 
         <TabsContent value="pickup">
           <PickupTab data={pickupChartData} />
+        </TabsContent>
+
+        <TabsContent value="strategy" className="space-y-3">
+          <Tabs defaultValue="rooms">
+            <TabsList>
+              <TabsTrigger value="rooms">Rooms Setup</TabsTrigger>
+              <TabsTrigger value="dow">Day of Week</TabsTrigger>
+              <TabsTrigger value="month">Monthly</TabsTrigger>
+              <TabsTrigger value="lead">Lead Time</TabsTrigger>
+            </TabsList>
+            <TabsContent value="rooms">
+              <RoomsSetupTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} />
+            </TabsContent>
+            <TabsContent value="dow">
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+                table="dow_adjustments" keyColumn="dow"
+                slots={[{key:0,label:"Mon"},{key:1,label:"Tue"},{key:2,label:"Wed"},{key:3,label:"Thu"},{key:4,label:"Fri"},{key:5,label:"Sat"},{key:6,label:"Sun"}]}
+                title="Day-of-Week Adjustments" description="Boost or discount specific weekdays. Applied as a multiplier on top of base price." />
+            </TabsContent>
+            <TabsContent value="month">
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+                table="monthly_adjustments" keyColumn="month"
+                slots={MONTH_NAMES.map((m, i) => ({ key: i + 1, label: m }))}
+                title="Monthly Adjustments" description="Seasonal multipliers per calendar month." />
+            </TabsContent>
+            <TabsContent value="lead">
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+                table="lead_time_adjustments" keyColumn="bucket"
+                slots={Object.entries(LEAD_LABELS).map(([k, v]) => ({ key: k, label: v }))}
+                title="Lead Time Adjustments" description="Modify price based on how far ahead the booking is made." />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
 
@@ -376,6 +452,10 @@ export default function RevenueHotelDetail() {
                     <Plus className="h-4 w-4 mr-1" />Create recommendation
                   </Button>
                 </div>
+              )}
+
+              {(selectedRow as any).pricingResult && (
+                <PricingDriverChips result={(selectedRow as any).pricingResult} />
               )}
 
               <div>
