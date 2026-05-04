@@ -517,6 +517,8 @@ export default function RevenueHotelDetail() {
                 </div>
               </div>
 
+              <GuestsOnDate hotelId={hotelId!} date={selectedDate!} />
+
               <DayMinStayEditor hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
                 date={selectedDate!} value={selectedRow.minNights ?? 1} onSaved={load} />
             </div>
