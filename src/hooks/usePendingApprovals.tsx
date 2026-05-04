@@ -90,6 +90,23 @@ export function usePendingApprovals() {
         if (!ticketError) {
           setMaintenanceTicketCount((ticketData || []).length);
         }
+
+        // Late minibar additions awaiting supervisor review (hotel-scoped)
+        try {
+          const { data: lateMinibar } = await (supabase as any)
+            .from('room_minibar_usage')
+            .select('id, rooms:room_id(hotel)')
+            .eq('pending_supervisor_review', true)
+            .eq('organization_slug', userOrgSlug)
+            .limit(500);
+          const lateCount = (lateMinibar || []).filter((r: any) => {
+            const h = r.rooms?.hotel;
+            return h && (h === userHotel || h === resolvedHotelName);
+          }).length;
+          setPendingCount((prev) => prev + lateCount);
+        } catch {
+          /* swallow — non-critical */
+        }
       } catch (error) {
         console.error('Error fetching pending count:', error);
         setPendingCount(0);

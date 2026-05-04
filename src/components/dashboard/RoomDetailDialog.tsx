@@ -74,9 +74,21 @@ interface RoomDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRoomUpdated?: () => void;
+  /**
+   * When true, minibar items added/updated through this dialog are flagged as
+   * "late additions" — added by housekeepers AFTER the cleaning was completed.
+   * Supervisors will be required to review and approve these.
+   */
+  lateAddition?: boolean;
+  /**
+   * When true, the room cleaning has already been supervisor-approved. Late items
+   * added in this state are flagged as `pending_supervisor_review` so the
+   * supervisor can approve only the new minibar item without re-opening the room.
+   */
+  alreadyApproved?: boolean;
 }
 
-export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: RoomDetailDialogProps) {
+export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -288,30 +300,46 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
       } else {
         // Update or create usage record
         const existingUsage = minibarUsage.find(u => u.minibar_item_id === itemId);
-        
+
         if (existingUsage) {
+          const updateData: any = {
+            quantity_used: newQuantity,
+            usage_date: new Date().toISOString(),
+            recorded_by: profile?.id,
+          };
+          if (lateAddition) {
+            updateData.added_after_completion = true;
+            if (alreadyApproved) {
+              updateData.pending_supervisor_review = true;
+              updateData.reviewed_by = null;
+              updateData.reviewed_at = null;
+            }
+          }
           const { error } = await supabase
             .from('room_minibar_usage')
-            .update({
-              quantity_used: newQuantity,
-              usage_date: new Date().toISOString(),
-              recorded_by: profile?.id
-            })
+            .update(updateData)
             .eq('id', existingUsage.id);
 
           if (error) throw error;
         } else {
+          const insertData: any = {
+            room_id: room.id,
+            minibar_item_id: itemId,
+            quantity_used: newQuantity,
+            usage_date: new Date().toISOString(),
+            recorded_by: profile?.id,
+            source: 'staff',
+            organization_slug: profile?.organization_slug || 'rdhotels',
+          };
+          if (lateAddition) {
+            insertData.added_after_completion = true;
+            if (alreadyApproved) {
+              insertData.pending_supervisor_review = true;
+            }
+          }
           const { error } = await supabase
             .from('room_minibar_usage')
-            .insert({
-              room_id: room.id,
-              minibar_item_id: itemId,
-              quantity_used: newQuantity,
-              usage_date: new Date().toISOString(),
-              recorded_by: profile?.id,
-              source: 'staff',
-              organization_slug: profile?.organization_slug || 'rdhotels',
-            });
+            .insert(insertData);
 
           if (error) throw error;
         }
@@ -319,12 +347,14 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: Ro
 
       await fetchMinibarUsage();
       toast({
-        title: "Success",
-        description: "Minibar usage updated",
+        title: t('common.success'),
+        description: lateAddition
+          ? t('roomCard.minibarLateAddedToast')
+          : 'Minibar usage updated',
       });
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: t('common.error'),
         description: error.message,
         variant: "destructive",
       });

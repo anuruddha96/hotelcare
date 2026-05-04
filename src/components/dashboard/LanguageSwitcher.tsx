@@ -10,6 +10,7 @@ const languages = [
   { code: 'es', name: 'Español', flag: '🇪🇸' },
   { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳' },
   { code: 'mn', name: 'Монгол', flag: '🇲🇳' },
+  { code: 'az', name: 'Azərbaycanca', flag: '🇦🇿' },
 ];
 
 export function LanguageSwitcher() {

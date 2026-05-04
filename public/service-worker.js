@@ -1,32 +1,30 @@
-// Service Worker for persistent notifications
-const CACHE_NAME = 'hotelcare-v1';
+// Service Worker for persistent Hotel Care notifications
+const CACHE_NAME = 'hotelcare-v2';
+const BRAND_ICON = '/icon-192.png';
+const BRAND_BADGE = '/icon-maskable-512.png';
 
-// Install event
+// Install
 self.addEventListener('install', (event) => {
   console.log('Service Worker installing...');
   self.skipWaiting();
 });
 
-// Activate event
+// Activate
 self.addEventListener('activate', (event) => {
   console.log('Service Worker activating...');
-  event.waitUntil(
-    clients.claim()
-  );
+  event.waitUntil(clients.claim());
 });
 
-// Push notification event
+// Push notification (background)
 self.addEventListener('push', (event) => {
-  console.log('Push notification received:', event);
-  
   let notificationData = {
     title: 'Hotel Care',
     body: 'You have a new notification',
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
+    icon: BRAND_ICON,
+    badge: BRAND_BADGE,
     tag: 'hotel-notification',
     requireInteraction: true,
-    vibrate: [200, 100, 200]
+    vibrate: [200, 100, 200],
   };
 
   if (event.data) {
@@ -36,7 +34,8 @@ self.addEventListener('push', (event) => {
         ...notificationData,
         title: data.title || notificationData.title,
         body: data.body || notificationData.body,
-        data: data.data || {}
+        tag: data.tag || notificationData.tag,
+        data: data.data || {},
       };
     } catch (e) {
       notificationData.body = event.data.text();
@@ -48,20 +47,16 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Notification click event
+// Click handler
 self.addEventListener('notificationclick', (event) => {
-  console.log('Notification clicked:', event);
   event.notification.close();
-
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // If a window is already open, focus it
       for (const client of clientList) {
         if (client.url === self.registration.scope && 'focus' in client) {
           return client.focus();
         }
       }
-      // Otherwise, open a new window
       if (clients.openWindow) {
         return clients.openWindow('/');
       }
@@ -69,21 +64,18 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Message event (for communication with the app)
+// Foreground -> SW message bridge
 self.addEventListener('message', (event) => {
-  console.log('Service Worker received message:', event.data);
-  
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    const { title, body, data } = event.data;
-    
-    self.registration.showNotification(title, {
+    const { title, body, data, tag } = event.data;
+    self.registration.showNotification(title || 'Hotel Care', {
       body,
-      icon: '/favicon.ico',
-      badge: '/favicon.ico',
-      tag: 'hotel-notification',
+      icon: BRAND_ICON,
+      badge: BRAND_BADGE,
+      tag: tag || 'hotel-notification',
       requireInteraction: true,
       vibrate: [200, 100, 200],
-      data
+      data,
     });
   }
 });

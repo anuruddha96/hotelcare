@@ -37,6 +37,20 @@ export const additionalTranslations = {
     'actions.maintenance': 'Maintenance',
     'actions.updateDirtyLinen': 'Update Dirty Linen',
     'actions.roomStatusAlert': 'Room Status Alert',
+    'actions.addMinibarLate': 'Add Minibar Item',
+    
+    // Late minibar additions (after completion)
+    'minibar.addedAfterCompletion': 'Added after completion',
+    'minibar.pendingReview': 'Pending supervisor review',
+    'minibar.lateAdditions': 'Late Minibar Additions',
+    'minibar.lateAdditionsDesc': 'Items added by housekeepers after the room was already approved',
+    'minibar.approveLate': 'Approve',
+    'minibar.rejectLate': 'Reject',
+    'minibar.lateApproved': 'Late minibar item approved',
+    'minibar.lateRejected': 'Late minibar item removed',
+    'minibar.addedLateNotice': 'This minibar item was added after cleaning was completed and needs review.',
+    'roomCard.addMinibarLate': 'Add Minibar Item (after completion)',
+    'roomCard.minibarLateAddedToast': 'Minibar item added — supervisor will be notified for review.',
     
     // Photo Capture
     'photoCapture.title': 'Photo Capture',

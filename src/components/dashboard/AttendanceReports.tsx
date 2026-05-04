@@ -326,54 +326,112 @@ export const AttendanceReports = () => {
           {isLoading ? (
             <div className="text-center py-8">{t('common.loading')}</div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('hr.date')}</TableHead>
-                  {isAdmin && <TableHead>{t('hr.employee')}</TableHead>}
-                  <TableHead>{t('hr.checkIn')}</TableHead>
-                  <TableHead>{t('hr.checkOut')}</TableHead>
-                  <TableHead>{t('hr.hours')}</TableHead>
-                  <TableHead>{t('hr.status')}</TableHead>
-                  <TableHead>{t('hr.location')}</TableHead>
-                  <TableHead>{t('hr.notes')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* Desktop / tablet table */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('hr.date')}</TableHead>
+                      {isAdmin && <TableHead>{t('hr.employee')}</TableHead>}
+                      <TableHead>{t('hr.checkIn')}</TableHead>
+                      <TableHead>{t('hr.checkOut')}</TableHead>
+                      <TableHead>{t('hr.hours')}</TableHead>
+                      <TableHead>{t('hr.status')}</TableHead>
+                      <TableHead>{t('hr.location')}</TableHead>
+                      <TableHead>{t('hr.notes')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {attendanceRecords.map((record) => (
+                      <TableRow key={record.id}>
+                        <TableCell>{format(new Date(record.work_date), 'MMM dd, yyyy')}</TableCell>
+                        {isAdmin && (
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{record.profiles?.full_name}</div>
+                              <div className="text-xs text-muted-foreground">{record.profiles?.role}</div>
+                            </div>
+                          </TableCell>
+                        )}
+                        <TableCell>{format(new Date(record.check_in_time), 'HH:mm')}</TableCell>
+                        <TableCell>
+                          {record.check_out_time ? format(new Date(record.check_out_time), 'HH:mm') : 'N/A'}
+                        </TableCell>
+                        <TableCell>
+                          {record.total_hours ? `${record.total_hours.toFixed(1)}h` : 'N/A'}
+                        </TableCell>
+                        <TableCell>{getStatusBadge(record.status, record.work_date)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 max-w-xs">
+                            <MapPin className="h-3 w-3" />
+                            <span className="text-xs truncate">
+                              {record.check_in_location?.address || 'N/A'}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-xs">
+                          <span className="text-xs truncate">{record.notes || '-'}</span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Mobile stacked cards */}
+              <div className="md:hidden space-y-3">
                 {attendanceRecords.map((record) => (
-                  <TableRow key={record.id}>
-                    <TableCell>{format(new Date(record.work_date), 'MMM dd, yyyy')}</TableCell>
-                    {isAdmin && (
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{record.profiles?.full_name}</div>
-                          <div className="text-xs text-muted-foreground">{record.profiles?.role}</div>
-                        </div>
-                      </TableCell>
-                    )}
-                    <TableCell>{format(new Date(record.check_in_time), 'HH:mm')}</TableCell>
-                    <TableCell>
-                      {record.check_out_time ? format(new Date(record.check_out_time), 'HH:mm') : 'N/A'}
-                    </TableCell>
-                    <TableCell>
-                      {record.total_hours ? `${record.total_hours.toFixed(1)}h` : 'N/A'}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(record.status, record.work_date)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 max-w-xs">
-                        <MapPin className="h-3 w-3" />
-                        <span className="text-xs truncate">
-                          {record.check_in_location?.address || 'N/A'}
-                        </span>
+                  <div key={record.id} className="border rounded-lg p-3 bg-card">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="font-semibold text-sm">
+                        {format(new Date(record.work_date), 'MMM dd, yyyy')}
                       </div>
-                    </TableCell>
-                    <TableCell className="max-w-xs">
-                      <span className="text-xs truncate">{record.notes || '-'}</span>
-                    </TableCell>
-                  </TableRow>
+                      {getStatusBadge(record.status, record.work_date)}
+                    </div>
+                    {isAdmin && record.profiles?.full_name && (
+                      <div className="mb-2 text-xs">
+                        <span className="font-medium">{record.profiles.full_name}</span>
+                        <span className="text-muted-foreground ml-2">{record.profiles.role}</span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <div className="text-muted-foreground">{t('hr.checkIn')}</div>
+                        <div className="font-medium">{format(new Date(record.check_in_time), 'HH:mm')}</div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">{t('hr.checkOut')}</div>
+                        <div className="font-medium">
+                          {record.check_out_time ? format(new Date(record.check_out_time), 'HH:mm') : 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">{t('hr.hours')}</div>
+                        <div className="font-medium">
+                          {record.total_hours ? `${record.total_hours.toFixed(1)}h` : 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+                    {(record.check_in_location?.address || record.notes) && (
+                      <div className="mt-2 pt-2 border-t space-y-1">
+                        {record.check_in_location?.address && (
+                          <div className="flex items-start gap-1 text-xs text-muted-foreground">
+                            <MapPin className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                            <span className="break-words">{record.check_in_location.address}</span>
+                          </div>
+                        )}
+                        {record.notes && (
+                          <div className="text-xs text-muted-foreground break-words">
+                            {record.notes}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            </>
           )}
 
           {!isLoading && attendanceRecords.length === 0 && (

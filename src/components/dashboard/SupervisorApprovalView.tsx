@@ -47,6 +47,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { format } from 'date-fns';
 import { CompletionDataView } from './CompletionDataView';
 import { ApprovalHistoryView } from './ApprovalHistoryView';
+import { LateMinibarApprovals } from './LateMinibarApprovals';
 
 interface LinenSummaryItem {
   display_name: string;
@@ -1043,13 +1044,17 @@ export function SupervisorApprovalView() {
       </div>
 
       <Tabs defaultValue="pending" className="space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-2xl grid-cols-3">
           <TabsTrigger value="pending" className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
             {t('supervisor.pendingApprovals')}
             {summaryStats.totalCount > 0 && (
               <Badge className="ml-1 h-5 px-1.5 text-xs">{summaryStats.totalCount}</Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="late-minibar" className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4" />
+            {t('minibar.lateAdditions')}
           </TabsTrigger>
           <TabsTrigger value="history" className="flex items-center gap-2">
             <History className="h-4 w-4" />
@@ -1546,6 +1551,10 @@ export function SupervisorApprovalView() {
               )}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="late-minibar" className="space-y-6">
+          <LateMinibarApprovals />
         </TabsContent>
 
         <TabsContent value="history" className="space-y-6">

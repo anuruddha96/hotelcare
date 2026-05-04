@@ -1281,21 +1281,37 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           )}
         </div>
 
-        {/* Allow Dirty Linen access for completed rooms */}
+        {/* Allow Dirty Linen + Minibar access for completed rooms */}
         {assignment.status === 'completed' && (
           <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2">
             <p className="text-sm text-purple-800 mb-2">
               {t('roomCard.needUpdateAfterCompletion')}
             </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setDirtyLinenDialogOpen(true)}
-              className="w-full border-purple-300 text-purple-700 hover:bg-purple-100"
-            >
-              <Shirt className="h-4 w-4 mr-2" />
-              {t('actions.updateDirtyLinen')}
-            </Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setDirtyLinenDialogOpen(true)}
+                className="w-full border-purple-300 text-purple-700 hover:bg-purple-100"
+              >
+                <Shirt className="h-4 w-4 mr-2" />
+                {t('actions.updateDirtyLinen')}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setRoomDetailOpen(true)}
+                className="w-full border-purple-300 text-purple-700 hover:bg-purple-100"
+              >
+                <BedDouble className="h-4 w-4 mr-2" />
+                {t('roomCard.addMinibarLate')}
+              </Button>
+            </div>
+            {assignment.supervisor_approved && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                {t('minibar.addedLateNotice')}
+              </p>
+            )}
           </div>
         )}
 
@@ -1425,6 +1441,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           }}
           open={roomDetailOpen}
           onOpenChange={setRoomDetailOpen}
+          lateAddition={assignment.status === 'completed'}
+          alreadyApproved={assignment.status === 'completed' && !!assignment.supervisor_approved}
         />
       )}
 
