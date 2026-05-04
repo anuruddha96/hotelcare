@@ -92,17 +92,20 @@ export default function PMSConfigurationManagement() {
       .single();
     
     if (config) {
-      setPmsConfig(config);
+      setPmsConfig(config as any);
       setPmsHotelId(config.pms_hotel_id);
       setSyncEnabled(config.sync_enabled);
-      
+      setAutoSyncEnabled((config as any).auto_sync_enabled ?? false);
+      setConnectionMode(((config as any).connection_mode as 'manual' | 'scheduled') || 'manual');
+      setCredentialsSecretName((config as any).credentials_secret_name || '');
+
       // Fetch room mappings
       const { data: mappings, error: mappingsError } = await supabase
         .from('pms_room_mappings')
         .select('*')
         .eq('pms_config_id', config.id)
         .order('hotelcare_room_number');
-      
+
       if (mappingsError) {
         toast.error('Failed to load room mappings');
       } else {
@@ -112,6 +115,9 @@ export default function PMSConfigurationManagement() {
       setPmsConfig(null);
       setRoomMappings([]);
       setPmsHotelId('');
+      setAutoSyncEnabled(false);
+      setConnectionMode('manual');
+      setCredentialsSecretName('');
     }
     
     setLoading(false);
@@ -132,10 +138,13 @@ export default function PMSConfigurationManagement() {
         .update({
           pms_hotel_id: pmsHotelId,
           sync_enabled: syncEnabled,
+          auto_sync_enabled: autoSyncEnabled,
+          connection_mode: connectionMode,
+          credentials_secret_name: credentialsSecretName || null,
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', pmsConfig.id);
-      
+
       if (error) {
         toast.error('Failed to update PMS configuration');
       } else {
@@ -143,26 +152,30 @@ export default function PMSConfigurationManagement() {
         fetchPMSConfig();
       }
     } else {
-      // Create new config
+      // Create new config — defaults to inactive + manual + no auto-sync
       const { data, error } = await supabase
         .from('pms_configurations')
         .insert({
           hotel_id: selectedHotelId,
           pms_type: 'previo',
           pms_hotel_id: pmsHotelId,
-          sync_enabled: syncEnabled
-        })
+          sync_enabled: syncEnabled,
+          auto_sync_enabled: autoSyncEnabled,
+          connection_mode: connectionMode,
+          credentials_secret_name: credentialsSecretName || null,
+          is_active: false,
+        } as any)
         .select()
         .single();
-      
+
       if (error) {
         toast.error('Failed to create PMS configuration');
       } else {
-        toast.success('PMS configuration created');
-        setPmsConfig(data);
+        toast.success('PMS configuration created (inactive — flip "Active" to enable)');
+        setPmsConfig(data as any);
       }
     }
-    
+
     setLoading(false);
   };
 
