@@ -101,7 +101,7 @@ export function LateMinibarApprovals() {
 
   const approve = async (row: LateMinibarRow) => {
     setActingId(row.id);
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('room_minibar_usage')
       .update({
         pending_supervisor_review: false,
