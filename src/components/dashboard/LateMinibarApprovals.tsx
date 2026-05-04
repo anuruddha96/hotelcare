@@ -37,7 +37,7 @@ export function LateMinibarApprovals() {
     }
     setLoading(true);
 
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('room_minibar_usage')
       .select(`
         id,
