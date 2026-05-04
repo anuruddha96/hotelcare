@@ -239,15 +239,18 @@ export function useNotifications() {
       }
     });
 
+    // Always brand the title with "Hotel Care" prefix when sending OS-level notification
+    const brandedTitle = title ? `Hotel Care · ${title}` : 'Hotel Care';
+
     // Try browser notification if permission granted
     if (title && notificationPermission === 'granted') {
       try {
-        const notification = new Notification(title, {
+        const notification = new Notification(brandedTitle, {
           body: message,
-          icon: '/favicon.ico',
-          badge: '/favicon.ico',
+          icon: '/icon-192.png',
+          badge: '/icon-maskable-512.png',
           tag: 'hotel-notification',
-          silent: false
+          silent: false,
         });
 
         // Handle notification click
@@ -266,14 +269,15 @@ export function useNotifications() {
       try {
         const granted = await requestNotificationPermission();
         if (granted) {
-          const notification = new Notification(title, {
+          const notification = new Notification(brandedTitle, {
             body: message,
-            icon: '/favicon.ico',
+            icon: '/icon-192.png',
+            badge: '/icon-maskable-512.png',
             tag: 'hotel-notification',
-            silent: false
+            silent: false,
           });
-        setTimeout(() => notification.close(), 5000);
-      }
+          setTimeout(() => notification.close(), 5000);
+        }
       } catch (error) {
         console.log('Failed to request notification permission:', error);
       }
