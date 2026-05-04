@@ -40,6 +40,14 @@ export const notificationTranslations: { [lang: string]: { [key: string]: string
     'notifications.assignmentStarted': 'Your room cleaning has started',
     'notifications.assignmentCompleted': 'Room cleaning completed, awaiting approval',
     'notifications.assignmentStatusChanged': 'Assignment status updated',
+    // Short branded notification bodies
+    'notifications.short.newAssignment': 'New room assigned',
+    'notifications.short.pendingApproval': 'Room awaiting approval',
+    'notifications.short.roomStatusChange': 'Room status updated',
+    'notifications.short.lateMinibar': 'Late minibar item to review',
+    'notifications.short.breakRequest': 'Break request',
+    'notifications.short.ticketUpdate': 'Maintenance update',
+    'notifications.short.minibarLateAdded': 'Minibar updated after completion',
   },
   
   hu: {
