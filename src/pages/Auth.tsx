@@ -13,6 +13,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { SwipeAction } from '@/components/ui/swipe-action';
 import { useTranslation } from '@/hooks/useTranslation';
+import hotelcareLogoAuth from '@/assets/hotelcare-logo-auth.png';
 
 export default function Auth() {
  const { signIn, signUp, user, loading } = useAuth();
