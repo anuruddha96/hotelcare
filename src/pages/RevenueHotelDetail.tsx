@@ -223,14 +223,39 @@ export default function RevenueHotelDetail() {
 
   // Pickup tab data
   const pickupChartData = useMemo(() => {
-    const out: { date: string; pickup: number; bookings: number; ly: number }[] = [];
-    for (let i = 0; i < 60; i++) {
+    const out: { date: string; label: string; pickup: number; bookings: number; ly: number; ma7: number; abnormal: boolean; dow: string }[] = [];
+    const series: number[] = [];
+    for (let i = 0; i < 90; i++) {
       const d = addDays(new Date(), i);
-      const r = rowsByDate.get(iso(d));
-      if (r) out.push({ date: iso(d).slice(5), pickup: r.pickupDelta, bookings: r.bookingsNow ?? 0, ly: r.bookingsLY ?? 0 });
+      const dateIso = iso(d);
+      const r = rowsByDate.get(dateIso);
+      if (!r) continue;
+      series.push(r.pickupDelta);
+      const start = Math.max(0, series.length - 7);
+      const window = series.slice(start);
+      const ma7 = window.reduce((a, b) => a + b, 0) / window.length;
+      out.push({
+        date: dateIso,
+        label: dateIso.slice(5),
+        pickup: r.pickupDelta,
+        bookings: r.bookingsNow ?? 0,
+        ly: r.bookingsLY ?? 0,
+        ma7: Math.round(ma7 * 10) / 10,
+        abnormal: r.abnormal,
+        dow: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][r.dow],
+      });
     }
     return out;
   }, [rowsByDate]);
+
+  // Top movers — biggest absolute pickup deltas in next 60 days
+  const topPickupDates = useMemo(() => {
+    return pickupChartData
+      .slice(0, 60)
+      .filter(d => d.pickup !== 0)
+      .sort((a, b) => Math.abs(b.pickup) - Math.abs(a.pickup))
+      .slice(0, 15);
+  }, [pickupChartData]);
 
   // Day-detail snapshots history
   const dayHistory = useMemo(() => {
