@@ -238,22 +238,22 @@ export default function PMSConfigurationManagement() {
       toast.error('Please save PMS configuration first');
       return;
     }
-    
+
     setLoading(true);
-    toast.info('Testing Previo connection...');
-    
-    const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
-      body: { hotelId: pmsConfig.pms_hotel_id }
+    toast.info('Testing Previo connection (read-only, no data is changed)…');
+
+    const { data, error } = await supabase.functions.invoke('previo-test-connection', {
+      body: { hotelId: pmsConfig.hotel_id }
     });
-    
+
     setLoading(false);
-    
-    if (error || !data?.success) {
+
+    if (error || !data?.ok) {
       toast.error(`Connection failed: ${error?.message || data?.error || 'Unknown error'}`);
     } else {
-      toast.success(`Connection successful! Synced ${data.roomsProcessed || 0} rooms`);
-      fetchPMSConfig();
+      toast.success(`Connection OK — ${data.roomCount ?? 0} rooms visible (${data.latencyMs}ms)`);
     }
+    fetchPMSConfig();
   };
 
   return (
@@ -288,7 +288,17 @@ export default function PMSConfigurationManagement() {
               {/* PMS Configuration */}
               <div className="space-y-4 p-4 border rounded-lg">
                 <h3 className="font-semibold">Previo Configuration</h3>
-                
+
+                <div className="flex items-start gap-2 p-3 rounded-md border bg-muted/40">
+                  <ShieldAlert className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
+                  <p className="text-sm text-muted-foreground">
+                    This hotel will not contact Previo until both <strong>Active</strong> and{' '}
+                    <strong>Sync enabled</strong> are turned on. Scheduled background sync only runs
+                    if <strong>Connection mode = Scheduled</strong> AND <strong>Auto-sync</strong> is on.
+                    OttoFiori's existing setup is unaffected by this screen.
+                  </p>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="pms-hotel-id">Previo Hotel ID</Label>
                   <Input
@@ -302,13 +312,57 @@ export default function PMSConfigurationManagement() {
                   </p>
                 </div>
 
+                <div className="space-y-2">
+                  <Label htmlFor="creds-secret-name">Credentials secret name</Label>
+                  <Input
+                    id="creds-secret-name"
+                    value={credentialsSecretName}
+                    onChange={(e) => setCredentialsSecretName(e.target.value)}
+                    placeholder="e.g., PREVIO_HOTEL_GOZSDU"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Name of the Supabase secret holding <code>login:password</code> for this hotel.
+                    Leave empty to fall back to the legacy global credentials (OttoFiori only).
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Connection mode</Label>
+                  <RadioGroup
+                    value={connectionMode}
+                    onValueChange={(v) => setConnectionMode(v as 'manual' | 'scheduled')}
+                    className="flex gap-6"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="manual" id="mode-manual" />
+                      <Label htmlFor="mode-manual" className="font-normal">Manual only</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="scheduled" id="mode-scheduled" />
+                      <Label htmlFor="mode-scheduled" className="font-normal">Scheduled</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
                 <div className="flex items-center space-x-2">
                   <Switch
                     id="sync-enabled"
                     checked={syncEnabled}
                     onCheckedChange={setSyncEnabled}
                   />
-                  <Label htmlFor="sync-enabled">Enable automatic sync</Label>
+                  <Label htmlFor="sync-enabled">Sync enabled</Label>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="auto-sync-enabled"
+                    checked={autoSyncEnabled}
+                    onCheckedChange={setAutoSyncEnabled}
+                    disabled={connectionMode !== 'scheduled'}
+                  />
+                  <Label htmlFor="auto-sync-enabled">
+                    Allow background auto-sync (scheduled mode only)
+                  </Label>
                 </div>
 
                 <div className="flex gap-2">
@@ -323,7 +377,21 @@ export default function PMSConfigurationManagement() {
                     </Button>
                   )}
                 </div>
-                
+
+                {pmsConfig?.last_test_at && (
+                  <div className="flex items-center gap-2 text-sm">
+                    {pmsConfig.last_test_status === 'ok' ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-destructive" />
+                    )}
+                    <span className="text-muted-foreground">
+                      Last test: {new Date(pmsConfig.last_test_at).toLocaleString()}
+                      {pmsConfig.last_test_error ? ` — ${pmsConfig.last_test_error}` : ''}
+                    </span>
+                  </div>
+                )}
+
                 {pmsConfig?.last_sync_at && (
                   <p className="text-sm text-muted-foreground">
                     Last synced: {new Date(pmsConfig.last_sync_at).toLocaleString()}
