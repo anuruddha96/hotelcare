@@ -1,101 +1,58 @@
-## Scope
+## Two bugs to fix
 
-Four parallel work items on the new RPG-style Revenue module:
-1. Fix RLS gaps in Phase-1 tables.
-2. Build Phase-2 settings tabs (Rooms, DOW, Monthly, Lead Time).
-3. Add Quarter (3-month) and Year (12-mini-month) calendar zoom views.
-4. Show rule-engine multipliers + driver chips in the day-detail side panel.
+### Bug 1: Pending Approvals count leaks across hotels for admins
 
----
+**Where**: `src/hooks/usePendingApprovals.tsx`
 
-## 1. RLS verification & fixes
+The hook currently filters by `organization_slug` only, then short-circuits the hotel filter for `admin` and `top_management` roles (lines 62 and 84). That's why an admin logged into Gozsdu Court sees 8 approvals — they actually belong to Ottofiori (the only live hotel in the org).
 
-Findings from `20260502202638_..._.sql`:
+**Fix**: Always filter by the currently active hotel (`profile.assigned_hotel`) regardless of role. Admins switch hotels via the existing `HotelSwitcher` (which writes `assigned_hotel`), so the active hotel is always known. If `assigned_hotel` is null, return 0 instead of org-wide totals.
 
-- **SELECT policy** (`rev_admin_read_*`) currently includes `manager` and `housekeeping_manager` — that's WRONG for revenue (housekeeping managers should not see pricing strategy/PMS rate-plan mappings/surge events). Tighten to `admin`, `top_management`, and a new `manager_can_view_revenue` flag-driven role: `manager` only.
-- **WRITE policy** is admin/top_management only — correct, but `manager` role is left unable to even read. We will allow `manager` SELECT (read-only on calendar settings, identical to existing `is_revenue_user` pattern) but keep WRITE locked to admin/top_management.
-- **`hotel_id` scoping missing**: policies only check `organization_slug`. A manager assigned to Hotel A could read settings for Hotel B in the same org. Add `AND (public.get_user_role(auth.uid()) IN ('admin','top_management') OR public.get_user_assigned_hotel(auth.uid()) = hotel_id OR public.get_user_assigned_hotel(auth.uid()) = public.get_hotel_name_from_id(hotel_id))`.
-- **`revenue_ingest_runs` and `surge_events`** need INSERT permission for the service role only — frontend should never insert these. Add an explicit `FOR INSERT ... USING (false)` for non-service callers (service-role bypasses RLS, so edge functions still work).
-- **`hotel_revenue_settings`** already uses `is_revenue_user` (admin + top_management) — leave as-is, but add hotel-scoping clause.
-
-Plan: one new migration that DROPs the generic policies created in the last migration and re-creates them with hotel-scoping + role-tightening, plus a hotel-scope addition to `hotel_revenue_settings`, `pickup_snapshots`, `rate_recommendations`.
-
----
-
-## 2. Phase-2 settings UI (Rooms, DOW, Monthly, Lead Time)
-
-New folder `src/components/revenue/settings/` with one file per tab, each ~150 lines, autosave on blur:
-
-- `RoomsSetupTab.tsx` — table over `room_types` with columns Name, PMS Room, PMS Rate, # Rooms, Reference toggle, Derivation mode (% / €), Derivation value, Base €, Min €, Max €. "Add room" button, inline delete with confirm. Total-rooms footer.
-- `DOWTab.tsx` — 7 number inputs (Mon–Sun, %) over `dow_adjustments`. Recharts bar chart of resulting multiplier.
-- `MonthlyTab.tsx` — 12 inputs (Jan–Dec) over `monthly_adjustments` + bar chart.
-- `LeadTimeTab.tsx` — 9 inputs for buckets `6m_plus, 3m_plus, 1_5m_3m, 4w_6w, 2w_4w, 1w_2w, 4d_7d, 2d_3d, last_day` over `lead_time_adjustments`.
-
-Wire them into `RevenueHotelDetail.tsx` under a new sub-tab group "Pricing Strategy" so the existing Prices/Events/Pickup/Min Stay tabs stay first-class.
-
-Persistence pattern (matches existing settings flow): upsert by `(hotel_id, organization_slug, key)`, toast on save, optimistic UI.
-
----
-
-## 3. Year & Quarter calendar zoom
-
-Two new components:
-
-- `src/components/revenue/CalendarQuarterView.tsx` — renders 3 months side-by-side (current + 2 ahead). Each cell is the same `DayCell` already used by month view, just with smaller padding. Re-uses `rowsByDate` map untouched.
-- `src/components/revenue/CalendarYearView.tsx` — 12 mini-months in a 4×3 (desktop) / 2×6 (tablet) / 1×12 (mobile) grid. Each cell is a 12×6 dot grid; cell colour = price-band gradient (green ▲, red ▼, neutral grey) derived from `suggestedDelta`. Hover/click drills into the existing day side-panel.
-
-Add a 4-button view switcher in the header: `Week | Month | Quarter | Year`. Year view loads the full 365-day window already fetched (no extra queries).
-
-Layout follows attached RPG screenshots: month-name header on each mini-month, weekday header `M T W T F S S`, day numbers arranged on the proper weekday columns.
-
----
-
-## 4. Driver-chip side panel
-
-Replace the existing day-panel "Reason" line with a structured **Pricing Drivers** section that mirrors the new engine formula:
-
-```text
-Base price          €120  (room_types.base_price_eur)
-× DOW (Sat)         ×1.15  (+15%)
-× Month (Aug)       ×1.10  (+10%)
-× Lead time (1–2w)  ×1.05  (+5%)
-× Occupancy target  ×1.08  (running 78% vs 70% goal)
-× Pickup tier       +€8    (tiers from hotel_revenue_settings)
-─────────────────────────
-Suggested rate      €172
-Clamped to [min, max]  €172
+```ts
+// Replace the role-gated branch with unconditional hotel scoping
+if (!userHotel) { setPendingCount(0); setMaintenanceTicketCount(0); return; }
+query = query.or(`hotel.eq.${userHotel}${resolvedHotelName && resolvedHotelName !== userHotel ? `,hotel.eq.${resolvedHotelName}` : ''}`, { referencedTable: 'rooms' });
+ticketQuery = ticketQuery.or(`hotel.eq.${userHotel}${resolvedHotelName && resolvedHotelName !== userHotel ? `,hotel.eq.${resolvedHotelName}` : ''}`);
 ```
 
-Each line is a chip with the source-table name as a tooltip, and a "Why this number?" link that opens the corresponding settings tab pre-filtered to that row. Chips are colour-coded: green (boost), red (cut), grey (neutral). When a setting is missing, chip shows "—" so the gap is obvious.
+**Audit pass**: grep other dashboards/badges that use the same `['admin','top_management'].includes(role)` shortcut to bypass hotel filtering and confirm they don't show cross-hotel counts on a per-hotel page. Files to inspect:
+- `src/components/dashboard/HousekeepingTab.tsx`
+- `src/components/dashboard/RoomManagement.tsx`
+- `src/components/dashboard/RoomAssignmentSummary.tsx`
+- `src/components/dashboard/AttendanceManagement.tsx`
+- `src/components/dashboard/AttendanceReports.tsx`
+- `src/components/dashboard/Dashboard.tsx`
+- `src/components/dashboard/HousekeepingStaffManagement.tsx`
 
-We also extract the rule-engine logic from `RevenueHotelDetail.tsx` into `src/lib/revenuePricing.ts` (`computeSuggestedRate(row, settings, multipliers) → { rate, breakdown[] }`) so the same code drives both the chip render and the actual recommendation insert. The `rate_recommendations.reason` column gets the same breakdown serialised, so the existing approval/audit flow keeps full traceability.
+For each, scope to `assigned_hotel` when displayed inside a hotel-specific page (Operations / Tickets / Housekeeping / Attendance tabs). The Revenue index page (`src/pages/Revenue.tsx`) is the only place that legitimately shows all hotels in the org — leave it alone.
 
----
+### Bug 2: Revenue XLSX upload fails with "Edge Function returned a non-2xx status code"
 
-## Technical details
+**Where**: `supabase/functions/revenue-pickup-upload/index.ts`
 
-**Migration** (`supabase/migrations/<ts>_revenue_rls_tighten.sql`):
-- Drop and recreate generic policies for the 14 Phase-1 tables with hotel-scope + role-tighten.
-- Add `hotel_id` scope to `hotel_revenue_settings`, `pickup_snapshots`, `rate_recommendations`, `rate_history`, `rate_change_audit`, `revenue_alerts`.
-- New helper `public.user_can_access_hotel(_uid uuid, _hotel_id text) returns boolean` (SECURITY DEFINER) to keep the policies short and avoid duplication.
+Edge function logs show:
+```
+ERROR revenue-pickup-upload error: Error: Unauthorized
+   at index.ts:174:31
+```
 
-**Files added**:
-- `src/components/revenue/settings/RoomsSetupTab.tsx`
-- `src/components/revenue/settings/DOWTab.tsx`
-- `src/components/revenue/settings/MonthlyTab.tsx`
-- `src/components/revenue/settings/LeadTimeTab.tsx`
-- `src/components/revenue/CalendarQuarterView.tsx`
-- `src/components/revenue/CalendarYearView.tsx`
-- `src/components/revenue/PricingDriverChips.tsx`
-- `src/lib/revenuePricing.ts`
+Line 174 is the `if (!userRes?.user) throw new Error("Unauthorized")` check. The function instantiates the Supabase client with the **service role key** plus the user's `Authorization` header. With `verify_jwt = true` (already set in `config.toml`), the gateway has already validated the JWT — but `supabase.auth.getUser()` called on a service-role client doesn't reliably resolve the bearer token to a user.
 
-**Files edited**:
-- `src/pages/RevenueHotelDetail.tsx` — add sub-tabs, new view modes, integrate driver chips, swap inline engine math for `revenuePricing.ts`.
+**Fix**: Validate the user with an anon-key client (or call `auth.getUser(token)` with the explicit JWT), then use the service-role client for DB inserts.
 
-**Hooks/queries**: each settings tab fetches its own table (single round-trip), so the existing `load()` in RevenueHotelDetail isn't slowed down. Quarter/Year views need no extra fetch — they reuse the 365-day buffer already loaded.
+```ts
+const token = authHeader.replace('Bearer ', '');
+const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const { data: userRes, error: uErr } = await anon.auth.getUser(token);
+if (uErr || !userRes?.user) throw new Error("Unauthorized");
 
-**Housekeeping safety**: zero changes to housekeeping tables, RLS, or pages. All edits scoped to `revenue/`, the Phase-1 revenue tables, and the new helper function.
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY); // for DB writes
+```
 
-**Out of scope** (deferred to next batch): Occupancy Strategy, Min-Stay settings, Yielding Tags, Surge Protection, Benchmarking, daily ingest engine, Previo push wiring — covered by later phases in `.lovable/plan.md`.
+Apply the same pattern to other revenue edge functions if they share the bug: `revenue-export`, `revenue-ai-analyze`, `revenue-engine-tick`.
 
-**Verification after build**: I will (a) read back each new policy via `supabase--read_query` impersonating each role, (b) save & reload one row in each new settings tab, (c) toggle Year/Quarter/Month views and confirm cells render, (d) open a day with multipliers configured and confirm chips show the exact numbers, and (e) smoke-test housekeeping Auto-Assign and Team View to confirm no regression.
+### Verification
+
+1. Log in as admin to Gozsdu (no live data) → Pending Approvals badge shows 0; switching to Ottofiori shows the 8.
+2. Upload a Previo pickup XLSX from the Revenue page → returns 200 with `{rows, hotel_id}`; row appears under the matching hotel card.
+3. Smoke-test housekeeping flows on Ottofiori (assignments, completion, approval) — counts must remain unchanged.

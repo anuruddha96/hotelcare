@@ -29,7 +29,8 @@ export function usePendingApprovals() {
         const userHotel = profile?.assigned_hotel;
         const userRole = profile?.role;
         
-        if (!userOrgSlug) {
+        if (!userOrgSlug || !userHotel) {
+          // Strict per-hotel scoping: without an active hotel we never show org-wide totals
           setPendingCount(0);
           setMaintenanceTicketCount(0);
           return;
