@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Coffee, RefreshCw } from "lucide-react";
+import { Coffee, RefreshCw, QrCode } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface CodeRow {
   hotel_id: string;
@@ -22,6 +24,20 @@ export const BreakfastCodeManagement = () => {
   const [hotels, setHotels] = useState<HotelRow[]>([]);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [qrFor, setQrFor] = useState<{ name: string; code: string } | null>(null);
+
+  const bbBase = `${window.location.origin}/bb/`;
+
+  function printQr() {
+    const el = document.getElementById("breakfast-qr-printable");
+    if (!el) return;
+    const html = el.outerHTML;
+    const w = window.open("", "_blank", "width=600,height=800");
+    if (!w) return;
+    w.document.write(`<html><head><title>Breakfast QR</title><style>body{font-family:sans-serif;text-align:center;padding:40px}h1{font-size:28px;margin:8px}p{color:#555}</style></head><body>${html}<script>window.onload=()=>window.print()</script></body></html>`);
+    w.document.close();
+  }
+
 
   async function load() {
     const [{ data: c }, { data: h }] = await Promise.all([
