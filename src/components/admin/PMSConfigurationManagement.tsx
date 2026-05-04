@@ -20,7 +20,7 @@ interface PMSConfig {
   last_sync_at: string | null;
   credentials_secret_name?: string | null;
   auto_sync_enabled?: boolean;
-  connection_mode?: 'manual' | 'scheduled';
+  connection_mode?: string;
   last_test_at?: string | null;
   last_test_status?: string | null;
   last_test_error?: string | null;
