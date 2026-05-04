@@ -313,6 +313,9 @@ export default function RevenueHotelDetail() {
           ))}
         </div>
         <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
+        <Button variant="outline" size="sm" onClick={pullFromPrevio}>
+          <RefreshCw className="h-4 w-4 mr-1" />Pull from Previo
+        </Button>
         <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
           {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Upload Prices
         </Button>
