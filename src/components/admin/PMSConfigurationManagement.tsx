@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Plus, Trash2, Save, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Save, RefreshCw, ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 interface PMSConfig {
   id: string;
@@ -17,6 +18,12 @@ interface PMSConfig {
   is_active: boolean;
   sync_enabled: boolean;
   last_sync_at: string | null;
+  credentials_secret_name?: string | null;
+  auto_sync_enabled?: boolean;
+  connection_mode?: 'manual' | 'scheduled';
+  last_test_at?: string | null;
+  last_test_status?: string | null;
+  last_test_error?: string | null;
 }
 
 interface RoomMapping {
@@ -42,6 +49,9 @@ export default function PMSConfigurationManagement() {
   // Form states
   const [pmsHotelId, setPmsHotelId] = useState('');
   const [syncEnabled, setSyncEnabled] = useState(true);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  const [connectionMode, setConnectionMode] = useState<'manual' | 'scheduled'>('manual');
+  const [credentialsSecretName, setCredentialsSecretName] = useState('');
   const [newRoomNumber, setNewRoomNumber] = useState('');
   const [newPmsRoomId, setNewPmsRoomId] = useState('');
   const [newPmsRoomName, setNewPmsRoomName] = useState('');
