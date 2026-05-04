@@ -95,12 +95,13 @@ export function Header() {
               alt="Hotel Care Logo"
               className="h-8 sm:h-10 w-auto object-contain"
             />
-            {/* Only show text on larger screens */}
-            <div className="hidden md:flex flex-col">
-              <span className="text-base font-semibold tracking-tight">RD Hotels</span>
-              <span className="text-xs text-muted-foreground">
-                {hotelDisplayName || 'Hotel Care Hub'}
-              </span>
+            <div className="flex flex-col leading-tight">
+              <span className="text-sm sm:text-base font-semibold tracking-tight">Hotel Care</span>
+              {hotelDisplayName && (
+                <span className="text-[10px] sm:text-xs text-muted-foreground truncate max-w-[120px] sm:max-w-[200px]">
+                  {hotelDisplayName}
+                </span>
+              )}
             </div>
           </div>
         </div>
