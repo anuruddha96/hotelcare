@@ -46,6 +46,7 @@ const TenantRouter = () => {
         <Route path="/revenue" element={<Revenue />} />
         <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
         <Route path="/bb" element={<Breakfast />} />
+        <Route path="/bb/:hotelCode" element={<Breakfast />} />
       </Routes>
     </TenantProvider>
   );
@@ -73,6 +74,7 @@ const App = () => (
                   
                   {/* Public breakfast lookup (no auth) */}
                   <Route path="/bb" element={<Breakfast />} />
+                  <Route path="/bb/:hotelCode" element={<Breakfast />} />
 
                   {/* Multi-tenant routes */}
                   <Route path="/:organizationSlug/*" element={<TenantRouter />} />

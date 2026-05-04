@@ -223,14 +223,39 @@ export default function RevenueHotelDetail() {
 
   // Pickup tab data
   const pickupChartData = useMemo(() => {
-    const out: { date: string; pickup: number; bookings: number; ly: number }[] = [];
-    for (let i = 0; i < 60; i++) {
+    const out: { date: string; label: string; pickup: number; bookings: number; ly: number; ma7: number; abnormal: boolean; dow: string }[] = [];
+    const series: number[] = [];
+    for (let i = 0; i < 90; i++) {
       const d = addDays(new Date(), i);
-      const r = rowsByDate.get(iso(d));
-      if (r) out.push({ date: iso(d).slice(5), pickup: r.pickupDelta, bookings: r.bookingsNow ?? 0, ly: r.bookingsLY ?? 0 });
+      const dateIso = iso(d);
+      const r = rowsByDate.get(dateIso);
+      if (!r) continue;
+      series.push(r.pickupDelta);
+      const start = Math.max(0, series.length - 7);
+      const window = series.slice(start);
+      const ma7 = window.reduce((a, b) => a + b, 0) / window.length;
+      out.push({
+        date: dateIso,
+        label: dateIso.slice(5),
+        pickup: r.pickupDelta,
+        bookings: r.bookingsNow ?? 0,
+        ly: r.bookingsLY ?? 0,
+        ma7: Math.round(ma7 * 10) / 10,
+        abnormal: r.abnormal,
+        dow: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][r.dow],
+      });
     }
     return out;
   }, [rowsByDate]);
+
+  // Top movers — biggest absolute pickup deltas in next 60 days
+  const topPickupDates = useMemo(() => {
+    return pickupChartData
+      .slice(0, 60)
+      .filter(d => d.pickup !== 0)
+      .sort((a, b) => Math.abs(b.pickup) - Math.abs(a.pickup))
+      .slice(0, 15);
+  }, [pickupChartData]);
 
   // Day-detail snapshots history
   const dayHistory = useMemo(() => {
@@ -354,7 +379,7 @@ export default function RevenueHotelDetail() {
         </TabsContent>
 
         <TabsContent value="pickup">
-          <PickupTab data={pickupChartData} />
+          <PickupTab data={pickupChartData} top={topPickupDates} onSelect={setSelectedDate} />
         </TabsContent>
 
         <TabsContent value="strategy" className="space-y-3">
@@ -492,6 +517,8 @@ export default function RevenueHotelDetail() {
                 </div>
               </div>
 
+              <GuestsOnDate hotelId={hotelId!} date={selectedDate!} />
+
               <DayMinStayEditor hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
                 date={selectedDate!} value={selectedRow.minNights ?? 1} onSaved={load} />
             </div>
@@ -596,32 +623,144 @@ function Stat({ label, value, positive, negative }: { label: string; value: stri
   );
 }
 
-function PickupTab({ data }: { data: { date: string; pickup: number; bookings: number; ly: number }[] }) {
+function PickupTab({ data, top, onSelect }: {
+  data: { date: string; label: string; pickup: number; bookings: number; ly: number; ma7: number; abnormal: boolean; dow: string }[];
+  top: { date: string; pickup: number; bookings: number; ly: number; dow: string; abnormal: boolean }[];
+  onSelect: (date: string) => void;
+}) {
+  // 90-day heatmap (rows = weeks, cols = Mon-Sun)
+  const heatmap = useMemo(() => {
+    const cells: { date: string; pickup: number; abnormal: boolean }[] = data.map(d => ({ date: d.date, pickup: d.pickup, abnormal: d.abnormal }));
+    return cells;
+  }, [data]);
+  const maxAbs = Math.max(1, ...heatmap.map(c => Math.abs(c.pickup)));
+
+  function colorFor(p: number, abnormal: boolean): string {
+    if (abnormal) return "bg-red-600/80 text-white";
+    if (p === 0) return "bg-muted text-muted-foreground";
+    const intensity = Math.min(1, Math.abs(p) / maxAbs);
+    if (p > 0) {
+      if (intensity > 0.66) return "bg-emerald-600 text-white";
+      if (intensity > 0.33) return "bg-emerald-500/70";
+      return "bg-emerald-500/30";
+    }
+    if (intensity > 0.66) return "bg-red-600 text-white";
+    if (intensity > 0.33) return "bg-red-500/70";
+    return "bg-red-500/30";
+  }
+
   return (
     <div className="space-y-3">
-      <Card><CardHeader className="pb-2"><CardTitle className="text-base">Daily pickup (next 60 days)</CardTitle></CardHeader>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" /> Pickup heatmap (next 90 days)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mb-2">
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-600" /> Strong increase</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-500/30" /> Mild increase</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-muted" /> No change</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-500/30" /> Mild decrease</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-600" /> Strong decrease</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-600/80 ring-1 ring-red-900" /> Abnormal</span>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-[10px] text-center text-muted-foreground mb-1">
+            {["Mo","Tu","We","Th","Fr","Sa","Su"].map(l => <div key={l}>{l}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {heatmap.map((c) => (
+              <button
+                key={c.date}
+                type="button"
+                onClick={() => onSelect(c.date)}
+                title={`${c.date} · pickup ${c.pickup > 0 ? "+" : ""}${c.pickup}${c.abnormal ? " · ABNORMAL" : ""}`}
+                className={`aspect-square rounded text-[10px] font-semibold flex flex-col items-center justify-center hover:ring-2 hover:ring-primary transition ${colorFor(c.pickup, c.abnormal)}`}
+              >
+                <span>{c.date.slice(8, 10)}</span>
+                {c.pickup !== 0 && <span className="text-[9px] opacity-80">{c.pickup > 0 ? "+" : ""}{c.pickup}</span>}
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Top pickup dates (next 60 days)</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {top.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">No pickup activity yet — upload a Previo report to populate this list.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr className="text-left">
+                    <th className="px-3 py-2">Date</th>
+                    <th className="px-3 py-2">Day</th>
+                    <th className="px-3 py-2 text-right">Bookings now</th>
+                    <th className="px-3 py-2 text-right">Last year</th>
+                    <th className="px-3 py-2 text-right">Δ</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {top.map(t => (
+                    <tr key={t.date} className={`border-t hover:bg-muted/30 ${t.abnormal ? "bg-red-50" : ""}`}>
+                      <td className="px-3 py-2 font-mono">{t.date}</td>
+                      <td className="px-3 py-2">{t.dow}</td>
+                      <td className="px-3 py-2 text-right">{t.bookings}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{t.ly}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${t.pickup > 0 ? "text-emerald-700" : "text-red-700"}`}>
+                        {t.pickup > 0 ? "+" : ""}{t.pickup}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <Button size="sm" variant="ghost" onClick={() => onSelect(t.date)}>Open</Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Daily pickup with 7-day moving average</CardTitle>
+        </CardHeader>
         <CardContent className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data}>
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
               <RTooltip />
               <Bar dataKey="pickup" fill="hsl(var(--primary))" />
+              <Line type="monotone" dataKey="ma7" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} />
             </BarChart>
           </ResponsiveContainer>
-        </CardContent></Card>
-      <Card><CardHeader className="pb-2"><CardTitle className="text-base">Bookings on the books vs Last Year</CardTitle></CardHeader>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Bookings on the books vs Last Year</CardTitle>
+        </CardHeader>
         <CardContent className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data}>
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
               <RTooltip />
-              <Line type="monotone" dataKey="bookings" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="ly" stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" dot={false} />
+              <Line type="monotone" dataKey="bookings" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="This year" />
+              <Line type="monotone" dataKey="ly" stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" dot={false} name="Last year" />
             </LineChart>
           </ResponsiveContainer>
-        </CardContent></Card>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -770,5 +909,52 @@ function BulkEditDialog({ open, onClose, hotelId, orgSlug, userId, rowsByDate, o
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function GuestsOnDate({ hotelId, date }: { hotelId: string; date: string }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from("reservations")
+        .select("id, status, check_in_date, check_out_date, adults, children, source, room_id, guest:guests(first_name, last_name), room:rooms(room_number)")
+        .eq("hotel_id", hotelId)
+        .lte("check_in_date", date)
+        .gt("check_out_date", date)
+        .in("status", ["confirmed", "checked_in"])
+        .limit(200);
+      if (!cancelled) { setRows(data ?? []); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [hotelId, date]);
+
+  return (
+    <div className="rounded border p-2">
+      <div className="font-semibold mb-2">Guests staying on {date}</div>
+      {loading ? (
+        <div className="text-xs text-muted-foreground">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-xs text-muted-foreground">No reservations on the books for this date.</div>
+      ) : (
+        <div className="space-y-1 text-xs max-h-48 overflow-y-auto">
+          <div className="text-muted-foreground">{rows.length} reservation{rows.length === 1 ? "" : "s"} · {rows.reduce((a, r) => a + (r.adults || 0) + (r.children || 0), 0)} pax</div>
+          {rows.map((r) => (
+            <div key={r.id} className="flex items-center justify-between border-t pt-1">
+              <span className="truncate">
+                {r.room?.room_number ? <b className="font-mono mr-1">{r.room.room_number}</b> : null}
+                {r.guest ? `${r.guest.first_name} ${r.guest.last_name}` : "(no guest)"}
+              </span>
+              <span className="text-muted-foreground shrink-0 ml-2">
+                {r.adults + (r.children || 0)}p · {r.source || "direct"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

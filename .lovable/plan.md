@@ -1,118 +1,49 @@
+## 1. Fix Previo XLSX upload error
 
-# Previo API Integration — Preparation Plan
+**Symptom**: "Edge Function returned a non-2xx status code" on both `pickup_report-3.xlsx` and `daily_overview - Hotelcare.app - 4. 5. - 5. 5..xlsx`. Logs show *"No date columns parsed. First sheet preview: undefined"* — the parser fails to find the date row, then the function returns 400.
 
-## Information to send to Previo (answers ready to paste)
+**Fix in `supabase/functions/revenue-pickup-upload/index.ts`**:
+- Read sheet with `sheet_to_json(ws, { header: 1, blankrows: false, defval: null, raw: false })` and also pass `cellDates: true` to `XLSX.read` so dates become JS `Date` objects we can recognize directly.
+- Extend `tryParseDate` to accept `Date` instances and Hungarian/EU short forms used by Previo (e.g. `"2026.05.04."`, `"2026.05.04"`, `"05.04.2026"`, `"4. 5."`, `"4.5.2026"`).
+- Scan the first **40** rows (not 25) and also detect dates that are spread across multiple header rows (Previo `daily_overview` puts the date span in row 1 and per-day columns in row 4–6). When a date row has only 1–2 hits, still keep scanning further.
+- When no dates are found, ALSO try a "long format" parser: look for any column whose header text matches `date|dátum|stay|datum` and treat each subsequent row as one stay date with sibling numeric columns (`bookings`, `last year`, `delta`, `pickup`).
+- Return `200` with `{ ok: false, error, debug }` instead of `400` so the frontend can show a friendlier message (the current `non-2xx` wrapper from `supabase-js` hides the real error).
+- Log the first 8 rows of every sheet attempted so we can iterate if a new format appears.
 
-**1. For what purpose will the API connector be used?**
-- Revenue Management System (primary, phase 1)
-- Channel manager (read availability/rates, push rates in phase 2)
-- Booking engine (read reservations for forecasting/pickup)
-- Housekeeping (room status sync, phase 3)
-- *Other:* PMS room/reservation sync for operational dashboards (already partially in use for OttoFiori)
+**Frontend (`src/pages/Revenue.tsx`)**: when the response body has `error`, show that message in the per-file row instead of the generic `Edge Function returned a non-2xx status code`.
 
-**2. Where does the application run?**
-- On your server (Lovable Cloud / Supabase Edge Functions, EU region)
+## 2. Redesign the Revenue page UI
 
-**3. Outbound IP addresses for whitelisting (sensitive data access)**
-- Supabase Edge Functions egress IPs for project `pcmszqqklkolvvlabohq` (EU region). I will pull the current static egress IP list from Supabase dashboard and provide it. As of today Supabase Edge Functions egress through a small set of fixed IPs per region; we will share that exact list with Previo.
-- Custom domain origin: `my.hotelcare.app` (no inbound traffic to Previo, listed for reference only).
+**`src/pages/Revenue.tsx`** — keep upload + hotel cards, but:
+- Add a top **summary strip**: total upcoming bookings, week-over-week pickup, # abnormal alerts, # pending recommendations, last-upload age (red if > 7 days).
+- Replace the tiny sparkline on each hotel card with a labeled mini area-chart (next 30 days pickup) and a "Next abnormal date" pill.
+- Move "Upload Previo pickup XLSX" into a collapsible accordion (closed by default) so it stops dominating the page.
+- Add a **drag-and-drop** zone with file-type validation and per-file progress bar.
 
-**4. APIs we will use** (per the linked docs)
-- REST API (`api.previo.app`) — rooms, reservations, rate plans, calendar, reports
-- CHM API (`chm.apidocs.previo.app`) — channel manager rates/availability push
-- XML API (`xml.apidocs.previo.app`) — fallback for any endpoint missing in REST
-- POS / EQC — not in scope yet
+**`src/pages/RevenueHotelDetail.tsx` → Pickup tab redesign** (the part the user is complaining about — "specific dates where pickup shows" + "guest info"):
+- Replace single chart with three stacked sections:
+  1. **Pickup heatmap** — 90-day calendar where each cell is colored by pickup Δ (green = positive, red = negative, dark red = abnormal). Click a cell to open the existing day-detail sheet.
+  2. **Top pickup dates table** — sortable list of dates with the highest absolute pickup Δ in the next 60 days. Columns: Date, Day-of-week, Bookings now, Bookings LY, Δ, Rate, Occupancy, Events. Each row has an "Open" button.
+  3. **Pickup vs. Last Year** — combined bar (pickup) + line (LY baseline) chart, plus a 7-day moving-average overlay.
+- Add a **Guests on this date** card to the day-detail Sheet: queries `reservations` joined with `guests` filtered by `hotel_id` and `stay_date BETWEEN check_in AND check_out`. Shows guest names, room, pax, breakfast count, source (Previo / manual). Restricted to admin/top_management (existing role gate already covers this page).
+- Add a "Download CSV" button per view that exports the visible date range.
 
-**5. Auth method:** HTTP Basic (login + password per hotel), stored as Supabase secrets, never in DB or client code.
+## 3. Breakfast Verification — remove hotel code field
 
----
+The hotel code today doubles as the per-hotel auth secret. Removing the field but keeping the lookup public would let anyone enumerate any hotel's guest data — not acceptable.
 
-## Guarantee: OttoFiori is not affected
+**Change**: turn `/bb` into a per-hotel public URL **`/bb/:hotelCode`** (the code stays in the URL / QR code, not in the form):
+- Add route `/bb/:hotelCode` in `src/App.tsx` (keep `/bb` as a small landing page that says "Scan your hotel QR to continue").
+- `src/pages/Breakfast.tsx`: read `hotelCode` from `useParams`, drop the "Hotel code" `<Input>`, send it implicitly to `breakfast-lookup`. Form now only asks for **Room number** and **Date** (defaults to today).
+- `breakfast-lookup` edge function: unchanged — still validates the code server-side, so security is preserved.
+- Add an admin-only "Print QR" button in `BreakfastCodeManagement` that generates a printable QR pointing at `https://my.hotelcare.app/bb/<code>`. Hotels stick the QR at breakfast — staff scan once and bookmark. Guests/staff never type the code.
 
-Today only OttoFiori uses Previo (via `previo-sync-rooms`, `previo-sync-reservations`, `previo-update-room-status`, `previo-update-minibar`, `previo-push-rates`). We will:
+If the user wants the code completely removed (no per-hotel URL), the only safe alternative is requiring staff login on /bb — confirm with them before going that route.
 
-1. Add a new column `pms_configurations.auto_sync_enabled` (default **false**) and a `connection_mode` enum (`manual` | `scheduled`). OttoFiori's existing row will be backfilled with its current behaviour so nothing changes for them.
-2. All new hotels default to `is_active=false`, `sync_enabled=false`, `auto_sync_enabled=false`. Nothing connects to Previo until an admin explicitly flips the switches in the PMS Configuration screen and clicks "Connect".
-3. No global cron will be added. Any future scheduled job will read `auto_sync_enabled=true` AND `sync_enabled=true` AND `is_active=true` — OttoFiori stays on its current manual flow unless you opt them in.
-4. All new edge functions will hard-filter by `hotel_id` passed from the client and will refuse to run if `pms_configurations.is_active=false` for that hotel.
+## Technical notes
 
----
-
-## Phase 1 — Revenue Management connection (this round)
-
-### Database (migration)
-- Add to `pms_configurations`:
-  - `credentials_secret_name TEXT` — the name of the Supabase secret holding `login:password` for that hotel (e.g. `PREVIO_HOTEL_<slug>`).
-  - `auto_sync_enabled BOOLEAN DEFAULT false`
-  - `connection_mode TEXT DEFAULT 'manual' CHECK (connection_mode IN ('manual','scheduled'))`
-  - `last_test_at TIMESTAMPTZ`, `last_test_status TEXT`, `last_test_error TEXT`
-- New table `previo_rate_snapshots` (per-hotel, per-day pulled rates/availability for the RMS pickup engine):
-  - `id`, `hotel_id`, `organization_slug`, `stay_date`, `rate_plan_id`, `room_kind_id`, `rate_eur NUMERIC`, `availability INT`, `restrictions JSONB`, `pulled_at TIMESTAMPTZ`, unique `(hotel_id, stay_date, rate_plan_id, room_kind_id)`.
-- RLS: hotel-scoped read for `manager`/`top_management`/`admin` via `has_role` + `assigned_hotel` match; service role writes only.
-
-### New edge functions (all `verify_jwt = true`, hotel-scoped)
-1. `previo-test-connection` — calls `GET /rest/hotels` with the hotel's stored credentials, writes `last_test_*` fields. Returns 200/4xx with a clear message.
-2. `previo-pull-rates` — for a given `hotelId` + date range, pulls rate plans + calendar from REST, upserts into `previo_rate_snapshots`. Used by RMS pickup. Manual trigger only in phase 1.
-3. `previo-pull-reservations-rms` — minimal reservation pull (arrivals/departures/ADR) for pickup calculations, scoped to the requesting hotel. Read-only, no writes to operational `rooms` table.
-4. (Re-use existing) `previo-push-rates` stays a 501 placeholder until you confirm rate-plan IDs.
-
-All four use the same pattern as the post-fix `revenue-*` functions: `anonClient.auth.getUser(token)` for auth, then `serviceClient` for DB writes, and they refuse to run unless `pms_configurations.is_active=true` for the requested hotel.
-
-### UI changes
-- **`PMSConfigurationManagement.tsx`** (admin only):
-  - Add a "Connection mode" radio: Manual / Scheduled (default Manual).
-  - Add a "Test connection" button that calls `previo-test-connection` and shows the result inline (green ✓ or red error with Previo's message).
-  - Add a "Credentials secret name" field — admin pastes the Supabase secret name they configured (we will not store the password in the DB).
-  - Add a clear banner: *"This hotel will not contact Previo until both 'Active' and 'Sync enabled' are turned on."*
-- **`RevenueHotelDetail.tsx`**:
-  - Add a "Pull from Previo" button next to the existing "Upload pickup file" button. Disabled if no active Previo config for the hotel. Calls `previo-pull-rates` then refreshes the grid.
-  - Show last-pull timestamp + source badge ("Previo" vs "Manual upload") on each rate cell tooltip via `PricingDriverChips`.
-
-### Secrets (per hotel, you create them when ready)
-- `PREVIO_HOTEL_OTTOFIORI` — already implicitly in use via `PREVIO_API_USER` / `PREVIO_API_PASSWORD`. We will keep those env vars working as a fallback for OttoFiori only and migrate them to the new per-hotel secret on your signal.
-- For each new hotel: `PREVIO_HOTEL_<SLUG>` containing `login:password` base64 — added via Supabase secrets, not in code.
-
----
-
-## Phase 2 / 3 (sketched, not built now)
-- Phase 2: Channel-manager push (rates/availability/restrictions) once you confirm rate-plan ID mapping per hotel.
-- Phase 3: Operational sync (rooms, reservations, minibar, room status) — re-use existing `previo-sync-*` functions, gated by the same `auto_sync_enabled` flag.
-
----
-
-## New Logo rollout
-
-Three uploads provided:
-- `Hotelcare_app_logo.png` — bright cyan lotus on white, full-bleed (use as **app icon / PWA / favicon**).
-- `1.png` — lighter cyan lotus, transparent background (use as **header logo on dark backgrounds**).
-- `2.png` — same as 1, slightly different crop (use as **email / login splash**).
-
-Steps:
-1. Copy assets:
-   - `Hotelcare_app_logo.png` → `public/icon-192.png`, `public/icon-512.png`, `public/icon-maskable-512.png`, `public/favicon.ico` source, and `src/assets/hotelcare-logo-mark.png`.
-   - `1.png` → `src/assets/hotelcare-logo-light.png` (header on dark bg).
-   - `2.png` → `src/assets/hotelcare-logo-auth.png` (Auth/Breakfast/GuestMinibar splash).
-2. Replace logo references in: `Header.tsx`, `Auth.tsx`, `GuestMinibar.tsx`, `Breakfast.tsx`, `CompanySettings.tsx` default, and `manifest.webmanifest` icons.
-3. Update `index.html` `<link rel="icon">` and `<meta property="og:image">` to the new mark.
-4. Service worker notification icon already points to `/icon-192.png` — no code change, just the asset swap.
-
----
-
-## Files touched (summary)
-
-**New:**
-- `supabase/migrations/<ts>_previo_phase1.sql`
-- `supabase/functions/previo-test-connection/index.ts`
-- `supabase/functions/previo-pull-rates/index.ts`
-- `supabase/functions/previo-pull-reservations-rms/index.ts`
-- `src/assets/hotelcare-logo-mark.png`, `hotelcare-logo-light.png`, `hotelcare-logo-auth.png`
-
-**Modified:**
-- `supabase/config.toml` (register 3 new functions, `verify_jwt = true`)
-- `src/components/admin/PMSConfigurationManagement.tsx` (test/connect UI, mode toggle, secret-name field, safety banner)
-- `src/pages/RevenueHotelDetail.tsx` (Pull-from-Previo button + source badges)
-- `src/components/revenue/PricingDriverChips.tsx` (show source line)
-- `src/components/layout/Header.tsx`, `src/pages/Auth.tsx`, `src/pages/Breakfast.tsx`, `src/pages/GuestMinibar.tsx`, `src/components/dashboard/CompanySettings.tsx`
-- `index.html`, `public/manifest.webmanifest`, `public/icon-*.png`, `public/favicon.ico`
-
-No changes to OttoFiori's existing edge functions, room-mapping data, or sync history.
+- No new tables. Reuses `pickup_snapshots`, `rate_recommendations`, `revenue_alerts`, `reservations`, `guests`, `breakfast_roster`, `hotel_breakfast_codes`.
+- New edge-function deploys: `revenue-pickup-upload` only (parser fix). `breakfast-lookup` stays the same.
+- Files touched: `supabase/functions/revenue-pickup-upload/index.ts`, `src/pages/Revenue.tsx`, `src/pages/RevenueHotelDetail.tsx`, `src/pages/Breakfast.tsx`, `src/App.tsx`, `src/components/admin/BreakfastCodeManagement.tsx`.
+- Adds one tiny dep: `qrcode.react` for the printable QR.
+- No impact on the manual OttoFiori flow (no Previo writes, no PMS calls touched).
