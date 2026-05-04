@@ -92,10 +92,34 @@ export const BreakfastCodeManagement = () => {
               <Button size="sm" onClick={() => save(h.hotel_id)} disabled={busy}>
                 <RefreshCw className="h-3 w-3 mr-1" /> {cur ? "Rotate" : "Create"}
               </Button>
+              {cur && (
+                <Button size="sm" variant="outline" onClick={() => setQrFor({ name: h.hotel_name, code: cur.code })}>
+                  <QrCode className="h-3 w-3 mr-1" /> QR
+                </Button>
+              )}
             </div>
           );
         })}
       </CardContent>
+
+      <Dialog open={!!qrFor} onOpenChange={(o) => !o && setQrFor(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Breakfast QR — {qrFor?.name}</DialogTitle>
+          </DialogHeader>
+          {qrFor && (
+            <div className="space-y-3">
+              <div id="breakfast-qr-printable" className="flex flex-col items-center gap-2 p-4 bg-white rounded">
+                <h1 className="text-lg font-semibold">{qrFor.name}</h1>
+                <p className="text-xs text-muted-foreground">Scan to verify breakfast</p>
+                <QRCodeSVG value={`${bbBase}${qrFor.code}`} size={220} level="M" includeMargin />
+                <p className="text-xs break-all">{`${bbBase}${qrFor.code}`}</p>
+              </div>
+              <Button onClick={printQr} className="w-full">Print</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };
