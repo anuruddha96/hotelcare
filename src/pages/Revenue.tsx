@@ -155,9 +155,20 @@ export default function Revenue() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Upload className="h-4 w-4" /> Upload Previo pickup XLSX (multiple allowed)</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
+      {/* Summary strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <SummaryStat label="Hotels tracked" value={hotels.length} />
+        <SummaryStat label="14d pickup Δ (all)" value={hotels.reduce((a, h) => a + h.pickup_today, 0)} />
+        <SummaryStat label="Pending recs" value={hotels.reduce((a, h) => a + h.pending_recs, 0)} highlight={hotels.some((h) => h.pending_recs > 0)} />
+        <SummaryStat label="Abnormal pickups" value={hotels.filter((h) => h.abnormal).length} danger={hotels.some((h) => h.abnormal)} />
+      </div>
+
+      <details className="rounded-lg border bg-card">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium flex items-center gap-2">
+          <Upload className="h-4 w-4" /> Upload Previo pickup XLSX
+          {jobs.length > 0 && <span className="ml-2 text-xs text-muted-foreground">({jobs.length} queued)</span>}
+        </summary>
+        <div className="p-4 pt-0 space-y-3">
           <div className="grid md:grid-cols-3 gap-3">
             <div>
               <Label>Files</Label>
@@ -182,15 +193,15 @@ export default function Revenue() {
           {jobs.length > 0 && (
             <div className="border rounded divide-y">
               {jobs.map((j, i) => (
-                <div key={i} className="flex items-center justify-between p-2 text-sm">
-                  <div className="flex items-center gap-2 min-w-0">
+                <div key={i} className="flex items-start justify-between p-2 text-sm gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     {j.status === "ok" && <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />}
-                    {j.status === "err" && <XCircle className="h-4 w-4 text-red-600 shrink-0" />}
+                    {j.status === "err" && <XCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />}
                     {j.status === "uploading" && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
                     {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
                     <span className="truncate">{j.file.name}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground ml-2 shrink-0">
+                  <span className={`text-xs ml-2 max-w-[60%] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
                     {j.status === "ok" && `✓ ${j.rows} rows → ${j.hotel}`}
                     {j.status === "err" && j.message}
                   </span>
@@ -198,8 +209,8 @@ export default function Revenue() {
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </details>
 
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
         {hotels.map((h) => (
