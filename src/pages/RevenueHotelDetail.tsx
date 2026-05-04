@@ -277,6 +277,22 @@ export default function RevenueHotelDetail() {
     toast.success("Rates pushed to Previo");
   }
 
+  async function pullFromPrevio() {
+    if (!hotelId) return;
+    const dateFrom = iso(new Date());
+    const dateTo = iso(addDays(new Date(), 120));
+    toast.info("Pulling rates from Previo…");
+    const { data, error } = await supabase.functions.invoke("previo-pull-rates", {
+      body: { hotelId, dateFrom, dateTo }
+    });
+    if (error || !data?.ok) {
+      toast.error(data?.error || error?.message || "Pull failed");
+      return;
+    }
+    toast.success(`Pulled ${data.upserted ?? 0} rate snapshots from Previo`);
+    load();
+  }
+
   return (
     <div className="container mx-auto p-4 space-y-3">
       {/* Header bar — RPG style */}
