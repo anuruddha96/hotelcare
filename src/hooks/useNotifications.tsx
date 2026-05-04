@@ -192,24 +192,24 @@ export function useNotifications() {
         // Use service worker for persistent notifications
         await serviceWorkerManager.sendNotification(title, message, {
           timestamp: Date.now(),
-          url: window.location.href
+          url: window.location.href,
         });
-        
+
         return true;
       } catch (error) {
         console.error('Service Worker notification failed, using fallback:', error);
-        
+
         // Fallback to regular notification
         const notification = new Notification(title, {
           body: message,
-          icon: '/favicon.ico',
-          badge: '/favicon.ico',
-          tag: 'hotel-notification'
+          icon: '/icon-192.png',
+          badge: '/icon-maskable-512.png',
+          tag: 'hotel-notification',
         } as any);
 
         // Auto-close after 5 seconds
         setTimeout(() => notification.close(), 5000);
-        
+
         return notification;
       }
     }
