@@ -17,6 +17,7 @@ import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge'
 import { TrainingHelpButton } from '@/components/training';
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 import { LogOut, Settings, User, TrendingUp } from 'lucide-react';
+import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
 import { Link, useParams } from 'react-router-dom';
 import {
   DropdownMenu,
@@ -90,8 +91,8 @@ export function Header() {
         <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
           <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
             <img
-              src="/lovable-uploads/d6f6d925-1828-4b13-86b1-a9060e46bda7.png"
-              alt="RD Hotels Logo"
+              src={hotelcareLogo}
+              alt="Hotel Care Logo"
               className="h-8 sm:h-10 w-auto object-contain"
             />
             {/* Only show text on larger screens */}

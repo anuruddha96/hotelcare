@@ -13,6 +13,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { SwipeAction } from '@/components/ui/swipe-action';
 import { useTranslation } from '@/hooks/useTranslation';
+import hotelcareLogoAuth from '@/assets/hotelcare-logo-auth.png';
 
 export default function Auth() {
  const { signIn, signUp, user, loading } = useAuth();
@@ -210,8 +211,8 @@ export default function Auth() {
         <CardHeader className="text-center space-y-3 sm:space-y-4 pb-4 sm:pb-6">
           <div className="mx-auto w-24 h-16 sm:w-32 sm:h-20 flex items-center justify-center">
             <img 
-              src="/lovable-uploads/f8d09d0b-f11c-4c6e-88b7-dff8c26a8824.png" 
-              alt="RD Hotels Logo" 
+              src={hotelcareLogoAuth} 
+              alt="Hotel Care Logo" 
               className="max-w-full max-h-full object-contain"
             />
           </div>

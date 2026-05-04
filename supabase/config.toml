@@ -125,3 +125,9 @@ verify_jwt = false
 
 [functions.previo-push-rates]
 verify_jwt = true
+
+[functions.previo-test-connection]
+verify_jwt = true
+
+[functions.previo-pull-rates]
+verify_jwt = true

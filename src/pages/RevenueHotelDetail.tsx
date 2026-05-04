@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Upload, TrendingUp, TrendingDown,
   AlertTriangle, Loader2, Check, Edit3, X, Calendar as CalIcon, BarChart3,
-  Settings2, Sparkles, Plus,
+  Settings2, Sparkles, Plus, RefreshCw,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
@@ -277,6 +277,22 @@ export default function RevenueHotelDetail() {
     toast.success("Rates pushed to Previo");
   }
 
+  async function pullFromPrevio() {
+    if (!hotelId) return;
+    const dateFrom = iso(new Date());
+    const dateTo = iso(addDays(new Date(), 120));
+    toast.info("Pulling rates from Previo…");
+    const { data, error } = await supabase.functions.invoke("previo-pull-rates", {
+      body: { hotelId, dateFrom, dateTo }
+    });
+    if (error || !data?.ok) {
+      toast.error(data?.error || error?.message || "Pull failed");
+      return;
+    }
+    toast.success(`Pulled ${data.upserted ?? 0} rate snapshots from Previo`);
+    load();
+  }
+
   return (
     <div className="container mx-auto p-4 space-y-3">
       {/* Header bar — RPG style */}
@@ -297,6 +313,9 @@ export default function RevenueHotelDetail() {
           ))}
         </div>
         <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
+        <Button variant="outline" size="sm" onClick={pullFromPrevio}>
+          <RefreshCw className="h-4 w-4 mr-1" />Pull from Previo
+        </Button>
         <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
           {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Upload Prices
         </Button>
