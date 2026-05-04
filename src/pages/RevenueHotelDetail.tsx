@@ -911,3 +911,50 @@ function BulkEditDialog({ open, onClose, hotelId, orgSlug, userId, rowsByDate, o
     </Dialog>
   );
 }
+
+function GuestsOnDate({ hotelId, date }: { hotelId: string; date: string }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from("reservations")
+        .select("id, status, check_in_date, check_out_date, adults, children, source, room_id, guest:guests(first_name, last_name), room:rooms(room_number)")
+        .eq("hotel_id", hotelId)
+        .lte("check_in_date", date)
+        .gt("check_out_date", date)
+        .in("status", ["confirmed", "checked_in"])
+        .limit(200);
+      if (!cancelled) { setRows(data ?? []); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [hotelId, date]);
+
+  return (
+    <div className="rounded border p-2">
+      <div className="font-semibold mb-2">Guests staying on {date}</div>
+      {loading ? (
+        <div className="text-xs text-muted-foreground">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-xs text-muted-foreground">No reservations on the books for this date.</div>
+      ) : (
+        <div className="space-y-1 text-xs max-h-48 overflow-y-auto">
+          <div className="text-muted-foreground">{rows.length} reservation{rows.length === 1 ? "" : "s"} · {rows.reduce((a, r) => a + (r.adults || 0) + (r.children || 0), 0)} pax</div>
+          {rows.map((r) => (
+            <div key={r.id} className="flex items-center justify-between border-t pt-1">
+              <span className="truncate">
+                {r.room?.room_number ? <b className="font-mono mr-1">{r.room.room_number}</b> : null}
+                {r.guest ? `${r.guest.first_name} ${r.guest.last_name}` : "(no guest)"}
+              </span>
+              <span className="text-muted-foreground shrink-0 ml-2">
+                {r.adults + (r.children || 0)}p · {r.source || "direct"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
