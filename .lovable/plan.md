@@ -1,126 +1,118 @@
-## Scope
 
-Four independent improvements to the housekeeping app. None touch the Revenue module or break existing housekeeping flows.
+# Previo API Integration — Preparation Plan
+
+## Information to send to Previo (answers ready to paste)
+
+**1. For what purpose will the API connector be used?**
+- Revenue Management System (primary, phase 1)
+- Channel manager (read availability/rates, push rates in phase 2)
+- Booking engine (read reservations for forecasting/pickup)
+- Housekeeping (room status sync, phase 3)
+- *Other:* PMS room/reservation sync for operational dashboards (already partially in use for OttoFiori)
+
+**2. Where does the application run?**
+- On your server (Lovable Cloud / Supabase Edge Functions, EU region)
+
+**3. Outbound IP addresses for whitelisting (sensitive data access)**
+- Supabase Edge Functions egress IPs for project `pcmszqqklkolvvlabohq` (EU region). I will pull the current static egress IP list from Supabase dashboard and provide it. As of today Supabase Edge Functions egress through a small set of fixed IPs per region; we will share that exact list with Previo.
+- Custom domain origin: `my.hotelcare.app` (no inbound traffic to Previo, listed for reference only).
+
+**4. APIs we will use** (per the linked docs)
+- REST API (`api.previo.app`) — rooms, reservations, rate plans, calendar, reports
+- CHM API (`chm.apidocs.previo.app`) — channel manager rates/availability push
+- XML API (`xml.apidocs.previo.app`) — fallback for any endpoint missing in REST
+- POS / EQC — not in scope yet
+
+**5. Auth method:** HTTP Basic (login + password per hotel), stored as Supabase secrets, never in DB or client code.
 
 ---
 
-## 1. Allow Minibar Updates on Completed Rooms (with Re-Approval)
+## Guarantee: OttoFiori is not affected
 
-**Problem:** Once a housekeeper completes a room, the Minibar button is hidden (only shows during `in_progress`). They can't add forgotten items, causing operational pain.
+Today only OttoFiori uses Previo (via `previo-sync-rooms`, `previo-sync-reservations`, `previo-update-room-status`, `previo-update-minibar`, `previo-push-rates`). We will:
 
-**Solution:** Allow minibar additions for rooms in `completed` status, with an audit trail and supervisor re-approval flow.
+1. Add a new column `pms_configurations.auto_sync_enabled` (default **false**) and a `connection_mode` enum (`manual` | `scheduled`). OttoFiori's existing row will be backfilled with its current behaviour so nothing changes for them.
+2. All new hotels default to `is_active=false`, `sync_enabled=false`, `auto_sync_enabled=false`. Nothing connects to Previo until an admin explicitly flips the switches in the PMS Configuration screen and clicks "Connect".
+3. No global cron will be added. Any future scheduled job will read `auto_sync_enabled=true` AND `sync_enabled=true` AND `is_active=true` — OttoFiori stays on its current manual flow unless you opt them in.
+4. All new edge functions will hard-filter by `hotel_id` passed from the client and will refuse to run if `pms_configurations.is_active=false` for that hotel.
 
-### DB changes (migration)
-Add columns to `room_minibar_usage`:
-- `added_after_completion boolean DEFAULT false` — set true when housekeeper adds after assignment was completed
-- `pending_supervisor_review boolean DEFAULT false` — true if added after supervisor already approved
-- `reviewed_by uuid`, `reviewed_at timestamptz` — supervisor who approved the late addition
-- Existing RLS unchanged; add policy so housekeeper can INSERT for their own assigned rooms even after completion (scoped by `assigned_hotel`).
+---
+
+## Phase 1 — Revenue Management connection (this round)
+
+### Database (migration)
+- Add to `pms_configurations`:
+  - `credentials_secret_name TEXT` — the name of the Supabase secret holding `login:password` for that hotel (e.g. `PREVIO_HOTEL_<slug>`).
+  - `auto_sync_enabled BOOLEAN DEFAULT false`
+  - `connection_mode TEXT DEFAULT 'manual' CHECK (connection_mode IN ('manual','scheduled'))`
+  - `last_test_at TIMESTAMPTZ`, `last_test_status TEXT`, `last_test_error TEXT`
+- New table `previo_rate_snapshots` (per-hotel, per-day pulled rates/availability for the RMS pickup engine):
+  - `id`, `hotel_id`, `organization_slug`, `stay_date`, `rate_plan_id`, `room_kind_id`, `rate_eur NUMERIC`, `availability INT`, `restrictions JSONB`, `pulled_at TIMESTAMPTZ`, unique `(hotel_id, stay_date, rate_plan_id, room_kind_id)`.
+- RLS: hotel-scoped read for `manager`/`top_management`/`admin` via `has_role` + `assigned_hotel` match; service role writes only.
+
+### New edge functions (all `verify_jwt = true`, hotel-scoped)
+1. `previo-test-connection` — calls `GET /rest/hotels` with the hotel's stored credentials, writes `last_test_*` fields. Returns 200/4xx with a clear message.
+2. `previo-pull-rates` — for a given `hotelId` + date range, pulls rate plans + calendar from REST, upserts into `previo_rate_snapshots`. Used by RMS pickup. Manual trigger only in phase 1.
+3. `previo-pull-reservations-rms` — minimal reservation pull (arrivals/departures/ADR) for pickup calculations, scoped to the requesting hotel. Read-only, no writes to operational `rooms` table.
+4. (Re-use existing) `previo-push-rates` stays a 501 placeholder until you confirm rate-plan IDs.
+
+All four use the same pattern as the post-fix `revenue-*` functions: `anonClient.auth.getUser(token)` for auth, then `serviceClient` for DB writes, and they refuse to run unless `pms_configurations.is_active=true` for the requested hotel.
 
 ### UI changes
+- **`PMSConfigurationManagement.tsx`** (admin only):
+  - Add a "Connection mode" radio: Manual / Scheduled (default Manual).
+  - Add a "Test connection" button that calls `previo-test-connection` and shows the result inline (green ✓ or red error with Previo's message).
+  - Add a "Credentials secret name" field — admin pastes the Supabase secret name they configured (we will not store the password in the DB).
+  - Add a clear banner: *"This hotel will not contact Previo until both 'Active' and 'Sync enabled' are turned on."*
+- **`RevenueHotelDetail.tsx`**:
+  - Add a "Pull from Previo" button next to the existing "Upload pickup file" button. Disabled if no active Previo config for the hotel. Calls `previo-pull-rates` then refreshes the grid.
+  - Show last-pull timestamp + source badge ("Previo" vs "Manual upload") on each rate cell tooltip via `PricingDriverChips`.
 
-**`AssignedRoomCard.tsx`** (the completed-room block at lines 1284–1300):
-- Add a "Minibar" button next to "Update Dirty Linen" that opens the existing minibar dialog.
-- When inserting a row from a completed assignment:
-  - Set `added_after_completion = true`.
-  - If the assignment is **not yet** supervisor-approved → flip the assignment back so it re-appears in Pending Approvals with an "Updated by housekeeper" badge (set `supervisor_approved=false` only if it was previously auto-approved; otherwise just keep it pending and tag the row).
-  - If the assignment **was already** supervisor-approved → set `pending_supervisor_review=true` on the new minibar row and notify supervisors. The room stays approved; only the new minibar item needs review.
-
-**`SupervisorApprovalView.tsx`** & `CompletionDataView.tsx`:
-- Show a yellow "Added after completion" badge on minibar items where `added_after_completion=true`.
-- Add a new "Late Minibar Additions" section in the Approval inbox listing rows where `pending_supervisor_review=true`. Each row shows: room, item, qty, price, housekeeper, timestamp, plus Approve / Reject buttons. Approve sets `reviewed_by/at` and `pending_supervisor_review=false`. Reject deletes the row (with confirmation).
-- Counter in `usePendingApprovals` adds these pending late-additions to the badge (still strictly hotel-scoped — same fix as last loop).
-
-### Translation keys
-Add: `minibar.addedAfterCompletion`, `minibar.pendingReview`, `minibar.lateAdditions`, `minibar.approveLate`, `minibar.rejectLate`, `roomCard.addMinibarLate` across all 6 languages.
+### Secrets (per hotel, you create them when ready)
+- `PREVIO_HOTEL_OTTOFIORI` — already implicitly in use via `PREVIO_API_USER` / `PREVIO_API_PASSWORD`. We will keep those env vars working as a fallback for OttoFiori only and migrate them to the new per-hotel secret on your signal.
+- For each new hotel: `PREVIO_HOTEL_<SLUG>` containing `login:password` base64 — added via Supabase secrets, not in code.
 
 ---
 
-## 2. Add Azerbaijani (`az`) Language
-
-### Files
-- `src/components/dashboard/LanguageSwitcher.tsx` — add `{ code: 'az', name: 'Azərbaycanca', flag: '🇦🇿' }`.
-- `src/hooks/useTranslation.tsx` — add `'az'` to `supportedLanguages`, add full `az: { ... }` block matching the English keyset, fallback to English for any missing key.
-- `src/lib/comprehensive-translations.ts`, `expanded-translations.ts`, `notification-translations.ts`, `pms-translations.ts`, `maintenance-translations.ts`, `training-translations.ts`, `guest-minibar-translations.ts` — add `az: { ... }` blocks with translated values for every existing key.
-- `src/lib/translation-utils.ts` — include `az` in any language list.
-
-Translations will mirror the existing 5-language structure (no new keys needed beyond the minibar/notification ones in this plan). Volume: ~5,000 string entries — produced in bulk per file.
-
-### Fallback safety
-Confirm `useTranslation` returns the English string when an `az` key is missing, so partial coverage never crashes the UI.
+## Phase 2 / 3 (sketched, not built now)
+- Phase 2: Channel-manager push (rates/availability/restrictions) once you confirm rate-plan ID mapping per hotel.
+- Phase 3: Operational sync (rooms, reservations, minibar, room status) — re-use existing `previo-sync-*` functions, gated by the same `auto_sync_enabled` flag.
 
 ---
 
-## 3. Mobile-Friendly Attendance Records
+## New Logo rollout
 
-**Problem:** `AttendanceReports.tsx` uses a wide HTML `<Table>` that overflows on 390px screens (per uploaded screenshot — columns wrap awkwardly).
+Three uploads provided:
+- `Hotelcare_app_logo.png` — bright cyan lotus on white, full-bleed (use as **app icon / PWA / favicon**).
+- `1.png` — lighter cyan lotus, transparent background (use as **header logo on dark backgrounds**).
+- `2.png` — same as 1, slightly different crop (use as **email / login splash**).
 
-**Fix:** Responsive layout in `AttendanceReports.tsx` (lines 320–376):
-- On `md+`: keep current table.
-- On mobile (`< md`): render each record as a stacked card showing Date (bold header), Check In / Check Out / Hours in a 3-col grid, then Status badge, Location, Notes.
-- Wrap the desktop table in `<div className="hidden md:block overflow-x-auto">` and the mobile cards in `<div className="md:hidden space-y-3">`.
-- Also stack the 4 summary cards (Total Days / Hours / Avg / Punctual) one-per-row on mobile (already `grid-cols-1 md:grid-cols-2 lg:grid-cols-4` — verify and tighten spacing).
-
-No data/logic changes.
-
----
-
-## 4. Branded PWA Push Notifications in User's Language
-
-**Goal:** When the PWA is installed (iOS/Android home screen) and an event happens (new approval pending, room status change, new assignment, etc.), show a system notification:
-- Branded as "Hotel Care" with the app icon.
-- Short, event-specific body (e.g., "Room 402 awaiting approval", "New assignment: Room 215").
-- In the user's currently selected app language (read from `localStorage` / language preference).
-
-### Changes
-
-**`public/service-worker.js`**
-- Update `notificationData` defaults to use `/icon-192.png` (branded) instead of `/favicon.ico` for `icon`, and `/icon-maskable-512.png` for `badge`.
-- Set `tag` per event type so duplicates collapse rather than spam.
-- Keep `requireInteraction` and vibration.
-
-**`src/hooks/useNotifications.tsx`** (lines 200–280)
-- In `showNotification` and the foreground `new Notification(...)` calls, switch `icon` to `/icon-192.png` and `badge` to `/icon-maskable-512.png`.
-- Always pass a short, translated `title` and `body` — never raw event text. Use existing `t()` (already wired) so the user's selected language drives the strings.
-- Add per-event short body templates via `t()`:
-  - `notifications.short.newAssignment` → "New room assigned"
-  - `notifications.short.pendingApproval` → "Room awaiting approval"
-  - `notifications.short.roomStatusChange` → "Room status updated"
-  - `notifications.short.lateMinibar` → "Late minibar item to review"
-  - `notifications.short.breakRequest` → "Break request"
-  - `notifications.short.ticketUpdate` → "Maintenance update"
-- Update all `showNotification(...)` call sites in `RealtimeNotificationProvider.tsx`, `SupervisorApprovalView.tsx`, `HousekeepingStaffView.tsx`, etc. to pass the matching short title/body.
-
-**Language persistence in SW**
-The service worker can't read React state. We pass the body string already translated from the page (foreground notifications). For background push (future server-sent push), we'd send the translated string from the edge function based on the recipient's `profile.language`. For now, all notifications in this app are triggered from the foreground via realtime subscriptions, so `t()` covers the language requirement immediately.
-
-**iOS PWA note:** Existing iOS-standalone check in `requestNotificationPermission` is preserved.
+Steps:
+1. Copy assets:
+   - `Hotelcare_app_logo.png` → `public/icon-192.png`, `public/icon-512.png`, `public/icon-maskable-512.png`, `public/favicon.ico` source, and `src/assets/hotelcare-logo-mark.png`.
+   - `1.png` → `src/assets/hotelcare-logo-light.png` (header on dark bg).
+   - `2.png` → `src/assets/hotelcare-logo-auth.png` (Auth/Breakfast/GuestMinibar splash).
+2. Replace logo references in: `Header.tsx`, `Auth.tsx`, `GuestMinibar.tsx`, `Breakfast.tsx`, `CompanySettings.tsx` default, and `manifest.webmanifest` icons.
+3. Update `index.html` `<link rel="icon">` and `<meta property="og:image">` to the new mark.
+4. Service worker notification icon already points to `/icon-192.png` — no code change, just the asset swap.
 
 ---
 
-## Technical Summary (per file)
+## Files touched (summary)
 
-```text
-DB:
-  supabase/migrations/<ts>_minibar_late_additions.sql
-    - alter room_minibar_usage add columns + RLS policy
+**New:**
+- `supabase/migrations/<ts>_previo_phase1.sql`
+- `supabase/functions/previo-test-connection/index.ts`
+- `supabase/functions/previo-pull-rates/index.ts`
+- `supabase/functions/previo-pull-reservations-rms/index.ts`
+- `src/assets/hotelcare-logo-mark.png`, `hotelcare-logo-light.png`, `hotelcare-logo-auth.png`
 
-Frontend:
-  src/components/dashboard/AssignedRoomCard.tsx       (add Minibar btn for completed)
-  src/components/dashboard/SupervisorApprovalView.tsx (Late Additions section)
-  src/components/dashboard/CompletionDataView.tsx     ("Added after completion" badge)
-  src/components/dashboard/AttendanceReports.tsx      (mobile card layout)
-  src/components/dashboard/LanguageSwitcher.tsx       (+az option)
-  src/hooks/useTranslation.tsx                        (+az in supportedLanguages + base block)
-  src/hooks/useNotifications.tsx                      (branded icons, short translated titles)
-  src/hooks/usePendingApprovals.tsx                   (count late minibar items)
-  src/lib/*-translations.ts (7 files)                 (+az blocks, +new minibar/notification keys)
-  public/service-worker.js                            (branded icon defaults + tag)
-```
+**Modified:**
+- `supabase/config.toml` (register 3 new functions, `verify_jwt = true`)
+- `src/components/admin/PMSConfigurationManagement.tsx` (test/connect UI, mode toggle, secret-name field, safety banner)
+- `src/pages/RevenueHotelDetail.tsx` (Pull-from-Previo button + source badges)
+- `src/components/revenue/PricingDriverChips.tsx` (show source line)
+- `src/components/layout/Header.tsx`, `src/pages/Auth.tsx`, `src/pages/Breakfast.tsx`, `src/pages/GuestMinibar.tsx`, `src/components/dashboard/CompanySettings.tsx`
+- `index.html`, `public/manifest.webmanifest`, `public/icon-*.png`, `public/favicon.ico`
 
-## Testing checklist (manual after build)
-- Housekeeper completes Room 402 → sees Minibar button → adds item → if not yet approved, supervisor sees it back in pending with "Updated" badge; if already approved, supervisor sees it in "Late Minibar Additions" → can approve.
-- Switch app language to Azerbaijani → all major screens render in `az`, untranslated keys fall back to English (no crashes).
-- Open Attendance on 390px viewport → records render as readable cards, no horizontal scroll.
-- Install app to iOS/Android home screen → trigger a new assignment → system notification shows Hotel Care icon, short translated body matching app language.
-- Confirm housekeeping flows (start/complete cleaning, DND, dirty linen, photos) and Revenue module are unaffected.
+No changes to OttoFiori's existing edge functions, room-mapping data, or sync history.

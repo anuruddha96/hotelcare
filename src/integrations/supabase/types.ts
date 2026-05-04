@@ -2136,11 +2136,17 @@ export type Database = {
       }
       pms_configurations: {
         Row: {
+          auto_sync_enabled: boolean
+          connection_mode: string
           created_at: string
+          credentials_secret_name: string | null
           hotel_id: string
           id: string
           is_active: boolean
           last_sync_at: string | null
+          last_test_at: string | null
+          last_test_error: string | null
+          last_test_status: string | null
           pms_hotel_id: string
           pms_type: string
           settings: Json | null
@@ -2148,11 +2154,17 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auto_sync_enabled?: boolean
+          connection_mode?: string
           created_at?: string
+          credentials_secret_name?: string | null
           hotel_id: string
           id?: string
           is_active?: boolean
           last_sync_at?: string | null
+          last_test_at?: string | null
+          last_test_error?: string | null
+          last_test_status?: string | null
           pms_hotel_id: string
           pms_type?: string
           settings?: Json | null
@@ -2160,11 +2172,17 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auto_sync_enabled?: boolean
+          connection_mode?: string
           created_at?: string
+          credentials_secret_name?: string | null
           hotel_id?: string
           id?: string
           is_active?: boolean
           last_sync_at?: string | null
+          last_test_at?: string | null
+          last_test_error?: string | null
+          last_test_status?: string | null
           pms_hotel_id?: string
           pms_type?: string
           settings?: Json | null
@@ -2365,6 +2383,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      previo_rate_snapshots: {
+        Row: {
+          availability: number | null
+          hotel_id: string
+          id: string
+          organization_slug: string
+          pulled_at: string
+          rate_eur: number | null
+          rate_plan_id: string
+          restrictions: Json | null
+          room_kind_id: string
+          source: string
+          stay_date: string
+        }
+        Insert: {
+          availability?: number | null
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          pulled_at?: string
+          rate_eur?: number | null
+          rate_plan_id: string
+          restrictions?: Json | null
+          room_kind_id: string
+          source?: string
+          stay_date: string
+        }
+        Update: {
+          availability?: number | null
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          pulled_at?: string
+          rate_eur?: number | null
+          rate_plan_id?: string
+          restrictions?: Json | null
+          room_kind_id?: string
+          source?: string
+          stay_date?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
