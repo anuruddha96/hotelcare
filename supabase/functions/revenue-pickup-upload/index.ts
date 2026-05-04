@@ -161,13 +161,18 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("Missing auth");
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-    const { data: userRes } = await supabase.auth.getUser();
-    if (!userRes?.user) throw new Error("Unauthorized");
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+    // Validate user with anon client + explicit token (service-role client doesn't resolve user from header)
+    const userClient = createClient(SUPABASE_URL, ANON_KEY);
+    const { data: userRes, error: userErr } = await userClient.auth.getUser(token);
+    if (userErr || !userRes?.user) throw new Error("Unauthorized");
+
+    // Service-role client for DB writes (bypasses RLS — we authorize via role check below)
+    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
     const { data: profile } = await supabase
       .from("profiles")
