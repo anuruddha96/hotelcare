@@ -2137,13 +2137,48 @@ const translations = {
     'common.success': 'Амжилттай',
     'common.dismiss': 'Хаах',
     'common.gotIt': 'Ойлголоо',
+  },
+
+  az: {
+    // Core UI - Azerbaijani translations. Missing keys fall back to English at runtime.
+    'dashboard.title': 'Otel İdarəetmə Paneli',
+    'dashboard.subtitle': 'RD Otellərinin bütün xidmət sorğularını idarə edin',
+    'dashboard.tickets': 'Biletlər',
+    'dashboard.rooms': 'Otaqlar',
+    'dashboard.reports': 'Hesabatlar',
+    'dashboard.housekeeping': 'Təmizlik',
+    'dashboard.workStatus': 'Davamiyyət',
+    'dashboard.myTasks': 'Tapşırıqlarım',
+    'common.profile': 'Profil',
+    'common.settings': 'Ayarlar',
+    'common.logout': 'Çıxış',
+    'common.error': 'Xəta',
+    'common.success': 'Uğurlu',
+    'common.dismiss': 'Bağla',
+    'common.gotIt': 'Anladım',
+    'common.search': 'Axtar',
+    'common.filter': 'Filtr',
+    'common.edit': 'Redaktə et',
+    'common.delete': 'Sil',
+    'common.save': 'Yadda saxla',
+    'common.cancel': 'Ləğv et',
+    'common.confirm': 'Təsdiqlə',
+    'common.loading': 'Yüklənir...',
+    'common.today': 'Bu gün',
+    'common.yesterday': 'Dünən',
+    'common.hotel': 'Otel',
+    'common.status': 'Status',
+    'common.priority': 'Prioritet',
+    'common.noData': 'Məlumat yoxdur',
+    'language.changed': 'Dil dəyişdirildi',
+    'language.switchedTo': 'Dil dəyişdirildi:',
   }
 };
 
 type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.en;
 
-const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn'];
+const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn', 'az'];
 const LANGUAGE_STORAGE_KEYS = ['preferred_language', 'preferred-language'] as const;
 const TRANSLATION_BUNDLE_CACHE_PREFIX = 'translation_bundle_';
 
