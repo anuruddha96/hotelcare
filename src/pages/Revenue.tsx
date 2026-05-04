@@ -101,9 +101,13 @@ export default function Revenue() {
       fd.append("file", jobs[i].file);
       if (uploadHotel) fd.append("hotel_id", uploadHotel);
       const { data, error } = await supabase.functions.invoke("revenue-pickup-upload", { body: fd });
-      if (error || data?.error) {
-        const msg = data?.error || error?.message || "Failed";
-        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: msg } : j));
+      // Edge function now returns 200 with {ok:false,error} for parse problems,
+      // so prefer reading the body's error field over the network-level message.
+      const apiErr = (data && data.ok === false && data.error)
+        ? data.error
+        : (data?.error || error?.message);
+      if (apiErr) {
+        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: apiErr } : j));
       } else {
         setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "ok", rows: data.rows, hotel: data.hotel_id } : j));
       }
