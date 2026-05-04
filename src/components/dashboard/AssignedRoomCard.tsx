@@ -1441,6 +1441,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           }}
           open={roomDetailOpen}
           onOpenChange={setRoomDetailOpen}
+          lateAddition={assignment.status === 'completed'}
+          alreadyApproved={assignment.status === 'completed' && !!assignment.supervisor_approved}
         />
       )}
 
