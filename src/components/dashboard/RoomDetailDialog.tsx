@@ -74,9 +74,21 @@ interface RoomDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRoomUpdated?: () => void;
+  /**
+   * When true, minibar items added/updated through this dialog are flagged as
+   * "late additions" — added by housekeepers AFTER the cleaning was completed.
+   * Supervisors will be required to review and approve these.
+   */
+  lateAddition?: boolean;
+  /**
+   * When true, the room cleaning has already been supervisor-approved. Late items
+   * added in this state are flagged as `pending_supervisor_review` so the
+   * supervisor can approve only the new minibar item without re-opening the room.
+   */
+  alreadyApproved?: boolean;
 }
 
-export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated }: RoomDetailDialogProps) {
+export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
