@@ -208,8 +208,8 @@ export default function Auth() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
       <Card className="w-full max-w-sm sm:max-w-lg shadow-2xl border-0">
-        <CardHeader className="text-center space-y-3 sm:space-y-4 pb-4 sm:pb-6">
-          <div className="mx-auto flex flex-col items-center justify-center gap-2">
+        <CardHeader className="text-center space-y-2 sm:space-y-3 pb-4 sm:pb-6">
+          <div className="mx-auto flex flex-col items-center justify-center gap-0 -space-y-2">
             <img
               src={hotelcareLogoAuth}
               alt="Hotel Care Logo"
