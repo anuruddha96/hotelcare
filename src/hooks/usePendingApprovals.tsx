@@ -58,14 +58,11 @@ export function usePendingApprovals() {
           .eq('assignment_date', dateStr)
           .eq('organization_slug', userOrgSlug);
 
-        // For managers/housekeeping_managers, filter by their assigned hotel
-        // Admins and top_management see all hotels in their organization
-        if (userHotel && !['admin', 'top_management'].includes(userRole || '')) {
-          if (resolvedHotelName && resolvedHotelName !== userHotel) {
-            query = query.or(`hotel.eq.${userHotel},hotel.eq.${resolvedHotelName}`, { referencedTable: 'rooms' });
-          } else {
-            query = query.eq('rooms.hotel', userHotel);
-          }
+        // Always scope to the active hotel (admins switch hotels via HotelSwitcher).
+        if (resolvedHotelName && resolvedHotelName !== userHotel) {
+          query = query.or(`hotel.eq.${userHotel},hotel.eq.${resolvedHotelName}`, { referencedTable: 'rooms' });
+        } else {
+          query = query.eq('rooms.hotel', userHotel);
         }
 
         const { data, error } = await query;
@@ -82,12 +79,10 @@ export function usePendingApprovals() {
           .eq('department', 'maintenance')
           .eq('organization_slug', userOrgSlug);
 
-        if (userHotel && !['admin', 'top_management'].includes(userRole || '')) {
-          if (resolvedHotelName && resolvedHotelName !== userHotel) {
-            ticketQuery = ticketQuery.or(`hotel.eq.${userHotel},hotel.eq.${resolvedHotelName}`);
-          } else {
-            ticketQuery = ticketQuery.or(`hotel.eq.${userHotel},hotel.ilike.%${userHotel}%`);
-          }
+        if (resolvedHotelName && resolvedHotelName !== userHotel) {
+          ticketQuery = ticketQuery.or(`hotel.eq.${userHotel},hotel.eq.${resolvedHotelName}`);
+        } else {
+          ticketQuery = ticketQuery.or(`hotel.eq.${userHotel},hotel.ilike.%${userHotel}%`);
         }
 
         const { data: ticketData, error: ticketError } = await ticketQuery;
