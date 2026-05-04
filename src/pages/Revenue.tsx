@@ -256,3 +256,12 @@ export default function Revenue() {
     </div>
   );
 }
+
+function SummaryStat({ label, value, highlight, danger }: { label: string; value: number; highlight?: boolean; danger?: boolean }) {
+  return (
+    <div className={`rounded-lg border p-3 bg-card ${danger ? "border-red-500" : highlight ? "border-primary" : ""}`}>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`text-2xl font-bold ${danger ? "text-red-600" : highlight ? "text-primary" : ""}`}>{value}</div>
+    </div>
+  );
+}
