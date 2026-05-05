@@ -146,7 +146,7 @@ function parsePrevioWide(rows: any[][]): { parsed: ParsedRow[]; warnings: string
       if (mon === undefined) continue;
       found.push({ col: c, year: parseInt(m[2], 10), month: mon });
     }
-    if (found.length >= 3) { monthRowIdx = i; monthCells = found; break; }
+    if (found.length >= 1) { monthRowIdx = i; monthCells = found; break; }
   }
   if (monthRowIdx === -1) {
     warnings.push("previo: no month header row found");
