@@ -1,136 +1,54 @@
+## Problem
 
-## Goal
-
-1. Fix the pickup XLSX parser so it accepts the Previo file shape the user is uploading.
-2. Add Previo **occupancy** upload (same file family they shared).
-3. Make the Events tab show real upcoming Budapest demand-driving events via Lovable AI.
-4. Keep **all historical snapshots** forever so trends can be analysed.
-
----
-
-## 1. Fix the pickup parser
-
-The uploaded Previo file (`Hotel_occupancy_in_dates_…xlsx`) uses this shape:
+The Previo `pickup_report.xlsx` files use a 2-row date header:
 
 ```
-Row 1: "Hotel occupancy in dates May 4, 2026 - Dec 31, 2026"
-Row 2: "time axis: day ; reservation status: …"
-Row 4: Term | <range> (%) | <range> (pcs)
-Row 5: "Mon, May 4, 2026" | 100 | 21
-Row 6: "Tue, May 5, 2026" | 95.2 | 20
-…
+Row 3:  [May 2026 ........spanned........] [Jun 2026 ........spanned........] ...
+Row 4:  5 Tue | 6 Wed | 7 Thu | 8 Fri | ... | 1 Mon | 2 Tue | ...
+Row 5:    0   |   1   |   3   |   2   | ... |   1   |   2   | ...   (pickup deltas)
 ```
 
-Pickup XLSX from Previo follows the **same long format** — one date per row with weekday prefix. Current parser only recognises `"Apr 30"`, `"4. 5."`, `"YYYY-MM-DD"`, etc. and rejects `"Mon, May 4, 2026"`, so it falls through.
+When XLSX is read with `header:1`, merged month cells leave the trailing columns as `null`, and the day cells look like `"5 Tue"` — neither matches the current `tryParseDate`. Result: "Could not find date columns" error.
 
-Changes in `supabase/functions/revenue-pickup-upload/index.ts`:
+The hotel name (`"Pickup for Hotel Ottofiori"`) is correctly in row 1 and already in the lookup table — that part works.
 
-- Extend `tryParseDate` to strip a leading weekday + comma (`"Mon, May 4, 2026"` → `"May 4, 2026"`), then reuse the existing `Mon DD, YYYY` branch.
-- Recognise header label `Term` (and Hungarian `Időszak`) as the date column in `parseLong`.
-- Auto-pick the `(pcs)` numeric column as `bookings_current` when the header has `(pcs)` / `(db)`; ignore the `(%)` column.
-- Hotel auto-detect already scans first 8 rows + sheet name; this file has no hotel name, so the user picks it from the dropdown (already supported).
+## Fix 1 — Parser: handle the Previo wide format
 
-No DB schema change for pickup.
+In `supabase/functions/revenue-pickup-upload/index.ts`, add a new `parsePrevioWide` that runs before the generic `parseWide`:
 
----
+1. Find a **month-header row** in the first ~10 rows: a row where ≥3 cells match `/^([A-Za-zÁÉÍÓÖŐÚÜŰáéíóöőúüű]{3,})\.?\s+(\d{4})$/` (e.g. `"May 2026"`, `"máj. 2026"`). Record `{col, year, month}` per match.
+2. **Forward-fill** the month across the columns until the next month appears (handles XLSX merged cells producing nulls).
+3. Find a **day row** in the next 1–3 rows where most cells match `/^(\d{1,2})(\s+[A-Za-z]{2,3})?$/` (`"5"`, `"5 Tue"`, `"5 Mon"`). For each such cell, build the date from `(year, month, day)` of that column's filled-down month.
+4. Find the **first numeric row** below the day row; treat each filled column as a single `delta` value (Previo only ships one pickup number per date, no LY/current split). Map → `bookings_current = max(0, delta)`, `bookings_last_year = 0`, `delta = delta`.
+5. Skip the trailing `Total` column (last column with header `"Total"`).
 
-## 2. Occupancy upload (new)
+If `parsePrevioWide` returns ≥7 dates, prefer it over the existing wide/long parsers.
 
-### New table — `occupancy_snapshots` (history-preserving, append-only)
+Keep all other parsers as fallback for non-Previo formats.
 
-```
-id uuid pk
-hotel_id text
-organization_slug text
-stay_date date
-occupancy_pct numeric
-rooms_sold int
-captured_at timestamptz default now()
-snapshot_label text         -- file name
-uploaded_by uuid
-source text                 -- 'xlsx_upload' | 'previo_api'
-```
+## Fix 2 — UI: per-hotel upload
 
-- No unique constraint on `(hotel_id, stay_date)` → every upload becomes a new snapshot, so you can chart how occupancy evolved over time for the same stay date.
-- RLS: same pattern as `pickup_snapshots` (admin/top_management read; insert via service role from edge function).
-- Index `(hotel_id, stay_date, captured_at desc)`.
+In `src/pages/Revenue.tsx`, replace the single global upload accordion with **per-hotel upload right inside each hotel card**:
 
-### New edge function — `revenue-occupancy-upload`
+- Each hotel card in the grid gets a small "Upload pickup XLSX" button that opens a compact dialog scoped to that hotel.
+- The dialog accepts one or many files and always sends `hotel_id` = that card's hotel (no auto-detect needed, no dropdown to mis-set).
+- Keep the bulk "Upload (auto-detect)" option in a smaller secondary accordion for power users who want to drop a folder of mixed files.
+- Status (queued / uploading / ✓ rows / ✗ error) shows inline under the card.
+- Same dialog supports the **Pickup / Occupancy** toggle.
 
-Same scaffolding as the pickup upload. Parses the Previo "Term / (%) / (pcs)" long format and inserts one row per stay date. Auto-runs `revenue-engine-tick` afterwards.
+This makes it obvious which hotel a file belongs to and prevents the "wrong hotel detected" class of bugs.
 
-### UI
+## Fix 3 — Better error surfacing
 
-- `Revenue.tsx`: in the existing collapsible upload accordion, add a second tab "Occupancy" with its own file picker that posts to `revenue-occupancy-upload`. Keep the pickup tab unchanged.
-- `RevenueHotelDetail.tsx`: enrich the existing **Occupancy** tab with:
-  - Latest occupancy curve (most recent `captured_at` per `stay_date`).
-  - Pickup-style heatmap (90-day calendar) coloured by occupancy %.
-  - "How occupancy moved over time" line chart for the selected day (all historical snapshots for that stay_date).
-  - Mini summary: avg occupancy next 30/60/90 days, weekend vs weekday.
+When the edge function returns `{ ok:false, error, debug }`, show the first `warnings[0]` and a "Show file preview" expandable in the per-card status row so the user can see what the parser saw.
 
----
+## Files to change
 
-## 3. AI-powered Budapest events
+- `supabase/functions/revenue-pickup-upload/index.ts` — add `parsePrevioWide`, wire it in before the existing parsers.
+- `src/pages/Revenue.tsx` — refactor upload UI to per-hotel cards + compact dialog; keep bulk uploader collapsed.
 
-### New table — `market_events`
+No DB migration needed. No new edge function needed. Append-only history is preserved (every upload still inserts a fresh row per `stay_date` with `captured_at = now()`).
 
-```
-id uuid pk
-city text                       -- 'budapest'
-event_date date
-end_date date
-title text
-category text                   -- 'concert','festival','sport','conference','holiday','other'
-venue text
-expected_impact text            -- 'low' | 'medium' | 'high'
-url text
-source text                     -- 'ai_suggested' | 'manual'
-confidence numeric
-created_at timestamptz default now()
-unique (city, event_date, title)
-```
+## Verification
 
-RLS: admin/top_management read, edge function inserts via service role.
-
-### New edge function — `revenue-events-fetch`
-
-- Calls Lovable AI (`google/gemini-3-flash-preview`) with structured output (tool call `list_events`) asking for upcoming demand-driving events in Budapest for the next 180 days: concerts, festivals, conferences, sport, public holidays, school breaks. Each event returns `{date, end_date, title, category, venue, impact, url, confidence}`.
-- Upserts into `market_events` (`onConflict: city,event_date,title`).
-- Idempotent — safe to re-run; the unique constraint dedupes.
-- Returns `{added, total}`.
-
-### Events tab UI changes (`RevenueHotelDetail.tsx`)
-
-- Two sections inside the Events tab:
-  1. **Hotel events** — existing manual `hotel_events` table (unchanged).
-  2. **Budapest market events** — pulled from `market_events`, read-only list with filters (date range, category, impact). "Refresh from AI" button (admin only) calls `revenue-events-fetch`. Each row has an "Add to my hotel" action that copies the event into `hotel_events` for that hotel.
-- Calendar/year view dot already shows a purple ring for events; extend it so market events with `impact='high'` get a brighter ring.
-- Pricing engine input: include `market_events` (high/medium impact) when computing suggested deltas in `revenue-engine-tick` so suggestions react to demand surges.
-
----
-
-## 4. Historical data guarantee
-
-- `pickup_snapshots` and the new `occupancy_snapshots` are append-only — no `DELETE` paths, no `UPSERT`. Every upload keeps its own `captured_at`, so the user can later replay "what did we know on date X".
-- Add a small DB note in `IMPLEMENTATION_SUMMARY.md` documenting the retention policy.
-- Add `revenue-export` support for `kind: "occupancy_history"` and `kind: "events"`.
-
----
-
-## Files
-
-**New**
-- `supabase/migrations/<ts>_occupancy_and_events.sql` — `occupancy_snapshots`, `market_events`, RLS, indexes.
-- `supabase/functions/revenue-occupancy-upload/index.ts`
-- `supabase/functions/revenue-events-fetch/index.ts`
-
-**Edited**
-- `supabase/functions/revenue-pickup-upload/index.ts` — weekday prefix + `Term` / `(pcs)` support.
-- `supabase/functions/revenue-engine-tick/index.ts` — read `market_events` + latest `occupancy_snapshots` into the scoring.
-- `supabase/functions/revenue-export/index.ts` — new export kinds.
-- `src/pages/Revenue.tsx` — second upload tab.
-- `src/pages/RevenueHotelDetail.tsx` — Occupancy tab visuals + Events "market events" panel + "Refresh from AI" button.
-- `src/integrations/supabase/types.ts` — regenerated types.
-- `supabase/config.toml` — register the two new functions (`verify_jwt = true` for upload, `verify_jwt = true` for events fetch).
-
-No change to manual workflows used by Hotel Ottofiori — all additions are scoped to the Revenue module which is admin/top_management only.
+After deploy, re-upload `pickup_report-5.xlsx` (Ottofiori) and `pickup_report-4.xlsx` from each hotel card and confirm: rows ≈ 240, hotel correctly recorded, dates spanning May→Dec 2026 visible in the hotel detail heatmap.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
@@ -42,6 +43,8 @@ export default function Revenue() {
   const [uploadHotel, setUploadHotel] = useState("");
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [uploadKind, setUploadKind] = useState<"pickup" | "occupancy">("pickup");
+  const [hotelDialog, setHotelDialog] = useState<{ id: string; name: string } | null>(null);
+  const [dialogJobs, setDialogJobs] = useState<UploadJob[]>([]);
 
   useEffect(() => {
     if (loading) return;
@@ -254,15 +257,117 @@ export default function Revenue() {
                 {h.last_label && <> · {h.last_label}</>}
               </div>
               <div>Pending recommendations: <b>{h.pending_recs}</b></div>
-              <Button size="sm" variant="outline" className="w-full"
-                onClick={() => navigate(`/${organizationSlug}/revenue/${h.hotel_id}`)}>
-                Open hotel
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="flex-1"
+                  onClick={() => navigate(`/${organizationSlug}/revenue/${h.hotel_id}`)}>
+                  Open
+                </Button>
+                <Button size="sm" variant="default" className="flex-1"
+                  onClick={() => { setHotelDialog({ id: h.hotel_id, name: h.hotel_name }); setDialogJobs([]); }}>
+                  <Upload className="h-3 w-3 mr-1" /> Upload
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      <HotelUploadDialog
+        hotel={hotelDialog}
+        onClose={() => setHotelDialog(null)}
+        jobs={dialogJobs}
+        setJobs={setDialogJobs}
+        onComplete={() => void load()}
+      />
     </div>
+  );
+}
+
+function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
+  hotel: { id: string; name: string } | null;
+  onClose: () => void;
+  jobs: UploadJob[];
+  setJobs: React.Dispatch<React.SetStateAction<UploadJob[]>>;
+  onComplete: () => void;
+}) {
+  const [kind, setKind] = useState<"pickup" | "occupancy">("pickup");
+  const [busy, setBusy] = useState(false);
+
+  function pick(files: FileList | null) {
+    if (!files) return;
+    setJobs((j) => [...j, ...Array.from(files).map((f) => ({ file: f, status: "queued" as const }))]);
+  }
+  async function doUpload() {
+    if (!hotel || jobs.length === 0) return;
+    setBusy(true);
+    for (let i = 0; i < jobs.length; i++) {
+      if (jobs[i].status === "ok") continue;
+      setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "uploading" } : j));
+      const fd = new FormData();
+      fd.append("file", jobs[i].file);
+      fd.append("hotel_id", hotel.id);
+      const fn = kind === "occupancy" ? "revenue-occupancy-upload" : "revenue-pickup-upload";
+      const { data, error } = await supabase.functions.invoke(fn, { body: fd });
+      const apiErr = (data && data.ok === false && data.error) ? data.error : (data?.error || error?.message);
+      if (apiErr) {
+        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: apiErr } : j));
+      } else {
+        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "ok", rows: (data as any).rows, hotel: (data as any).hotel_id } : j));
+      }
+    }
+    setBusy(false);
+    onComplete();
+  }
+
+  return (
+    <Dialog open={!!hotel} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Upload for {hotel?.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex gap-2 text-sm">
+            <button type="button" onClick={() => setKind("pickup")}
+              className={`px-3 py-1 rounded border ${kind === "pickup" ? "bg-primary text-primary-foreground" : "bg-background"}`}>Pickup</button>
+            <button type="button" onClick={() => setKind("occupancy")}
+              className={`px-3 py-1 rounded border ${kind === "occupancy" ? "bg-primary text-primary-foreground" : "bg-background"}`}>Occupancy</button>
+          </div>
+          <div>
+            <Label>Previo XLSX file(s)</Label>
+            <Input type="file" accept=".xlsx" multiple onChange={(e) => pick(e.target.files)} />
+            <p className="text-xs text-muted-foreground mt-1">
+              {kind === "pickup" ? "Daily pickup deltas — history kept" : "Future occupancy snapshot — history kept"}
+            </p>
+          </div>
+          {jobs.length > 0 && (
+            <div className="border rounded divide-y max-h-60 overflow-y-auto">
+              {jobs.map((j, i) => (
+                <div key={i} className="flex items-start justify-between p-2 text-sm gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {j.status === "ok" && <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />}
+                    {j.status === "err" && <XCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />}
+                    {j.status === "uploading" && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
+                    {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
+                    <span className="truncate">{j.file.name}</span>
+                  </div>
+                  <span className={`text-xs ml-2 max-w-[60%] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
+                    {j.status === "ok" && `✓ ${j.rows} rows`}
+                    {j.status === "err" && j.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 justify-end">
+            <Button variant="ghost" onClick={onClose}>Close</Button>
+            <Button onClick={doUpload} disabled={busy || jobs.length === 0}>
+              {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
+              Upload {jobs.length > 0 ? `(${jobs.length})` : ""}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
