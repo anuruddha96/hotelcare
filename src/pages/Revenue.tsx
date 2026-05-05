@@ -283,6 +283,94 @@ export default function Revenue() {
   );
 }
 
+function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
+  hotel: { id: string; name: string } | null;
+  onClose: () => void;
+  jobs: UploadJob[];
+  setJobs: React.Dispatch<React.SetStateAction<UploadJob[]>>;
+  onComplete: () => void;
+}) {
+  const [kind, setKind] = useState<"pickup" | "occupancy">("pickup");
+  const [busy, setBusy] = useState(false);
+
+  function pick(files: FileList | null) {
+    if (!files) return;
+    setJobs((j) => [...j, ...Array.from(files).map((f) => ({ file: f, status: "queued" as const }))]);
+  }
+  async function doUpload() {
+    if (!hotel || jobs.length === 0) return;
+    setBusy(true);
+    for (let i = 0; i < jobs.length; i++) {
+      if (jobs[i].status === "ok") continue;
+      setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "uploading" } : j));
+      const fd = new FormData();
+      fd.append("file", jobs[i].file);
+      fd.append("hotel_id", hotel.id);
+      const fn = kind === "occupancy" ? "revenue-occupancy-upload" : "revenue-pickup-upload";
+      const { data, error } = await supabase.functions.invoke(fn, { body: fd });
+      const apiErr = (data && data.ok === false && data.error) ? data.error : (data?.error || error?.message);
+      if (apiErr) {
+        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: apiErr } : j));
+      } else {
+        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "ok", rows: (data as any).rows, hotel: (data as any).hotel_id } : j));
+      }
+    }
+    setBusy(false);
+    onComplete();
+  }
+
+  return (
+    <Dialog open={!!hotel} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Upload for {hotel?.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex gap-2 text-sm">
+            <button type="button" onClick={() => setKind("pickup")}
+              className={`px-3 py-1 rounded border ${kind === "pickup" ? "bg-primary text-primary-foreground" : "bg-background"}`}>Pickup</button>
+            <button type="button" onClick={() => setKind("occupancy")}
+              className={`px-3 py-1 rounded border ${kind === "occupancy" ? "bg-primary text-primary-foreground" : "bg-background"}`}>Occupancy</button>
+          </div>
+          <div>
+            <Label>Previo XLSX file(s)</Label>
+            <Input type="file" accept=".xlsx" multiple onChange={(e) => pick(e.target.files)} />
+            <p className="text-xs text-muted-foreground mt-1">
+              {kind === "pickup" ? "Daily pickup deltas — history kept" : "Future occupancy snapshot — history kept"}
+            </p>
+          </div>
+          {jobs.length > 0 && (
+            <div className="border rounded divide-y max-h-60 overflow-y-auto">
+              {jobs.map((j, i) => (
+                <div key={i} className="flex items-start justify-between p-2 text-sm gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {j.status === "ok" && <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />}
+                    {j.status === "err" && <XCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />}
+                    {j.status === "uploading" && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
+                    {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
+                    <span className="truncate">{j.file.name}</span>
+                  </div>
+                  <span className={`text-xs ml-2 max-w-[60%] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
+                    {j.status === "ok" && `✓ ${j.rows} rows`}
+                    {j.status === "err" && j.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 justify-end">
+            <Button variant="ghost" onClick={onClose}>Close</Button>
+            <Button onClick={doUpload} disabled={busy || jobs.length === 0}>
+              {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
+              Upload {jobs.length > 0 ? `(${jobs.length})` : ""}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SummaryStat({ label, value, highlight, danger }: { label: string; value: number; highlight?: boolean; danger?: boolean }) {
   return (
     <div className={`rounded-lg border p-3 bg-card ${danger ? "border-red-500" : highlight ? "border-primary" : ""}`}>
