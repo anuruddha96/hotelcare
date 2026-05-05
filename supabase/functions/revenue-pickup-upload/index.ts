@@ -395,15 +395,20 @@ serve(async (req) => {
         }
       }
 
-      // Try wide first, then long
-      const wide = parseWide(rows, baseYear);
-      let chosen = wide;
-      if (wide.parsed.length === 0) {
-        const long = parseLong(rows, baseYear);
-        if (long.parsed.length > 0) chosen = long;
-        warnings.push(...long.warnings.map((x) => `[${sheetName}] ${x}`));
+      // Try Previo wide first, then generic wide, then long
+      const previo = parsePrevioWide(rows);
+      let chosen = previo;
+      if (previo.parsed.length < 7) {
+        const wide = parseWide(rows, baseYear);
+        if (wide.parsed.length > previo.parsed.length) chosen = wide;
+        warnings.push(...wide.warnings.map((x) => `[${sheetName}] ${x}`));
+        if (chosen.parsed.length === 0) {
+          const long = parseLong(rows, baseYear);
+          if (long.parsed.length > 0) chosen = long;
+          warnings.push(...long.warnings.map((x) => `[${sheetName}] ${x}`));
+        }
       }
-      warnings.push(...wide.warnings.map((x) => `[${sheetName}] ${x}`));
+      warnings.push(...previo.warnings.map((x) => `[${sheetName}] ${x}`));
 
       if (chosen.parsed.length > bestParsed.length) bestParsed = chosen.parsed;
       debugSnippets.push({ sheet: sheetName, sample: rows.slice(0, 8) });
