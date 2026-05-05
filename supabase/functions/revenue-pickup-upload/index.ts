@@ -199,11 +199,13 @@ function parseLong(rows: any[][], baseYear: number): { parsed: ParsedRow[]; warn
   let deltaCol = -1;
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const row = (rows[i] || []).map((c: any) => String(c ?? "").toLowerCase().trim());
-    const dc = row.findIndex((c) => /^(date|datum|d[áa]tum|day|stay.?date|nap)$/i.test(c));
+    const dc = row.findIndex((c) => /^(date|datum|d[áa]tum|day|stay.?date|nap|term|id[őo]szak)$/i.test(c));
     if (dc >= 0) {
       headerIdx = i;
       dateCol = dc;
-      curCol = row.findIndex((c) => /(current|now|book|foglal|reserv|today|aktu)/i.test(c));
+      // Prefer (pcs)/(db)/rooms-sold style numeric column over (%)
+      curCol = row.findIndex((c) => /\(pcs\)|\(db\)|rooms?.?sold|szoba/i.test(c));
+      if (curCol < 0) curCol = row.findIndex((c) => /(current|now|book|foglal|reserv|today|aktu)/i.test(c));
       lyCol = row.findIndex((c) => /(last.?year|ly|tavaly|previous)/i.test(c));
       deltaCol = row.findIndex((c) => /(delta|pickup|diff|change|valt)/i.test(c));
       break;
