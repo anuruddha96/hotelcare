@@ -781,26 +781,108 @@ function EventsTab({ hotelId, orgSlug, events, onChange }: { hotelId: string; or
     onChange();
   }
   return (
+    <div className="space-y-4">
+      <Card><CardContent className="p-4 space-y-3">
+        <div className="text-sm font-semibold">Hotel-specific events</div>
+        <div className="grid md:grid-cols-5 gap-2">
+          <Input type="date" value={form.event_date} onChange={e => setForm({...form, event_date: e.target.value})} />
+          <Input className="md:col-span-2" placeholder="Event title" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
+          <Select value={form.impact} onValueChange={v => setForm({...form, impact: v})}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="low">Low impact</SelectItem>
+              <SelectItem value="medium">Medium impact</SelectItem>
+              <SelectItem value="high">High impact</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={add}><Plus className="h-4 w-4 mr-1" />Add</Button>
+        </div>
+        <div className="border rounded divide-y">
+          {events.length === 0 && <div className="p-3 text-sm text-muted-foreground">No events yet.</div>}
+          {events.map(e => (
+            <div key={e.id} className="flex items-center justify-between p-2 text-sm">
+              <div><span className="font-mono">{e.event_date}</span> · <b>{e.title}</b> <Badge variant="outline" className="ml-1">{e.impact}</Badge></div>
+              <Button size="icon" variant="ghost" onClick={() => remove(e.id)}><X className="h-4 w-4" /></Button>
+            </div>
+          ))}
+        </div>
+      </CardContent></Card>
+      <MarketEventsPanel hotelId={hotelId} orgSlug={orgSlug} onCopied={onChange} />
+    </div>
+  );
+}
+
+function MarketEventsPanel({ hotelId, orgSlug, onCopied }: { hotelId: string; orgSlug: string; onCopied: () => void }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState<string>("all");
+  async function load() {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data } = await (supabase as any).from("market_events")
+      .select("*").eq("city", "budapest").gte("event_date", today)
+      .order("event_date", { ascending: true }).limit(200);
+    setItems(data ?? []);
+  }
+  useEffect(() => { void load(); }, []);
+  async function refreshAI() {
+    setBusy(true);
+    const { data, error } = await supabase.functions.invoke("revenue-events-fetch", { body: {} });
+    setBusy(false);
+    if (error || (data && data.ok === false)) { toast.error(data?.error || error?.message || "Failed"); return; }
+    toast.success(`Refreshed: ${data?.added ?? 0} events added`);
+    void load();
+  }
+  async function copyToHotel(e: any) {
+    const { error } = await (supabase as any).from("hotel_events").insert({
+      hotel_id: hotelId, organization_slug: orgSlug,
+      event_date: e.event_date, title: e.title, impact: e.expected_impact || "medium",
+      notes: [e.venue, e.url].filter(Boolean).join(" · "),
+    });
+    if (error) { toast.error(error.message); return; }
+    toast.success("Added to hotel events"); onCopied();
+  }
+  const filtered = filter === "all" ? items : items.filter(i => i.expected_impact === filter);
+  return (
     <Card><CardContent className="p-4 space-y-3">
-      <div className="grid md:grid-cols-5 gap-2">
-        <Input type="date" value={form.event_date} onChange={e => setForm({...form, event_date: e.target.value})} />
-        <Input className="md:col-span-2" placeholder="Event title" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
-        <Select value={form.impact} onValueChange={v => setForm({...form, impact: v})}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="low">Low impact</SelectItem>
-            <SelectItem value="medium">Medium impact</SelectItem>
-            <SelectItem value="high">High impact</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button onClick={add}><Plus className="h-4 w-4 mr-1" />Add</Button>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-sm font-semibold">Budapest market events (AI)</div>
+        <div className="flex gap-2 items-center">
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="h-8 w-32"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All impact</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" onClick={refreshAI} disabled={busy}>
+            {busy ? "Loading…" : "Refresh from AI"}
+          </Button>
+        </div>
       </div>
-      <div className="border rounded divide-y">
-        {events.length === 0 && <div className="p-3 text-sm text-muted-foreground">No events yet.</div>}
-        {events.map(e => (
-          <div key={e.id} className="flex items-center justify-between p-2 text-sm">
-            <div><span className="font-mono">{e.event_date}</span> · <b>{e.title}</b> <Badge variant="outline" className="ml-1">{e.impact}</Badge></div>
-            <Button size="icon" variant="ghost" onClick={() => remove(e.id)}><X className="h-4 w-4" /></Button>
+      <div className="border rounded divide-y max-h-[420px] overflow-auto">
+        {filtered.length === 0 && (
+          <div className="p-3 text-sm text-muted-foreground">
+            No events yet. Click "Refresh from AI" to fetch upcoming Budapest events.
+          </div>
+        )}
+        {filtered.map(e => (
+          <div key={e.id} className="flex items-center justify-between gap-2 p-2 text-sm">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono text-xs">{e.event_date}{e.end_date && e.end_date !== e.event_date ? `→${e.end_date}` : ""}</span>
+                <b className="truncate">{e.title}</b>
+                <Badge variant={e.expected_impact === "high" ? "destructive" : "outline"}>{e.expected_impact}</Badge>
+                {e.category && <Badge variant="outline">{e.category}</Badge>}
+              </div>
+              {(e.venue || e.url) && (
+                <div className="text-xs text-muted-foreground truncate">
+                  {e.venue}{e.url && <> · <a href={e.url} target="_blank" rel="noreferrer" className="underline">link</a></>}
+                </div>
+              )}
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => copyToHotel(e)}>Add to hotel</Button>
           </div>
         ))}
       </div>

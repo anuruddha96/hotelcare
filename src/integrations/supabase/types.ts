@@ -1617,6 +1617,51 @@ export type Database = {
           },
         ]
       }
+      market_events: {
+        Row: {
+          category: string | null
+          city: string
+          confidence: number | null
+          created_at: string
+          end_date: string | null
+          event_date: string
+          expected_impact: string | null
+          id: string
+          source: string | null
+          title: string
+          url: string | null
+          venue: string | null
+        }
+        Insert: {
+          category?: string | null
+          city?: string
+          confidence?: number | null
+          created_at?: string
+          end_date?: string | null
+          event_date: string
+          expected_impact?: string | null
+          id?: string
+          source?: string | null
+          title: string
+          url?: string | null
+          venue?: string | null
+        }
+        Update: {
+          category?: string | null
+          city?: string
+          confidence?: number | null
+          created_at?: string
+          end_date?: string | null
+          event_date?: string
+          expected_impact?: string | null
+          id?: string
+          source?: string | null
+          title?: string
+          url?: string | null
+          venue?: string | null
+        }
+        Relationships: []
+      }
       min_stay_rules: {
         Row: {
           hotel_id: string
@@ -1870,6 +1915,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      occupancy_snapshots: {
+        Row: {
+          captured_at: string
+          hotel_id: string
+          id: string
+          occupancy_pct: number | null
+          organization_slug: string
+          rooms_sold: number | null
+          snapshot_label: string | null
+          source: string | null
+          stay_date: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          captured_at?: string
+          hotel_id: string
+          id?: string
+          occupancy_pct?: number | null
+          organization_slug: string
+          rooms_sold?: number | null
+          snapshot_label?: string | null
+          source?: string | null
+          stay_date: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          captured_at?: string
+          hotel_id?: string
+          id?: string
+          occupancy_pct?: number | null
+          organization_slug?: string
+          rooms_sold?: number | null
+          snapshot_label?: string | null
+          source?: string | null
+          stay_date?: string
+          uploaded_by?: string | null
+        }
+        Relationships: []
       }
       occupancy_strategy: {
         Row: {
