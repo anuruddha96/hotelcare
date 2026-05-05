@@ -101,9 +101,8 @@ export default function Revenue() {
       const fd = new FormData();
       fd.append("file", jobs[i].file);
       if (uploadHotel) fd.append("hotel_id", uploadHotel);
-      const { data, error } = await supabase.functions.invoke("revenue-pickup-upload", { body: fd });
-      // Edge function now returns 200 with {ok:false,error} for parse problems,
-      // so prefer reading the body's error field over the network-level message.
+      const fn = uploadKind === "occupancy" ? "revenue-occupancy-upload" : "revenue-pickup-upload";
+      const { data, error } = await supabase.functions.invoke(fn, { body: fd });
       const apiErr = (data && data.ok === false && data.error)
         ? data.error
         : (data?.error || error?.message);
