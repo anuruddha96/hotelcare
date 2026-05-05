@@ -255,14 +255,28 @@ export default function Revenue() {
                 {h.last_label && <> · {h.last_label}</>}
               </div>
               <div>Pending recommendations: <b>{h.pending_recs}</b></div>
-              <Button size="sm" variant="outline" className="w-full"
-                onClick={() => navigate(`/${organizationSlug}/revenue/${h.hotel_id}`)}>
-                Open hotel
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="flex-1"
+                  onClick={() => navigate(`/${organizationSlug}/revenue/${h.hotel_id}`)}>
+                  Open
+                </Button>
+                <Button size="sm" variant="default" className="flex-1"
+                  onClick={() => { setHotelDialog({ id: h.hotel_id, name: h.hotel_name }); setDialogJobs([]); }}>
+                  <Upload className="h-3 w-3 mr-1" /> Upload
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      <HotelUploadDialog
+        hotel={hotelDialog}
+        onClose={() => setHotelDialog(null)}
+        jobs={dialogJobs}
+        setJobs={setDialogJobs}
+        onComplete={() => void load()}
+      />
     </div>
   );
 }
