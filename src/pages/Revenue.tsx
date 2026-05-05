@@ -165,10 +165,19 @@ export default function Revenue() {
 
       <details className="rounded-lg border bg-card">
         <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium flex items-center gap-2">
-          <Upload className="h-4 w-4" /> Upload Previo pickup XLSX
+          <Upload className="h-4 w-4" /> Upload Previo XLSX (pickup or occupancy)
           {jobs.length > 0 && <span className="ml-2 text-xs text-muted-foreground">({jobs.length} queued)</span>}
         </summary>
         <div className="p-4 pt-0 space-y-3">
+          <div className="flex gap-2 text-sm">
+            <button type="button" onClick={() => setUploadKind("pickup")}
+              className={`px-3 py-1 rounded border ${uploadKind==="pickup"?"bg-primary text-primary-foreground":"bg-background"}`}>Pickup</button>
+            <button type="button" onClick={() => setUploadKind("occupancy")}
+              className={`px-3 py-1 rounded border ${uploadKind==="occupancy"?"bg-primary text-primary-foreground":"bg-background"}`}>Occupancy</button>
+            <span className="text-xs text-muted-foreground self-center">
+              {uploadKind === "pickup" ? "Daily pickup deltas (history kept)" : "Future occupancy snapshot from Previo (history kept)"}
+            </span>
+          </div>
           <div className="grid md:grid-cols-3 gap-3">
             <div>
               <Label>Files</Label>
