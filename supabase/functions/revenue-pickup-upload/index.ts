@@ -169,21 +169,33 @@ function parsePrevioWide(rows: any[][]): { parsed: ParsedRow[]; warnings: string
     return { parsed: [], warnings };
   }
 
-  // Step 3: build {col -> date}; forward-fill month from monthCells
+  // Step 3: build {col -> date}; advance month either by next monthCells col OR when day number resets
   const dayRow = rows[dayRowIdx];
   const lastCol = dayRow.length;
   const colDates: { col: number; date: string }[] = [];
   let mIdx = 0;
-  for (let c = 0; c < lastCol; c++) {
-    // advance month pointer
-    while (mIdx + 1 < monthCells.length && c >= monthCells[mIdx + 1].col) mIdx++;
-    if (c < monthCells[0].col) continue;
+  let lastDay = 0;
+  for (let c = monthCells[0].col; c < lastCol; c++) {
+    // advance by explicit next-month column
+    while (mIdx + 1 < monthCells.length && c >= monthCells[mIdx + 1].col) {
+      mIdx++;
+      lastDay = 0;
+    }
     const v = dayRow[c];
     if (v == null || v === "") continue;
     const m = String(v).trim().match(dayRe);
     if (!m) continue;
     const day = parseInt(m[1], 10);
     if (day < 1 || day > 31) continue;
+    // Implicit month rollover: day reset (e.g. ...30, 31, 1...)
+    if (day < lastDay && day <= 7 && lastDay >= 25) {
+      let yr = monthCells[mIdx].year;
+      let mo = monthCells[mIdx].month + 1;
+      if (mo > 11) { mo = 0; yr++; }
+      monthCells.push({ col: c, year: yr, month: mo });
+      mIdx = monthCells.length - 1;
+    }
+    lastDay = day;
     const mc = monthCells[mIdx];
     const d = new Date(Date.UTC(mc.year, mc.month, day));
     if (isNaN(d.getTime())) continue;
