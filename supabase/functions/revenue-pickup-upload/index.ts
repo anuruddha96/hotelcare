@@ -46,8 +46,11 @@ function tryParseDate(raw: any, baseYear: number): string | null {
       return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
     }
   }
-  const s = String(raw).trim();
+  let s = String(raw).trim();
   if (!s) return null;
+
+  // Strip leading weekday prefix: "Mon, May 4, 2026" / "hét., máj. 4." / "Mon May 4 2026"
+  s = s.replace(/^(mon|tue|wed|thu|fri|sat|sun|hét|ked|sze|csü|pén|szo|vas)[a-záéíóöőúüű]*\.?\s*[, ]\s*/i, "");
 
   // ISO YYYY-MM-DD
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
