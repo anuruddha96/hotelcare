@@ -127,6 +127,101 @@ interface ParsedRow {
   delta: number;
 }
 
+// ---- Previo wide parser: month-row + day-row + value-row (handles merged month cells) ----
+function parsePrevioWide(rows: any[][]): { parsed: ParsedRow[]; warnings: string[] } {
+  const warnings: string[] = [];
+  // Step 1: find month header row
+  const monthRe = /^([A-Za-zÁÉÍÓÖŐÚÜŰáéíóöőúüű]{3,})\.?\s+(\d{4})$/;
+  let monthRowIdx = -1;
+  let monthCells: { col: number; year: number; month: number }[] = [];
+  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+    const row = rows[i] || [];
+    const found: { col: number; year: number; month: number }[] = [];
+    for (let c = 0; c < row.length; c++) {
+      const v = row[c];
+      if (v == null || v === "") continue;
+      const m = String(v).trim().match(monthRe);
+      if (!m) continue;
+      const mon = MONTHS[m[1].toLowerCase().slice(0, 3)] ?? MONTHS[m[1].toLowerCase()];
+      if (mon === undefined) continue;
+      found.push({ col: c, year: parseInt(m[2], 10), month: mon });
+    }
+    if (found.length >= 3) { monthRowIdx = i; monthCells = found; break; }
+  }
+  if (monthRowIdx === -1) {
+    warnings.push("previo: no month header row found");
+    return { parsed: [], warnings };
+  }
+
+  // Step 2: find day row in next 1-3 rows; values look like "5 Tue", "5", "5 hét"
+  const dayRe = /^(\d{1,2})(?:[\s\.]+[A-Za-zÁÉÍÓÖŐÚÜŰáéíóöőúüű]{2,})?\.?$/;
+  let dayRowIdx = -1;
+  for (let i = monthRowIdx + 1; i < Math.min(rows.length, monthRowIdx + 4); i++) {
+    const row = rows[i] || [];
+    let hits = 0;
+    for (const v of row) {
+      if (v != null && v !== "" && dayRe.test(String(v).trim())) hits++;
+    }
+    if (hits >= 10) { dayRowIdx = i; break; }
+  }
+  if (dayRowIdx === -1) {
+    warnings.push("previo: no day row found below month row");
+    return { parsed: [], warnings };
+  }
+
+  // Step 3: build {col -> date}; forward-fill month from monthCells
+  const dayRow = rows[dayRowIdx];
+  const lastCol = dayRow.length;
+  const colDates: { col: number; date: string }[] = [];
+  let mIdx = 0;
+  for (let c = 0; c < lastCol; c++) {
+    // advance month pointer
+    while (mIdx + 1 < monthCells.length && c >= monthCells[mIdx + 1].col) mIdx++;
+    if (c < monthCells[0].col) continue;
+    const v = dayRow[c];
+    if (v == null || v === "") continue;
+    const m = String(v).trim().match(dayRe);
+    if (!m) continue;
+    const day = parseInt(m[1], 10);
+    if (day < 1 || day > 31) continue;
+    const mc = monthCells[mIdx];
+    const d = new Date(Date.UTC(mc.year, mc.month, day));
+    if (isNaN(d.getTime())) continue;
+    colDates.push({ col: c, date: d.toISOString().slice(0, 10) });
+  }
+  if (colDates.length < 7) {
+    warnings.push(`previo: only ${colDates.length} dates resolved`);
+    return { parsed: [], warnings };
+  }
+
+  // Step 4: find first numeric row below day row
+  let valueRowIdx = -1;
+  for (let i = dayRowIdx + 1; i < Math.min(rows.length, dayRowIdx + 8); i++) {
+    const row = rows[i] || [];
+    let hits = 0;
+    for (const cd of colDates) {
+      const v = row[cd.col];
+      if (v != null && v !== "" && Number.isFinite(safeNum(v))) hits++;
+    }
+    if (hits >= Math.max(5, Math.floor(colDates.length / 2))) { valueRowIdx = i; break; }
+  }
+  if (valueRowIdx === -1) {
+    warnings.push("previo: no numeric value row found");
+    return { parsed: [], warnings };
+  }
+  const valueRow = rows[valueRowIdx];
+  const parsed: ParsedRow[] = colDates.map((cd) => {
+    const delta = Math.round(safeNum(valueRow[cd.col]));
+    return {
+      stay_date: cd.date,
+      bookings_current: Math.max(0, delta),
+      bookings_last_year: 0,
+      delta,
+    };
+  });
+  return { parsed, warnings };
+}
+
 // ---- Wide parser (dates are columns) ----
 function parseWide(rows: any[][], baseYear: number): { parsed: ParsedRow[]; warnings: string[] } {
   const warnings: string[] = [];
