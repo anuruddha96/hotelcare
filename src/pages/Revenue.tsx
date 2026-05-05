@@ -41,6 +41,7 @@ export default function Revenue() {
   const [busy, setBusy] = useState(false);
   const [uploadHotel, setUploadHotel] = useState("");
   const [jobs, setJobs] = useState<UploadJob[]>([]);
+  const [uploadKind, setUploadKind] = useState<"pickup" | "occupancy">("pickup");
 
   useEffect(() => {
     if (loading) return;
