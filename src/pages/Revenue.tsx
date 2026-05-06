@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -48,9 +48,6 @@ export default function Revenue() {
   const navigate = useNavigate();
   const [hotels, setHotels] = useState<HotelStat[]>([]);
   const [busy, setBusy] = useState(false);
-  const [uploadHotel, setUploadHotel] = useState("");
-  const [jobs, setJobs] = useState<UploadJob[]>([]);
-  const [uploadKind, setUploadKind] = useState<"pickup" | "occupancy">("pickup");
   const [hotelDialog, setHotelDialog] = useState<{ id: string; name: string } | null>(null);
   const [dialogJobs, setDialogJobs] = useState<UploadJob[]>([]);
 
@@ -161,36 +158,6 @@ export default function Revenue() {
     setBusy(false);
   }
 
-  function pickFiles(files: FileList | null) {
-    if (!files) return;
-    const newJobs: UploadJob[] = Array.from(files).map((f) => ({ file: f, status: "queued" }));
-    setJobs((j) => [...j, ...newJobs]);
-  }
-
-  async function uploadAll() {
-    if (jobs.length === 0) { toast.error("Pick at least one file"); return; }
-    setBusy(true);
-    for (let i = 0; i < jobs.length; i++) {
-      if (jobs[i].status === "ok") continue;
-      setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "uploading" } : j));
-      const fd = new FormData();
-      fd.append("file", jobs[i].file);
-      if (uploadHotel) fd.append("hotel_id", uploadHotel);
-      const fn = uploadKind === "occupancy" ? "revenue-occupancy-upload" : "revenue-pickup-upload";
-      const { data, error } = await supabase.functions.invoke(fn, { body: fd });
-      const apiErr = (data && data.ok === false && data.error)
-        ? data.error
-        : (data?.error || error?.message);
-      if (apiErr) {
-        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: apiErr } : j));
-      } else {
-        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "ok", rows: data.rows, hotel: data.hotel_id } : j));
-      }
-    }
-    setBusy(false);
-    void load();
-  }
-
   async function runEngine() {
     setBusy(true);
     const { error } = await supabase.functions.invoke("revenue-engine-tick", { body: {} });
@@ -238,63 +205,7 @@ export default function Revenue() {
         <SummaryStat label="Abnormal pickups" value={hotels.filter((h) => h.abnormal).length} danger={hotels.some((h) => h.abnormal)} />
       </div>
 
-      <details className="rounded-lg border bg-card">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium flex items-center gap-2">
-          <Upload className="h-4 w-4" /> Upload Previo XLSX (pickup or occupancy)
-          {jobs.length > 0 && <span className="ml-2 text-xs text-muted-foreground">({jobs.length} queued)</span>}
-        </summary>
-        <div className="p-4 pt-0 space-y-3">
-          <div className="flex gap-2 text-sm">
-            <button type="button" onClick={() => setUploadKind("pickup")}
-              className={`px-3 py-1 rounded border ${uploadKind==="pickup"?"bg-primary text-primary-foreground":"bg-background"}`}>Pickup</button>
-            <button type="button" onClick={() => setUploadKind("occupancy")}
-              className={`px-3 py-1 rounded border ${uploadKind==="occupancy"?"bg-primary text-primary-foreground":"bg-background"}`}>Occupancy</button>
-            <span className="text-xs text-muted-foreground self-center">
-              {uploadKind === "pickup" ? "Daily pickup deltas (history kept)" : "Future occupancy snapshot from Previo (history kept)"}
-            </span>
-          </div>
-          <div className="grid md:grid-cols-3 gap-3">
-            <div>
-              <Label>Files</Label>
-              <Input type="file" accept=".xlsx" multiple onChange={(e) => pickFiles(e.target.files)} />
-            </div>
-            <div>
-              <Label>Hotel (override if header missing)</Label>
-              <select className="w-full border rounded h-10 px-2 bg-background"
-                value={uploadHotel} onChange={(e) => setUploadHotel(e.target.value)}>
-                <option value="">Auto-detect from each file</option>
-                {hotels.map((h) => <option key={h.hotel_id} value={h.hotel_id}>{h.hotel_name}</option>)}
-              </select>
-            </div>
-            <div className="flex items-end gap-2">
-              <Button onClick={uploadAll} disabled={busy || jobs.length === 0} className="flex-1">
-                {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
-                Upload {jobs.length > 0 ? `(${jobs.length})` : ""}
-              </Button>
-              {jobs.length > 0 && <Button variant="ghost" onClick={() => setJobs([])}>Clear</Button>}
-            </div>
-          </div>
-          {jobs.length > 0 && (
-            <div className="border rounded divide-y">
-              {jobs.map((j, i) => (
-                <div key={i} className="flex items-start justify-between p-2 text-sm gap-2">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {j.status === "ok" && <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />}
-                    {j.status === "err" && <XCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />}
-                    {j.status === "uploading" && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
-                    {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
-                    <span className="truncate">{j.file.name}</span>
-                  </div>
-                  <span className={`text-xs ml-2 max-w-[60%] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
-                    {j.status === "ok" && `✓ ${j.rows} rows → ${j.hotel}`}
-                    {j.status === "err" && j.message}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </details>
+      <p className="text-xs text-muted-foreground">Click <b>Upload</b> on a hotel card to add Pickup, Occupancy, or Daily Overview XLSX files. The file's hotel name is verified before saving.</p>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
         {hotels.map((h) => (
@@ -397,6 +308,8 @@ export default function Revenue() {
   );
 }
 
+type UploadKind = "pickup" | "occupancy" | "overview";
+
 function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
   hotel: { id: string; name: string } | null;
   onClose: () => void;
@@ -404,24 +317,35 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
   setJobs: React.Dispatch<React.SetStateAction<UploadJob[]>>;
   onComplete: () => void;
 }) {
-  const [kind, setKind] = useState<"pickup" | "occupancy">("pickup");
+  const [kind, setKind] = useState<UploadKind>("pickup");
   const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  function pick(files: FileList | null) {
+  function addFiles(files: File[] | FileList | null) {
     if (!files) return;
-    setJobs((j) => [...j, ...Array.from(files).map((f) => ({ file: f, status: "queued" as const }))]);
+    const arr = Array.from(files).filter((f) => /\.xlsx$/i.test(f.name));
+    if (!arr.length) { toast.error("Only .xlsx files are accepted"); return; }
+    setJobs((j) => [...j, ...arr.map((f) => ({ file: f, status: "queued" as const }))]);
+  }
+  function removeJob(i: number) {
+    setJobs((arr) => arr.filter((_, idx) => idx !== i));
   }
   async function doUpload() {
     if (!hotel || jobs.length === 0) return;
     setBusy(true);
+    const fnName: Record<UploadKind, string> = {
+      pickup: "revenue-pickup-upload",
+      occupancy: "revenue-occupancy-upload",
+      overview: "revenue-overview-upload",
+    };
     for (let i = 0; i < jobs.length; i++) {
       if (jobs[i].status === "ok") continue;
       setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "uploading" } : j));
       const fd = new FormData();
       fd.append("file", jobs[i].file);
       fd.append("hotel_id", hotel.id);
-      const fn = kind === "occupancy" ? "revenue-occupancy-upload" : "revenue-pickup-upload";
-      const { data, error } = await supabase.functions.invoke(fn, { body: fd });
+      const { data, error } = await supabase.functions.invoke(fnName[kind], { body: fd });
       const apiErr = (data && data.ok === false && data.error) ? data.error : (data?.error || error?.message);
       if (apiErr) {
         setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: apiErr } : j));
@@ -433,6 +357,12 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
     onComplete();
   }
 
+  const desc: Record<UploadKind, string> = {
+    pickup: "Daily pickup deltas (e.g. 'Pickup for Hotel Ottofiori') — history kept",
+    occupancy: "Future occupancy snapshot from Previo — history kept",
+    overview: "Daily overview: per-room arrivals/departures, meals & housekeeping",
+  };
+
   return (
     <Dialog open={!!hotel} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
@@ -440,17 +370,31 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
           <DialogTitle>Upload for {hotel?.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="flex gap-2 text-sm">
-            <button type="button" onClick={() => setKind("pickup")}
-              className={`px-3 py-1 rounded border ${kind === "pickup" ? "bg-primary text-primary-foreground" : "bg-background"}`}>Pickup</button>
-            <button type="button" onClick={() => setKind("occupancy")}
-              className={`px-3 py-1 rounded border ${kind === "occupancy" ? "bg-primary text-primary-foreground" : "bg-background"}`}>Occupancy</button>
+          <div className="flex gap-2 text-sm flex-wrap">
+            {(["pickup", "occupancy", "overview"] as UploadKind[]).map((k) => (
+              <button key={k} type="button" onClick={() => setKind(k)}
+                className={`px-3 py-1 rounded border ${kind === k ? "bg-primary text-primary-foreground" : "bg-background"}`}>
+                {k === "pickup" ? "Pickup" : k === "occupancy" ? "Occupancy" : "Daily Overview"}
+              </button>
+            ))}
           </div>
           <div>
-            <Label>Previo XLSX file(s)</Label>
-            <Input type="file" accept=".xlsx" multiple onChange={(e) => pick(e.target.files)} />
+            <Label>XLSX file(s)</Label>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+              onClick={() => inputRef.current?.click()}
+              className={`mt-1 cursor-pointer rounded-lg border-2 border-dashed p-6 text-center transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-muted-foreground/60"}`}
+            >
+              <Upload className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm">Drag & drop XLSX files here, or click to browse</p>
+              <p className="text-xs text-muted-foreground mt-1">{desc[kind]}</p>
+              <input ref={inputRef} type="file" accept=".xlsx" multiple className="hidden"
+                onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {kind === "pickup" ? "Daily pickup deltas — history kept" : "Future occupancy snapshot — history kept"}
+              The file's hotel name is checked — uploads to the wrong hotel are rejected.
             </p>
           </div>
           {jobs.length > 0 && (
@@ -464,10 +408,17 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
                     {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
                     <span className="truncate">{j.file.name}</span>
                   </div>
-                  <span className={`text-xs ml-2 max-w-[60%] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
-                    {j.status === "ok" && `✓ ${j.rows} rows`}
-                    {j.status === "err" && j.message}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs max-w-[40ch] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
+                      {j.status === "ok" && `✓ ${j.rows} rows`}
+                      {j.status === "err" && j.message}
+                    </span>
+                    {j.status !== "uploading" && (
+                      <button onClick={() => removeJob(i)} className="text-muted-foreground hover:text-foreground">
+                        <XCircle className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
