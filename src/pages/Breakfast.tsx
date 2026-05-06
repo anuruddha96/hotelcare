@@ -165,7 +165,13 @@ export default function Breakfast() {
               {result.status === "eligible" && (
                 <>
                   <Badge className="bg-green-600">Eligible for breakfast</Badge>
-                  <div className="text-2xl font-bold">Room {result.room}</div>
+                  <div className="text-2xl font-bold flex items-center gap-2">
+                    Room {result.room}
+                    {result.room_suffix === "SH" && <Badge variant="secondary">Shabbat</Badge>}
+                  </div>
+                  {result.room_type_label && (
+                    <div className="text-xs text-muted-foreground">{result.room_type_label}</div>
+                  )}
                   <div className="text-sm text-muted-foreground">
                     Pax: {result.pax} · Breakfasts: {result.breakfast}
                     {result.all_inclusive > 0 ? ` · All-inclusive: ${result.all_inclusive}` : ""}
@@ -175,12 +181,16 @@ export default function Breakfast() {
                       Already marked today: <b>{result.already_served}</b>
                     </div>
                   )}
-                  {result.guest_names && result.guest_names.length > 0 && (
+                  {result.guest_names && (Array.isArray(result.guest_names) ? result.guest_names.length > 0 : String(result.guest_names).trim().length > 0) && (
                     <div>
                       <div className="font-semibold mt-1 text-sm">Guests:</div>
-                      <ul className="list-disc list-inside text-sm">
-                        {result.guest_names.map((n: string, i: number) => <li key={i}>{n}</li>)}
-                      </ul>
+                      {Array.isArray(result.guest_names) ? (
+                        <ul className="list-disc list-inside text-sm">
+                          {result.guest_names.map((n: string, i: number) => <li key={i}>{n}</li>)}
+                        </ul>
+                      ) : (
+                        <div className="text-sm whitespace-pre-wrap">{result.guest_names}</div>
+                      )}
                     </div>
                   )}
                   {!hotelCode && (
