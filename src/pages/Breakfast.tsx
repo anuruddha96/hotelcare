@@ -136,20 +136,54 @@ export default function Breakfast() {
     toast.success(tt("marked", { n: served, room: result.room }));
     setRoom("");
     setResult(null);
-    if (showList) void loadTodayList();
+    void loadRooms();
   }
 
-  async function loadTodayList() {
+  async function loadRooms() {
     if (!selection) return;
-    const { data, error } = await supabase
-      .from("breakfast_attendance")
-      .select("room_number, served_count, guest_names, created_at")
-      .eq("hotel_id", selection.hotel_id)
-      .eq("location", selection.location_key)
-      .eq("stay_date", date)
-      .order("created_at", { ascending: false });
-    if (error) { setTodayList([]); return; }
-    setTodayList(data ?? []);
+    setRoomsLoading(true);
+    const { data, error } = await supabase.functions.invoke("breakfast-public-lookup", {
+      body: { hotel_id: selection.hotel_id, date, mode: "list" },
+    });
+    setRoomsLoading(false);
+    if (error || !data) { setRooms([]); return; }
+    setRooms(data.rooms ?? []);
+  }
+
+  // Initial load + on selection/date change
+  useEffect(() => {
+    if (!selection || hotelCode) return;
+    void loadRooms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection?.hotel_id, selection?.location_key, date]);
+
+  // Realtime subscription on breakfast_attendance for this hotel + date
+  useEffect(() => {
+    if (!selection || hotelCode) return;
+    let timer: any;
+    const channel = supabase
+      .channel(`bb-${selection.hotel_id}-${date}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "breakfast_attendance", filter: `hotel_id=eq.${selection.hotel_id}` }, () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => void loadRooms(), 300);
+      })
+      .subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection?.hotel_id, date]);
+
+  async function openRoom(roomNum: string) {
+    setRoom(roomNum);
+    setBusy(true);
+    setResult(null);
+    const { data, error } = await supabase.functions.invoke("breakfast-public-lookup", {
+      body: { hotel_id: selection!.hotel_id, room: roomNum, date },
+    });
+    setBusy(false);
+    if (error) { setResult({ status: "error", message: error.message }); return; }
+    setResult(data);
+    const remaining = Math.max(0, (data?.breakfast || data?.all_inclusive || 0) - (data?.already_served || 0));
+    setServed(remaining);
   }
 
   // ── Hotel picker ──
