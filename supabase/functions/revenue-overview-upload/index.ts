@@ -142,23 +142,24 @@ serve(async (req) => {
     }
     if (!roomRows.length) return errResp("Could not find the per-room sheet (expected headers like 'Date (arrival)', 'Room', 'Arrival', 'Departure', 'Ongoing').");
 
-    const hdr = (roomRows[1] || []).map((c) => String(c ?? "").toLowerCase());
-    const colOf = (...needles: string[]) => {
-      for (let i = 0; i < hdr.length; i++) {
-        if (needles.some((n) => hdr[i].includes(n))) return i;
-      }
+    const hdr = (roomRows[1] || []).map((c) => String(c ?? "").trim().toLowerCase());
+    const includesAny = (needles: string[]) => (i: number) =>
+      needles.some((n) => hdr[i].includes(n));
+    const exactAny = (needles: string[]) => (i: number) =>
+      needles.some((n) => hdr[i] === n);
+    const findCol = (pred: (i: number) => boolean) => {
+      for (let i = 0; i < hdr.length; i++) if (pred(i)) return i;
       return -1;
     };
-    const cArrDate = colOf("date (arrival)");
-    const cRoom = colOf("room");
-    const cDeparture = colOf("departure");        // first "departure" → guest in column
-    const cArrival = colOf("arrival");             // "arrival" guest in
-    const cOngoing = colOf("ongoing");
-    // The second occurrence of "departure" is the date column
-    let cDepDate = -1;
-    for (let i = cDeparture + 1; i < hdr.length; i++) {
-      if (hdr[i].includes("date (departure)") || (hdr[i].includes("departure") && i !== cDeparture)) { cDepDate = i; break; }
-    }
+
+    // Date columns first (exact match against "date (arrival)" / "date (departure)")
+    const cArrDate = findCol(includesAny(["date (arrival)"]));
+    const cDepDate = findCol(includesAny(["date (departure)"]));
+    const cRoom = findCol(includesAny(["room"]));
+    // Guest-in columns: must be EXACT (not "date (arrival)")
+    const cDeparture = findCol(exactAny(["departure"]));
+    const cArrival = findCol(exactAny(["arrival"]));
+    const cOngoing = findCol(exactAny(["ongoing"]));
     const cBre = colOf("bre");
     const cLun = colOf("lun");
     const cDin = colOf("din");
