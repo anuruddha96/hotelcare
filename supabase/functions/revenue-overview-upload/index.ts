@@ -177,6 +177,8 @@ serve(async (req) => {
       const row = roomRows[i] || [];
       const room = row[cRoom];
       if (!room) continue;
+      const parsed = parseRoomCode(room, hotelOverride);
+      if (!parsed) continue; // skip filler rows like "Departures", "15", "82"
       const departureCell = cDeparture >= 0 ? row[cDeparture] : null;
       const arrivalCell = cArrival >= 0 ? row[cArrival] : null;
       const ongoingCell = cOngoing >= 0 ? row[cOngoing] : null;
@@ -190,6 +192,9 @@ serve(async (req) => {
         organization_slug: profile.organization_slug,
         business_date: businessDate,
         room_label: String(room).trim(),
+        room_number: parsed.room_number,
+        room_type_code: parsed.room_type_code,
+        room_suffix: parsed.room_suffix,
         arrival_date: cArrDate >= 0 ? parseDateLoose(row[cArrDate], baseYear) : null,
         departure_date: cDepDate >= 0 ? parseDateLoose(row[cDepDate], baseYear) : null,
         status,
