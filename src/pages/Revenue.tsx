@@ -158,36 +158,6 @@ export default function Revenue() {
     setBusy(false);
   }
 
-  function pickFiles(files: FileList | null) {
-    if (!files) return;
-    const newJobs: UploadJob[] = Array.from(files).map((f) => ({ file: f, status: "queued" }));
-    setJobs((j) => [...j, ...newJobs]);
-  }
-
-  async function uploadAll() {
-    if (jobs.length === 0) { toast.error("Pick at least one file"); return; }
-    setBusy(true);
-    for (let i = 0; i < jobs.length; i++) {
-      if (jobs[i].status === "ok") continue;
-      setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "uploading" } : j));
-      const fd = new FormData();
-      fd.append("file", jobs[i].file);
-      if (uploadHotel) fd.append("hotel_id", uploadHotel);
-      const fn = uploadKind === "occupancy" ? "revenue-occupancy-upload" : "revenue-pickup-upload";
-      const { data, error } = await supabase.functions.invoke(fn, { body: fd });
-      const apiErr = (data && data.ok === false && data.error)
-        ? data.error
-        : (data?.error || error?.message);
-      if (apiErr) {
-        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: apiErr } : j));
-      } else {
-        setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "ok", rows: data.rows, hotel: data.hotel_id } : j));
-      }
-    }
-    setBusy(false);
-    void load();
-  }
-
   async function runEngine() {
     setBusy(true);
     const { error } = await supabase.functions.invoke("revenue-engine-tick", { body: {} });
