@@ -251,6 +251,18 @@ serve(async (req) => {
 
     if (!inserts.length) return errResp("No room rows found in the daily overview sheet.");
 
+    // Replace prior snapshot rows for this hotel + business_date so re-uploads don't stack duplicates
+    if (businessDate) {
+      await supabase.from("daily_overview_snapshots")
+        .delete()
+        .eq("hotel_id", hotelOverride)
+        .eq("business_date", businessDate);
+      await supabase.from("daily_overview_meal_totals")
+        .delete()
+        .eq("hotel_id", hotelOverride)
+        .eq("business_date", businessDate);
+    }
+
     const { error: e1 } = await supabase.from("daily_overview_snapshots").insert(inserts);
     if (e1) return errResp(`DB insert failed: ${e1.message}`);
     if (mealsInserts.length) {
