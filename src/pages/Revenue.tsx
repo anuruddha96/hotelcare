@@ -65,22 +65,81 @@ export default function Revenue() {
 
   async function load() {
     setBusy(true);
-    const { data: hotelRows } = await supabase
+
+    // Resolve org id from profile.organization_slug to scope hotels
+    let orgId: string | null = null;
+    if (profile?.organization_slug) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("id")
+        .eq("slug", profile.organization_slug)
+        .maybeSingle();
+      orgId = org?.id ?? null;
+    }
+
+    let hq = supabase
       .from("hotel_configurations")
-      .select("hotel_id, hotel_name")
+      .select("hotel_id, hotel_name, organization_id")
       .eq("is_active", true);
+    if (orgId) hq = hq.eq("organization_id", orgId);
+    const { data: hotelRows } = await hq;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 
     const stats: HotelStat[] = [];
     for (const h of hotelRows ?? []) {
-      const [{ data: snaps }, { data: recs }, { data: alerts }, { data: lastAI }] = await Promise.all([
+      const [
+        { data: snaps },
+        { data: recs },
+        { data: alerts },
+        { data: lastAI },
+        { data: lastPickupDates },
+        { data: occRows },
+      ] = await Promise.all([
         supabase.from("pickup_snapshots").select("delta, captured_at, snapshot_label")
           .eq("hotel_id", h.hotel_id).order("captured_at", { ascending: false }).limit(50),
         supabase.from("rate_recommendations").select("id").eq("hotel_id", h.hotel_id).eq("status", "pending"),
         supabase.from("revenue_alerts").select("id").eq("hotel_id", h.hotel_id).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
         supabase.from("revenue_ai_insights").select("created_at").eq("hotel_id", h.hotel_id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("pickup_snapshots").select("stay_date, delta, captured_at")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today).order("captured_at", { ascending: false }).limit(200),
+        supabase.from("occupancy_snapshots").select("stay_date, occupancy_pct, rooms_sold, captured_at")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today).lte("stay_date", in30)
+          .order("captured_at", { ascending: false }).limit(500),
       ]);
 
-      const spark = (snaps ?? []).slice(0, 14).reverse().map((s, i) => ({ d: String(i), v: s.delta || 0 }));
+      // Aggregate top pickup dates from most recent snapshot batch (last 24h)
+      const cutoff = Date.now() - 24 * 3600 * 1000;
+      const pickByDate = new Map<string, number>();
+      for (const r of lastPickupDates ?? []) {
+        if (new Date(r.captured_at).getTime() < cutoff) break;
+        pickByDate.set(r.stay_date, (pickByDate.get(r.stay_date) ?? 0) + (r.delta || 0));
+      }
+      const topPickupDates = Array.from(pickByDate.entries())
+        .map(([stay_date, delta]) => ({ stay_date, delta }))
+        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+        .slice(0, 5);
+
+      // Latest occupancy per stay_date
+      const occByDate = new Map<string, OccByDate>();
+      for (const r of occRows ?? []) {
+        if (!occByDate.has(r.stay_date)) {
+          occByDate.set(r.stay_date, {
+            stay_date: r.stay_date,
+            occupancy_pct: Number(r.occupancy_pct ?? 0),
+            rooms_sold: r.rooms_sold ?? 0,
+          });
+        }
+      }
+      const occSorted = Array.from(occByDate.values()).sort((a, b) => a.stay_date.localeCompare(b.stay_date));
+      const occNext7 = occSorted.slice(0, 7);
+      const occAvg7 = occNext7.length ? occNext7.reduce((a, r) => a + r.occupancy_pct, 0) / occNext7.length : 0;
+      const occAvg30 = occSorted.length ? occSorted.reduce((a, r) => a + r.occupancy_pct, 0) / occSorted.length : 0;
+      const lastOccAt = (occRows ?? [])[0]?.captured_at ?? null;
+
+      const spark = occSorted.slice(0, 14).map((r, i) => ({ d: String(i), v: r.occupancy_pct }));
+
       stats.push({
         hotel_id: h.hotel_id,
         hotel_name: h.hotel_name,
@@ -91,6 +150,11 @@ export default function Revenue() {
         abnormal: (alerts?.length ?? 0) > 0,
         spark,
         hasFreshAI: lastAI ? (Date.now() - new Date(lastAI.created_at).getTime()) < 12 * 3600 * 1000 : false,
+        topPickupDates,
+        occNext7,
+        occAvg7,
+        occAvg30,
+        lastOccAt,
       });
     }
     setHotels(stats);
