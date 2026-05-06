@@ -118,14 +118,8 @@ export function Header() {
             <InstallAppPrompt />
             <TrainingHelpButton />
             
-            {(profile?.role === 'admin' || profile?.role === 'top_management') && (
-              <Link to={`/${profile?.organization_slug || 'rdhotels'}/revenue`}>
-                <Button variant="ghost" size="sm" className="gap-1 shrink-0" title="Revenue Management">
-                  <TrendingUp className="h-4 w-4" />
-                  <span className="hidden md:inline text-xs">Revenue</span>
-                </Button>
-              </Link>
-            )}
+            {/* Revenue moved to PMSNavigation main tab bar */}
+
 
             {(profile?.role === 'admin' || profile?.role === 'manager') && (
               <>
