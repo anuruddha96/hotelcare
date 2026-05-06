@@ -308,6 +308,8 @@ export default function Revenue() {
   );
 }
 
+type UploadKind = "pickup" | "occupancy" | "overview";
+
 function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
   hotel: { id: string; name: string } | null;
   onClose: () => void;
@@ -315,24 +317,35 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
   setJobs: React.Dispatch<React.SetStateAction<UploadJob[]>>;
   onComplete: () => void;
 }) {
-  const [kind, setKind] = useState<"pickup" | "occupancy">("pickup");
+  const [kind, setKind] = useState<UploadKind>("pickup");
   const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  function pick(files: FileList | null) {
+  function addFiles(files: File[] | FileList | null) {
     if (!files) return;
-    setJobs((j) => [...j, ...Array.from(files).map((f) => ({ file: f, status: "queued" as const }))]);
+    const arr = Array.from(files).filter((f) => /\.xlsx$/i.test(f.name));
+    if (!arr.length) { toast.error("Only .xlsx files are accepted"); return; }
+    setJobs((j) => [...j, ...arr.map((f) => ({ file: f, status: "queued" as const }))]);
+  }
+  function removeJob(i: number) {
+    setJobs((arr) => arr.filter((_, idx) => idx !== i));
   }
   async function doUpload() {
     if (!hotel || jobs.length === 0) return;
     setBusy(true);
+    const fnName: Record<UploadKind, string> = {
+      pickup: "revenue-pickup-upload",
+      occupancy: "revenue-occupancy-upload",
+      overview: "revenue-overview-upload",
+    };
     for (let i = 0; i < jobs.length; i++) {
       if (jobs[i].status === "ok") continue;
       setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "uploading" } : j));
       const fd = new FormData();
       fd.append("file", jobs[i].file);
       fd.append("hotel_id", hotel.id);
-      const fn = kind === "occupancy" ? "revenue-occupancy-upload" : "revenue-pickup-upload";
-      const { data, error } = await supabase.functions.invoke(fn, { body: fd });
+      const { data, error } = await supabase.functions.invoke(fnName[kind], { body: fd });
       const apiErr = (data && data.ok === false && data.error) ? data.error : (data?.error || error?.message);
       if (apiErr) {
         setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: apiErr } : j));
@@ -344,6 +357,12 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
     onComplete();
   }
 
+  const desc: Record<UploadKind, string> = {
+    pickup: "Daily pickup deltas (e.g. 'Pickup for Hotel Ottofiori') — history kept",
+    occupancy: "Future occupancy snapshot from Previo — history kept",
+    overview: "Daily overview: per-room arrivals/departures, meals & housekeeping",
+  };
+
   return (
     <Dialog open={!!hotel} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
@@ -351,17 +370,31 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
           <DialogTitle>Upload for {hotel?.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="flex gap-2 text-sm">
-            <button type="button" onClick={() => setKind("pickup")}
-              className={`px-3 py-1 rounded border ${kind === "pickup" ? "bg-primary text-primary-foreground" : "bg-background"}`}>Pickup</button>
-            <button type="button" onClick={() => setKind("occupancy")}
-              className={`px-3 py-1 rounded border ${kind === "occupancy" ? "bg-primary text-primary-foreground" : "bg-background"}`}>Occupancy</button>
+          <div className="flex gap-2 text-sm flex-wrap">
+            {(["pickup", "occupancy", "overview"] as UploadKind[]).map((k) => (
+              <button key={k} type="button" onClick={() => setKind(k)}
+                className={`px-3 py-1 rounded border ${kind === k ? "bg-primary text-primary-foreground" : "bg-background"}`}>
+                {k === "pickup" ? "Pickup" : k === "occupancy" ? "Occupancy" : "Daily Overview"}
+              </button>
+            ))}
           </div>
           <div>
-            <Label>Previo XLSX file(s)</Label>
-            <Input type="file" accept=".xlsx" multiple onChange={(e) => pick(e.target.files)} />
+            <Label>XLSX file(s)</Label>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+              onClick={() => inputRef.current?.click()}
+              className={`mt-1 cursor-pointer rounded-lg border-2 border-dashed p-6 text-center transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-muted-foreground/60"}`}
+            >
+              <Upload className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm">Drag & drop XLSX files here, or click to browse</p>
+              <p className="text-xs text-muted-foreground mt-1">{desc[kind]}</p>
+              <input ref={inputRef} type="file" accept=".xlsx" multiple className="hidden"
+                onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {kind === "pickup" ? "Daily pickup deltas — history kept" : "Future occupancy snapshot — history kept"}
+              The file's hotel name is checked — uploads to the wrong hotel are rejected.
             </p>
           </div>
           {jobs.length > 0 && (
@@ -375,10 +408,17 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
                     {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
                     <span className="truncate">{j.file.name}</span>
                   </div>
-                  <span className={`text-xs ml-2 max-w-[60%] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
-                    {j.status === "ok" && `✓ ${j.rows} rows`}
-                    {j.status === "err" && j.message}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs max-w-[40ch] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
+                      {j.status === "ok" && `✓ ${j.rows} rows`}
+                      {j.status === "err" && j.message}
+                    </span>
+                    {j.status !== "uploading" && (
+                      <button onClick={() => removeJob(i)} className="text-muted-foreground hover:text-foreground">
+                        <XCircle className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
