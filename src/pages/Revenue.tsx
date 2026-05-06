@@ -296,7 +296,7 @@ export default function Revenue() {
         </div>
       </details>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
         {hotels.map((h) => (
           <Card key={h.hotel_id} className={h.abnormal ? "border-red-500" : ""}>
             <CardHeader className="pb-2">
@@ -308,15 +308,15 @@ export default function Revenue() {
                 </span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                {h.pickup_today >= 0
-                  ? <TrendingUp className="h-4 w-4 text-green-600" />
-                  : <TrendingDown className="h-4 w-4 text-red-600" />}
-                <span>14d pickup Δ: <b>{h.pickup_today}</b></span>
+            <CardContent className="space-y-3 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <KPI label="7d Occ" value={h.occAvg7 ? `${h.occAvg7.toFixed(0)}%` : "—"} />
+                <KPI label="30d Occ" value={h.occAvg30 ? `${h.occAvg30.toFixed(0)}%` : "—"} />
+                <KPI label="Pickup Δ" value={String(h.pickup_today)} accent={h.pickup_today >= 0 ? "up" : "down"} />
               </div>
+
               {h.spark.length > 1 && (
-                <div className="h-10">
+                <div className="h-14 -mx-1">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={h.spark}>
                       <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
@@ -324,11 +324,53 @@ export default function Revenue() {
                   </ResponsiveContainer>
                 </div>
               )}
-              <div className="text-muted-foreground text-xs truncate" title={h.last_label || ""}>
-                Last: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
-                {h.last_label && <> · {h.last_label}</>}
+
+              {h.topPickupDates.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-muted-foreground">Top pickup dates (last 24h)</div>
+                  <div className="space-y-0.5">
+                    {h.topPickupDates.slice(0, 3).map((d) => (
+                      <div key={d.stay_date} className="flex items-center justify-between text-xs">
+                        <span>{new Date(d.stay_date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</span>
+                        <span className={d.delta >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                          {d.delta >= 0 ? "+" : ""}{d.delta}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {h.occNext7.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-muted-foreground">Occupancy next 7 days</div>
+                  <div className="flex gap-1">
+                    {h.occNext7.map((o) => {
+                      const pct = Math.max(0, Math.min(100, o.occupancy_pct));
+                      const color = pct >= 85 ? "bg-red-500" : pct >= 60 ? "bg-amber-500" : "bg-green-500";
+                      return (
+                        <div key={o.stay_date} className="flex-1 text-center" title={`${o.stay_date}: ${pct.toFixed(0)}% (${o.rooms_sold} rooms)`}>
+                          <div className="h-8 rounded bg-muted relative overflow-hidden">
+                            <div className={`absolute bottom-0 left-0 right-0 ${color}`} style={{ height: `${pct}%` }} />
+                          </div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            {new Date(o.stay_date).toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="text-muted-foreground text-xs space-y-0.5 pt-1 border-t">
+                <div className="truncate" title={h.last_label || ""}>
+                  Pickup upload: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
+                </div>
+                <div>Occupancy upload: {h.lastOccAt ? new Date(h.lastOccAt).toLocaleString() : "never"}</div>
+                <div>Pending recs: <b className="text-foreground">{h.pending_recs}</b></div>
               </div>
-              <div>Pending recommendations: <b>{h.pending_recs}</b></div>
+
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" className="flex-1"
                   onClick={() => navigate(`/${organizationSlug}/revenue/${h.hotel_id}`)}>
