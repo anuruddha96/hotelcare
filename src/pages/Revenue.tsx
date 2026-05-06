@@ -9,8 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
+
+interface PickupDateRow { stay_date: string; delta: number }
+interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
 
 interface HotelStat {
   hotel_id: string;
@@ -22,6 +25,11 @@ interface HotelStat {
   spark: { d: string; v: number }[];
   hasFreshAI: boolean;
   last_label: string | null;
+  topPickupDates: PickupDateRow[];
+  occNext7: OccByDate[];
+  occAvg7: number;
+  occAvg30: number;
+  lastOccAt: string | null;
 }
 
 interface UploadJob {
@@ -57,22 +65,81 @@ export default function Revenue() {
 
   async function load() {
     setBusy(true);
-    const { data: hotelRows } = await supabase
+
+    // Resolve org id from profile.organization_slug to scope hotels
+    let orgId: string | null = null;
+    if (profile?.organization_slug) {
+      const { data: org } = await supabase
+        .from("organizations")
+        .select("id")
+        .eq("slug", profile.organization_slug)
+        .maybeSingle();
+      orgId = org?.id ?? null;
+    }
+
+    let hq = supabase
       .from("hotel_configurations")
-      .select("hotel_id, hotel_name")
+      .select("hotel_id, hotel_name, organization_id")
       .eq("is_active", true);
+    if (orgId) hq = hq.eq("organization_id", orgId);
+    const { data: hotelRows } = await hq;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 
     const stats: HotelStat[] = [];
     for (const h of hotelRows ?? []) {
-      const [{ data: snaps }, { data: recs }, { data: alerts }, { data: lastAI }] = await Promise.all([
+      const [
+        { data: snaps },
+        { data: recs },
+        { data: alerts },
+        { data: lastAI },
+        { data: lastPickupDates },
+        { data: occRows },
+      ] = await Promise.all([
         supabase.from("pickup_snapshots").select("delta, captured_at, snapshot_label")
           .eq("hotel_id", h.hotel_id).order("captured_at", { ascending: false }).limit(50),
         supabase.from("rate_recommendations").select("id").eq("hotel_id", h.hotel_id).eq("status", "pending"),
         supabase.from("revenue_alerts").select("id").eq("hotel_id", h.hotel_id).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
         supabase.from("revenue_ai_insights").select("created_at").eq("hotel_id", h.hotel_id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        supabase.from("pickup_snapshots").select("stay_date, delta, captured_at")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today).order("captured_at", { ascending: false }).limit(200),
+        supabase.from("occupancy_snapshots").select("stay_date, occupancy_pct, rooms_sold, captured_at")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today).lte("stay_date", in30)
+          .order("captured_at", { ascending: false }).limit(500),
       ]);
 
-      const spark = (snaps ?? []).slice(0, 14).reverse().map((s, i) => ({ d: String(i), v: s.delta || 0 }));
+      // Aggregate top pickup dates from most recent snapshot batch (last 24h)
+      const cutoff = Date.now() - 24 * 3600 * 1000;
+      const pickByDate = new Map<string, number>();
+      for (const r of lastPickupDates ?? []) {
+        if (new Date(r.captured_at).getTime() < cutoff) break;
+        pickByDate.set(r.stay_date, (pickByDate.get(r.stay_date) ?? 0) + (r.delta || 0));
+      }
+      const topPickupDates = Array.from(pickByDate.entries())
+        .map(([stay_date, delta]) => ({ stay_date, delta }))
+        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+        .slice(0, 5);
+
+      // Latest occupancy per stay_date
+      const occByDate = new Map<string, OccByDate>();
+      for (const r of occRows ?? []) {
+        if (!occByDate.has(r.stay_date)) {
+          occByDate.set(r.stay_date, {
+            stay_date: r.stay_date,
+            occupancy_pct: Number(r.occupancy_pct ?? 0),
+            rooms_sold: r.rooms_sold ?? 0,
+          });
+        }
+      }
+      const occSorted = Array.from(occByDate.values()).sort((a, b) => a.stay_date.localeCompare(b.stay_date));
+      const occNext7 = occSorted.slice(0, 7);
+      const occAvg7 = occNext7.length ? occNext7.reduce((a, r) => a + r.occupancy_pct, 0) / occNext7.length : 0;
+      const occAvg30 = occSorted.length ? occSorted.reduce((a, r) => a + r.occupancy_pct, 0) / occSorted.length : 0;
+      const lastOccAt = (occRows ?? [])[0]?.captured_at ?? null;
+
+      const spark = occSorted.slice(0, 14).map((r, i) => ({ d: String(i), v: r.occupancy_pct }));
+
       stats.push({
         hotel_id: h.hotel_id,
         hotel_name: h.hotel_name,
@@ -83,6 +150,11 @@ export default function Revenue() {
         abnormal: (alerts?.length ?? 0) > 0,
         spark,
         hasFreshAI: lastAI ? (Date.now() - new Date(lastAI.created_at).getTime()) < 12 * 3600 * 1000 : false,
+        topPickupDates,
+        occNext7,
+        occAvg7,
+        occAvg30,
+        lastOccAt,
       });
     }
     setHotels(stats);
@@ -224,7 +296,7 @@ export default function Revenue() {
         </div>
       </details>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
         {hotels.map((h) => (
           <Card key={h.hotel_id} className={h.abnormal ? "border-red-500" : ""}>
             <CardHeader className="pb-2">
@@ -236,15 +308,15 @@ export default function Revenue() {
                 </span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                {h.pickup_today >= 0
-                  ? <TrendingUp className="h-4 w-4 text-green-600" />
-                  : <TrendingDown className="h-4 w-4 text-red-600" />}
-                <span>14d pickup Δ: <b>{h.pickup_today}</b></span>
+            <CardContent className="space-y-3 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <KPI label="7d Occ" value={h.occAvg7 ? `${h.occAvg7.toFixed(0)}%` : "—"} />
+                <KPI label="30d Occ" value={h.occAvg30 ? `${h.occAvg30.toFixed(0)}%` : "—"} />
+                <KPI label="Pickup Δ" value={String(h.pickup_today)} accent={h.pickup_today >= 0 ? "up" : "down"} />
               </div>
+
               {h.spark.length > 1 && (
-                <div className="h-10">
+                <div className="h-14 -mx-1">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={h.spark}>
                       <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
@@ -252,11 +324,53 @@ export default function Revenue() {
                   </ResponsiveContainer>
                 </div>
               )}
-              <div className="text-muted-foreground text-xs truncate" title={h.last_label || ""}>
-                Last: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
-                {h.last_label && <> · {h.last_label}</>}
+
+              {h.topPickupDates.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-muted-foreground">Top pickup dates (last 24h)</div>
+                  <div className="space-y-0.5">
+                    {h.topPickupDates.slice(0, 3).map((d) => (
+                      <div key={d.stay_date} className="flex items-center justify-between text-xs">
+                        <span>{new Date(d.stay_date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</span>
+                        <span className={d.delta >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                          {d.delta >= 0 ? "+" : ""}{d.delta}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {h.occNext7.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-muted-foreground">Occupancy next 7 days</div>
+                  <div className="flex gap-1">
+                    {h.occNext7.map((o) => {
+                      const pct = Math.max(0, Math.min(100, o.occupancy_pct));
+                      const color = pct >= 85 ? "bg-red-500" : pct >= 60 ? "bg-amber-500" : "bg-green-500";
+                      return (
+                        <div key={o.stay_date} className="flex-1 text-center" title={`${o.stay_date}: ${pct.toFixed(0)}% (${o.rooms_sold} rooms)`}>
+                          <div className="h-8 rounded bg-muted relative overflow-hidden">
+                            <div className={`absolute bottom-0 left-0 right-0 ${color}`} style={{ height: `${pct}%` }} />
+                          </div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            {new Date(o.stay_date).toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="text-muted-foreground text-xs space-y-0.5 pt-1 border-t">
+                <div className="truncate" title={h.last_label || ""}>
+                  Pickup upload: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
+                </div>
+                <div>Occupancy upload: {h.lastOccAt ? new Date(h.lastOccAt).toLocaleString() : "never"}</div>
+                <div>Pending recs: <b className="text-foreground">{h.pending_recs}</b></div>
               </div>
-              <div>Pending recommendations: <b>{h.pending_recs}</b></div>
+
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" className="flex-1"
                   onClick={() => navigate(`/${organizationSlug}/revenue/${h.hotel_id}`)}>
@@ -376,6 +490,16 @@ function SummaryStat({ label, value, highlight, danger }: { label: string; value
     <div className={`rounded-lg border p-3 bg-card ${danger ? "border-red-500" : highlight ? "border-primary" : ""}`}>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={`text-2xl font-bold ${danger ? "text-red-600" : highlight ? "text-primary" : ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function KPI({ label, value, accent }: { label: string; value: string; accent?: "up" | "down" }) {
+  const color = accent === "up" ? "text-green-600" : accent === "down" ? "text-red-600" : "text-foreground";
+  return (
+    <div className="rounded-md border bg-muted/30 p-2 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`text-base font-bold leading-tight ${color}`}>{value}</div>
     </div>
   );
 }

@@ -123,6 +123,12 @@ verify_jwt = true
 [functions.breakfast-lookup]
 verify_jwt = false
 
+[functions.breakfast-public-lookup]
+verify_jwt = false
+
+[functions.breakfast-mark-served]
+verify_jwt = false
+
 [functions.previo-push-rates]
 verify_jwt = true
 

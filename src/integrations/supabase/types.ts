@@ -247,6 +247,45 @@ export type Database = {
         }
         Relationships: []
       }
+      breakfast_attendance: {
+        Row: {
+          created_at: string
+          guest_names: string[] | null
+          hotel_id: string
+          id: string
+          location: string
+          organization_slug: string | null
+          room_number: string
+          served_by: string | null
+          served_count: number
+          stay_date: string
+        }
+        Insert: {
+          created_at?: string
+          guest_names?: string[] | null
+          hotel_id: string
+          id?: string
+          location: string
+          organization_slug?: string | null
+          room_number: string
+          served_by?: string | null
+          served_count?: number
+          stay_date: string
+        }
+        Update: {
+          created_at?: string
+          guest_names?: string[] | null
+          hotel_id?: string
+          id?: string
+          location?: string
+          organization_slug?: string | null
+          room_number?: string
+          served_by?: string | null
+          served_count?: number
+          stay_date?: string
+        }
+        Relationships: []
+      }
       breakfast_roster: {
         Row: {
           all_inclusive_count: number
