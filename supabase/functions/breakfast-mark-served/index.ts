@@ -15,22 +15,39 @@ function rateLimit(ip: string, limit = 120, windowMs = 60_000): boolean {
   return e.count <= limit;
 }
 
+function toGuestArray(input: unknown): string[] | null {
+  if (input == null) return null;
+  if (Array.isArray(input)) {
+    const arr = input.map((v) => String(v ?? "").trim()).filter(Boolean);
+    return arr.length ? arr : null;
+  }
+  const s = String(input).trim();
+  if (!s) return null;
+  // Split on commas / newlines; ignore Previo "(N)" prefix
+  const cleaned = s.replace(/^\(\d+\)\s*/, "");
+  const parts = cleaned.split(/[,\n;]+/).map((x) => x.trim()).filter(Boolean);
+  return parts.length ? parts : [s];
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const json = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   try {
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    if (!rateLimit(ip)) {
-      return new Response(JSON.stringify({ error: "Too many requests" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    if (!rateLimit(ip)) return json(429, { error: "Too many requests" });
 
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body) return json(200, { ok: false, error: "Invalid JSON body" });
+
     const { hotel_id, location, stay_date, room_number, served_count, guest_names, served_by } = body;
-    if (!hotel_id || !location || !room_number) throw new Error("Missing required fields");
-    if (typeof served_count !== "number" || served_count < 0 || served_count > 50) throw new Error("Invalid served_count");
+    if (!hotel_id || !location || !room_number) return json(200, { ok: false, error: "Missing required fields (hotel_id, location, room_number)" });
+    const count = Number(served_count);
+    if (!Number.isFinite(count) || count < 0 || count > 50) return json(200, { ok: false, error: "Invalid served_count" });
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // Look up org slug from hotel
     const { data: hotelRow } = await supabase
       .from("hotel_configurations")
       .select("organization_id, organizations:organization_id(slug)")
@@ -46,16 +63,16 @@ serve(async (req) => {
         location,
         stay_date: stay_date || new Date().toISOString().slice(0, 10),
         room_number: String(room_number).trim(),
-        served_count,
-        guest_names: guest_names ?? null,
+        served_count: count,
+        guest_names: toGuestArray(guest_names),
         served_by: served_by ?? null,
       })
-      .select()
+      .select("id")
       .single();
 
-    if (error) throw error;
-    return new Response(JSON.stringify({ ok: true, id: data.id }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (error) return json(200, { ok: false, error: error.message });
+    return json(200, { ok: true, id: data.id });
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message ?? String(e) }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return json(200, { ok: false, error: e?.message ?? String(e) });
   }
 });
