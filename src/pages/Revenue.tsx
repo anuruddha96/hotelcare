@@ -12,6 +12,9 @@ import { toast } from "sonner";
 import { TrendingUp, TrendingDown, Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 
+interface PickupDateRow { stay_date: string; delta: number }
+interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
+
 interface HotelStat {
   hotel_id: string;
   hotel_name: string;
