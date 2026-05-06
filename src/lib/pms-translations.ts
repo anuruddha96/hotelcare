@@ -201,6 +201,7 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
 
     // PMS - Channel Manager
     'pms.channelManager': 'Channel Manager',
+    'pms.revenue': 'Revenue',
     'pms.channels.channels': 'Channels',
     'pms.channels.ratePush': 'Rate Push',
     'pms.channels.availability': 'Availability',
@@ -523,6 +524,7 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
 
     // PMS - Channel Manager
     'pms.channelManager': 'Csatornakezelő',
+    'pms.revenue': 'Bevétel',
     'pms.channels.channels': 'Csatornák',
     'pms.channels.ratePush': 'Ár küldés',
     'pms.channels.availability': 'Elérhetőség',
@@ -784,6 +786,7 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
     'pms.createReservation.direct': 'Directo',
     'pms.createReservation.walkIn': 'Sin reserva',
     'pms.channelManager': 'Gestor de canales',
+    'pms.revenue': 'Ingresos',
     'pms.channels.channels': 'Canales',
     'pms.channels.ratePush': 'Envío de tarifas',
     'pms.channels.availability': 'Disponibilidad',
@@ -1082,6 +1085,7 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
     'pms.createReservation.direct': 'Trực tiếp',
     'pms.createReservation.walkIn': 'Khách vãng lai',
     'pms.channelManager': 'Quản lý kênh',
+    'pms.revenue': 'Doanh thu',
     'pms.channels.channels': 'Kênh',
     'pms.channels.ratePush': 'Đẩy giá',
     'pms.channels.availability': 'Tình trạng',
@@ -1378,6 +1382,7 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
     'pms.createReservation.direct': 'Шууд',
     'pms.createReservation.walkIn': 'Шууд ирсэн',
     'pms.channelManager': 'Суваг удирдлага',
+    'pms.revenue': 'Орлого',
     'pms.channels.channels': 'Суваг',
     'pms.channels.ratePush': 'Үнэ илгээх',
     'pms.channels.availability': 'Боломжтой байдал',
