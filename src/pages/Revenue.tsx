@@ -25,6 +25,11 @@ interface HotelStat {
   spark: { d: string; v: number }[];
   hasFreshAI: boolean;
   last_label: string | null;
+  topPickupDates: PickupDateRow[];
+  occNext7: OccByDate[];
+  occAvg7: number;
+  occAvg30: number;
+  lastOccAt: string | null;
 }
 
 interface UploadJob {
