@@ -31,7 +31,7 @@ serve(async (req) => {
 
     const { data: rosterRows } = await supabase
       .from("breakfast_roster")
-      .select("room_number, guest_names, pax, breakfast_count, lunch_count, dinner_count, all_inclusive_count, departure_date, arrival_date")
+      .select("room_number, guest_names, pax, breakfast_count, lunch_count, dinner_count, all_inclusive_count, source_notes")
       .eq("hotel_id", hotel_id)
       .eq("stay_date", stayDate)
       .ilike("room_number", String(room).trim());
