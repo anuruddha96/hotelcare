@@ -384,9 +384,12 @@ serve(async (req) => {
     const baseYear = new Date().getUTCFullYear();
 
     let bestParsed: ParsedRow[] = [];
-    let detectedHotelId = hotelOverride;
+    let detectedHotelId = "";
     const warnings: string[] = [];
     const debugSnippets: any[] = [];
+
+    // Build full-file haystack including filename for hotel detection
+    const fileHay = (file.name || "").toLowerCase();
 
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
@@ -395,9 +398,8 @@ serve(async (req) => {
       });
       if (rows.length === 0) continue;
 
-      // Detect hotel from any cell in first 8 rows + sheet name
       if (!detectedHotelId) {
-        const hayParts: string[] = [sheetName.toLowerCase()];
+        const hayParts: string[] = [sheetName.toLowerCase(), fileHay];
         for (let i = 0; i < Math.min(rows.length, 8); i++) {
           hayParts.push((rows[i] || []).map((c) => String(c ?? "")).join(" ").toLowerCase());
         }
@@ -407,7 +409,6 @@ serve(async (req) => {
         }
       }
 
-      // Try Previo wide first, then generic wide, then long
       const previo = parsePrevioWide(rows);
       let chosen = previo;
       if (previo.parsed.length < 7) {
@@ -425,6 +426,17 @@ serve(async (req) => {
       if (chosen.parsed.length > bestParsed.length) bestParsed = chosen.parsed;
       debugSnippets.push({ sheet: sheetName, sample: rows.slice(0, 8) });
     }
+
+    // Hotel name verification: if file embeds a hotel name AND user picked a different one → reject.
+    if (hotelOverride && detectedHotelId && detectedHotelId !== hotelOverride) {
+      const { data: hotels } = await supabase.from("hotel_configurations")
+        .select("hotel_id, hotel_name").in("hotel_id", [hotelOverride, detectedHotelId]);
+      const nameOf = (id: string) => hotels?.find((h) => h.hotel_id === id)?.hotel_name ?? id;
+      return errResp(
+        `Hotel mismatch: this file is for "${nameOf(detectedHotelId)}", but you selected "${nameOf(hotelOverride)}". No data was saved.`
+      );
+    }
+    if (!detectedHotelId) detectedHotelId = hotelOverride;
 
     if (!detectedHotelId) {
       console.warn("Could not detect hotel. Preview:", JSON.stringify(debugSnippets[0]));
