@@ -136,7 +136,9 @@ serve(async (req) => {
       const breakfast = match.breakfast ?? 0;
       const allInc = match.all_inclusive ?? 0;
       const eligible = breakfast > 0 || allInc > 0;
-      const status = eligible ? "eligible" : "not_eligible_no_breakfast";
+      let status: string;
+      if (match.status === "arriving" && !eligible) status = "not_arrived_yet";
+      else status = eligible ? "eligible" : "not_eligible_no_breakfast";
       const { data: served } = await supabase
         .from("breakfast_attendance")
         .select("served_count, location, created_at, guest_names")
