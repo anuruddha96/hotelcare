@@ -7,7 +7,7 @@ import {
   Users,
   DoorOpen,
   Radio,
-  ArrowLeft,
+  TrendingUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ const PMS_NAV_ITEMS = [
   { key: 'reservations', icon: CalendarDays, labelKey: 'pms.reservations', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management'] },
   { key: 'guests', icon: Users, labelKey: 'pms.guests', roles: ['admin', 'manager', 'reception', 'front_office', 'top_management'] },
   { key: 'channel-manager', icon: Radio, labelKey: 'pms.channelManager', roles: ['admin', 'manager', 'top_management'] },
+  { key: 'revenue', icon: TrendingUp, labelKey: 'pms.revenue', roles: ['admin', 'top_management'] },
 ];
 
 export function PMSNavigation() {
@@ -26,8 +27,8 @@ export function PMSNavigation() {
   const { t } = useTranslation();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
-  // PMS features are under development - only show to admins
-  if (profile?.role !== 'admin') return null;
+  // Show to admin and top_management; each item also filters by role
+  if (profile?.role !== 'admin' && profile?.role !== 'top_management') return null;
 
   const visibleItems = PMS_NAV_ITEMS.filter(
     (item) => profile && item.roles.includes(profile.role)
