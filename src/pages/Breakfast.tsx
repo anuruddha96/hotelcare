@@ -371,23 +371,46 @@ export default function Breakfast() {
           )}
 
           {!hotelCode && selection && (
-            <div className="pt-2 border-t">
-              <Button variant="ghost" size="sm" className="w-full" onClick={() => { setShowList(!showList); if (!showList) void loadTodayList(); }}>
-                <RefreshCw className="h-3 w-3 mr-1" /> {showList ? tt("hideServed") : tt("showServed")}
-              </Button>
-              {showList && (
-                <div className="mt-2 max-h-60 overflow-y-auto border rounded divide-y text-sm">
-                  {todayList.length === 0 && <div className="p-2 text-muted-foreground text-xs">{tt("noEntries")}</div>}
-                  {todayList.map((row, i) => (
-                    <div key={i} className="p-2 flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">Room {row.room_number} · {row.served_count}</div>
-                        <div className="text-xs text-muted-foreground">{new Date(row.created_at).toLocaleTimeString()}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="pt-3 border-t">
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-semibold text-sm">{tt("roomsTitle")} · {rooms.length}</div>
+                <Button variant="ghost" size="sm" className="h-7" onClick={() => void loadRooms()} disabled={roomsLoading}>
+                  <RefreshCw className={`h-3 w-3 ${roomsLoading ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground mb-2">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400"/>{tt("legendPending")}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"/>{tt("legendPartial")}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"/>{tt("legendServed")}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-400"/>{tt("legendArriving")}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-300"/>{tt("legendNoBreakfast")}</span>
+              </div>
+              <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
+                {rooms.map((r) => {
+                  const cls =
+                    r.status === "served" ? "bg-green-100 text-green-900 border-green-400 hover:bg-green-200" :
+                    r.status === "partial" ? "bg-amber-100 text-amber-900 border-amber-400 hover:bg-amber-200" :
+                    r.status === "arriving" ? "bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200" :
+                    r.status === "no_breakfast" ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" :
+                    "bg-blue-100 text-blue-900 border-blue-300 hover:bg-blue-200";
+                  const mark = r.status === "served" ? "✓" : r.status === "partial" ? `${r.served}/${r.breakfast}` : "";
+                  return (
+                    <button
+                      key={r.room}
+                      type="button"
+                      onClick={() => void openRoom(r.room)}
+                      className={`border rounded px-1.5 py-1.5 text-xs font-semibold transition-colors flex flex-col items-center leading-tight ${cls}`}
+                      title={`${r.room_type_label || ""} · pax ${r.pax || 0} · breakfast ${r.breakfast}`}
+                    >
+                      <span>{r.room}</span>
+                      {mark && <span className="text-[10px] opacity-80">{mark}</span>}
+                    </button>
+                  );
+                })}
+                {rooms.length === 0 && !roomsLoading && (
+                  <div className="col-span-full text-xs text-muted-foreground p-2">—</div>
+                )}
+              </div>
             </div>
           )}
         </CardContent>
