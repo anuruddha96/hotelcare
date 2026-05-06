@@ -109,14 +109,15 @@ serve(async (req) => {
     const eligible = r.breakfast_count > 0 || r.all_inclusive_count > 0;
     const { data: served } = await supabase
       .from("breakfast_attendance")
-      .select("served_count, location, created_at")
+      .select("served_count, location, created_at, guest_names")
       .eq("hotel_id", hotel_id)
       .eq("stay_date", stayDate)
-      .eq("room_number", r.room_number);
+      .eq("room_number", r.room_number)
+      .order("created_at", { ascending: true });
     const servedTotal = (served ?? []).reduce((a: number, x: any) => a + (x.served_count || 0), 0);
 
     return new Response(JSON.stringify({
-      status: eligible ? "eligible" : "not_eligible",
+      status: eligible ? "eligible" : "not_eligible_no_breakfast",
       source: "roster",
       hotel_id, stay_date: stayDate,
       room: r.room_number, pax: r.pax, guest_names: r.guest_names,
