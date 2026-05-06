@@ -208,18 +208,18 @@ export default function Auth() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
       <Card className="w-full max-w-sm sm:max-w-lg shadow-2xl border-0">
-        <CardHeader className="text-center space-y-2 sm:space-y-3 pb-4 sm:pb-6">
-          <div className="mx-auto flex flex-col items-center justify-center gap-0 -space-y-2">
+        <CardHeader className="text-center space-y-1 pb-3 sm:pb-4">
+          <div className="mx-auto flex flex-col items-center justify-center gap-1">
             <img
               src={hotelcareLogoAuth}
               alt="Hotel Care Logo"
-              className="h-32 sm:h-40 md:h-48 w-auto object-contain"
+              className="h-16 sm:h-20 md:h-24 w-auto object-contain"
             />
-            <span className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent">
+            <span className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent leading-tight">
               Hotel Care
             </span>
           </div>
-          <CardTitle className="text-lg sm:text-xl lg:text-2xl font-semibold text-foreground/80">
+          <CardTitle className="text-base sm:text-lg lg:text-xl font-semibold text-foreground/80">
             {t('auth.hotelManagement')}
           </CardTitle>
           <CardDescription className="text-sm sm:text-base px-2 sm:px-0">
