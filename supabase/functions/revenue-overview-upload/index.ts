@@ -142,32 +142,32 @@ serve(async (req) => {
     }
     if (!roomRows.length) return errResp("Could not find the per-room sheet (expected headers like 'Date (arrival)', 'Room', 'Arrival', 'Departure', 'Ongoing').");
 
-    const hdr = (roomRows[1] || []).map((c) => String(c ?? "").toLowerCase());
-    const colOf = (...needles: string[]) => {
-      for (let i = 0; i < hdr.length; i++) {
-        if (needles.some((n) => hdr[i].includes(n))) return i;
-      }
+    const hdr = (roomRows[1] || []).map((c) => String(c ?? "").trim().toLowerCase());
+    const includesAny = (needles: string[]) => (i: number) =>
+      needles.some((n) => hdr[i].includes(n));
+    const exactAny = (needles: string[]) => (i: number) =>
+      needles.some((n) => hdr[i] === n);
+    const findCol = (pred: (i: number) => boolean) => {
+      for (let i = 0; i < hdr.length; i++) if (pred(i)) return i;
       return -1;
     };
-    const cArrDate = colOf("date (arrival)");
-    const cRoom = colOf("room");
-    const cDeparture = colOf("departure");        // first "departure" → guest in column
-    const cArrival = colOf("arrival");             // "arrival" guest in
-    const cOngoing = colOf("ongoing");
-    // The second occurrence of "departure" is the date column
-    let cDepDate = -1;
-    for (let i = cDeparture + 1; i < hdr.length; i++) {
-      if (hdr[i].includes("date (departure)") || (hdr[i].includes("departure") && i !== cDeparture)) { cDepDate = i; break; }
-    }
-    const cBre = colOf("bre");
-    const cLun = colOf("lun");
-    const cDin = colOf("din");
-    const cAll = colOf("all");
-    const cSta = colOf("sta");
+
+    // Date columns first (exact match against "date (arrival)" / "date (departure)")
+    const cArrDate = findCol(includesAny(["date (arrival)"]));
+    const cDepDate = findCol(includesAny(["date (departure)"]));
+    const cRoom = findCol(includesAny(["room"]));
+    // Guest-in columns: must be EXACT (not "date (arrival)")
+    const cDeparture = findCol(exactAny(["departure"]));
+    const cArrival = findCol(exactAny(["arrival"]));
+    const cOngoing = findCol(exactAny(["ongoing"]));
+    const cBre = findCol(includesAny(["bre"]));
+    const cLun = findCol(includesAny(["lun"]));
+    const cDin = findCol(includesAny(["din"]));
+    const cAll = findCol(includesAny(["all"]));
+    const cSta = findCol(includesAny(["sta"]));
     const cDep2 = (() => {
-      // "Dep" in housekeeping section: last col in row containing single "dep"
       for (let i = hdr.length - 1; i >= 0; i--) {
-        if (hdr[i].trim() === "dep") return i;
+        if (hdr[i] === "dep") return i;
       }
       return -1;
     })();
@@ -250,6 +250,18 @@ serve(async (req) => {
     }
 
     if (!inserts.length) return errResp("No room rows found in the daily overview sheet.");
+
+    // Replace prior snapshot rows for this hotel + business_date so re-uploads don't stack duplicates
+    if (businessDate) {
+      await supabase.from("daily_overview_snapshots")
+        .delete()
+        .eq("hotel_id", hotelOverride)
+        .eq("business_date", businessDate);
+      await supabase.from("daily_overview_meal_totals")
+        .delete()
+        .eq("hotel_id", hotelOverride)
+        .eq("business_date", businessDate);
+    }
 
     const { error: e1 } = await supabase.from("daily_overview_snapshots").insert(inserts);
     if (e1) return errResp(`DB insert failed: ${e1.message}`);
