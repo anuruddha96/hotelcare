@@ -95,14 +95,15 @@ serve(async (req) => {
     const buf = new Uint8Array(await file.arrayBuffer());
     const wb = XLSX.read(buf, { type: "array", cellDates: true });
     const baseYear = new Date().getUTCFullYear();
-    let detectedHotelId = hotelOverride;
+    let detectedHotelId = "";
+    const fileHay = (file.name || "").toLowerCase();
     const parsed: { stay_date: string; occupancy_pct: number; rooms_sold: number }[] = [];
 
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: null, raw: false });
       if (!detectedHotelId) {
-        const hay = [sheetName, ...rows.slice(0, 8).map((r) => r.join(" "))].join(" | ").toLowerCase();
+        const hay = [sheetName, fileHay, ...rows.slice(0, 8).map((r) => r.join(" "))].join(" | ").toLowerCase();
         for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
           if (hay.includes(name)) { detectedHotelId = id; break; }
         }
@@ -131,6 +132,14 @@ serve(async (req) => {
       }
       if (parsed.length) break;
     }
+
+    if (hotelOverride && detectedHotelId && detectedHotelId !== hotelOverride) {
+      const { data: hotels } = await supabase.from("hotel_configurations")
+        .select("hotel_id, hotel_name").in("hotel_id", [hotelOverride, detectedHotelId]);
+      const nameOf = (id: string) => hotels?.find((h) => h.hotel_id === id)?.hotel_name ?? id;
+      return errResp(`Hotel mismatch: this file is for "${nameOf(detectedHotelId)}", but you selected "${nameOf(hotelOverride)}". No data was saved.`);
+    }
+    if (!detectedHotelId) detectedHotelId = hotelOverride;
 
     if (!detectedHotelId) return errResp("Could not detect hotel. Pick the hotel in the dropdown.");
     if (!parsed.length) return errResp("Could not find occupancy rows. Make sure the file has a 'Term' column with dates and (%) or (pcs) values.");
