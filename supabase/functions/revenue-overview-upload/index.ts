@@ -182,11 +182,14 @@ serve(async (req) => {
       const departureCell = cDeparture >= 0 ? row[cDeparture] : null;
       const arrivalCell = cArrival >= 0 ? row[cArrival] : null;
       const ongoingCell = cOngoing >= 0 ? row[cOngoing] : null;
-      const status = arrivalCell && !departureCell ? "arriving"
+      const status = arrivalCell && !departureCell && !ongoingCell ? "arriving"
         : departureCell && !arrivalCell ? "departing"
         : departureCell && arrivalCell ? "turnover"
-        : "ongoing";
-      const guestCell = ongoingCell || arrivalCell || departureCell || "";
+        : ongoingCell ? "ongoing"
+        : "arriving";
+      // For breakfast: the guest who slept here last night = Departure (checking out today)
+      // or Ongoing (mid-stay). Arrival guests have NOT yet arrived — never use them for guest_names.
+      const guestCell = departureCell || ongoingCell || "";
       inserts.push({
         hotel_id: hotelOverride,
         organization_slug: profile.organization_slug,

@@ -24,12 +24,82 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Too many requests" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { hotel_id, room, date } = await req.json();
-    if (!hotel_id || !room) throw new Error("Missing hotel_id or room");
+    const body = await req.json();
+    const { hotel_id, room, date, mode } = body;
+    if (!hotel_id) throw new Error("Missing hotel_id");
     const stayDate = (date as string) || new Date().toISOString().slice(0, 10);
+
+    const supabaseEarly = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    // ── List mode: return all rooms for hotel+date with served status ──
+    if (mode === "list") {
+      let { data: snaps } = await supabaseEarly
+        .from("daily_overview_snapshots")
+        .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, all_inclusive, status, business_date")
+        .eq("hotel_id", hotel_id)
+        .eq("business_date", stayDate);
+      let snapshotDate = stayDate;
+      if (!snaps || snaps.length === 0) {
+        const { data: latest } = await supabaseEarly
+          .from("daily_overview_snapshots")
+          .select("business_date")
+          .eq("hotel_id", hotel_id)
+          .lte("business_date", stayDate)
+          .order("business_date", { ascending: false })
+          .limit(1);
+        if (latest && latest.length) {
+          snapshotDate = latest[0].business_date;
+          const { data: fb } = await supabaseEarly
+            .from("daily_overview_snapshots")
+            .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, all_inclusive, status, business_date")
+            .eq("hotel_id", hotel_id)
+            .eq("business_date", snapshotDate);
+          snaps = fb ?? [];
+        }
+      }
+      const { data: served } = await supabaseEarly
+        .from("breakfast_attendance")
+        .select("room_number, served_count")
+        .eq("hotel_id", hotel_id)
+        .eq("stay_date", stayDate);
+      const servedMap = new Map<string, number>();
+      for (const s of served ?? []) {
+        const k = normalizeRoomNumber(s.room_number ?? "");
+        servedMap.set(k, (servedMap.get(k) ?? 0) + (s.served_count || 0));
+      }
+      const rooms = (snaps ?? []).map((r: any) => {
+        const key = normalizeRoomNumber(r.room_number ?? "");
+        const servedTotal = servedMap.get(key) ?? 0;
+        const breakfast = r.breakfast ?? 0;
+        const allInc = r.all_inclusive ?? 0;
+        const eligible = breakfast > 0 || allInc > 0;
+        let chipStatus: string;
+        if (r.status === "arriving") chipStatus = "arriving";
+        else if (!eligible) chipStatus = "no_breakfast";
+        else if (servedTotal >= breakfast) chipStatus = "served";
+        else if (servedTotal > 0) chipStatus = "partial";
+        else chipStatus = "pending";
+        return {
+          room: r.room_number,
+          room_label: r.room_label,
+          room_type_code: r.room_type_code,
+          room_type_label: roomTypeLabel(r.room_type_code),
+          room_suffix: r.room_suffix,
+          pax: r.pax,
+          breakfast,
+          all_inclusive: allInc,
+          served: servedTotal,
+          status: chipStatus,
+          row_status: r.status,
+        };
+      }).sort((a: any, b: any) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }));
+      return new Response(JSON.stringify({ rooms, snapshot_date: snapshotDate, stay_date: stayDate }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (!room) throw new Error("Missing room");
     const normRoom = normalizeRoomNumber(String(room));
 
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const supabase = supabaseEarly;
 
     // 1) Try exact-date snapshot for this hotel
     let { data: snaps } = await supabase
@@ -66,7 +136,9 @@ serve(async (req) => {
       const breakfast = match.breakfast ?? 0;
       const allInc = match.all_inclusive ?? 0;
       const eligible = breakfast > 0 || allInc > 0;
-      const status = eligible ? "eligible" : "not_eligible_no_breakfast";
+      let status: string;
+      if (match.status === "arriving" && !eligible) status = "not_arrived_yet";
+      else status = eligible ? "eligible" : "not_eligible_no_breakfast";
       const { data: served } = await supabase
         .from("breakfast_attendance")
         .select("served_count, location, created_at, guest_names")
