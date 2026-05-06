@@ -48,9 +48,6 @@ export default function Revenue() {
   const navigate = useNavigate();
   const [hotels, setHotels] = useState<HotelStat[]>([]);
   const [busy, setBusy] = useState(false);
-  const [uploadHotel, setUploadHotel] = useState("");
-  const [jobs, setJobs] = useState<UploadJob[]>([]);
-  const [uploadKind, setUploadKind] = useState<"pickup" | "occupancy">("pickup");
   const [hotelDialog, setHotelDialog] = useState<{ id: string; name: string } | null>(null);
   const [dialogJobs, setDialogJobs] = useState<UploadJob[]>([]);
 
