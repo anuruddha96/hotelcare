@@ -238,63 +238,7 @@ export default function Revenue() {
         <SummaryStat label="Abnormal pickups" value={hotels.filter((h) => h.abnormal).length} danger={hotels.some((h) => h.abnormal)} />
       </div>
 
-      <details className="rounded-lg border bg-card">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium flex items-center gap-2">
-          <Upload className="h-4 w-4" /> Upload Previo XLSX (pickup or occupancy)
-          {jobs.length > 0 && <span className="ml-2 text-xs text-muted-foreground">({jobs.length} queued)</span>}
-        </summary>
-        <div className="p-4 pt-0 space-y-3">
-          <div className="flex gap-2 text-sm">
-            <button type="button" onClick={() => setUploadKind("pickup")}
-              className={`px-3 py-1 rounded border ${uploadKind==="pickup"?"bg-primary text-primary-foreground":"bg-background"}`}>Pickup</button>
-            <button type="button" onClick={() => setUploadKind("occupancy")}
-              className={`px-3 py-1 rounded border ${uploadKind==="occupancy"?"bg-primary text-primary-foreground":"bg-background"}`}>Occupancy</button>
-            <span className="text-xs text-muted-foreground self-center">
-              {uploadKind === "pickup" ? "Daily pickup deltas (history kept)" : "Future occupancy snapshot from Previo (history kept)"}
-            </span>
-          </div>
-          <div className="grid md:grid-cols-3 gap-3">
-            <div>
-              <Label>Files</Label>
-              <Input type="file" accept=".xlsx" multiple onChange={(e) => pickFiles(e.target.files)} />
-            </div>
-            <div>
-              <Label>Hotel (override if header missing)</Label>
-              <select className="w-full border rounded h-10 px-2 bg-background"
-                value={uploadHotel} onChange={(e) => setUploadHotel(e.target.value)}>
-                <option value="">Auto-detect from each file</option>
-                {hotels.map((h) => <option key={h.hotel_id} value={h.hotel_id}>{h.hotel_name}</option>)}
-              </select>
-            </div>
-            <div className="flex items-end gap-2">
-              <Button onClick={uploadAll} disabled={busy || jobs.length === 0} className="flex-1">
-                {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
-                Upload {jobs.length > 0 ? `(${jobs.length})` : ""}
-              </Button>
-              {jobs.length > 0 && <Button variant="ghost" onClick={() => setJobs([])}>Clear</Button>}
-            </div>
-          </div>
-          {jobs.length > 0 && (
-            <div className="border rounded divide-y">
-              {jobs.map((j, i) => (
-                <div key={i} className="flex items-start justify-between p-2 text-sm gap-2">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {j.status === "ok" && <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />}
-                    {j.status === "err" && <XCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />}
-                    {j.status === "uploading" && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
-                    {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
-                    <span className="truncate">{j.file.name}</span>
-                  </div>
-                  <span className={`text-xs ml-2 max-w-[60%] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
-                    {j.status === "ok" && `✓ ${j.rows} rows → ${j.hotel}`}
-                    {j.status === "err" && j.message}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </details>
+      <p className="text-xs text-muted-foreground">Click <b>Upload</b> on a hotel card to add Pickup, Occupancy, or Daily Overview XLSX files. The file's hotel name is verified before saving.</p>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
         {hotels.map((h) => (
