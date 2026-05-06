@@ -358,6 +358,12 @@ export default function Breakfast() {
                   <div className="text-sm text-muted-foreground">{tt("notEligibleHelp")}</div>
                 </>
               )}
+              {result.status === "not_arrived_yet" && (
+                <>
+                  <Badge variant="secondary">{tt("notArrivedYet")}</Badge>
+                  <div className="text-sm">Room {result.room}</div>
+                </>
+              )}
               {result.status === "not_found" && (
                 <Badge variant="outline">{tt("notFound")}</Badge>
               )}
