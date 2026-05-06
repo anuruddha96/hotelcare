@@ -483,6 +483,120 @@ export type Database = {
           },
         ]
       }
+      daily_overview_meal_totals: {
+        Row: {
+          adults: number | null
+          all_inclusive: number | null
+          breakfast: number | null
+          business_date: string
+          captured_at: string
+          children: number | null
+          dinner: number | null
+          hotel_id: string
+          id: string
+          lunch: number | null
+          organization_slug: string | null
+          source_filename: string | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          adults?: number | null
+          all_inclusive?: number | null
+          breakfast?: number | null
+          business_date: string
+          captured_at?: string
+          children?: number | null
+          dinner?: number | null
+          hotel_id: string
+          id?: string
+          lunch?: number | null
+          organization_slug?: string | null
+          source_filename?: string | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          adults?: number | null
+          all_inclusive?: number | null
+          breakfast?: number | null
+          business_date?: string
+          captured_at?: string
+          children?: number | null
+          dinner?: number | null
+          hotel_id?: string
+          id?: string
+          lunch?: number | null
+          organization_slug?: string | null
+          source_filename?: string | null
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
+      daily_overview_snapshots: {
+        Row: {
+          all_inclusive: number | null
+          arrival_date: string | null
+          breakfast: number | null
+          business_date: string
+          captured_at: string
+          departure_date: string | null
+          dinner: number | null
+          guest_names: string | null
+          hotel_id: string
+          housekeeping_dep: string | null
+          housekeeping_stay: string | null
+          id: string
+          lunch: number | null
+          organization_slug: string | null
+          pax: number | null
+          room_label: string | null
+          source_filename: string | null
+          status: string | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          all_inclusive?: number | null
+          arrival_date?: string | null
+          breakfast?: number | null
+          business_date: string
+          captured_at?: string
+          departure_date?: string | null
+          dinner?: number | null
+          guest_names?: string | null
+          hotel_id: string
+          housekeeping_dep?: string | null
+          housekeeping_stay?: string | null
+          id?: string
+          lunch?: number | null
+          organization_slug?: string | null
+          pax?: number | null
+          room_label?: string | null
+          source_filename?: string | null
+          status?: string | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          all_inclusive?: number | null
+          arrival_date?: string | null
+          breakfast?: number | null
+          business_date?: string
+          captured_at?: string
+          departure_date?: string | null
+          dinner?: number | null
+          guest_names?: string | null
+          hotel_id?: string
+          housekeeping_dep?: string | null
+          housekeeping_stay?: string | null
+          id?: string
+          lunch?: number | null
+          organization_slug?: string | null
+          pax?: number | null
+          room_label?: string | null
+          source_filename?: string | null
+          status?: string | null
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
       daily_rates: {
         Row: {
           created_at: string
