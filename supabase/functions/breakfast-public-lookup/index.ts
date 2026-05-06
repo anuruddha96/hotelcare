@@ -31,20 +31,36 @@ serve(async (req) => {
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // 1) Try the latest daily overview snapshot for this hotel (>= stayDate or most recent)
-    const { data: snaps } = await supabase
+    // 1) Try exact-date snapshot for this hotel
+    let { data: snaps } = await supabase
       .from("daily_overview_snapshots")
       .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, lunch, dinner, all_inclusive, business_date, arrival_date, departure_date, status")
       .eq("hotel_id", hotel_id)
-      .order("business_date", { ascending: false })
-      .limit(500);
+      .eq("business_date", stayDate);
 
-    let match: any = null;
-    if (snaps && snaps.length) {
-      const latestDate = snaps[0].business_date;
-      const sameDay = snaps.filter((r: any) => r.business_date === latestDate);
-      match = sameDay.find((r: any) => normalizeRoomNumber(r.room_number ?? "") === normRoom) ?? null;
+    let snapshotDate = stayDate;
+
+    // 2) Fallback: most recent snapshot date <= stayDate for this hotel
+    if (!snaps || snaps.length === 0) {
+      const { data: latest } = await supabase
+        .from("daily_overview_snapshots")
+        .select("business_date")
+        .eq("hotel_id", hotel_id)
+        .lte("business_date", stayDate)
+        .order("business_date", { ascending: false })
+        .limit(1);
+      if (latest && latest.length) {
+        snapshotDate = latest[0].business_date;
+        const { data: fallback } = await supabase
+          .from("daily_overview_snapshots")
+          .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, lunch, dinner, all_inclusive, business_date, arrival_date, departure_date, status")
+          .eq("hotel_id", hotel_id)
+          .eq("business_date", snapshotDate);
+        snaps = fallback ?? [];
+      }
     }
+
+    const match: any = (snaps ?? []).find((r: any) => normalizeRoomNumber(r.room_number ?? "") === normRoom) ?? null;
 
     if (match) {
       const eligible = (match.breakfast ?? 0) > 0 || (match.all_inclusive ?? 0) > 0;
@@ -58,7 +74,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({
         status: eligible ? "eligible" : "not_eligible",
         source: "daily_overview",
-        hotel_id, stay_date: stayDate,
+        hotel_id, stay_date: stayDate, snapshot_date: snapshotDate,
         room: match.room_number,
         room_type_code: match.room_type_code,
         room_type_label: roomTypeLabel(match.room_type_code),
@@ -74,7 +90,7 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // 2) Fallback to legacy breakfast_roster (exact room_number match)
+    // 3) Fallback to legacy breakfast_roster (exact room_number match) for the requested hotel
     const { data: rosterRows } = await supabase
       .from("breakfast_roster")
       .select("room_number, guest_names, pax, breakfast_count, lunch_count, dinner_count, all_inclusive_count, source_notes")
@@ -83,7 +99,7 @@ serve(async (req) => {
     const r: any = (rosterRows ?? []).find((x: any) => normalizeRoomNumber(x.room_number ?? "") === normRoom);
 
     if (!r) {
-      return new Response(JSON.stringify({ status: "not_found", hotel_id, stay_date: stayDate }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ status: "not_found", hotel_id, stay_date: stayDate, snapshot_date: snapshotDate }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const eligible = r.breakfast_count > 0 || r.all_inclusive_count > 0;
