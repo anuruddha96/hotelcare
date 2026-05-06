@@ -493,3 +493,13 @@ function SummaryStat({ label, value, highlight, danger }: { label: string; value
     </div>
   );
 }
+
+function KPI({ label, value, accent }: { label: string; value: string; accent?: "up" | "down" }) {
+  const color = accent === "up" ? "text-green-600" : accent === "down" ? "text-red-600" : "text-foreground";
+  return (
+    <div className="rounded-md border bg-muted/30 p-2 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`text-base font-bold leading-tight ${color}`}>{value}</div>
+    </div>
+  );
+}
