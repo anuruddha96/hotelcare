@@ -1,44 +1,81 @@
-1. Repair the daily overview parsing that is losing guest names
-- Update `supabase/functions/revenue-overview-upload/index.ts` so it identifies the guest columns exactly, instead of matching `arrival`/`departure` against `Date (arrival)` and `Date (departure)`.
-- This will fix rooms like 206/306 where the app currently stores date-like text such as `4. 5.` as `guest_names`, sets `pax` to 0, and still shows breakfast counts.
-- Keep the hotel-specific room-code parsing, but make the row extraction deterministic for turnover/arrival/departure rows.
-- Make re-uploads replace prior snapshot rows for the same hotel/date/file so corrected uploads clean up bad data instead of stacking duplicates.
+## Problem
 
-2. Fix the confirm and partial-confirm edge function failures
-- Update the `/bb` client and `supabase/functions/breakfast-mark-served/index.ts` to accept guest names safely whether they come in as a string or an array.
-- Normalize the payload to the `breakfast_attendance.guest_names text[]` format before insert.
-- Return clearer error messages from the edge function so the UI can show a useful failure reason if something else goes wrong.
-- Keep partial confirmations supported exactly as now, but make them reliable.
+1. **Wrong guest names** for room 306. Today's overview parser picks `ongoing || arrival || departure` as the guest cell. For breakfast on 06/05, the guest who slept in the room last night is the **Departure** or **Ongoing** guest — never **Arrival** (they haven't arrived yet). Room 306 = `(1) DOMINIK FURTWAENGLER` in Departure, but UI shows `(1) Hein Gunter` from Arrival.
+2. The page lacks an at-a-glance view of the day — staff need to see all rooms eligible for breakfast and their status (pending / partial / served / not arrived).
 
-3. Add cross-restaurant visit warning for Hotel Memories Budapest
-- Reuse `breakfast_attendance` records to detect whether the same room was already marked at another restaurant on the same stay date.
-- Extend `breakfast-public-lookup` to return prior visit info with location and timestamp.
-- In `src/pages/Breakfast.tsx`, show a non-blocking warning such as “Already served at Levante at 08:14”.
-- Staff will still be able to continue and confirm service at the current restaurant.
+## Fix 1 — Guest selection priority (parser)
 
-4. Show a clear “breakfast not included” message
-- For reservations found on the selected hotel/date where breakfast and all-inclusive are both 0, show a clear staff message that breakfast is not included and they should check with reception.
-- Keep `not_found` separate from `not_eligible`, so staff can distinguish “no reservation found” from “reservation exists but breakfast is not included”.
+In `supabase/functions/revenue-overview-upload/index.ts`, change the guest cell priority for breakfast-context rows:
 
-5. Make `/bb` multilingual
-- Convert the hardcoded Breakfast page strings to `useTranslation()` keys.
-- Add the needed labels/messages for the app’s supported UI languages currently in code: `en`, `hu`, `es`, `vi`, `mn`, and `az`.
-- Translate the hotel/restaurant selection flow, lookup states, warnings, confirm actions, and served-list text.
+- **Departure** wins (guest checking out today ate breakfast this morning).
+- Then **Ongoing** (mid-stay guest).
+- **Arrival** is ignored for guest_names/pax (they arrive in the afternoon — not at breakfast).
 
-6. Isolate the public `/bb` page from manager notifications
-- Remove `/bb` from the authenticated real-time notification shell, or gate the notification provider by route so `/bb` never subscribes to manager/admin channels.
-- Keep only page-local feedback toasts for breakfast actions.
-- This prevents a logged-in manager from seeing unrelated internal notifications while using the public breakfast screen.
+Status logic stays the same, but `guest_names`/`pax` are derived only from Departure ⟶ Ongoing. If only Arrival is present, `guest_names = null`, `pax = 0`, and `status = "arriving"` (not eligible for today's breakfast — they weren't here last night).
 
-7. Validate the full flow
-- Verify rooms like 206 and 306 show the correct room type, guest names, and pax after the fixed overview file is uploaded again.
-- Verify full confirm and partial confirm both succeed.
-- Verify a second-restaurant visit warning appears for Hotel Memories Budapest and still allows confirmation.
-- Verify `/bb` shows no manager notifications even when a manager session exists in the browser.
+The breakfast/lunch/dinner counts in the row already reflect today's meals correctly so they stay as-is.
 
-Technical notes
-- Root causes identified:
-  - The daily overview uploader currently uses fuzzy header matching, so `arrival` can match `Date (arrival)` and `departure` can match the wrong header. That is why some rooms show dates instead of guest names.
-  - `daily_overview_snapshots.guest_names` is stored as `text`, while `breakfast_attendance.guest_names` expects `text[]`. Confirming from snapshot-backed results likely fails when the client sends a string into the attendance insert.
-  - `/bb` is currently rendered inside the global notification/auth shell, so logged-in manager/admin users can receive unrelated app notifications there.
-- Existing bad snapshot data cannot be corrected from the current stored rows alone. After the parser fix is deployed, the affected daily overview XLSX files should be re-uploaded so the corrected guest data replaces the bad records.
+User must re-upload the affected daily overview xlsx after deploy.
+
+## Fix 2 — Lookup respects the new rule
+
+`breakfast-public-lookup` already returns `guest_names` and `status` from the snapshot, so no logic change needed beyond Fix 1. Add an `arriving` short-circuit: if status is `arriving` and breakfast counts are 0 → return `not_eligible_no_breakfast` with hint "Guest has not arrived yet."
+
+## Fix 3 — Replace "Show today's served list" with a Room Chip Grid
+
+In `src/pages/Breakfast.tsx`, below the lookup card, render a grid of small room chips for the selected hotel + date.
+
+**Data source:** new edge function `breakfast-rooms-overview` (or extend `breakfast-public-lookup` with a `mode: "list"` branch). Returns for the selected hotel/date:
+
+```
+[
+  { room: "306", room_type_label: "Single", pax: 1, breakfast: 1,
+    served: 1, status: "served" | "partial" | "pending" | "arriving" | "no_breakfast",
+    guest_names: [...] }, ...
+]
+```
+
+It joins `daily_overview_snapshots` with aggregated `breakfast_attendance` for that hotel+date and computes status:
+- `arriving` → arrival-only row, no Departure/Ongoing guest
+- `no_breakfast` → breakfast=0 and all_inclusive=0
+- `served` → served_total ≥ breakfast count
+- `partial` → 0 < served_total < breakfast count
+- `pending` → eligible, served_total = 0
+
+**UI:**
+
+```text
+[ 101 ] [ 102 ] [ 103✓ ] [ 104◐ ] [ 105 ] ...
+ pend    pend    served   partial  pend
+```
+
+Color codes (Tailwind):
+- pending: `bg-blue-100 text-blue-900 border-blue-300`
+- partial: `bg-amber-100 text-amber-900 border-amber-400`
+- served: `bg-green-100 text-green-900 border-green-400`
+- arriving: `bg-slate-100 text-slate-500 border-slate-300` (muted, disabled-look)
+- no_breakfast: `bg-rose-50 text-rose-700 border-rose-200`
+
+Chip shows room number + a small icon/dot. Tapping a chip calls the same `lookup()` flow with that room number — opens the existing eligible card so the staff can confirm/partial-confirm.
+
+A small legend row above the grid explains the colors.
+
+**Real-time updates:** subscribe to `breakfast_attendance` Postgres changes filtered by `hotel_id=eq.{selection.hotel_id}` and `stay_date=eq.{date}` via `supabase.channel(...).on("postgres_changes", ...)`. On INSERT/UPDATE/DELETE, refetch the chip list (debounced ~300ms). Also refetch right after a successful `markServed`.
+
+Remove the existing "Show today's served list" toggle and `loadTodayList`/`todayList` state — the chip grid replaces it.
+
+## Translation keys
+
+Add to `src/lib/breakfast-translations.ts` for en/hu/es/vi/mn/az: `roomsTitle`, `legendPending`, `legendPartial`, `legendServed`, `legendArriving`, `legendNoBreakfast`, `notArrivedYet`.
+
+## Files to change
+
+- `supabase/functions/revenue-overview-upload/index.ts` — guest cell priority + pax derivation
+- `supabase/functions/breakfast-public-lookup/index.ts` — `arriving` short-circuit; new `mode: "list"` returning per-room status
+- `src/pages/Breakfast.tsx` — remove served-list toggle; add chip grid + realtime subscription + click-to-open
+- `src/lib/breakfast-translations.ts` — new keys in 6 languages
+
+## Out of scope
+
+- No DB schema change.
+- Re-upload of past xlsx files needed for guest names to correct.
