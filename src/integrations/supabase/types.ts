@@ -549,6 +549,9 @@ export type Database = {
           organization_slug: string | null
           pax: number | null
           room_label: string | null
+          room_number: string | null
+          room_suffix: string | null
+          room_type_code: string | null
           source_filename: string | null
           status: string | null
           uploaded_by: string | null
@@ -570,6 +573,9 @@ export type Database = {
           organization_slug?: string | null
           pax?: number | null
           room_label?: string | null
+          room_number?: string | null
+          room_suffix?: string | null
+          room_type_code?: string | null
           source_filename?: string | null
           status?: string | null
           uploaded_by?: string | null
@@ -591,6 +597,9 @@ export type Database = {
           organization_slug?: string | null
           pax?: number | null
           room_label?: string | null
+          room_number?: string | null
+          room_suffix?: string | null
+          room_type_code?: string | null
           source_filename?: string | null
           status?: string | null
           uploaded_by?: string | null
