@@ -34,6 +34,13 @@ const en: Bundle = {
   hideServed: "Hide today's served list",
   noEntries: "No entries yet (or sign-in required to view).",
   marked: "Marked {n} served for room {room}",
+  notArrivedYet: "Guest has not arrived yet — not eligible for today's breakfast.",
+  roomsTitle: "Rooms today",
+  legendPending: "Pending",
+  legendPartial: "Partial",
+  legendServed: "Served",
+  legendArriving: "Arriving later",
+  legendNoBreakfast: "No breakfast",
   // Restaurants
   restaurant_levante: "Levante",
   restaurant_memories_basement: "Hotel Breakfast",
