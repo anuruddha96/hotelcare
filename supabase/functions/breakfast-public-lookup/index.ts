@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { normalizeRoomNumber, roomTypeLabel } from "../_shared/roomCode.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,33 +27,77 @@ serve(async (req) => {
     const { hotel_id, room, date } = await req.json();
     if (!hotel_id || !room) throw new Error("Missing hotel_id or room");
     const stayDate = (date as string) || new Date().toISOString().slice(0, 10);
+    const normRoom = normalizeRoomNumber(String(room));
 
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+    // 1) Try the latest daily overview snapshot for this hotel (>= stayDate or most recent)
+    const { data: snaps } = await supabase
+      .from("daily_overview_snapshots")
+      .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, lunch, dinner, all_inclusive, business_date, arrival_date, departure_date, status")
+      .eq("hotel_id", hotel_id)
+      .order("business_date", { ascending: false })
+      .limit(500);
+
+    let match: any = null;
+    if (snaps && snaps.length) {
+      const latestDate = snaps[0].business_date;
+      const sameDay = snaps.filter((r: any) => r.business_date === latestDate);
+      match = sameDay.find((r: any) => normalizeRoomNumber(r.room_number ?? "") === normRoom) ?? null;
+    }
+
+    if (match) {
+      const eligible = (match.breakfast ?? 0) > 0 || (match.all_inclusive ?? 0) > 0;
+      const { data: served } = await supabase
+        .from("breakfast_attendance")
+        .select("served_count, location, created_at")
+        .eq("hotel_id", hotel_id)
+        .eq("stay_date", stayDate)
+        .eq("room_number", match.room_number);
+      const servedTotal = (served ?? []).reduce((a: number, x: any) => a + (x.served_count || 0), 0);
+      return new Response(JSON.stringify({
+        status: eligible ? "eligible" : "not_eligible",
+        source: "daily_overview",
+        hotel_id, stay_date: stayDate,
+        room: match.room_number,
+        room_type_code: match.room_type_code,
+        room_type_label: roomTypeLabel(match.room_type_code),
+        room_suffix: match.room_suffix,
+        pax: match.pax,
+        guest_names: match.guest_names,
+        breakfast: match.breakfast,
+        lunch: match.lunch,
+        dinner: match.dinner,
+        all_inclusive: match.all_inclusive,
+        already_served: servedTotal,
+        served_records: served ?? [],
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // 2) Fallback to legacy breakfast_roster (exact room_number match)
     const { data: rosterRows } = await supabase
       .from("breakfast_roster")
       .select("room_number, guest_names, pax, breakfast_count, lunch_count, dinner_count, all_inclusive_count, source_notes")
       .eq("hotel_id", hotel_id)
-      .eq("stay_date", stayDate)
-      .ilike("room_number", String(room).trim());
+      .eq("stay_date", stayDate);
+    const r: any = (rosterRows ?? []).find((x: any) => normalizeRoomNumber(x.room_number ?? "") === normRoom);
 
-    if (!rosterRows || rosterRows.length === 0) {
+    if (!r) {
       return new Response(JSON.stringify({ status: "not_found", hotel_id, stay_date: stayDate }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const r: any = rosterRows[0];
-    const eligible = r.breakfast_count > 0 || r.all_inclusive_count > 0;
 
-    // Already-served count for this room/date/hotel
+    const eligible = r.breakfast_count > 0 || r.all_inclusive_count > 0;
     const { data: served } = await supabase
       .from("breakfast_attendance")
       .select("served_count, location, created_at")
       .eq("hotel_id", hotel_id)
       .eq("stay_date", stayDate)
-      .ilike("room_number", String(room).trim());
+      .eq("room_number", r.room_number);
     const servedTotal = (served ?? []).reduce((a: number, x: any) => a + (x.served_count || 0), 0);
 
     return new Response(JSON.stringify({
       status: eligible ? "eligible" : "not_eligible",
+      source: "roster",
       hotel_id, stay_date: stayDate,
       room: r.room_number, pax: r.pax, guest_names: r.guest_names,
       breakfast: r.breakfast_count, lunch: r.lunch_count, dinner: r.dinner_count,
