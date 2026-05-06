@@ -60,8 +60,8 @@ export default function Breakfast() {
   const [result, setResult] = useState<any>(null);
   const [served, setServed] = useState(0);
   const [savingMark, setSavingMark] = useState(false);
-  const [todayList, setTodayList] = useState<any[]>([]);
-  const [showList, setShowList] = useState(false);
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(false);
 
   useEffect(() => { setResult(null); }, [selection, hotelCode]);
 
