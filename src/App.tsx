@@ -52,7 +52,23 @@ const TenantRouter = () => {
   );
 };
 
-const App = () => (
+// Public /bb page must NOT mount Auth/Notification providers,
+// so a logged-in manager doesn't get unrelated alerts on the public screen.
+const PublicBreakfastApp = () => (
+  <TranslationProvider>
+    <TooltipProvider>
+      <Toaster />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/bb" element={<Breakfast />} />
+          <Route path="/bb/:hotelCode" element={<Breakfast />} />
+        </Routes>
+      </BrowserRouter>
+    </TooltipProvider>
+  </TranslationProvider>
+);
+
+const MainApp = () => (
   <QueryClientProvider client={queryClient}>
     <TranslationProvider>
       <AuthProvider>
@@ -67,18 +83,14 @@ const App = () => (
                   {/* Legacy routes - redirect to rdhotels organization */}
                   <Route path="/" element={<Navigate to="/rdhotels" replace />} />
                   <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
-                  
+
                   {/* Guest minibar - public, no auth needed */}
                   <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   <Route path="/:organizationSlug/minibar/:roomToken" element={<GuestMinibar />} />
-                  
-                  {/* Public breakfast lookup (no auth) */}
-                  <Route path="/bb" element={<Breakfast />} />
-                  <Route path="/bb/:hotelCode" element={<Breakfast />} />
 
                   {/* Multi-tenant routes */}
                   <Route path="/:organizationSlug/*" element={<TenantRouter />} />
-                  
+
                   {/* Catch-all */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>
@@ -90,5 +102,14 @@ const App = () => (
     </TranslationProvider>
   </QueryClientProvider>
 );
+
+const App = () => {
+  // Route /bb completely outside the authenticated app shell so the public
+  // breakfast screen never subscribes to manager/admin realtime channels.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/bb")) {
+    return <PublicBreakfastApp />;
+  }
+  return <MainApp />;
+};
 
 export default App;
