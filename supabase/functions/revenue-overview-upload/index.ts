@@ -160,15 +160,14 @@ serve(async (req) => {
     const cDeparture = findCol(exactAny(["departure"]));
     const cArrival = findCol(exactAny(["arrival"]));
     const cOngoing = findCol(exactAny(["ongoing"]));
-    const cBre = colOf("bre");
-    const cLun = colOf("lun");
-    const cDin = colOf("din");
-    const cAll = colOf("all");
-    const cSta = colOf("sta");
+    const cBre = findCol(includesAny(["bre"]));
+    const cLun = findCol(includesAny(["lun"]));
+    const cDin = findCol(includesAny(["din"]));
+    const cAll = findCol(includesAny(["all"]));
+    const cSta = findCol(includesAny(["sta"]));
     const cDep2 = (() => {
-      // "Dep" in housekeeping section: last col in row containing single "dep"
       for (let i = hdr.length - 1; i >= 0; i--) {
-        if (hdr[i].trim() === "dep") return i;
+        if (hdr[i] === "dep") return i;
       }
       return -1;
     })();
