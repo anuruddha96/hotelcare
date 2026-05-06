@@ -57,8 +57,7 @@ serve(async (req) => {
       room: r.room_number, pax: r.pax, guest_names: r.guest_names,
       breakfast: r.breakfast_count, lunch: r.lunch_count, dinner: r.dinner_count,
       all_inclusive: r.all_inclusive_count,
-      departure_date: r.departure_date ?? null,
-      arrival_date: r.arrival_date ?? null,
+      notes: r.source_notes ?? null,
       already_served: servedTotal,
       served_records: served ?? [],
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
