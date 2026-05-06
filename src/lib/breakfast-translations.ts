@@ -1,0 +1,192 @@
+// Public /bb page translations. Kept self-contained so we don't have to mutate
+// the giant useTranslation bundle. Falls back to English when a key is missing.
+
+export type BBLang = "en" | "hu" | "es" | "vi" | "mn" | "az";
+
+type Bundle = Record<string, string>;
+
+const en: Bundle = {
+  title: "Breakfast Verification",
+  selectHotel: "Select your hotel to begin.",
+  selectRestaurant: "Select your restaurant.",
+  back: "Back",
+  change: "Change",
+  roomNumber: "Room number",
+  date: "Date",
+  check: "Check",
+  eligible: "Eligible for breakfast",
+  notEligibleNoBreakfast: "Breakfast not included in this reservation",
+  notEligibleHelp: "Please ask the guest to check with reception.",
+  notFound: "No reservation found for this room/date",
+  invalidCode: "This hotel link is no longer valid. Please scan a fresh QR.",
+  pax: "Pax",
+  breakfasts: "Breakfasts",
+  allInclusive: "All-inclusive",
+  alreadyServed: "Already marked today",
+  guests: "Guests",
+  markHowMany: "Mark how many served now",
+  confirm: "Confirm",
+  shabbat: "Shabbat",
+  snapshotWarning: "No overview uploaded for {date}. Showing data from {snapshot}.",
+  alreadyVisited: "Already served at {location} at {time}",
+  alreadyVisitedHelp: "You may still serve this guest if needed.",
+  showServed: "Show today's served list",
+  hideServed: "Hide today's served list",
+  noEntries: "No entries yet (or sign-in required to view).",
+  marked: "Marked {n} served for room {room}",
+  // Restaurants
+  restaurant_levante: "Levante",
+  restaurant_memories_basement: "Hotel Breakfast",
+  restaurant_main: "Breakfast",
+};
+
+const hu: Bundle = {
+  title: "Reggeli ellenőrzés",
+  selectHotel: "Válassza ki a szállodáját a folytatáshoz.",
+  selectRestaurant: "Válassza ki az éttermet.",
+  back: "Vissza",
+  change: "Módosítás",
+  roomNumber: "Szobaszám",
+  date: "Dátum",
+  check: "Ellenőrzés",
+  eligible: "Jogosult reggelire",
+  notEligibleNoBreakfast: "A foglalás nem tartalmaz reggelit",
+  notEligibleHelp: "Kérjük, a vendég egyeztessen a recepcióval.",
+  notFound: "Nem található foglalás erre a szobára/dátumra",
+  invalidCode: "Ez a hotel link már nem érvényes. Kérjük, olvasson be új QR kódot.",
+  pax: "Fő",
+  breakfasts: "Reggelik",
+  allInclusive: "All-inclusive",
+  alreadyServed: "Ma már megjelölt",
+  guests: "Vendégek",
+  markHowMany: "Hány vendéget szolgáltak ki most",
+  confirm: "Megerősítés",
+  shabbat: "Sabbat",
+  snapshotWarning: "{date} dátumra nincs feltöltve áttekintés. {snapshot} adatait mutatjuk.",
+  alreadyVisited: "Már kiszolgálva: {location}, {time}",
+  alreadyVisitedHelp: "Szükség esetén ettől függetlenül kiszolgálhatja a vendéget.",
+  showServed: "Mai kiszolgált lista mutatása",
+  hideServed: "Mai kiszolgált lista elrejtése",
+  noEntries: "Még nincs bejegyzés (vagy bejelentkezés szükséges a megtekintéshez).",
+  marked: "{n} fő kiszolgálva a {room} szobához",
+  restaurant_levante: "Levante",
+  restaurant_memories_basement: "Hotel reggeli",
+  restaurant_main: "Reggeli",
+};
+
+const es: Bundle = {
+  title: "Verificación de desayuno",
+  selectHotel: "Seleccione su hotel para comenzar.",
+  selectRestaurant: "Seleccione su restaurante.",
+  back: "Atrás",
+  change: "Cambiar",
+  roomNumber: "Número de habitación",
+  date: "Fecha",
+  check: "Comprobar",
+  eligible: "Elegible para desayuno",
+  notEligibleNoBreakfast: "El desayuno no está incluido en esta reserva",
+  notEligibleHelp: "Por favor, pida al huésped que consulte en recepción.",
+  notFound: "No se encontró reserva para esta habitación/fecha",
+  invalidCode: "Este enlace del hotel ya no es válido. Escanee un QR nuevo.",
+  pax: "Personas",
+  breakfasts: "Desayunos",
+  allInclusive: "Todo incluido",
+  alreadyServed: "Ya marcado hoy",
+  guests: "Huéspedes",
+  markHowMany: "Marcar cuántos servidos ahora",
+  confirm: "Confirmar",
+  shabbat: "Shabbat",
+  snapshotWarning: "No hay overview subido para {date}. Mostrando datos del {snapshot}.",
+  alreadyVisited: "Ya servido en {location} a las {time}",
+  alreadyVisitedHelp: "Puede servir al huésped igualmente si es necesario.",
+  showServed: "Mostrar lista de servidos hoy",
+  hideServed: "Ocultar lista de servidos hoy",
+  noEntries: "Sin entradas todavía (o se requiere inicio de sesión).",
+  marked: "{n} servidos marcados para habitación {room}",
+  restaurant_levante: "Levante",
+  restaurant_memories_basement: "Desayuno del hotel",
+  restaurant_main: "Desayuno",
+};
+
+const vi: Bundle = {
+  title: "Xác minh bữa sáng",
+  selectHotel: "Chọn khách sạn của bạn để bắt đầu.",
+  selectRestaurant: "Chọn nhà hàng của bạn.",
+  back: "Quay lại",
+  change: "Thay đổi",
+  roomNumber: "Số phòng",
+  date: "Ngày",
+  check: "Kiểm tra",
+  eligible: "Đủ điều kiện ăn sáng",
+  notEligibleNoBreakfast: "Đặt phòng không bao gồm bữa sáng",
+  notEligibleHelp: "Vui lòng yêu cầu khách kiểm tra với lễ tân.",
+  notFound: "Không tìm thấy đặt phòng cho phòng/ngày này",
+  invalidCode: "Liên kết khách sạn này không còn hợp lệ. Vui lòng quét QR mới.",
+  pax: "Khách",
+  breakfasts: "Bữa sáng",
+  allInclusive: "Trọn gói",
+  alreadyServed: "Đã đánh dấu hôm nay",
+  guests: "Khách",
+  markHowMany: "Đánh dấu số khách đã phục vụ",
+  confirm: "Xác nhận",
+  shabbat: "Shabbat",
+  snapshotWarning: "Chưa có overview cho {date}. Hiển thị dữ liệu từ {snapshot}.",
+  alreadyVisited: "Đã phục vụ tại {location} lúc {time}",
+  alreadyVisitedHelp: "Vẫn có thể phục vụ khách nếu cần.",
+  showServed: "Hiển thị danh sách đã phục vụ hôm nay",
+  hideServed: "Ẩn danh sách đã phục vụ hôm nay",
+  noEntries: "Chưa có mục nào (hoặc cần đăng nhập để xem).",
+  marked: "Đã đánh dấu {n} phục vụ cho phòng {room}",
+  restaurant_levante: "Levante",
+  restaurant_memories_basement: "Bữa sáng khách sạn",
+  restaurant_main: "Bữa sáng",
+};
+
+const mn: Bundle = {
+  title: "Өглөөний цайны баталгаажуулалт",
+  selectHotel: "Эхлэхийн тулд зочид буудлаа сонгоно уу.",
+  selectRestaurant: "Ресторанаа сонгоно уу.",
+  back: "Буцах",
+  change: "Өөрчлөх",
+  roomNumber: "Өрөөний дугаар",
+  date: "Огноо",
+  check: "Шалгах",
+  eligible: "Өглөөний цайнд эрхтэй",
+  notEligibleNoBreakfast: "Захиалгад өглөөний цай ороогүй",
+  notEligibleHelp: "Зочиноос ресепшнтэй холбогдохыг хүсэлт гаргана уу.",
+  notFound: "Энэ өрөө/огноонд захиалга олдсонгүй",
+  invalidCode: "Энэ зочид буудлын холбоос хүчингүй. Шинэ QR уншуулна уу.",
+  pax: "Хүн",
+  breakfasts: "Өглөөний цай",
+  allInclusive: "Бүгд багтсан",
+  alreadyServed: "Өнөөдөр аль хэдийн тэмдэглэсэн",
+  guests: "Зочид",
+  markHowMany: "Хэдэн хүнд үйлчилснийг тэмдэглэх",
+  confirm: "Баталгаажуулах",
+  shabbat: "Шаббат",
+  snapshotWarning: "{date}-д overview оруулаагүй. {snapshot}-н өгөгдлийг харуулж байна.",
+  alreadyVisited: "{location}-д {time} цагт аль хэдийн үйлчлэгдсэн",
+  alreadyVisitedHelp: "Шаардлагатай бол зочинд үйлчилж болно.",
+  showServed: "Өнөөдрийн үйлчилгээний жагсаалт харах",
+  hideServed: "Өнөөдрийн үйлчилгээний жагсаалт нуух",
+  noEntries: "Бүртгэл алга (эсвэл нэвтрэх шаардлагатай).",
+  marked: "{room} өрөөнд {n} үйлчилснийг тэмдэглэв",
+  restaurant_levante: "Levante",
+  restaurant_memories_basement: "Зочид буудлын өглөөний цай",
+  restaurant_main: "Өглөөний цай",
+};
+
+const az: Bundle = { ...en }; // fallback to English for Azerbaijani
+
+const BUNDLES: Record<BBLang, Bundle> = { en, hu, es, vi, mn, az };
+
+export function bbT(lang: string | undefined, key: string, vars?: Record<string, string | number>): string {
+  const l = (BUNDLES[lang as BBLang] ? lang : "en") as BBLang;
+  let s = BUNDLES[l][key] ?? en[key] ?? key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      s = s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+    }
+  }
+  return s;
+}
