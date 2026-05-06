@@ -6,18 +6,50 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Coffee, Search, CheckCircle2, RefreshCw, MapPin } from "lucide-react";
+import { Coffee, Search, CheckCircle2, RefreshCw, MapPin, Building2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
-const LOCATIONS = [
-  { key: "memories_basement", label: "Memories Basement", hotel_id: "memories-budapest" },
-  { key: "levante", label: "Levante", hotel_id: "mika-downtown" },
+interface HotelDef {
+  hotel_id: string;
+  label: string;
+  restaurants: { key: string; label: string }[];
+}
+
+const HOTELS: HotelDef[] = [
+  {
+    hotel_id: "memories-budapest",
+    label: "Hotel Memories Budapest",
+    restaurants: [
+      { key: "levante", label: "Levante" },
+      { key: "memories_basement", label: "Hotel Breakfast" },
+    ],
+  },
+  { hotel_id: "mika-downtown", label: "Hotel Mika Downtown", restaurants: [{ key: "main", label: "Breakfast" }] },
+  { hotel_id: "ottofiori", label: "Hotel Ottofiori", restaurants: [{ key: "main", label: "Breakfast" }] },
+  { hotel_id: "gozsdu-court", label: "Gozsdu Court Budapest", restaurants: [{ key: "main", label: "Breakfast" }] },
 ];
-const STORAGE_KEY = "bb_location_v1";
+
+const STORAGE_KEY = "bb_selection_v2";
+
+interface Selection {
+  hotel_id: string;
+  hotel_label: string;
+  location_key: string;
+  location_label: string;
+}
+
+function loadSelection(): Selection | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
 
 export default function Breakfast() {
   const { hotelCode } = useParams<{ hotelCode?: string }>();
-  const [location, setLocation] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY));
+  const [selection, setSelection] = useState<Selection | null>(loadSelection);
+  const [pickHotel, setPickHotel] = useState<HotelDef | null>(null);
   const [room, setRoom] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
@@ -27,11 +59,34 @@ export default function Breakfast() {
   const [todayList, setTodayList] = useState<any[]>([]);
   const [showList, setShowList] = useState(false);
 
-  const loc = LOCATIONS.find((l) => l.key === location);
+  useEffect(() => { setResult(null); }, [selection, hotelCode]);
 
-  useEffect(() => { setResult(null); }, [location, hotelCode]);
+  function chooseHotel(h: HotelDef) {
+    if (h.restaurants.length === 1) {
+      const r = h.restaurants[0];
+      const sel: Selection = { hotel_id: h.hotel_id, hotel_label: h.label, location_key: r.key, location_label: r.label };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
+      setSelection(sel);
+      setPickHotel(null);
+    } else {
+      setPickHotel(h);
+    }
+  }
 
-  // Legacy QR flow: if hotelCode provided, use legacy lookup
+  function chooseRestaurant(h: HotelDef, key: string, label: string) {
+    const sel: Selection = { hotel_id: h.hotel_id, hotel_label: h.label, location_key: key, location_label: label };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
+    setSelection(sel);
+    setPickHotel(null);
+  }
+
+  function changeSelection() {
+    localStorage.removeItem(STORAGE_KEY);
+    setSelection(null);
+    setPickHotel(null);
+    setResult(null);
+  }
+
   async function lookup() {
     setBusy(true);
     setResult(null);
@@ -45,9 +100,9 @@ export default function Breakfast() {
       setServed(data?.breakfast || data?.all_inclusive || 0);
       return;
     }
-    if (!loc) { setBusy(false); return; }
+    if (!selection) { setBusy(false); return; }
     const { data, error } = await supabase.functions.invoke("breakfast-public-lookup", {
-      body: { hotel_id: loc.hotel_id, room: room.trim(), date },
+      body: { hotel_id: selection.hotel_id, room: room.trim(), date },
     });
     setBusy(false);
     if (error) { setResult({ status: "error", message: error.message }); return; }
@@ -57,12 +112,12 @@ export default function Breakfast() {
   }
 
   async function markServed() {
-    if (!loc || !result || result.status !== "eligible") return;
+    if (!selection || !result || result.status !== "eligible") return;
     setSavingMark(true);
     const { error } = await supabase.functions.invoke("breakfast-mark-served", {
       body: {
-        hotel_id: loc.hotel_id,
-        location: loc.key,
+        hotel_id: selection.hotel_id,
+        location: selection.location_key,
         stay_date: date,
         room_number: result.room,
         served_count: served,
@@ -78,25 +133,20 @@ export default function Breakfast() {
   }
 
   async function loadTodayList() {
-    if (!loc) return;
-    // Public list: requires viewer role; for staff use a server function instead.
+    if (!selection) return;
     const { data, error } = await supabase
       .from("breakfast_attendance")
       .select("room_number, served_count, guest_names, created_at")
-      .eq("hotel_id", loc.hotel_id)
-      .eq("location", loc.key)
+      .eq("hotel_id", selection.hotel_id)
+      .eq("location", selection.location_key)
       .eq("stay_date", date)
       .order("created_at", { ascending: false });
-    if (error) {
-      // Non-fatal — staff may not be signed in
-      setTodayList([]);
-      return;
-    }
+    if (error) { setTodayList([]); return; }
     setTodayList(data ?? []);
   }
 
-  // Location picker (public, no auth)
-  if (!hotelCode && !location) {
+  // ── Hotel picker ──
+  if (!hotelCode && !selection && !pickHotel) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -106,16 +156,11 @@ export default function Breakfast() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">Select your breakfast location to begin.</p>
+            <p className="text-sm text-muted-foreground">Select your hotel to begin.</p>
             <div className="grid gap-2">
-              {LOCATIONS.map((l) => (
-                <Button
-                  key={l.key}
-                  variant="outline"
-                  className="h-16 text-base justify-start"
-                  onClick={() => { localStorage.setItem(STORAGE_KEY, l.key); setLocation(l.key); }}
-                >
-                  <MapPin className="h-5 w-5 mr-2" /> {l.label}
+              {HOTELS.map((h) => (
+                <Button key={h.hotel_id} variant="outline" className="h-16 text-base justify-start" onClick={() => chooseHotel(h)}>
+                  <Building2 className="h-5 w-5 mr-2" /> {h.label}
                 </Button>
               ))}
             </div>
@@ -125,6 +170,36 @@ export default function Breakfast() {
     );
   }
 
+  // ── Restaurant picker (Memories only) ──
+  if (!hotelCode && !selection && pickHotel) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-xl">
+              <Coffee className="h-6 w-6" /> {pickHotel.label}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">Select your restaurant.</p>
+            <div className="grid gap-2">
+              {pickHotel.restaurants.map((r) => (
+                <Button key={r.key} variant="outline" className="h-16 text-base justify-start" onClick={() => chooseRestaurant(pickHotel, r.key, r.label)}>
+                  <MapPin className="h-5 w-5 mr-2" /> {r.label}
+                </Button>
+              ))}
+              <Button variant="ghost" size="sm" onClick={() => setPickHotel(null)}>
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const showSnapshotWarning = result?.snapshot_date && result.snapshot_date !== date;
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
@@ -132,12 +207,13 @@ export default function Breakfast() {
           <CardTitle className="flex items-center gap-2 text-xl">
             <Coffee className="h-6 w-6" /> Breakfast Verification
           </CardTitle>
-          {loc && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3" />{loc.label}</span>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { localStorage.removeItem(STORAGE_KEY); setLocation(null); }}>
-                Change
-              </Button>
+          {selection && (
+            <div className="flex items-center justify-between text-sm pt-1">
+              <div className="flex flex-col">
+                <span className="font-semibold flex items-center gap-1"><Building2 className="h-3 w-3" />{selection.hotel_label}</span>
+                <span className="text-muted-foreground flex items-center gap-1 text-xs"><MapPin className="h-3 w-3" />{selection.location_label}</span>
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={changeSelection}>Change</Button>
             </div>
           )}
         </CardHeader>
@@ -162,6 +238,11 @@ export default function Breakfast() {
 
           {result && (
             <div className="mt-2 rounded-lg border p-4 space-y-2">
+              {showSnapshotWarning && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                  No overview uploaded for {date}. Showing data from {result.snapshot_date}.
+                </div>
+              )}
               {result.status === "eligible" && (
                 <>
                   <Badge className="bg-green-600">Eligible for breakfast</Badge>
@@ -226,7 +307,7 @@ export default function Breakfast() {
             </div>
           )}
 
-          {!hotelCode && loc && (
+          {!hotelCode && selection && (
             <div className="pt-2 border-t">
               <Button variant="ghost" size="sm" className="w-full" onClick={() => { setShowList(!showList); if (!showList) void loadTodayList(); }}>
                 <RefreshCw className="h-3 w-3 mr-1" /> {showList ? "Hide" : "Show"} today's served list
