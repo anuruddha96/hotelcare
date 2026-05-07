@@ -527,6 +527,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'control_manager': return 'Control Manager';
       case 'finance_manager': return 'Finance Manager';
       case 'top_management_manager': return 'Top Management Manager';
+      case 'breakfast_staff': return 'Breakfast Staff';
       default: return role.replace('_', ' ').toUpperCase();
     }
   };
