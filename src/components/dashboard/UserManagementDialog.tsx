@@ -755,6 +755,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                                  <SelectItem value="control_manager">Control Manager</SelectItem>
                                  <SelectItem value="finance_manager">Finance Manager</SelectItem>
                                  <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                                 <SelectItem value="breakfast_staff">Breakfast Staff</SelectItem>
                                  <SelectItem value="admin">Admin</SelectItem>
                                  <SelectItem value="top_management">Top Management</SelectItem>
                                </>
