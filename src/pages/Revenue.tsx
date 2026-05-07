@@ -365,9 +365,9 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
 
   return (
     <Dialog open={!!hotel} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Upload for {hotel?.name}</DialogTitle>
+          <DialogTitle className="text-base sm:text-lg pr-8 break-words">Upload for {hotel?.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="flex gap-2 text-sm flex-wrap">

@@ -27,6 +27,11 @@ const Index = () => {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
   }
 
+  // Breakfast staff: dedicated landing on /bb (public breakfast tool)
+  if (profile?.role === 'breakfast_staff') {
+    return <Navigate to="/bb" replace />;
+  }
+
   // Show hotel picker once per session for managers/admins
   if (profile && MANAGER_ROLES.includes(profile.role) && !hotelSelected) {
     return <HotelSelectionScreen onHotelSelected={() => setHotelSelected(true)} />;

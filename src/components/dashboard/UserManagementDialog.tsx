@@ -37,7 +37,7 @@ interface Profile {
   full_name: string;
   nickname?: string;
   phone_number?: string;
-  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager';
+  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager' | 'breakfast_staff';
   created_at: string;
   assigned_hotel?: string;
   is_super_admin?: boolean;
@@ -506,6 +506,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'control_manager': return 'bg-emerald-600 text-white';
       case 'finance_manager': return 'bg-teal-600 text-white';
       case 'top_management_manager': return 'bg-violet-600 text-white';
+      case 'breakfast_staff': return 'bg-amber-500 text-white';
       default: return 'bg-gray-500 text-white';
     }
   };
@@ -526,6 +527,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'control_manager': return 'Control Manager';
       case 'finance_manager': return 'Finance Manager';
       case 'top_management_manager': return 'Top Management Manager';
+      case 'breakfast_staff': return 'Breakfast Staff';
       default: return role.replace('_', ' ').toUpperCase();
     }
   };
@@ -755,6 +757,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                                  <SelectItem value="control_manager">Control Manager</SelectItem>
                                  <SelectItem value="finance_manager">Finance Manager</SelectItem>
                                  <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                                 <SelectItem value="breakfast_staff">Breakfast Staff</SelectItem>
                                  <SelectItem value="admin">Admin</SelectItem>
                                  <SelectItem value="top_management">Top Management</SelectItem>
                                </>
@@ -993,6 +996,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       <SelectItem value="control_manager">Control Manager</SelectItem>
                       <SelectItem value="finance_manager">Finance Manager</SelectItem>
                       <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                      <SelectItem value="breakfast_staff">Breakfast Staff</SelectItem>
                       <SelectItem value="admin">Admin</SelectItem>
                       <SelectItem value="top_management">Top Management</SelectItem>
                     </SelectContent>
