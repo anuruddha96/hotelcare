@@ -506,6 +506,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'control_manager': return 'bg-emerald-600 text-white';
       case 'finance_manager': return 'bg-teal-600 text-white';
       case 'top_management_manager': return 'bg-violet-600 text-white';
+      case 'breakfast_staff': return 'bg-amber-500 text-white';
       default: return 'bg-gray-500 text-white';
     }
   };
