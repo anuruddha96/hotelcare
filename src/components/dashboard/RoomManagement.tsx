@@ -357,7 +357,32 @@ export function RoomManagement() {
       setLoadingPrevioPreview(false);
     }
   };
-...
+
+  const fetchImportHistory = async () => {
+    if (profile?.assigned_hotel !== 'previo-test') return;
+
+    setLoadingImportHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('pms_sync_history')
+        .select('id, created_at, sync_status, error_message, data')
+        .eq('hotel_id', 'previo-test')
+        .eq('sync_type', 'rooms')
+        .eq('direction', 'from_previo')
+        .contains('data', { operation: 'import_rooms' })
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      setImportHistory((data as PrevioImportHistoryEntry[]) || []);
+    } catch (error: any) {
+      console.error('Import history fetch failed:', error);
+    } finally {
+      setLoadingImportHistory(false);
+    }
+  };
+
   const handleImportFromPrevio = async () => {
     setImportingPrevio(true);
     const loadingToast = toast.loading('Importing rooms from Previo…');
