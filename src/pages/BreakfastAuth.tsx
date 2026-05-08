@@ -53,13 +53,13 @@ export default function BreakfastAuth() {
       return;
     }
 
-    const { data: profile } = await supabase
+    const { data: profile } = await (supabase as any)
       .from("profiles")
       .select("role")
       .eq("user_id", data.user.id)
       .maybeSingle();
 
-    if (profile?.role !== "breakfast_staff") {
+    if ((profile as any)?.role !== "breakfast_staff") {
       await supabase.auth.signOut();
       setBusy(false);
       toast.error("This sign-in is only for breakfast staff. Please use the main app.");
