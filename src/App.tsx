@@ -62,6 +62,7 @@ const PublicBreakfastApp = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/bb" element={<Breakfast />} />
+          <Route path="/bb/auth" element={<BreakfastAuth />} />
           <Route path="/bb/:hotelCode" element={<Breakfast />} />
         </Routes>
       </BrowserRouter>
