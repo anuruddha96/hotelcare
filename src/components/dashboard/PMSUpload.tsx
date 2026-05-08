@@ -13,6 +13,7 @@ import { CheckoutRoomsView } from './CheckoutRoomsView';
 import { PMSUploadHistoryDialog } from './PMSUploadHistoryDialog';
 import { PMSSyncHistoryDialog } from './PMSSyncHistoryDialog';
 import * as XLSX from 'xlsx';
+import { formatDistanceToNow } from 'date-fns';
 import {
   AlertDialog,
   AlertDialogAction,
