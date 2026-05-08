@@ -38,20 +38,28 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Look up the HotelCare hotel_id + per-hotel credentials secret from the Previo hotel ID
-    const { data: pmsConfig } = await supabase
+    // Accept either the Previo numeric hotel ID OR the HotelCare slug.
+    // If the value is non-numeric, look up by hotel_id; otherwise by pms_hotel_id.
+    const isNumeric = /^\d+$/.test(hotelId);
+    const lookupQuery = supabase
       .from('pms_configurations')
-      .select('hotel_id, credentials_secret_name')
-      .eq('pms_hotel_id', hotelId)
-      .eq('pms_type', 'previo')
-      .single();
+      .select('hotel_id, pms_hotel_id, credentials_secret_name')
+      .eq('pms_type', 'previo');
+    const { data: pmsConfig, error: cfgErr } = isNumeric
+      ? await lookupQuery.eq('pms_hotel_id', hotelId).maybeSingle()
+      : await lookupQuery.eq('hotel_id', hotelId).maybeSingle();
 
+    if (cfgErr) {
+      console.error('PMS config lookup error:', cfgErr);
+      throw new Error(`Config lookup failed: ${cfgErr.message}`);
+    }
     if (!pmsConfig) {
-      throw new Error(`No PMS configuration found for Previo hotel ID: ${hotelId}`);
+      throw new Error(`No Previo PMS configuration found for: ${hotelId}`);
     }
 
     const hotelCareHotelId = pmsConfig.hotel_id;
-    console.log(`Syncing rooms from Previo REST API for Previo ID: ${hotelId}, HotelCare ID: ${hotelCareHotelId}`);
+    const previoNumericId = String(pmsConfig.pms_hotel_id || '');
+    console.log(`Syncing rooms from Previo REST API for Previo ID: ${previoNumericId}, HotelCare ID: ${hotelCareHotelId}`);
 
     // Resolve credentials: prefer per-hotel secret, fall back to legacy global env
     let previoUser = '';
