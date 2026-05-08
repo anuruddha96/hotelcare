@@ -15,6 +15,14 @@ const Index = () => {
     () => sessionStorage.getItem('hotel_selected') === 'true'
   );
 
+  // Breakfast staff: hard-redirect to public /bb so PublicBreakfastApp mounts
+  // (no manager realtime/notification providers).
+  useEffect(() => {
+    if (profile?.role === 'breakfast_staff' && !window.location.pathname.startsWith('/bb')) {
+      window.location.replace('/bb');
+    }
+  }, [profile?.role]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -27,13 +35,6 @@ const Index = () => {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
   }
 
-  // Breakfast staff: hard-redirect to public /bb so PublicBreakfastApp mounts
-  // (no manager realtime/notification providers).
-  useEffect(() => {
-    if (profile?.role === 'breakfast_staff' && !window.location.pathname.startsWith('/bb')) {
-      window.location.replace('/bb');
-    }
-  }, [profile?.role]);
   if (profile?.role === 'breakfast_staff') {
     return (
       <div className="min-h-screen flex items-center justify-center">
