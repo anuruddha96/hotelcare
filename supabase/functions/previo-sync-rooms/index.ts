@@ -271,14 +271,8 @@ serve(async (req) => {
       return statusMap[statusId] || 'dirty';
     };
 
-    // Get authorization header
-    const authHeader = req.headers.get('Authorization');
-    let userId: string | null = null;
-    
-    if (authHeader) {
-      const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
-      userId = user?.id || null;
-    }
+    // (authHeader/userId already resolved earlier)
+
 
     const syncResults = {
       total: roomsData.length,
