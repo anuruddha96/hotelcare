@@ -137,6 +137,28 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
           </p>
         </div>
 
+        {isAdmin && orgs.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Building className="h-4 w-4" /> Organization
+            </label>
+            <Select
+              value={organizationSlug || ''}
+              onValueChange={handleSwitchOrg}
+              disabled={switchingOrg}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select organization" />
+              </SelectTrigger>
+              <SelectContent>
+                {orgs.map((o) => (
+                  <SelectItem key={o.id} value={o.slug}>{o.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {hotels.length === 0 ? (
           <div className="text-center space-y-4 py-8">
             <p className="text-muted-foreground">No hotels found. Tap to retry.</p>
