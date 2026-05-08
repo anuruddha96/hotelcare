@@ -17,14 +17,6 @@ serve(async (req) => {
     
     console.log('Updating Previo room status via REST API:', { roomId, status });
 
-    // Get Previo API credentials from environment
-    const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
-    const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
-
-    if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
-      throw new Error('Previo API credentials not configured');
-    }
-
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -89,15 +81,32 @@ serve(async (req) => {
 
     console.log(`Updating room status in Previo REST API - Room: ${room.room_number}, Status: ${previoStatus}`);
 
-    // Create Basic Auth header
-    const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
+    // Resolve credentials: prefer per-hotel secret, fall back to legacy global env
+    let previoUser = '';
+    let previoPass = '';
+    if ((pmsConfig as any).credentials_secret_name) {
+      const combined = Deno.env.get((pmsConfig as any).credentials_secret_name) || '';
+      const idx = combined.indexOf(':');
+      if (idx > 0) {
+        previoUser = combined.slice(0, idx);
+        previoPass = combined.slice(idx + 1);
+      }
+    }
+    if (!previoUser || !previoPass) {
+      previoUser = Deno.env.get('PREVIO_API_USER') || '';
+      previoPass = Deno.env.get('PREVIO_API_PASSWORD') || '';
+    }
+    if (!previoUser || !previoPass) {
+      throw new Error('Previo API credentials not configured');
+    }
+    const auth = btoa(`${previoUser}:${previoPass}`);
 
     // Call Previo REST API to update room status
     const previoResponse = await fetch('https://api.previo.app/rest/housekeeping/room-status', {
       method: 'PUT',
       headers: {
         'Authorization': `Basic ${auth}`,
-        'X-Previo-Hotel-ID': pmsConfig.previo_hotel_id,
+        'X-Previo-Hotel-ID': String((pmsConfig as any).pms_hotel_id || ''),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

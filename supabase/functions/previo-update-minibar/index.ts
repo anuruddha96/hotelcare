@@ -25,14 +25,6 @@ serve(async (req) => {
       throw new Error('Hotel ID, room number, and items array are required');
     }
 
-    // Get Previo API credentials from environment
-    const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
-    const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
-
-    if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
-      throw new Error('Previo API credentials not configured');
-    }
-
     console.log(`Updating minibar for room ${roomNumber} in Previo REST API for hotel: ${hotelId}`);
     console.log(`Items:`, items);
 
@@ -40,6 +32,32 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Look up per-hotel credentials secret
+    const { data: pmsConfig } = await supabase
+      .from('pms_configurations')
+      .select('credentials_secret_name')
+      .eq('pms_hotel_id', hotelId)
+      .eq('pms_type', 'previo')
+      .maybeSingle();
+
+    let previoUser = '';
+    let previoPass = '';
+    if (pmsConfig?.credentials_secret_name) {
+      const combined = Deno.env.get(pmsConfig.credentials_secret_name) || '';
+      const idx = combined.indexOf(':');
+      if (idx > 0) {
+        previoUser = combined.slice(0, idx);
+        previoPass = combined.slice(idx + 1);
+      }
+    }
+    if (!previoUser || !previoPass) {
+      previoUser = Deno.env.get('PREVIO_API_USER') || '';
+      previoPass = Deno.env.get('PREVIO_API_PASSWORD') || '';
+    }
+    if (!previoUser || !previoPass) {
+      throw new Error('Previo API credentials not configured');
+    }
 
     // Get authorization header
     const authHeader = req.headers.get('Authorization');
@@ -57,7 +75,7 @@ serve(async (req) => {
     };
 
     // Create Basic Auth header
-    const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
+    const auth = btoa(`${previoUser}:${previoPass}`);
 
     // Process each minibar item
     for (const item of items as MinibarItem[]) {
