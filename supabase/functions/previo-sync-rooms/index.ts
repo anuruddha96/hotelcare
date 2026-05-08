@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { fetchPrevioWithAuth } from '../_shared/previoAuth.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -25,9 +26,16 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let requestedHotelId: string | null = null;
+  let requestedImportLocal = false;
+  let requestedPreviewOnly = false;
+
   try {
     const body = await req.json().catch(() => ({}));
     const { hotelId, importLocal, previewOnly } = body as { hotelId?: string; importLocal?: boolean; previewOnly?: boolean };
+    requestedHotelId = hotelId ?? null;
+    requestedImportLocal = Boolean(importLocal);
+    requestedPreviewOnly = Boolean(previewOnly);
 
     if (!hotelId) {
       throw new Error('Hotel ID is required');
@@ -61,60 +69,11 @@ serve(async (req) => {
     const previoNumericId = String(pmsConfig.pms_hotel_id || '');
     console.log(`Syncing rooms from Previo REST API for Previo ID: ${previoNumericId}, HotelCare ID: ${hotelCareHotelId}`);
 
-    // Build candidate credential pairs: per-hotel secret first, then legacy global env vars.
-    // We try each in turn against Previo so a misconfigured per-hotel secret falls back gracefully.
-    const candidates: Array<{ user: string; pass: string; source: string }> = [];
-    if (pmsConfig.credentials_secret_name) {
-      const combined = Deno.env.get(pmsConfig.credentials_secret_name) || '';
-      const idx = combined.indexOf(':');
-      if (idx > 0) {
-        candidates.push({
-          user: combined.slice(0, idx),
-          pass: combined.slice(idx + 1),
-          source: pmsConfig.credentials_secret_name,
-        });
-      } else if (combined) {
-        console.warn(`Secret ${pmsConfig.credentials_secret_name} is set but does not contain a "user:password" colon separator; skipping.`);
-      }
-    }
-    const legacyUser = Deno.env.get('PREVIO_API_USER') || Deno.env.get('PREVIO_API_USERNAME') || '';
-    const legacyPass = Deno.env.get('PREVIO_API_PASSWORD') || '';
-    if (legacyUser && legacyPass) {
-      candidates.push({ user: legacyUser, pass: legacyPass, source: 'PREVIO_API_USER/PASSWORD' });
-    }
-    if (candidates.length === 0) {
-      throw new Error('Previo API credentials not configured (no per-hotel secret and no PREVIO_API_USER/PREVIO_API_PASSWORD).');
-    }
-
-    // Try each candidate; remember the last error for diagnostics.
-    let response: Response | null = null;
-    let lastErrorBody = '';
-    let lastSource = '';
-    for (const c of candidates) {
-      const auth = btoa(`${c.user}:${c.pass}`);
-      console.log(`Trying Previo credentials from: ${c.source}`);
-      const r = await fetch('https://api.previo.app/rest/rooms', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'X-Previo-Hotel-ID': previoNumericId,
-          'Content-Type': 'application/json',
-        },
-      });
-      if (r.ok) {
-        response = r;
-        lastSource = c.source;
-        console.log(`Previo authenticated successfully via ${c.source}`);
-        break;
-      }
-      lastErrorBody = await r.text();
-      lastSource = c.source;
-      console.error(`Previo ${r.status} via ${c.source}: ${lastErrorBody.slice(0, 300)}`);
-    }
-
-    if (!response) {
-      throw new Error(`Previo authentication failed for all credential sources. Last (${lastSource}): ${lastErrorBody.slice(0, 300)}`);
-    }
+    const { response } = await fetchPrevioWithAuth({
+      credentialsSecretName: pmsConfig.credentials_secret_name,
+      path: '/rest/rooms',
+      pmsHotelId: previoNumericId,
+    });
 
 
 
@@ -421,11 +380,11 @@ serve(async (req) => {
       await supabase.from('pms_sync_history').insert({
         sync_type: 'rooms',
         direction: 'from_previo',
-        hotel_id: /^\d+$/.test(hotelId ?? '') ? null : hotelId ?? null,
+        hotel_id: /^\d+$/.test(requestedHotelId ?? '') ? null : requestedHotelId ?? null,
         data: {
           error: error.message,
-          requested_hotel_id: hotelId ?? null,
-          operation: importLocal ? 'import_rooms' : previewOnly ? 'preview_rooms' : 'sync_rooms',
+          requested_hotel_id: requestedHotelId ?? null,
+          operation: requestedImportLocal ? 'import_rooms' : requestedPreviewOnly ? 'preview_rooms' : 'sync_rooms',
         },
         sync_status: 'failed',
         error_message: error.message
