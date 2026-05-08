@@ -1220,27 +1220,22 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                 </Button>
               )}
               {previoSyncEnabled && selectedHotel === 'previo-test' && (
-                <Button
-                  variant="outline"
-                  className="w-full max-w-xs"
-                  onClick={async () => {
-                    try {
-                      const { data, error } = await supabase.functions.invoke('previo-poll-checkouts', {
-                        body: { hotelId: 'previo-test' },
-                      });
-                      if (error) throw error;
-                      const d = data as any;
-                      toast.success('Checkout poll complete', {
-                        description: `Checked ${d?.checked ?? 0}, marked ${d?.marked ?? 0} ready-to-clean`,
-                      });
-                    } catch (e: any) {
-                      toast.error('Checkout poll failed', { description: e?.message || String(e) });
-                    }
-                  }}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh Checkouts
-                </Button>
+                <div className="flex flex-col items-center gap-1 w-full max-w-xs">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={isPollingCheckouts}
+                    onClick={() => pollCheckouts(false)}
+                  >
+                    <RefreshCw className={`mr-2 h-4 w-4 ${isPollingCheckouts ? 'animate-spin' : ''}`} />
+                    Refresh Checkouts
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    {lastCheckoutSync
+                      ? `Last auto-update: ${formatDistanceToNow(lastCheckoutSync, { addSuffix: true })}`
+                      : 'Auto-updates every 30 min'}
+                  </p>
+                </div>
               )}
             </div>
           </>
