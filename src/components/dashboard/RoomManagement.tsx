@@ -759,6 +759,135 @@ export function RoomManagement() {
           </div>
         </div>
 
+        {profile?.assigned_hotel === 'previo-test' && (
+          <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="bg-card rounded-lg border shadow-sm p-4 sm:p-6 space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Eye className="h-4 w-4" />
+                    <span>Previo room preview</span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground">Extracted rooms before import</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {loadingPrevioPreview
+                      ? 'Loading rooms from Previo…'
+                      : `${previoPreviewRooms.length} rooms currently available from Previo for preview.`}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={fetchPrevioPreview}
+                  disabled={loadingPrevioPreview || importingPrevio}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loadingPrevioPreview ? 'animate-spin' : ''}`} />
+                  <span>Refresh preview</span>
+                </Button>
+              </div>
+
+              <div className="rounded-md border">
+                <div className="max-h-[320px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Room</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Capacity</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {previoPreviewRooms.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                            {loadingPrevioPreview ? 'Loading preview…' : 'No preview rooms available yet.'}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        previoPreviewRooms.map((room) => (
+                          <TableRow key={room.roomId}>
+                            <TableCell className="font-medium">{room.name}</TableCell>
+                            <TableCell>{room.roomKindName || '—'}</TableCell>
+                            <TableCell>{(room.capacity ?? 0) + (room.extraCapacity ?? 0)}</TableCell>
+                            <TableCell>{getPrevioCleanStatusLabel(room.roomCleanStatusId)}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-card rounded-lg border shadow-sm p-4 sm:p-6 space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <ListChecks className="h-4 w-4" />
+                    <span>Import history</span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground">Recent Previo room imports</h3>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={fetchImportHistory}
+                  disabled={loadingImportHistory}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loadingImportHistory ? 'animate-spin' : ''}`} />
+                  <span>Refresh log</span>
+                </Button>
+              </div>
+
+              <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+                {importHistory.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground text-center">
+                    {loadingImportHistory ? 'Loading import history…' : 'No import attempts logged yet.'}
+                  </div>
+                ) : (
+                  importHistory.map((entry) => {
+                    const roomCount = entry.data?.total ?? 0;
+                    const importedCount = entry.data?.upserted ?? 0;
+                    const statusTone =
+                      entry.sync_status === 'success'
+                        ? 'default'
+                        : entry.sync_status === 'partial'
+                          ? 'secondary'
+                          : 'destructive';
+
+                    return (
+                      <div key={entry.id} className="rounded-md border p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={statusTone}>{entry.sync_status}</Badge>
+                              <span className="text-sm font-medium text-foreground">{roomCount} rooms extracted</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(entry.created_at), 'MMM dd, yyyy HH:mm:ss')}
+                            </p>
+                          </div>
+                          <span className="text-sm text-muted-foreground">Imported {importedCount}</span>
+                        </div>
+
+                        {entry.error_message ? (
+                          <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 p-3 text-sm text-foreground">
+                            <XCircle className="mt-0.5 h-4 w-4 text-destructive" />
+                            <span>{entry.error_message}</span>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No error message recorded.</p>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="bg-card rounded-lg border shadow-sm p-4">
           <div className="flex flex-col sm:flex-row gap-3">
