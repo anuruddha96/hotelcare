@@ -149,6 +149,7 @@ serve(async (req) => {
 
     if (!resp.ok) {
       const txt = await resp.text();
+      console.error(`Previo /rest/rooms ${resp.status}:`, txt.slice(0, 500));
       return new Response(
         JSON.stringify({ error: `Previo ${resp.status}: ${txt.slice(0, 300)}` }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -195,6 +196,7 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e: any) {
+    console.error("previo-pms-sync error:", e);
     return new Response(
       JSON.stringify({ ok: false, error: e?.message || "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
