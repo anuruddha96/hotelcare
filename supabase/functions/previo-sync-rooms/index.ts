@@ -27,7 +27,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { hotelId, importLocal } = body as { hotelId?: string; importLocal?: boolean };
+    const { hotelId, importLocal, previewOnly } = body as { hotelId?: string; importLocal?: boolean; previewOnly?: boolean };
 
     if (!hotelId) {
       throw new Error('Hotel ID is required');
@@ -121,6 +121,13 @@ serve(async (req) => {
     const roomsData: PrevioRoom[] = await response.json();
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
     console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
+
+    if (previewOnly) {
+      return new Response(
+        JSON.stringify({ success: true, rooms: roomsData, count: roomsData.length }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Get authorization header (used by both branches below)
     const authHeader = req.headers.get('Authorization');
@@ -248,10 +255,22 @@ serve(async (req) => {
       }
 
       await supabase.from('pms_sync_history').insert({
-        sync_type: 'rooms_import',
+        sync_type: 'rooms',
         direction: 'from_previo',
         hotel_id: hotelCareHotelId,
-        data: { ...importResults, previo_hotel_id: previoNumericId },
+        data: {
+          ...importResults,
+          previo_hotel_id: previoNumericId,
+          operation: 'import_rooms',
+          extracted_rooms: roomsData.map((room) => ({
+            roomId: room.roomId,
+            name: room.name,
+            roomKindName: room.roomKindName,
+            capacity: room.capacity,
+            extraCapacity: room.extraCapacity,
+            roomCleanStatusId: room.roomCleanStatusId,
+          })),
+        },
         changed_by: userId,
         sync_status: importResults.errors.length ? 'partial' : 'success',
         error_message: importResults.errors.length ? importResults.errors.join('; ') : null,
@@ -402,8 +421,12 @@ serve(async (req) => {
       await supabase.from('pms_sync_history').insert({
         sync_type: 'rooms',
         direction: 'from_previo',
-        hotel_id: null,
-        data: { error: error.message },
+        hotel_id: /^\d+$/.test(hotelId ?? '') ? null : hotelId ?? null,
+        data: {
+          error: error.message,
+          requested_hotel_id: hotelId ?? null,
+          operation: importLocal ? 'import_rooms' : previewOnly ? 'preview_rooms' : 'sync_rooms',
+        },
         sync_status: 'failed',
         error_message: error.message
       });

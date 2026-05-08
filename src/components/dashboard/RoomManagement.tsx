@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
@@ -11,6 +11,14 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { HotelFilter } from './HotelFilter';
 import { MinimBarManagement } from './MinimBarManagement';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
@@ -31,10 +39,44 @@ import {
   User,
   Wrench,
   Upload,
-  Grid3X3
+  Grid3X3,
+  RefreshCw,
+  Eye,
+  ListChecks,
+  XCircle
 } from 'lucide-react';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { format } from 'date-fns';
+
+interface PrevioPreviewRoom {
+  roomId: number;
+  name: string;
+  roomKindName: string;
+  capacity: number;
+  extraCapacity: number;
+  roomCleanStatusId: number;
+}
+
+interface PrevioImportHistoryEntry {
+  id: string;
+  created_at: string;
+  sync_status: 'success' | 'failed' | 'partial';
+  error_message: string | null;
+  data: {
+    total?: number;
+    upserted?: number;
+    mapped?: number;
+    errors?: string[];
+    extracted_rooms?: Array<{
+      roomId?: number;
+      name?: string;
+      roomKindName?: string;
+      capacity?: number;
+      extraCapacity?: number;
+      roomCleanStatusId?: number;
+    }>;
+  } | null;
+}
 
 interface Room {
   id: string;
@@ -103,14 +145,36 @@ export function RoomManagement() {
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
   const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(null);
+  const [importingPrevio, setImportingPrevio] = useState(false);
+  const [loadingPrevioPreview, setLoadingPrevioPreview] = useState(false);
+  const [loadingImportHistory, setLoadingImportHistory] = useState(false);
+  const [previoPreviewRooms, setPrevioPreviewRooms] = useState<PrevioPreviewRoom[]>([]);
+  const [importHistory, setImportHistory] = useState<PrevioImportHistoryEntry[]>([]);
 
   const isAdmin = profile?.role === 'admin';
   const canManageRooms = profile?.role && ['admin', 'manager', 'reception'].includes(profile.role);
+  const assignedHotelConfig = useMemo(
+    () => hotels.find((hotel) => hotel.id === profile?.assigned_hotel),
+    [hotels, profile?.assigned_hotel]
+  );
+  const visibleHotelKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (profile?.assigned_hotel) keys.add(profile.assigned_hotel);
+    if (assignedHotelConfig?.name) keys.add(assignedHotelConfig.name);
+    return keys;
+  }, [assignedHotelConfig?.name, profile?.assigned_hotel]);
 
   useEffect(() => {
     fetchRooms();
     fetchHotels();
   }, [profile]);
+
+  useEffect(() => {
+    if (profile?.assigned_hotel === 'previo-test') {
+      fetchPrevioPreview();
+      fetchImportHistory();
+    }
+  }, [profile?.assigned_hotel]);
 
   const fetchRooms = async () => {
     setLoading(true);
@@ -139,8 +203,9 @@ export function RoomManagement() {
           .select('*, is_checkout_room, checkout_time, guest_count, last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)' as any);
         
         if (hotelFilter) {
-          query = query.eq('hotel', hotelFilter);
-          console.log('🏨 Filtering rooms by hotel:', hotelFilter);
+          const hotelKeys = [profile.assigned_hotel, hotelFilter].filter(Boolean);
+          query = query.in('hotel', hotelKeys);
+          console.log('🏨 Filtering rooms by hotel keys:', hotelKeys);
         }
         
         const res = await query
@@ -154,8 +219,9 @@ export function RoomManagement() {
         
         // Filter by assigned hotel - use direct match
         if (profile.assigned_hotel) {
-          query = query.eq('hotel', profile.assigned_hotel);
-          console.log('🏨 Filtering rooms by assigned_hotel:', profile.assigned_hotel);
+          const hotelKeys = Array.from(visibleHotelKeys);
+          query = query.in('hotel', hotelKeys.length > 0 ? hotelKeys : [profile.assigned_hotel]);
+          console.log('🏨 Filtering rooms by assigned_hotel keys:', hotelKeys);
         }
         
         const res = await query
@@ -209,11 +275,7 @@ export function RoomManagement() {
 
       setRooms(roomsWithExtras);
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch rooms',
-        variant: 'destructive',
-      });
+      toast.error('Failed to fetch rooms');
     } finally {
       setLoading(false);
     }
@@ -240,21 +302,114 @@ export function RoomManagement() {
       setHotels(mappedHotels);
     } catch (error: any) {
       console.error('Error fetching hotels:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load hotels',
-        variant: 'destructive',
+      toast.error('Failed to load hotels');
+    }
+  };
+
+  const fetchPrevioPreview = async () => {
+    if (profile?.assigned_hotel !== 'previo-test') return;
+
+    setLoadingPrevioPreview(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
+        body: { hotelId: 'previo-test', previewOnly: true },
       });
+
+      const payload = data as { success?: boolean; error?: string; rooms?: PrevioPreviewRoom[] } | null;
+      if (error || payload?.success === false) {
+        throw new Error(payload?.error || error?.message || 'Failed to fetch Previo rooms');
+      }
+
+      setPrevioPreviewRooms(Array.isArray(payload?.rooms) ? payload.rooms : []);
+    } catch (error: any) {
+      console.error('Previo preview fetch failed:', error);
+      toast.error(error?.message || 'Failed to fetch Previo room preview');
+    } finally {
+      setLoadingPrevioPreview(false);
+    }
+  };
+
+  const fetchImportHistory = async () => {
+    if (profile?.assigned_hotel !== 'previo-test') return;
+
+    setLoadingImportHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('pms_sync_history')
+        .select('id, created_at, sync_status, error_message, data')
+        .eq('hotel_id', 'previo-test')
+        .eq('sync_type', 'rooms')
+        .eq('direction', 'from_previo')
+        .contains('data', { operation: 'import_rooms' })
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      setImportHistory((data as PrevioImportHistoryEntry[]) || []);
+    } catch (error: any) {
+      console.error('Import history fetch failed:', error);
+      toast.error(error?.message || 'Failed to load import history');
+    } finally {
+      setLoadingImportHistory(false);
+    }
+  };
+
+  const handleImportFromPrevio = async () => {
+    setImportingPrevio(true);
+    const loadingToast = toast.loading('Importing rooms from Previo…');
+
+    try {
+      const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
+        body: { hotelId: 'previo-test', importLocal: true },
+      });
+
+      const payload = data as {
+        success?: boolean;
+        error?: string;
+        results?: { total?: number; upserted?: number; mapped?: number };
+      } | null;
+
+      if (error || payload?.success === false) {
+        throw new Error(payload?.error || error?.message || 'Sync failed');
+      }
+
+      const results = payload?.results;
+      toast.success(
+        results
+          ? `Imported ${results.upserted ?? 0} of ${results.total ?? 0} extracted rooms`
+          : 'Import complete',
+        { id: loadingToast }
+      );
+
+      await Promise.all([fetchRooms(), fetchPrevioPreview(), fetchImportHistory()]);
+    } catch (error: any) {
+      toast.error(error?.message || 'Import failed', { id: loadingToast });
+    } finally {
+      setImportingPrevio(false);
+    }
+  };
+
+  const getPrevioCleanStatusLabel = (statusId: number) => {
+    switch (statusId) {
+      case 1:
+        return 'Dirty';
+      case 2:
+        return 'Clean';
+      case 3:
+        return 'Inspected';
+      case 4:
+        return 'Out of order';
+      case 5:
+        return 'Out of service';
+      default:
+        return `Status ${statusId}`;
     }
   };
 
   const handleCreateRoom = async () => {
     if (!newRoom.hotel || !newRoom.room_number) {
-      toast({
-        title: 'Error',
-        description: 'Hotel and room number are required',
-        variant: 'destructive',
-      });
+      toast.error('Hotel and room number are required');
       return;
     }
 
@@ -287,21 +442,14 @@ export function RoomManagement() {
 
       console.log('Room created successfully:', data);
 
-      toast({
-        title: 'Success',
-        description: 'Room created successfully',
-      });
+      toast.success('Room created successfully');
 
       setCreateDialogOpen(false);
       setNewRoom({ hotel: '', room_number: '', room_name: '', room_type: 'standard', bed_type: 'double', floor_number: '', room_size_sqm: '', room_capacity: '' });
       fetchRooms();
     } catch (error: any) {
       console.error('Room creation failed:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to create room',
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to create room');
     }
   };
 
@@ -331,18 +479,11 @@ export function RoomManagement() {
 
       if (error) throw error;
 
-      toast({
-        title: 'Success',
-        description: `Room status updated to ${newStatus}`,
-      });
+      toast.success(`Room status updated to ${newStatus}`);
 
       fetchRooms();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast.error(error.message);
     }
   };
 
@@ -480,30 +621,12 @@ export function RoomManagement() {
                 {profile?.assigned_hotel === 'previo-test' && (
                   <Button
                     variant="outline"
-                    onClick={async () => {
-                      try {
-                        toast({ title: 'Importing rooms from Previo…' });
-                        const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
-                          body: { hotelId: 'previo-test', importLocal: true },
-                        });
-                        const d = data as any;
-                        if (error || (d && d.success === false)) {
-                          throw new Error(d?.error || error?.message || 'Sync failed');
-                        }
-                        const r = d?.results;
-                        toast({
-                          title: 'Import complete',
-                          description: r ? `Upserted ${r.upserted}/${r.total}, mapped ${r.mapped}` : 'Done',
-                        });
-                        fetchRooms();
-                      } catch (e: any) {
-                        toast({ title: 'Import failed', description: e?.message || String(e), variant: 'destructive' });
-                      }
-                    }}
+                    onClick={handleImportFromPrevio}
+                    disabled={importingPrevio}
                     className="flex items-center gap-2"
                   >
-                    <Upload className="h-4 w-4" />
-                    <span>Import from Previo</span>
+                    {importingPrevio ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    <span>{importingPrevio ? 'Importing…' : 'Import from Previo'}</span>
                   </Button>
                 )}
                 <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
@@ -635,6 +758,135 @@ export function RoomManagement() {
             )}
           </div>
         </div>
+
+        {profile?.assigned_hotel === 'previo-test' && (
+          <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="bg-card rounded-lg border shadow-sm p-4 sm:p-6 space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Eye className="h-4 w-4" />
+                    <span>Previo room preview</span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground">Extracted rooms before import</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {loadingPrevioPreview
+                      ? 'Loading rooms from Previo…'
+                      : `${previoPreviewRooms.length} rooms currently available from Previo for preview.`}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={fetchPrevioPreview}
+                  disabled={loadingPrevioPreview || importingPrevio}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loadingPrevioPreview ? 'animate-spin' : ''}`} />
+                  <span>Refresh preview</span>
+                </Button>
+              </div>
+
+              <div className="rounded-md border">
+                <div className="max-h-[320px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Room</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Capacity</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {previoPreviewRooms.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                            {loadingPrevioPreview ? 'Loading preview…' : 'No preview rooms available yet.'}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        previoPreviewRooms.map((room) => (
+                          <TableRow key={room.roomId}>
+                            <TableCell className="font-medium">{room.name}</TableCell>
+                            <TableCell>{room.roomKindName || '—'}</TableCell>
+                            <TableCell>{(room.capacity ?? 0) + (room.extraCapacity ?? 0)}</TableCell>
+                            <TableCell>{getPrevioCleanStatusLabel(room.roomCleanStatusId)}</TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-card rounded-lg border shadow-sm p-4 sm:p-6 space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <ListChecks className="h-4 w-4" />
+                    <span>Import history</span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground">Recent Previo room imports</h3>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={fetchImportHistory}
+                  disabled={loadingImportHistory}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loadingImportHistory ? 'animate-spin' : ''}`} />
+                  <span>Refresh log</span>
+                </Button>
+              </div>
+
+              <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+                {importHistory.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground text-center">
+                    {loadingImportHistory ? 'Loading import history…' : 'No import attempts logged yet.'}
+                  </div>
+                ) : (
+                  importHistory.map((entry) => {
+                    const roomCount = entry.data?.total ?? 0;
+                    const importedCount = entry.data?.upserted ?? 0;
+                    const statusTone =
+                      entry.sync_status === 'success'
+                        ? 'default'
+                        : entry.sync_status === 'partial'
+                          ? 'secondary'
+                          : 'destructive';
+
+                    return (
+                      <div key={entry.id} className="rounded-md border p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={statusTone}>{entry.sync_status}</Badge>
+                              <span className="text-sm font-medium text-foreground">{roomCount} rooms extracted</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {format(new Date(entry.created_at), 'MMM dd, yyyy HH:mm:ss')}
+                            </p>
+                          </div>
+                          <span className="text-sm text-muted-foreground">Imported {importedCount}</span>
+                        </div>
+
+                        {entry.error_message ? (
+                          <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 p-3 text-sm text-foreground">
+                            <XCircle className="mt-0.5 h-4 w-4 text-destructive" />
+                            <span>{entry.error_message}</span>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No error message recorded.</p>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="bg-card rounded-lg border shadow-sm p-4">
