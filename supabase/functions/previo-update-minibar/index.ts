@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { fetchPrevioWithAuth } from '../_shared/previoAuth.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,24 +42,6 @@ serve(async (req) => {
       .eq('pms_type', 'previo')
       .maybeSingle();
 
-    let previoUser = '';
-    let previoPass = '';
-    if (pmsConfig?.credentials_secret_name) {
-      const combined = Deno.env.get(pmsConfig.credentials_secret_name) || '';
-      const idx = combined.indexOf(':');
-      if (idx > 0) {
-        previoUser = combined.slice(0, idx);
-        previoPass = combined.slice(idx + 1);
-      }
-    }
-    if (!previoUser || !previoPass) {
-      previoUser = Deno.env.get('PREVIO_API_USER') || '';
-      previoPass = Deno.env.get('PREVIO_API_PASSWORD') || '';
-    }
-    if (!previoUser || !previoPass) {
-      throw new Error('Previo API credentials not configured');
-    }
-
     // Get authorization header
     const authHeader = req.headers.get('Authorization');
     let userId: string | null = null;
@@ -74,27 +57,22 @@ serve(async (req) => {
       errors: [] as string[]
     };
 
-    // Create Basic Auth header
-    const auth = btoa(`${previoUser}:${previoPass}`);
-
     // Process each minibar item
     for (const item of items as MinibarItem[]) {
       try {
         // Call Previo REST API to add minibar item to guest account
-        const response = await fetch('https://api.previo.app/rest/charge/item', {
+        const { response } = await fetchPrevioWithAuth({
+          credentialsSecretName: pmsConfig?.credentials_secret_name,
+          path: '/rest/charge/item',
+          pmsHotelId: hotelId,
           method: 'POST',
-          headers: {
-            'Authorization': `Basic ${auth}`,
-            'X-Previo-Hotel-ID': hotelId,
-            'Content-Type': 'application/json',
-          },
           body: JSON.stringify({
             roomNumber: roomNumber,
             name: item.item_name,
             quantity: item.quantity,
             price: item.price || 0,
             category: 'minibar'
-          })
+          }),
         });
 
         if (!response.ok) {

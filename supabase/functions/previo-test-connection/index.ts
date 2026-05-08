@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { fetchPrevioWithAuth } from "../_shared/previoAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,22 +73,7 @@ serve(async (req) => {
       );
     }
 
-    // Resolve credentials: prefer per-hotel secret, fall back to legacy env (OttoFiori)
-    let user = "";
-    let pass = "";
-    if (cfg.credentials_secret_name) {
-      const combined = Deno.env.get(cfg.credentials_secret_name) || "";
-      const idx = combined.indexOf(":");
-      if (idx > 0) {
-        user = combined.slice(0, idx);
-        pass = combined.slice(idx + 1);
-      }
-    }
-    if (!user || !pass) {
-      user = Deno.env.get("PREVIO_API_USER") || "";
-      pass = Deno.env.get("PREVIO_API_PASSWORD") || "";
-    }
-    if (!user || !pass) {
+    if (!cfg.credentials_secret_name && !Deno.env.get("PREVIO_API_USER") && !Deno.env.get("PREVIO_API_USERNAME")) {
       const errMsg = "Previo credentials not configured for this hotel";
       await service
         .from("pms_configurations")
@@ -103,15 +89,11 @@ serve(async (req) => {
       });
     }
 
-    const auth = btoa(`${user}:${pass}`);
     const startedAt = Date.now();
-    const resp = await fetch("https://api.previo.app/rest/rooms", {
-      method: "GET",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "X-Previo-Hotel-ID": String(cfg.pms_hotel_id || ""),
-        "Content-Type": "application/json",
-      },
+    const { response: resp } = await fetchPrevioWithAuth({
+      credentialsSecretName: cfg.credentials_secret_name,
+      path: "/rest/rooms",
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
     });
     const latencyMs = Date.now() - startedAt;
 

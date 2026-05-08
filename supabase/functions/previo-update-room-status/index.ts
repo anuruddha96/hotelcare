@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { fetchPrevioWithAuth } from '../_shared/previoAuth.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -85,40 +86,15 @@ serve(async (req) => {
 
     console.log(`Updating room status in Previo REST API - Room: ${room.room_number}, Status: ${previoStatus}`);
 
-    // Resolve credentials: prefer per-hotel secret, fall back to legacy global env
-    let previoUser = '';
-    let previoPass = '';
-    if ((pmsConfig as any).credentials_secret_name) {
-      const combined = Deno.env.get((pmsConfig as any).credentials_secret_name) || '';
-      const idx = combined.indexOf(':');
-      if (idx > 0) {
-        previoUser = combined.slice(0, idx);
-        previoPass = combined.slice(idx + 1);
-      }
-    }
-    if (!previoUser || !previoPass) {
-      previoUser = Deno.env.get('PREVIO_API_USER') || '';
-      previoPass = Deno.env.get('PREVIO_API_PASSWORD') || '';
-    }
-    if (!previoUser || !previoPass) {
-      throw new Error('Previo API credentials not configured');
-    }
-    const auth = btoa(`${previoUser}:${previoPass}`);
-
     // Use mapped Previo room ID; clean-status endpoint takes the room ID in the path
     const previoRoomId = roomMapping.pms_room_id;
-    const previoResponse = await fetch(
-      `https://api.previo.app/rest/rooms/${previoRoomId}/clean-status`,
-      {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'X-Previo-Hotel-ID': String((pmsConfig as any).pms_hotel_id || ''),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: previoStatus }),
-      }
-    );
+    const { response: previoResponse } = await fetchPrevioWithAuth({
+      credentialsSecretName: (pmsConfig as any).credentials_secret_name,
+      path: `/rest/rooms/${previoRoomId}/clean-status`,
+      pmsHotelId: String((pmsConfig as any).pms_hotel_id || ''),
+      method: 'PUT',
+      body: JSON.stringify({ status: previoStatus }),
+    });
 
     if (!previoResponse.ok) {
       const errorText = await previoResponse.text();
