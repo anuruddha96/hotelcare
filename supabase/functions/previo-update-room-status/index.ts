@@ -106,7 +106,7 @@ serve(async (req) => {
       method: 'PUT',
       headers: {
         'Authorization': `Basic ${auth}`,
-        'X-Previo-Hotel-ID': pmsConfig.previo_hotel_id,
+        'X-Previo-Hotel-ID': String((pmsConfig as any).pms_hotel_id || ''),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
