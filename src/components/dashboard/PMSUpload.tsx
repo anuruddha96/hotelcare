@@ -930,7 +930,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     toast.info(t('pms.uploadCancelled'));
   };
 
-  // Handle Previo PMS sync
+  // Handle Previo PMS sync (one-click API replacement of Excel upload)
+  // Restricted to the previo-test hotel — never touches OttoFiori or others.
   const handlePrevioSync = async () => {
     if (!selectedHotel || !user) {
       toast.error('Please select a hotel first');
@@ -943,121 +944,41 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     setDailyCleaningRooms([]);
 
     try {
-      // Step 1: Sync rooms from Previo
-      console.log('Calling previo-sync-rooms for hotel:', selectedHotel);
-      
-      const { data: roomsData, error: roomsError } = await supabase.functions.invoke(
-        'previo-sync-rooms',
-        {
-          body: { 
-            hotelId: '788619' // Previo test hotel ID
-          }
-        }
-      );
+      console.log('[Previo] Calling previo-pms-sync for', selectedHotel);
+      const { data, error } = await supabase.functions.invoke('previo-pms-sync', {
+        body: { hotelId: selectedHotel },
+      });
+      if (error) throw new Error(error.message || 'Sync failed');
+      if (!data?.ok) throw new Error(data?.error || 'Sync failed');
 
-      if (roomsError) {
-        throw new Error(`Room sync failed: ${roomsError.message}`);
+      const rows: Record<string, any>[] = data.rows || [];
+      if (rows.length === 0) {
+        toast.warning('Previo returned no rooms');
+        return;
       }
 
-      console.log('Rooms synced:', roomsData);
-
-      // Step 2: Sync reservations from Previo
-      const today = new Date().toISOString().split('T')[0];
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().split('T')[0];
-
-      console.log('Calling previo-sync-reservations...');
-      
-      const { data: reservationsData, error: reservationsError } = await supabase.functions.invoke(
-        'previo-sync-reservations',
-        {
-          body: {
-            hotelId: '788619',
-            dateFrom: today,
-            dateTo: tomorrowStr
-          }
-        }
-      );
-
-      if (reservationsError) {
-        throw new Error(`Reservation sync failed: ${reservationsError.message}`);
-      }
-
-      console.log('Reservations synced:', reservationsData);
-
-      // Step 3: Fetch rooms to populate checkout and daily cleaning lists
-      // Get hotel name from hotel_id
-      const { data: hotelConfig } = await supabase
-        .from('hotel_configurations')
-        .select('hotel_name')
-        .eq('hotel_id', selectedHotel)
-        .single();
-      
-      const hotelNameToFilter = hotelConfig?.hotel_name || selectedHotel;
-
-      const { data: roomsList, error: roomsListError } = await supabase
-        .from('rooms')
-        .select('room_number, room_type, status, is_checkout_room, guest_count, checkout_time, notes')
-        .eq('hotel', hotelNameToFilter)
-        .eq('status', 'dirty');
-
-      if (!roomsListError && roomsList) {
-        const checkoutRoomsList: any[] = [];
-        const dailyCleaningRoomsList: any[] = [];
-
-        roomsList.forEach((room) => {
-          if (room.is_checkout_room) {
-            checkoutRoomsList.push({
-              roomNumber: room.room_number,
-              roomType: room.room_type,
-              departureTime: room.checkout_time ? new Date(room.checkout_time).toLocaleTimeString() : undefined,
-              guestCount: room.guest_count || 0,
-              status: 'checkout',
-              notes: room.notes
-            });
-          } else {
-            dailyCleaningRoomsList.push({
-              roomNumber: room.room_number,
-              roomType: room.room_type,
-              guestCount: room.guest_count || 0,
-              status: 'daily_cleaning',
-              notes: room.notes
-            });
-          }
-        });
-
-        setCheckoutRooms(checkoutRoomsList);
-        setDailyCleaningRooms(dailyCleaningRoomsList);
-      }
-
-      // Step 4: Show success message
-      toast.success('Successfully synced with Previo PMS!');
-      
-      // Step 5: Set results to show on screen
-      const roomResults = roomsData?.results || {};
-      const reservationResults = reservationsData?.results || {};
-      
-      setResults({
-        processed: (roomResults.total || 0),
-        updated: (roomResults.updated || 0) + (reservationResults.updated || 0),
-        assigned: 0,
-        errors: [
-          ...(roomResults.errors || []),
-          ...(reservationResults.errors || [])
-        ]
+      // Convert API rows -> in-memory XLSX -> File, then feed to existing
+      // processFile so the dirty-room/checkout/cleaning logic stays identical
+      // to the manual upload path.
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const file = new File([buf], `previo-sync-${Date.now()}.xlsx`, {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
 
-      // Step 6: Mark upload today (same as Excel upload)
       markUploadToday();
-
-    } catch (error: any) {
-      console.error('Previo sync error:', error);
-      toast.error(`Previo sync failed: ${error.message}`);
+      await processFile(file);
+      toast.success(`Synced ${rows.length} rooms from Previo`);
+    } catch (err: any) {
+      console.error('Previo sync error:', err);
+      toast.error(`Previo sync failed: ${err.message}`);
     } finally {
       setIsSyncingPrevio(false);
     }
   };
+
 
   // Check if Previo sync should be enabled for this hotel
   useEffect(() => {
@@ -1087,13 +1008,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       
       console.log('🔍 Found hotel configs:', hotelConfigs);
       
-      // Enable Previo sync for hotelcare-test hotel for managers and admins
-      if (hotelConfigs && hotelConfigs.length > 0 && hotelConfigs[0].hotel_id === 'hotelcare-test') {
+      // Enable Previo sync for the previo-test hotel (and legacy hotelcare-test) for managers/admins
+      const cfg = hotelConfigs?.[0];
+      const hotelKey = cfg?.hotel_id;
+      const isPrevioTest = hotelKey === 'previo-test' || hotelKey === 'hotelcare-test';
+      if (isPrevioTest) {
         const hasPermission = userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager';
-        console.log('✅ Hotel is hotelcare-test, has permission:', hasPermission);
         setPrevioSyncEnabled(hasPermission);
       } else {
-        console.log('❌ Previo sync disabled. Config found:', hotelConfigs);
         setPrevioSyncEnabled(false);
       }
     };
@@ -1195,7 +1117,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               </div>
             </div>
             
-            {selectedHotel && (
+            {selectedHotel && selectedHotel !== 'previo-test' && (
               <div 
                 {...getRootProps()} 
                 className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${

@@ -55,8 +55,9 @@ export function OrganizationSwitcher() {
     return null;
   }
 
-  // Only show if there are multiple organizations
-  if (!loading && organizations.length <= 1) {
+  // For admins / super admins, always show. For others, hide if only 1 org.
+  const isAdmin = profile?.role === 'admin' || profile?.is_super_admin;
+  if (!loading && !isAdmin && organizations.length <= 1) {
     return null;
   }
 

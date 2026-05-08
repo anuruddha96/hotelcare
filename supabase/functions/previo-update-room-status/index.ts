@@ -52,10 +52,17 @@ serve(async (req) => {
     if (configError || !pmsConfig) {
       console.log('No PMS configuration found for hotel:', room.hotel);
       return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: 'No PMS integration configured for this hotel' 
-        }),
+        JSON.stringify({ success: true, skipped: true, message: 'No PMS integration configured for this hotel' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // SAFETY GUARD: only push to Previo for the previo-test hotel until verified.
+    // OttoFiori and others get a no-op success so existing flows are untouched.
+    if (pmsConfig.hotel_id !== 'previo-test') {
+      console.log(`[previo-update-room-status] Skipping push for hotel ${pmsConfig.hotel_id} (gated to previo-test)`);
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, message: 'Push gated to previo-test hotel' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -68,10 +75,7 @@ serve(async (req) => {
     if (!roomMapping) {
       console.log('No PMS mapping found for room:', room.room_number);
       return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: 'Room not mapped to PMS' 
-        }),
+        JSON.stringify({ success: true, skipped: true, message: 'Room not mapped to PMS' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -101,19 +105,20 @@ serve(async (req) => {
     }
     const auth = btoa(`${previoUser}:${previoPass}`);
 
-    // Call Previo REST API to update room status
-    const previoResponse = await fetch('https://api.previo.app/rest/housekeeping/room-status', {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'X-Previo-Hotel-ID': String((pmsConfig as any).pms_hotel_id || ''),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        roomNumber: room.room_number,
-        status: previoStatus
-      })
-    });
+    // Use mapped Previo room ID; clean-status endpoint takes the room ID in the path
+    const previoRoomId = roomMapping.pms_room_id;
+    const previoResponse = await fetch(
+      `https://api.previo.app/rest/rooms/${previoRoomId}/clean-status`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'X-Previo-Hotel-ID': String((pmsConfig as any).pms_hotel_id || ''),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: previoStatus }),
+      }
+    );
 
     if (!previoResponse.ok) {
       const errorText = await previoResponse.text();

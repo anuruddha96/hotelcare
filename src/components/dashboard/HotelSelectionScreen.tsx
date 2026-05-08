@@ -2,20 +2,60 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTenant } from '@/contexts/TenantContext';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { Building2, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { Building2, ChevronRight, Loader2, RefreshCw, Building } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 interface HotelSelectionScreenProps {
   onHotelSelected: () => void;
 }
 
+interface OrgRow { id: string; name: string; slug: string; }
+
 export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenProps) {
   const { hotels, loading: tenantLoading, refreshTenant } = useTenant();
   const { profile } = useAuth();
+  const navigate = useNavigate();
+  const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const [selecting, setSelecting] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [orgs, setOrgs] = useState<OrgRow[]>([]);
+  const [switchingOrg, setSwitchingOrg] = useState(false);
+
+  const isAdmin = profile?.role === 'admin' || (profile as any)?.is_super_admin;
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    supabase
+      .from('organizations')
+      .select('id, name, slug')
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => setOrgs(data || []));
+  }, [isAdmin]);
+
+  const handleSwitchOrg = async (slug: string) => {
+    if (!profile || slug === organizationSlug) return;
+    setSwitchingOrg(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ organization_slug: slug, assigned_hotel: null })
+        .eq('id', profile.id);
+      if (error) throw error;
+      sessionStorage.removeItem('hotel_selected');
+      navigate(`/${slug}`);
+      window.location.reload();
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to switch organization');
+      setSwitchingOrg(false);
+    }
+  };
+
 
   // Auto-retry if loading takes too long or hotels come back empty
   useEffect(() => {
@@ -96,6 +136,28 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
             Choose which hotel you'd like to work in today
           </p>
         </div>
+
+        {isAdmin && orgs.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Building className="h-4 w-4" /> Organization
+            </label>
+            <Select
+              value={organizationSlug || ''}
+              onValueChange={handleSwitchOrg}
+              disabled={switchingOrg}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select organization" />
+              </SelectTrigger>
+              <SelectContent>
+                {orgs.map((o) => (
+                  <SelectItem key={o.id} value={o.slug}>{o.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {hotels.length === 0 ? (
           <div className="text-center space-y-4 py-8">
