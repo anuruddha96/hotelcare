@@ -145,14 +145,36 @@ export function RoomManagement() {
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
   const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(null);
+  const [importingPrevio, setImportingPrevio] = useState(false);
+  const [loadingPrevioPreview, setLoadingPrevioPreview] = useState(false);
+  const [loadingImportHistory, setLoadingImportHistory] = useState(false);
+  const [previoPreviewRooms, setPrevioPreviewRooms] = useState<PrevioPreviewRoom[]>([]);
+  const [importHistory, setImportHistory] = useState<PrevioImportHistoryEntry[]>([]);
 
   const isAdmin = profile?.role === 'admin';
   const canManageRooms = profile?.role && ['admin', 'manager', 'reception'].includes(profile.role);
+  const assignedHotelConfig = useMemo(
+    () => hotels.find((hotel) => hotel.id === profile?.assigned_hotel),
+    [hotels, profile?.assigned_hotel]
+  );
+  const visibleHotelKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (profile?.assigned_hotel) keys.add(profile.assigned_hotel);
+    if (assignedHotelConfig?.name) keys.add(assignedHotelConfig.name);
+    return keys;
+  }, [assignedHotelConfig?.name, profile?.assigned_hotel]);
 
   useEffect(() => {
     fetchRooms();
     fetchHotels();
   }, [profile]);
+
+  useEffect(() => {
+    if (profile?.assigned_hotel === 'previo-test') {
+      fetchPrevioPreview();
+      fetchImportHistory();
+    }
+  }, [profile?.assigned_hotel]);
 
   const fetchRooms = async () => {
     setLoading(true);
@@ -181,8 +203,9 @@ export function RoomManagement() {
           .select('*, is_checkout_room, checkout_time, guest_count, last_cleaned_by_profile:profiles!rooms_last_cleaned_by_fkey(full_name)' as any);
         
         if (hotelFilter) {
-          query = query.eq('hotel', hotelFilter);
-          console.log('🏨 Filtering rooms by hotel:', hotelFilter);
+          const hotelKeys = [profile.assigned_hotel, hotelFilter].filter(Boolean);
+          query = query.in('hotel', hotelKeys);
+          console.log('🏨 Filtering rooms by hotel keys:', hotelKeys);
         }
         
         const res = await query
@@ -196,8 +219,9 @@ export function RoomManagement() {
         
         // Filter by assigned hotel - use direct match
         if (profile.assigned_hotel) {
-          query = query.eq('hotel', profile.assigned_hotel);
-          console.log('🏨 Filtering rooms by assigned_hotel:', profile.assigned_hotel);
+          const hotelKeys = Array.from(visibleHotelKeys);
+          query = query.in('hotel', hotelKeys.length > 0 ? hotelKeys : [profile.assigned_hotel]);
+          console.log('🏨 Filtering rooms by assigned_hotel keys:', hotelKeys);
         }
         
         const res = await query
@@ -251,11 +275,7 @@ export function RoomManagement() {
 
       setRooms(roomsWithExtras);
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch rooms',
-        variant: 'destructive',
-      });
+      toast.error('Failed to fetch rooms');
     } finally {
       setLoading(false);
     }
@@ -282,11 +302,7 @@ export function RoomManagement() {
       setHotels(mappedHotels);
     } catch (error: any) {
       console.error('Error fetching hotels:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load hotels',
-        variant: 'destructive',
-      });
+      toast.error('Failed to load hotels');
     }
   };
 
