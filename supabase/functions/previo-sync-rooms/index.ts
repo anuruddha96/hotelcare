@@ -26,8 +26,9 @@ serve(async (req) => {
   }
 
   try {
-    const { hotelId } = await req.json();
-    
+    const body = await req.json().catch(() => ({}));
+    const { hotelId, importLocal } = body as { hotelId?: string; importLocal?: boolean };
+
     if (!hotelId) {
       throw new Error('Hotel ID is required');
     }
