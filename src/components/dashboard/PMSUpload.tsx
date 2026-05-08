@@ -1087,13 +1087,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       
       console.log('🔍 Found hotel configs:', hotelConfigs);
       
-      // Enable Previo sync for hotelcare-test hotel for managers and admins
-      if (hotelConfigs && hotelConfigs.length > 0 && hotelConfigs[0].hotel_id === 'hotelcare-test') {
+      // Enable Previo sync for the previo-test hotel (and legacy hotelcare-test) for managers/admins
+      const cfg = hotelConfigs?.[0];
+      const hotelKey = cfg?.hotel_id;
+      const isPrevioTest = hotelKey === 'previo-test' || hotelKey === 'hotelcare-test';
+      if (isPrevioTest) {
         const hasPermission = userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager';
-        console.log('✅ Hotel is hotelcare-test, has permission:', hasPermission);
         setPrevioSyncEnabled(hasPermission);
       } else {
-        console.log('❌ Previo sync disabled. Config found:', hotelConfigs);
         setPrevioSyncEnabled(false);
       }
     };
