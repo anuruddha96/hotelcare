@@ -1018,14 +1018,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       // Load most recent poll timestamp
       const { data } = await supabase
         .from('pms_sync_history')
-        .select('synced_at, created_at')
+        .select('changed_at, created_at')
         .eq('hotel_id', 'previo-test')
         .eq('sync_type', 'checkouts_poll')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       if (cancelled) return;
-      const ts = (data as any)?.synced_at || (data as any)?.created_at;
+      const ts = (data as any)?.changed_at || (data as any)?.created_at;
       if (ts) setLastCheckoutSync(new Date(ts));
       // If stale (>30 min) or never polled, kick one off silently
       const stale = !ts || (Date.now() - new Date(ts).getTime()) > 30 * 60 * 1000;
