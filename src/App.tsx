@@ -21,6 +21,7 @@ import ChannelManager from "./pages/ChannelManager";
 import Revenue from "./pages/Revenue";
 import RevenueHotelDetail from "./pages/RevenueHotelDetail";
 import Breakfast from "./pages/Breakfast";
+import BreakfastAuth from "./pages/BreakfastAuth";
 
 const queryClient = new QueryClient();
 
