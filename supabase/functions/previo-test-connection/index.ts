@@ -90,7 +90,7 @@ serve(async (req) => {
     }
 
     const startedAt = Date.now();
-    const { response: resp } = await fetchPrevioWithAuth({
+    const { response: resp, source } = await fetchPrevioWithAuth({
       credentialsSecretName: cfg.credentials_secret_name,
       path: "/rest/rooms",
       pmsHotelId: String(cfg.pms_hotel_id || ""),
@@ -114,7 +114,7 @@ serve(async (req) => {
       });
     }
 
-    const data = await safePrevioJson<unknown>(resp, { path: "/rest/rooms" });
+    const data = await safePrevioJson<unknown>(resp, { path: "/rest/rooms", source });
     const roomCount = Array.isArray(data) ? data.length : 0;
 
     await service
@@ -127,7 +127,7 @@ serve(async (req) => {
       .eq("id", cfg.id);
 
     return new Response(
-      JSON.stringify({ ok: true, roomCount, latencyMs }),
+      JSON.stringify({ ok: true, roomCount, latencyMs, credentialSource: source }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e: any) {
