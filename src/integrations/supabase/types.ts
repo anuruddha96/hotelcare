@@ -3516,6 +3516,7 @@ export type Database = {
           minibar_qr_token: string | null
           notes: string | null
           organization_slug: string | null
+          pms_metadata: Json | null
           room_capacity: number | null
           room_category: string | null
           room_name: string | null
@@ -3550,6 +3551,7 @@ export type Database = {
           minibar_qr_token?: string | null
           notes?: string | null
           organization_slug?: string | null
+          pms_metadata?: Json | null
           room_capacity?: number | null
           room_category?: string | null
           room_name?: string | null
@@ -3584,6 +3586,7 @@ export type Database = {
           minibar_qr_token?: string | null
           notes?: string | null
           organization_slug?: string | null
+          pms_metadata?: Json | null
           room_capacity?: number | null
           room_category?: string | null
           room_name?: string | null
