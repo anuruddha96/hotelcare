@@ -1,37 +1,53 @@
 ## What's happening
 
-The toast `Unexpected token '<', "<!DOCTYPE "... is not valid JSON` comes from the **automatic** Previo room preview that runs when you open the Rooms tab. The browser called `previo-sync-rooms` while the function was being redeployed (the latest deploy finished at 10:52:43 UTC), so the gateway briefly returned an HTML error page instead of JSON. `supabase.functions.invoke` tried to `JSON.parse` that HTML and threw.
+Edge function logs show the auth call succeeds (`Previo authenticated successfully via PREVIO_API_USERNAME/PASSWORD`) but the very next line crashes:
 
-The Import-from-Previo button itself has the same exposure — any transient HTML response from the gateway (cold start, 502/503, deployment roll) will surface as that scary "Unexpected token" toast even though nothing is wrong with the data.
+```
+SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+   at file:///…/previo-sync-rooms/index.ts:50:23   ← await response.json()
+```
 
-## Proposed fix (frontend only — no code in this mode)
+So the issue is **not** the Lovable preview/gateway and **not** auth. Previo is returning a `2xx` response whose **body is HTML**, not JSON. The function then blindly calls `response.json()` and the parse error bubbles up to the UI as the toast you're seeing.
 
-Make the Previo calls in `RoomManagement.tsx` resilient to non-JSON responses and silent on the auto-load:
+I tested `https://api.previo.app/rest/rooms` directly:
+- `/rest/rooms` (no auth) → `401 application/json` ✅ (correct REST endpoint)
+- `/v2/rest/rooms` → `301` redirect to `https://help.previo.app/en/doc/api-access/` (HTML)
 
-1. `fetchPrevioPreview()`
-   - Wrap the response handling so a JSON-parse failure or transient gateway HTML is mapped to a clean `"Previo preview is temporarily unavailable, please retry"` message.
-   - Because this runs automatically on tab open, **suppress the toast** on auto-load failures and only show an inline hint inside the "Extracted rooms before import" card. The toast should only appear when the user clicks **Refresh preview** explicitly.
-   - Add a one-shot retry (single retry after ~800 ms) to absorb the deploy/cold-start race.
+The most likely cause is one of:
+1. The PREVIO_API_USERNAME/PASSWORD credentials authenticate but the account doesn't have REST API permission on hotel `730099`, so Previo serves an HTML error/redirect page with a 200 body.
+2. A misconfigured `PREVIO_API_BASE_URL` secret pointing somewhere that returns HTML on success.
+3. The hotel id header (`X-Previo-Hotel-ID: 730099`) is not the right one for this account, so Previo returns a help page.
 
-2. `handleImportFromPrevio()`
-   - Same JSON-parse guard so the import button never shows the raw `<!DOCTYPE` text.
-   - On failure, write a `failed` entry to the local `importHistory` state immediately (in addition to the server-side log) so the Import History panel always reflects the latest attempt.
+Right now we can't tell which, because the function discards the response body before logging it.
 
-3. Inline status in the preview card
-   - Show a small muted line under "Extracted rooms before import" when the last fetch failed: `"Last preview attempt failed — click Refresh preview to retry."`
-   - Keep the existing table/empty-state untouched.
+## Fix
 
-No edge-function or database changes are needed; the previously deployed `previo-sync-rooms` returns proper JSON now and the per-hotel secret has just been updated.
+### 1. `supabase/functions/_shared/previoAuth.ts`
+On a successful (`response.ok`) response, peek at `Content-Type`. If it isn't JSON, read the body as text and throw a descriptive error like:
+```
+Previo returned non-JSON (200, text/html) from /rest/rooms via <source>: <first 300 chars of body>
+```
+Also log `response.status`, `content-type`, final `response.url` (to detect cross-host redirects), and the resolved `baseUrl` so we can see where the HTML really came from.
 
-## Verification
+### 2. `supabase/functions/previo-sync-rooms/index.ts`
+Replace the bare `await response.json()` (line 80) with a safe parse:
+- Read `await response.text()` once.
+- Try `JSON.parse`; on failure throw `Previo /rest/rooms returned non-JSON (status=…, content-type=…): <snippet>`.
+- Re-use the same pattern in the `previewOnly`, `importLocal`, and default branches.
 
-- Open `/rdhotels` → Rooms tab → no toast on first load.
-- Click **Refresh preview** → either rooms appear or a clean error toast.
-- Click **Import from Previo** → toast shows either `"Imported N of M rooms"` or the precise Previo error; never raw HTML.
-- New entry appears in Import History for both success and failure.
+The existing `pms_sync_history` failure-logger already captures `error.message`, so the import history row will now show the real Previo body snippet instead of the JSON-parse stack.
 
-## Technical details
+### 3. Same hardening in the other Previo functions that consume `response.json()`
+`previo-test-connection`, `previo-pms-sync`, `previo-poll-checkouts`, `previo-pull-rates`, `previo-sync-reservations`, `previo-update-room-status`, `previo-update-minibar` — apply the same `safeJson` helper from `_shared/previoAuth.ts` so any future Previo HTML response surfaces a clean diagnostic instead of `Unexpected token '<'`.
 
-- Files touched: `src/components/dashboard/RoomManagement.tsx` only.
-- Helper: a small `safeInvoke(name, body)` wrapper local to the file that catches `SyntaxError` from `supabase.functions.invoke` (it happens inside the SDK when the body isn't JSON) and returns `{ data: null, error: new Error('Previo gateway returned a non-JSON response (likely a transient deploy/cold-start). Please retry.') }`.
-- Retry policy: at most one extra attempt for `previewOnly`; never auto-retry for `importLocal` (avoid duplicate writes).
+### 4. `src/components/dashboard/RoomManagement.tsx`
+No behaviour change needed — the existing error toast + import-history row will now display the real Previo error string instead of an HTML snippet. I'll just shorten the inline preview-error line to use the new clearer message verbatim.
+
+## After deploy
+
+Click **Refresh preview** once. The toast / import-history entry will tell us exactly what Previo returned (status, content-type, body snippet, final URL). Based on that we'll know whether to:
+- Update the per-hotel Previo credential (most likely),
+- Fix `PREVIO_API_BASE_URL`, or
+- Adjust the hotel ID header/path.
+
+No DB schema changes. No UI redesign.

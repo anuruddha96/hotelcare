@@ -147,7 +147,9 @@ export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<
     });
 
     if (response.ok) {
-      console.log(`Previo authenticated successfully via ${candidate.source}`);
+      console.log(
+        `Previo authenticated successfully via ${candidate.source} (status=${response.status}, content-type=${response.headers.get("content-type") || "?"}, finalUrl=${response.url})`,
+      );
       return { response, source: candidate.source };
     }
 
