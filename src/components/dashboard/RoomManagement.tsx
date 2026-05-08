@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
@@ -11,6 +11,14 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { HotelFilter } from './HotelFilter';
 import { MinimBarManagement } from './MinimBarManagement';
 import { EnhancedRoomCardV2 } from './EnhancedRoomCardV2';
@@ -31,10 +39,44 @@ import {
   User,
   Wrench,
   Upload,
-  Grid3X3
+  Grid3X3,
+  RefreshCw,
+  Eye,
+  ListChecks,
+  XCircle
 } from 'lucide-react';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { format } from 'date-fns';
+
+interface PrevioPreviewRoom {
+  roomId: number;
+  name: string;
+  roomKindName: string;
+  capacity: number;
+  extraCapacity: number;
+  roomCleanStatusId: number;
+}
+
+interface PrevioImportHistoryEntry {
+  id: string;
+  created_at: string;
+  sync_status: 'success' | 'failed' | 'partial';
+  error_message: string | null;
+  data: {
+    total?: number;
+    upserted?: number;
+    mapped?: number;
+    errors?: string[];
+    extracted_rooms?: Array<{
+      roomId?: number;
+      name?: string;
+      roomKindName?: string;
+      capacity?: number;
+      extraCapacity?: number;
+      roomCleanStatusId?: number;
+    }>;
+  } | null;
+}
 
 interface Room {
   id: string;
