@@ -46,8 +46,9 @@ serve(async (req) => {
     // Look up the HotelCare hotel_id from the Previo hotel ID
     const { data: pmsConfig } = await supabase
       .from('pms_configurations')
-      .select('hotel_id')
+      .select('hotel_id, credentials_secret_name')
       .eq('pms_hotel_id', hotelId)
+      .eq('pms_type', 'previo')
       .single();
 
     if (!pmsConfig) {
@@ -57,16 +58,26 @@ serve(async (req) => {
     const hotelCareHotelId = pmsConfig.hotel_id;
     console.log(`Syncing reservations from Previo REST API for Previo ID: ${hotelId}, HotelCare ID: ${hotelCareHotelId}`);
 
-    // Get Previo API credentials from environment
-    const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
-    const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
-
-    if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
+    // Resolve credentials: prefer per-hotel secret, fall back to legacy global env
+    let previoUser = '';
+    let previoPass = '';
+    if (pmsConfig.credentials_secret_name) {
+      const combined = Deno.env.get(pmsConfig.credentials_secret_name) || '';
+      const idx = combined.indexOf(':');
+      if (idx > 0) {
+        previoUser = combined.slice(0, idx);
+        previoPass = combined.slice(idx + 1);
+      }
+    }
+    if (!previoUser || !previoPass) {
+      previoUser = Deno.env.get('PREVIO_API_USER') || '';
+      previoPass = Deno.env.get('PREVIO_API_PASSWORD') || '';
+    }
+    if (!previoUser || !previoPass) {
       throw new Error('Previo API credentials not configured');
     }
 
-    // Create Basic Auth header
-    const auth = btoa(`${PREVIO_API_USER}:${PREVIO_API_PASSWORD}`);
+    const auth = btoa(`${previoUser}:${previoPass}`);
     
     // Call Previo REST API to get all rooms (includes reservation data)
     const response = await fetch('https://api.previo.app/rest/rooms', {

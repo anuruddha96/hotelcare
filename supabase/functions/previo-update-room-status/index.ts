@@ -17,14 +17,6 @@ serve(async (req) => {
     
     console.log('Updating Previo room status via REST API:', { roomId, status });
 
-    // Get Previo API credentials from environment
-    const PREVIO_API_USER = Deno.env.get('PREVIO_API_USER');
-    const PREVIO_API_PASSWORD = Deno.env.get('PREVIO_API_PASSWORD');
-
-    if (!PREVIO_API_USER || !PREVIO_API_PASSWORD) {
-      throw new Error('Previo API credentials not configured');
-    }
-
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
