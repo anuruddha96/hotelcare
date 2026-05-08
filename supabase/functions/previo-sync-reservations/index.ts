@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
-import { fetchPrevioWithAuth } from '../_shared/previoAuth.ts';
+import { fetchPrevioWithAuth, safePrevioJson } from '../_shared/previoAuth.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -73,7 +73,7 @@ serve(async (req) => {
       throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
     }
 
-    const roomsData: PrevioRoom[] = await response.json();
+    const roomsData = await safePrevioJson<PrevioRoom[]>(response, { path: '/rest/rooms' });
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
     console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
 
