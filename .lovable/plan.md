@@ -1,61 +1,67 @@
-## Problem
+## Goal
+Connect the Previo sandbox account (Hotel ID `730099`, login `test_api@hotelcare.app`) to a brand-new isolated test hotel under the `hotelcare` organization, then verify rooms / rates / reservations sync end-to-end without touching OttoFiori or any production hotel.
 
-Two issues combine to give breakfast_staff a blank page:
+## Steps
 
-1. **`/bb/auth` does not exist.** `PublicBreakfastApp` (the provider tree mounted whenever `window.location.pathname` starts with `/bb`) only registers routes `/bb` and `/bb/:hotelCode`. Any other `/bb/*` URL renders nothing — hence the blank screen the user sees at `/bb/auth`.
-2. **Client-side `<Navigate to="/bb">` keeps the user inside `MainApp`.** When `Index.tsx` routes a `breakfast_staff` user with `<Navigate to="/bb" replace />`, React Router stays mounted in `MainApp`, which has no `/bb` route → falls through to `NotFound` (blank-ish). The `window.location.pathname` check in `App.tsx` only runs on initial load, not on client navigations, so `PublicBreakfastApp` never takes over.
+### 1. Add the Previo test credentials as a Supabase secret
+- Add one new secret: **`PREVIO_HOTEL_TEST`**
+- Value format (matches existing per-hotel pattern in `previo-test-connection`): `test_api@hotelcare.app:O5pBtjv3a10s`
+- This is consumed by every `previo-*` edge function via `cfg.credentials_secret_name`, so no code change is needed in the functions themselves once they all follow the same resolver. (Verify and align: `previo-sync-rooms`, `previo-sync-reservations`, `previo-pull-rates`, `previo-push-rates`, `previo-update-room-status`, `previo-update-minibar` — patch any that still only read `PREVIO_API_USER` / `PREVIO_API_PASSWORD` so they prefer `credentials_secret_name` first, fallback to legacy global env.)
 
-We also want breakfast_staff users to be confined to `/bb` and to never trigger the manager `RealtimeNotificationProvider`.
+### 2. Create a new test hotel via migration
+Insert one row into `hotel_configurations` (and any required sibling rows the existing onboarding flow creates — check `HotelOnboarding.tsx` for the canonical insert set):
+- `hotel_id`: `previo-test`
+- `hotel_name`: `Previo Test Hotel (730099)`
+- `organization_slug`: `hotelcare`
+- Mark inactive for housekeeping/PMS until verified, no real rooms attached.
 
-## Fix
+### 3. Create the PMS configuration row
+Insert into `pms_configurations`:
+- `hotel_id`: `previo-test`
+- `pms_type`: `previo`
+- `pms_hotel_id`: `730099`
+- `credentials_secret_name`: `PREVIO_HOTEL_TEST`
+- `is_active`: `true`
+- `sync_enabled`: `true`
+- `connection_mode`: `manual` (no scheduled background sync — we trigger manually)
+- `auto_sync_enabled`: `false`
 
-### 1. `src/pages/Index.tsx` — hard-redirect breakfast_staff
-Replace the `<Navigate to="/bb" replace />` for `profile?.role === 'breakfast_staff'` with a full reload:
+### 4. Test connection (read-only)
+- Open Admin → PMS Configuration, select "Previo Test Hotel (730099)".
+- Click **Test Connection** → invokes `previo-test-connection` → expects `ok: true` with a non-zero `roomCount`.
+- If it fails, surface the exact Previo error in `last_test_error`.
 
-```ts
-useEffect(() => {
-  if (profile?.role === 'breakfast_staff' && window.location.pathname !== '/bb') {
-    window.location.replace('/bb');
-  }
-}, [profile?.role]);
-```
-Render the loading spinner while redirecting. This guarantees `PublicBreakfastApp` mounts on the next load, so no manager notifications subscribe.
+### 5. Sync rooms → build room mappings
+- Trigger `previo-sync-rooms` for `previo-test`.
+- It should pull room types from `https://api.previo.app/rest/rooms`. Persist them and (optionally) auto-create starter rows in `pms_room_mappings` so we can preview reservations without manual entry.
 
-### 2. `src/pages/Auth.tsx` — same hard-redirect after login
-After a successful `signIn`, before the `<Navigate>` for `user`, check the freshly-loaded profile role. If `breakfast_staff` → `window.location.replace('/bb')`. (Use a small `useEffect` watching `user` + `profile.role` rather than the inline `<Navigate>` for that role.)
+### 6. Pull rates
+- Trigger `previo-pull-rates` for `previo-test`. Confirm rate plans and currencies come back. Write to whatever local rates table the function targets, scoped to `hotel_id = previo-test`.
 
-### 3. `src/App.tsx` — add `/bb/auth` to `PublicBreakfastApp`
-Add a new lightweight component `BreakfastAuth` (new file `src/pages/BreakfastAuth.tsx`) and register:
+### 7. Sync reservations
+- Trigger `previo-sync-reservations` for `previo-test` (date window: today − 7d through today + 30d).
+- Verify reservations land in the project's reservations table with `hotel_id = previo-test` and that no rows are written for any other hotel.
 
-```tsx
-<Route path="/bb/auth" element={<BreakfastAuth />} />
-```
+### 8. Verify in UI
+- Front Desk / Reservations pages, with the test hotel selected, should show the synced data.
+- OttoFiori and all other hotels must remain untouched (spot-check `last_sync_at` on their PMS config rows — should be unchanged).
 
-`BreakfastAuth` is a self-contained sign-in page (does NOT use `useAuth` / `AuthProvider`):
-- Email + password form.
-- Calls `supabase.auth.signInWithPassword(...)`.
-- After success, fetches the user's `profiles` row to read `role`.
-  - If role === `breakfast_staff` → `window.location.replace('/bb')`.
-  - Otherwise → call `supabase.auth.signOut()` and show "This login is for breakfast staff only. Please use the main app."
-- Reuses HotelCare branding (logo + same gradient card) for visual consistency.
+## Technical notes
+- Allowed Previo methods per the test creds cover everything we need: `Hotel.searchReservations`, `Hotel.reservation`, `Hotel.getRates`, `Hotel.getRoomKinds`, `rest/rooms`, `rate-plan`, etc. No push-side methods (e.g. `Reservation.create`) — `previo-push-rates` may be limited or rejected; treat 403s on push as expected for the sandbox and log clearly rather than failing hard.
+- All edge functions must continue to require admin/top_management OR `assigned_hotel === 'previo-test'` for the caller — the existing authorization block in `previo-test-connection` is the template.
+- No frontend feature changes; this is purely configuration + edge-function credential resolution alignment.
+- After the migration, the `src/integrations/supabase/types.ts` regeneration is automatic.
 
-### 4. `src/pages/Breakfast.tsx` — gate access for logged-in non-staff & offer login for staff
-At the top of `Breakfast`, check `supabase.auth.getSession()` once on mount:
-- If a session exists AND profile role is `breakfast_staff` → continue normally (and show a small "Sign out" button in the header that calls `supabase.auth.signOut()` then `window.location.replace('/bb/auth')`).
-- If a session exists with any other role → ignore it (page stays public; do NOT log them out — managers may legitimately open `/bb` to test).
-- If no session → page stays fully public as today.
+## Files expected to change
+- `supabase/migrations/<timestamp>_previo_test_hotel.sql` (new) — hotel + pms_configuration rows
+- `supabase/functions/previo-sync-rooms/index.ts` — align credential resolver (if needed)
+- `supabase/functions/previo-sync-reservations/index.ts` — align credential resolver (if needed)
+- `supabase/functions/previo-pull-rates/index.ts` — align credential resolver (if needed)
+- `supabase/functions/previo-push-rates/index.ts` — align credential resolver (if needed)
+- `supabase/functions/previo-update-room-status/index.ts` — align credential resolver (if needed)
+- `supabase/functions/previo-update-minibar/index.ts` — align credential resolver (if needed)
 
-Add a small "Staff sign-in" link in the footer of the hotel-picker view that points to `/bb/auth`, so breakfast staff have an obvious way in.
-
-### 5. Confine breakfast_staff inside `MainApp` routes
-In `useAuth` (or a small guard inside `TenantRouter`), if `profile?.role === 'breakfast_staff'` and the current path is not `/bb*`, perform `window.location.replace('/bb')`. This handles the case where a staff user manually types a manager URL.
-
-## Files touched
-- `src/pages/Index.tsx` — replace `<Navigate>` with `window.location.replace`.
-- `src/pages/Auth.tsx` — post-login role check, hard redirect for breakfast_staff.
-- `src/App.tsx` — register `/bb/auth` route in `PublicBreakfastApp`.
-- `src/pages/BreakfastAuth.tsx` — new self-contained sign-in page.
-- `src/pages/Breakfast.tsx` — optional sign-out button + "Staff sign-in" link, no functional change for public users.
-- `src/hooks/useAuth.tsx` (or `TenantRouter`) — guard non-/bb routes for breakfast_staff.
-
-No DB changes needed.
+## Out of scope
+- No changes to OttoFiori configuration.
+- No scheduled/auto-sync enablement.
+- No new UI surfaces — using existing PMS admin screens.
