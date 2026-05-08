@@ -105,19 +105,20 @@ serve(async (req) => {
     }
     const auth = btoa(`${previoUser}:${previoPass}`);
 
-    // Call Previo REST API to update room status
-    const previoResponse = await fetch('https://api.previo.app/rest/housekeeping/room-status', {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'X-Previo-Hotel-ID': String((pmsConfig as any).pms_hotel_id || ''),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        roomNumber: room.room_number,
-        status: previoStatus
-      })
-    });
+    // Use mapped Previo room ID; clean-status endpoint takes the room ID in the path
+    const previoRoomId = roomMapping.pms_room_id;
+    const previoResponse = await fetch(
+      `https://api.previo.app/rest/rooms/${previoRoomId}/clean-status`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'X-Previo-Hotel-ID': String((pmsConfig as any).pms_hotel_id || ''),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: previoStatus }),
+      }
+    );
 
     if (!previoResponse.ok) {
       const errorText = await previoResponse.text();
