@@ -477,6 +477,32 @@ export function RoomManagement() {
                   <span className="hidden sm:inline">Bulk Add Rooms</span>
                   <span className="sm:hidden">Bulk Add</span>
                 </Button>
+                {profile?.assigned_hotel === 'previo-test' && (
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        toast({ title: 'Importing rooms from Previo…' });
+                        const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
+                          body: { hotelId: '730099', importLocal: true },
+                        });
+                        if (error) throw error;
+                        const r = (data as any)?.results;
+                        toast({
+                          title: 'Import complete',
+                          description: r ? `Upserted ${r.upserted}/${r.total}, mapped ${r.mapped}` : 'Done',
+                        });
+                        fetchRooms();
+                      } catch (e: any) {
+                        toast({ title: 'Import failed', description: e?.message || String(e), variant: 'destructive' });
+                      }
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span>Import from Previo</span>
+                  </Button>
+                )}
                 <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
                   <DialogTrigger asChild>
                     <Button className="flex items-center gap-2">
