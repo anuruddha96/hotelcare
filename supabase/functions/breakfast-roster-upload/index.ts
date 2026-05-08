@@ -128,8 +128,10 @@ serve(async (req) => {
       for (let i = headerIdx + 1; i < rows.length; i++) {
         const row = rows[i];
         if (!row) continue;
-        const room = String(row[cRoom] ?? "").trim();
-        if (!room || room.toLowerCase().startsWith("total")) continue;
+        const rawRoom = String(row[cRoom] ?? "").trim();
+        if (!rawRoom || rawRoom.toLowerCase().startsWith("total")) continue;
+        const room = normalizeRoomNumber(rawRoom);
+        if (!room) continue;
         const arrText = row[cArr] != null ? String(row[cArr]) : null;
         const ongText = row[cOng] != null ? String(row[cOng]) : null;
         const guests = [...extractGuests(arrText), ...extractGuests(ongText)];
