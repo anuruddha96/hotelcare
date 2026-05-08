@@ -149,6 +149,7 @@ export function RoomManagement() {
   const [loadingPrevioPreview, setLoadingPrevioPreview] = useState(false);
   const [loadingImportHistory, setLoadingImportHistory] = useState(false);
   const [previoPreviewRooms, setPrevioPreviewRooms] = useState<PrevioPreviewRoom[]>([]);
+  const [previoPreviewError, setPrevioPreviewError] = useState<string | null>(null);
   const [importHistory, setImportHistory] = useState<PrevioImportHistoryEntry[]>([]);
 
   const isAdmin = profile?.role === 'admin';
@@ -306,14 +307,37 @@ export function RoomManagement() {
     }
   };
 
-  const fetchPrevioPreview = async () => {
+  // Wraps supabase.functions.invoke so transient HTML responses from the gateway
+  // (cold start, deploy roll, 5xx) don't surface as the raw "Unexpected token '<'"
+  // JSON parse error. Returns { data, error } the same shape as invoke().
+  const safeInvoke = async (fn: string, body: any): Promise<{ data: any; error: Error | null }> => {
+    try {
+      const res = await supabase.functions.invoke(fn, { body });
+      return { data: res.data, error: res.error as any };
+    } catch (e: any) {
+      const msg = String(e?.message || e || '');
+      if (msg.includes('Unexpected token') || msg.includes('not valid JSON') || msg.includes('<!DOCTYPE')) {
+        return {
+          data: null,
+          error: new Error('Previo gateway returned a non-JSON response (likely a transient deploy/cold-start). Please retry.'),
+        };
+      }
+      return { data: null, error: e instanceof Error ? e : new Error(msg) };
+    }
+  };
+
+  const fetchPrevioPreview = async (opts: { silent?: boolean } = {}) => {
     if (profile?.assigned_hotel !== 'previo-test') return;
 
     setLoadingPrevioPreview(true);
     try {
-      const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
-        body: { hotelId: 'previo-test', previewOnly: true },
-      });
+      let { data, error } = await safeInvoke('previo-sync-rooms', { hotelId: 'previo-test', previewOnly: true });
+
+      // Single retry for transient gateway/deploy races.
+      if (error && /non-JSON|temporarily|transient|cold-start/i.test(error.message)) {
+        await new Promise((r) => setTimeout(r, 800));
+        ({ data, error } = await safeInvoke('previo-sync-rooms', { hotelId: 'previo-test', previewOnly: true }));
+      }
 
       const payload = data as { success?: boolean; error?: string; rooms?: PrevioPreviewRoom[] } | null;
       if (error || payload?.success === false) {
@@ -321,48 +345,25 @@ export function RoomManagement() {
       }
 
       setPrevioPreviewRooms(Array.isArray(payload?.rooms) ? payload.rooms : []);
+      setPrevioPreviewError(null);
     } catch (error: any) {
       console.error('Previo preview fetch failed:', error);
-      toast.error(error?.message || 'Failed to fetch Previo room preview');
+      const msg = error?.message || 'Failed to fetch Previo room preview';
+      setPrevioPreviewError(msg);
+      // Only toast when the user explicitly triggered a refresh; the auto-load
+      // on tab open is silent and just reflects the error inline.
+      if (!opts.silent) toast.error(msg);
     } finally {
       setLoadingPrevioPreview(false);
     }
   };
-
-  const fetchImportHistory = async () => {
-    if (profile?.assigned_hotel !== 'previo-test') return;
-
-    setLoadingImportHistory(true);
-    try {
-      const { data, error } = await supabase
-        .from('pms_sync_history')
-        .select('id, created_at, sync_status, error_message, data')
-        .eq('hotel_id', 'previo-test')
-        .eq('sync_type', 'rooms')
-        .eq('direction', 'from_previo')
-        .contains('data', { operation: 'import_rooms' })
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (error) throw error;
-
-      setImportHistory((data as PrevioImportHistoryEntry[]) || []);
-    } catch (error: any) {
-      console.error('Import history fetch failed:', error);
-      toast.error(error?.message || 'Failed to load import history');
-    } finally {
-      setLoadingImportHistory(false);
-    }
-  };
-
+...
   const handleImportFromPrevio = async () => {
     setImportingPrevio(true);
     const loadingToast = toast.loading('Importing rooms from Previo…');
 
     try {
-      const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
-        body: { hotelId: 'previo-test', importLocal: true },
-      });
+      const { data, error } = await safeInvoke('previo-sync-rooms', { hotelId: 'previo-test', importLocal: true });
 
       const payload = data as {
         success?: boolean;
@@ -382,9 +383,21 @@ export function RoomManagement() {
         { id: loadingToast }
       );
 
-      await Promise.all([fetchRooms(), fetchPrevioPreview(), fetchImportHistory()]);
+      await Promise.all([fetchRooms(), fetchPrevioPreview({ silent: true }), fetchImportHistory()]);
     } catch (error: any) {
-      toast.error(error?.message || 'Import failed', { id: loadingToast });
+      const msg = error?.message || 'Import failed';
+      toast.error(msg, { id: loadingToast });
+      // Surface the failure immediately in the local Import History panel.
+      setImportHistory((prev) => [
+        {
+          id: `local-${Date.now()}`,
+          created_at: new Date().toISOString(),
+          sync_status: 'failed',
+          error_message: msg,
+          data: { operation: 'import_rooms', error: msg },
+        } as PrevioImportHistoryEntry,
+        ...prev,
+      ].slice(0, 10));
     } finally {
       setImportingPrevio(false);
     }
