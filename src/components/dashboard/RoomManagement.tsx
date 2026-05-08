@@ -621,30 +621,12 @@ export function RoomManagement() {
                 {profile?.assigned_hotel === 'previo-test' && (
                   <Button
                     variant="outline"
-                    onClick={async () => {
-                      try {
-                        toast({ title: 'Importing rooms from Previo…' });
-                        const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
-                          body: { hotelId: 'previo-test', importLocal: true },
-                        });
-                        const d = data as any;
-                        if (error || (d && d.success === false)) {
-                          throw new Error(d?.error || error?.message || 'Sync failed');
-                        }
-                        const r = d?.results;
-                        toast({
-                          title: 'Import complete',
-                          description: r ? `Upserted ${r.upserted}/${r.total}, mapped ${r.mapped}` : 'Done',
-                        });
-                        fetchRooms();
-                      } catch (e: any) {
-                        toast({ title: 'Import failed', description: e?.message || String(e), variant: 'destructive' });
-                      }
-                    }}
+                    onClick={handleImportFromPrevio}
+                    disabled={importingPrevio}
                     className="flex items-center gap-2"
                   >
-                    <Upload className="h-4 w-4" />
-                    <span>Import from Previo</span>
+                    {importingPrevio ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    <span>{importingPrevio ? 'Importing…' : 'Import from Previo'}</span>
                   </Button>
                 )}
                 <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
