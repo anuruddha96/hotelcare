@@ -116,7 +116,7 @@ serve(async (req) => {
       throw new Error(`Previo authentication failed for all credential sources. Last (${lastSource}): ${lastErrorBody.slice(0, 300)}`);
     }
 
-    }
+
 
     const roomsData: PrevioRoom[] = await response.json();
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
