@@ -411,15 +411,10 @@ serve(async (req) => {
       console.error('Failed to log error:', logError);
     }
 
+    // Return 200 so supabase-js exposes the body to the client (otherwise `data` is null on 5xx).
     return new Response(
-      JSON.stringify({ 
-        success: false,
-        error: error.message 
-      }),
-      { 
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
+      JSON.stringify({ success: false, error: error.message }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
