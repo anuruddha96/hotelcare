@@ -96,6 +96,148 @@ serve(async (req) => {
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
     console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
 
+    // Get authorization header (used by both branches below)
+    const authHeader = req.headers.get('Authorization');
+    let userId: string | null = null;
+    if (authHeader) {
+      const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+      userId = user?.id || null;
+    }
+
+    // ---- Import-local branch: upsert into rooms + pms_room_mappings.
+    // Hard-gated to hotel_id = 'previo-test' so OttoFiori is never touched.
+    if (importLocal) {
+      if (hotelCareHotelId !== 'previo-test') {
+        return new Response(
+          JSON.stringify({ success: false, error: `Import is restricted to 'previo-test'. Got '${hotelCareHotelId}'.` }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const { data: cfgRow } = await supabase
+        .from('pms_configurations')
+        .select('id')
+        .eq('hotel_id', hotelCareHotelId)
+        .eq('pms_type', 'previo')
+        .single();
+      if (!cfgRow) throw new Error('PMS config row not found');
+
+      // Pull org slug to populate on new room rows
+      const { data: hotelRec } = await supabase
+        .from('hotel_configurations')
+        .select('organization_id')
+        .eq('hotel_id', hotelCareHotelId)
+        .maybeSingle();
+      let orgSlug: string | null = null;
+      if (hotelRec?.organization_id) {
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('slug')
+          .eq('id', hotelRec.organization_id)
+          .maybeSingle();
+        orgSlug = org?.slug ?? null;
+      }
+
+      const importResults = { total: roomsData.length, upserted: 0, mapped: 0, errors: [] as string[] };
+
+      for (const r of roomsData) {
+        try {
+          const roomNumber = r.name;
+          const roomType = r.roomKindName || '';
+          const capacity = (r.capacity ?? 0) + (r.extraCapacity ?? 0);
+          const pmsMetadata = {
+            roomId: r.roomId,
+            roomKindId: r.roomKindId,
+            roomKindName: r.roomKindName,
+            roomTypeId: r.roomTypeId,
+            isHourlyBased: r.isHourlyBased,
+            hasCapacity: r.hasCapacity,
+            extraCapacity: r.extraCapacity,
+            order: r.order,
+          };
+
+          const { data: existing } = await supabase
+            .from('rooms')
+            .select('id')
+            .eq('hotel', hotelCareHotelId)
+            .eq('room_number', roomNumber)
+            .maybeSingle();
+
+          if (existing) {
+            const { error } = await supabase
+              .from('rooms')
+              .update({
+                room_type: roomType,
+                room_capacity: capacity || null,
+                pms_metadata: pmsMetadata,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existing.id);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase
+              .from('rooms')
+              .insert({
+                hotel: hotelCareHotelId,
+                room_number: roomNumber,
+                room_type: roomType,
+                room_capacity: capacity || null,
+                status: 'clean',
+                organization_slug: orgSlug,
+                pms_metadata: pmsMetadata,
+              });
+            if (error) throw error;
+          }
+          importResults.upserted++;
+
+          const { data: existingMap } = await supabase
+            .from('pms_room_mappings')
+            .select('id')
+            .eq('pms_config_id', cfgRow.id)
+            .eq('hotelcare_room_number', roomNumber)
+            .maybeSingle();
+          if (existingMap) {
+            await supabase
+              .from('pms_room_mappings')
+              .update({
+                pms_room_id: String(r.roomId),
+                pms_room_name: r.name,
+                is_active: true,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingMap.id);
+          } else {
+            await supabase.from('pms_room_mappings').insert({
+              pms_config_id: cfgRow.id,
+              hotelcare_room_number: roomNumber,
+              pms_room_id: String(r.roomId),
+              pms_room_name: r.name,
+              is_active: true,
+            });
+          }
+          importResults.mapped++;
+        } catch (e: any) {
+          importResults.errors.push(`${r.name}: ${e?.message || e}`);
+        }
+      }
+
+      await supabase.from('pms_sync_history').insert({
+        sync_type: 'rooms_import',
+        direction: 'from_previo',
+        hotel_id: hotelCareHotelId,
+        data: { ...importResults, previo_hotel_id: hotelId },
+        changed_by: userId,
+        sync_status: importResults.errors.length ? 'partial' : 'success',
+        error_message: importResults.errors.length ? importResults.errors.join('; ') : null,
+      });
+
+      return new Response(
+        JSON.stringify({ success: true, message: 'Rooms imported from Previo', results: importResults }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+
     // Get room mappings for this hotel
     const { data: pmsConfigWithMappings } = await supabase
       .from('pms_configurations')
