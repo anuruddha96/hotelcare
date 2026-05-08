@@ -23,6 +23,16 @@ function paxFromText(text: string | null): number {
   return m ? parseInt(m[1], 10) : 0;
 }
 
+// Normalize raw room values like "66EC.QRP216", "QRP-216", "Room 216" → "216".
+// Strategy: take the LAST contiguous run of digits (>=2 digits). Fallback to trimmed input.
+function normalizeRoomNumber(raw: string): string {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return "";
+  const matches = trimmed.match(/\d{2,}/g);
+  if (matches && matches.length > 0) return matches[matches.length - 1];
+  return trimmed;
+}
+
 function detectStayDate(sheetName: string, rows: any[][], fallback: string): string {
   // 1. ISO in name
   let m = sheetName.match(/(\d{4})-(\d{2})-(\d{2})/);
