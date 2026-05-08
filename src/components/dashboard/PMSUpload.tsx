@@ -982,8 +982,58 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     }
   };
 
+  // Poll Previo for checkouts (manual + auto). Restricted to previo-test.
+  const pollCheckouts = useCallback(async (silent = false) => {
+    if (selectedHotel !== 'previo-test') return;
+    setIsPollingCheckouts(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('previo-poll-checkouts', {
+        body: { hotelId: 'previo-test' },
+      });
+      const d = data as any;
+      if (error || (d && d.ok === false)) {
+        throw new Error(d?.error || error?.message || 'Poll failed');
+      }
+      setLastCheckoutSync(new Date());
+      if (!silent) {
+        toast.success('Checkout poll complete', {
+          description: `Checked ${d?.checked ?? 0}, marked ${d?.marked ?? 0} ready-to-clean`,
+        });
+      }
+    } catch (e: any) {
+      if (!silent) toast.error('Checkout poll failed', { description: e?.message || String(e) });
+      console.error('[Previo] checkout poll error:', e);
+    } finally {
+      setIsPollingCheckouts(false);
+    }
+  }, [selectedHotel]);
 
-  // Check if Previo sync should be enabled for this hotel
+  // Auto-poll checkouts every 30 minutes for previo-test only.
+  useEffect(() => {
+    if (selectedHotel !== 'previo-test') return;
+    let cancelled = false;
+    (async () => {
+      // Load most recent poll timestamp
+      const { data } = await supabase
+        .from('pms_sync_history')
+        .select('synced_at, created_at')
+        .eq('hotel_id', 'previo-test')
+        .eq('sync_type', 'checkouts_poll')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      const ts = (data as any)?.synced_at || (data as any)?.created_at;
+      if (ts) setLastCheckoutSync(new Date(ts));
+      // If stale (>30 min) or never polled, kick one off silently
+      const stale = !ts || (Date.now() - new Date(ts).getTime()) > 30 * 60 * 1000;
+      if (stale) pollCheckouts(true);
+    })();
+    const id = setInterval(() => pollCheckouts(true), 30 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selectedHotel, pollCheckouts]);
+
+
   useEffect(() => {
     const checkPrevioEnabled = async () => {
       if (!selectedHotel) {
