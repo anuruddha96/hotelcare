@@ -421,8 +421,12 @@ serve(async (req) => {
       await supabase.from('pms_sync_history').insert({
         sync_type: 'rooms',
         direction: 'from_previo',
-        hotel_id: null,
-        data: { error: error.message },
+        hotel_id: /^\d+$/.test(hotelId ?? '') ? null : hotelId ?? null,
+        data: {
+          error: error.message,
+          requested_hotel_id: hotelId ?? null,
+          operation: importLocal ? 'import_rooms' : previewOnly ? 'preview_rooms' : 'sync_rooms',
+        },
         sync_status: 'failed',
         error_message: error.message
       });
