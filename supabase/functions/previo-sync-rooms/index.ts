@@ -87,7 +87,7 @@ serve(async (req) => {
       method: 'GET',
       headers: {
         'Authorization': `Basic ${auth}`,
-        'X-Previo-Hotel-ID': hotelId,
+        'X-Previo-Hotel-ID': previoNumericId,
         'Content-Type': 'application/json',
       }
     });
@@ -233,7 +233,7 @@ serve(async (req) => {
         sync_type: 'rooms_import',
         direction: 'from_previo',
         hotel_id: hotelCareHotelId,
-        data: { ...importResults, previo_hotel_id: hotelId },
+        data: { ...importResults, previo_hotel_id: previoNumericId },
         changed_by: userId,
         sync_status: importResults.errors.length ? 'partial' : 'success',
         error_message: importResults.errors.length ? importResults.errors.join('; ') : null,
@@ -354,7 +354,7 @@ serve(async (req) => {
         updated: syncResults.updated,
         created: syncResults.created,
         errors: syncResults.errors,
-        previo_hotel_id: hotelId
+        previo_hotel_id: previoNumericId
       },
       changed_by: userId,
       sync_status: syncResults.errors.length > 0 ? 'partial' : 'success',
