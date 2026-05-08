@@ -172,7 +172,7 @@ export function RoomManagement() {
 
   useEffect(() => {
     if (profile?.assigned_hotel === 'previo-test') {
-      fetchPrevioPreview();
+      fetchPrevioPreview({ silent: true });
       fetchImportHistory();
     }
   }, [profile?.assigned_hotel]);
