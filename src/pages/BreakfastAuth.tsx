@@ -23,13 +23,13 @@ export default function BreakfastAuth() {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user || cancelled) return;
-      const { data: profile } = await supabase
+      const { data: profile } = await (supabase as any)
         .from("profiles")
         .select("role")
         .eq("user_id", session.user.id)
         .maybeSingle();
       if (cancelled) return;
-      if (profile?.role === "breakfast_staff") {
+      if ((profile as any)?.role === "breakfast_staff") {
         window.location.replace("/bb");
       }
     })();
