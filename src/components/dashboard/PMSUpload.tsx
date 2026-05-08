@@ -951,8 +951,10 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       const { data, error } = await supabase.functions.invoke('previo-pms-sync', {
         body: { hotelId: selectedHotel },
       });
-      if (error) throw new Error(error.message || 'Sync failed');
-      if (!data?.ok) throw new Error(data?.error || 'Sync failed');
+      if (error || (data && data.ok === false)) {
+        throw new Error((data as any)?.error || error?.message || 'Sync failed');
+      }
+      if (!data?.ok) throw new Error((data as any)?.error || 'Sync failed');
 
       const rows: Record<string, any>[] = data.rows || [];
       if (rows.length === 0) {
