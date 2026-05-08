@@ -69,15 +69,16 @@ serve(async (req) => {
     const previoNumericId = String(pmsConfig.pms_hotel_id || '');
     console.log(`Syncing rooms from Previo REST API for Previo ID: ${previoNumericId}, HotelCare ID: ${hotelCareHotelId}`);
 
-    const { response } = await fetchPrevioWithAuth({
+    const { response, source } = await fetchPrevioWithAuth({
       credentialsSecretName: pmsConfig.credentials_secret_name,
       path: '/rest/rooms',
       pmsHotelId: previoNumericId,
     });
 
-
-
-    const roomsData: PrevioRoom[] = await response.json();
+    const roomsData = await safePrevioJson<PrevioRoom[]>(response, {
+      path: '/rest/rooms',
+      source,
+    });
     console.log(`Received ${roomsData.length} rooms from Previo REST API`);
     console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
 
