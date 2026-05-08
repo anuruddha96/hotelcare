@@ -306,6 +306,107 @@ export function RoomManagement() {
     }
   };
 
+  const fetchPrevioPreview = async () => {
+    if (profile?.assigned_hotel !== 'previo-test') return;
+
+    setLoadingPrevioPreview(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
+        body: { hotelId: 'previo-test', previewOnly: true },
+      });
+
+      const payload = data as { success?: boolean; error?: string; rooms?: PrevioPreviewRoom[] } | null;
+      if (error || payload?.success === false) {
+        throw new Error(payload?.error || error?.message || 'Failed to fetch Previo rooms');
+      }
+
+      setPrevioPreviewRooms(Array.isArray(payload?.rooms) ? payload.rooms : []);
+    } catch (error: any) {
+      console.error('Previo preview fetch failed:', error);
+      toast.error(error?.message || 'Failed to fetch Previo room preview');
+    } finally {
+      setLoadingPrevioPreview(false);
+    }
+  };
+
+  const fetchImportHistory = async () => {
+    if (profile?.assigned_hotel !== 'previo-test') return;
+
+    setLoadingImportHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('pms_sync_history')
+        .select('id, created_at, sync_status, error_message, data')
+        .eq('hotel_id', 'previo-test')
+        .eq('sync_type', 'rooms')
+        .eq('direction', 'from_previo')
+        .contains('data', { operation: 'import_rooms' })
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      setImportHistory((data as PrevioImportHistoryEntry[]) || []);
+    } catch (error: any) {
+      console.error('Import history fetch failed:', error);
+      toast.error(error?.message || 'Failed to load import history');
+    } finally {
+      setLoadingImportHistory(false);
+    }
+  };
+
+  const handleImportFromPrevio = async () => {
+    setImportingPrevio(true);
+    const loadingToast = toast.loading('Importing rooms from Previo…');
+
+    try {
+      const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
+        body: { hotelId: 'previo-test', importLocal: true },
+      });
+
+      const payload = data as {
+        success?: boolean;
+        error?: string;
+        results?: { total?: number; upserted?: number; mapped?: number };
+      } | null;
+
+      if (error || payload?.success === false) {
+        throw new Error(payload?.error || error?.message || 'Sync failed');
+      }
+
+      const results = payload?.results;
+      toast.success(
+        results
+          ? `Imported ${results.upserted ?? 0} of ${results.total ?? 0} extracted rooms`
+          : 'Import complete',
+        { id: loadingToast }
+      );
+
+      await Promise.all([fetchRooms(), fetchPrevioPreview(), fetchImportHistory()]);
+    } catch (error: any) {
+      toast.error(error?.message || 'Import failed', { id: loadingToast });
+    } finally {
+      setImportingPrevio(false);
+    }
+  };
+
+  const getPrevioCleanStatusLabel = (statusId: number) => {
+    switch (statusId) {
+      case 1:
+        return 'Dirty';
+      case 2:
+        return 'Clean';
+      case 3:
+        return 'Inspected';
+      case 4:
+        return 'Out of order';
+      case 5:
+        return 'Out of service';
+      default:
+        return `Status ${statusId}`;
+    }
+  };
+
   const handleCreateRoom = async () => {
     if (!newRoom.hotel || !newRoom.room_number) {
       toast({
