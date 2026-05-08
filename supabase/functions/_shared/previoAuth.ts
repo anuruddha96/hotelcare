@@ -144,6 +144,7 @@ function resolvePrevioBaseUrl(): string {
     }
 
     const normalizedPath = parsed.pathname
+      .replace(/\/soap(?:\/.*)?$/i, "")
       .replace(/\/(v\d+\/)?rest(?:\/.*)?$/i, "")
       .replace(/\/+$/, "");
 
@@ -176,6 +177,7 @@ export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<
 
     const response = await fetch(url, {
       method: options.method || "GET",
+      redirect: "manual",
       headers: {
         Authorization: `Basic ${btoa(`${candidate.user}:${candidate.pass}`)}`,
         "X-Previo-Hotel-ID": String(options.pmsHotelId || ""),
@@ -185,9 +187,19 @@ export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<
       body: options.body,
     });
 
-    if (response.ok) {
+    const location = response.headers.get("location") || "";
+    const finalUrl = response.url || location || url;
+    const finalHost = (() => {
+      try {
+        return new URL(finalUrl).hostname.toLowerCase();
+      } catch {
+        return "";
+      }
+    })();
+
+    if (response.ok && !["help.previo.app", "rest.apidocs.previo.app", "pos.apidocs.previo.app"].includes(finalHost)) {
       console.log(
-        `Previo authenticated successfully via ${candidate.source} (status=${response.status}, content-type=${response.headers.get("content-type") || "?"}, requestUrl=${url}, finalUrl=${response.url})`,
+        `Previo authenticated successfully via ${candidate.source} (status=${response.status}, content-type=${response.headers.get("content-type") || "?"}, requestUrl=${url}, finalUrl=${finalUrl})`,
       );
       return { response, source: candidate.source };
     }
@@ -196,7 +208,7 @@ export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<
     lastErrorBody = errorBody;
     lastSource = candidate.source;
     lastStatus = response.status;
-    console.error(`Previo ${response.status} via ${candidate.source}: ${errorBody.slice(0, 300)}`);
+    console.error(`Previo ${response.status} via ${candidate.source} (requestUrl=${url}, finalUrl=${finalUrl}${location ? `, location=${location}` : ""}): ${errorBody.slice(0, 300)}`);
 
     if (response.status !== 401 && response.status !== 403) {
       return {
