@@ -187,6 +187,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   const [isSyncingPrevio, setIsSyncingPrevio] = useState(false);
   const [previoSyncEnabled, setPrevioSyncEnabled] = useState(false);
   const [resolvedHotelName, setResolvedHotelName] = useState<string | undefined>(undefined);
+  const [lastCheckoutSync, setLastCheckoutSync] = useState<Date | null>(null);
+  const [isPollingCheckouts, setIsPollingCheckouts] = useState(false);
 
   // Resolve hotel slug to full hotel name for filtering
   useEffect(() => {
