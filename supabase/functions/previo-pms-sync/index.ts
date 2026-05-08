@@ -8,7 +8,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
-import { fetchPrevioWithAuth } from "../_shared/previoAuth.ts";
+import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -129,7 +129,7 @@ serve(async (req) => {
       );
     }
 
-    const rooms: PrevioRoom[] = await resp.json();
+    const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
     const today = todayUtcDate();
 
     // Build Excel-compatible rows. Header names match those that PMSUpload's
