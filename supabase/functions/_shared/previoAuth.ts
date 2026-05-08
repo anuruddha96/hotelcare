@@ -90,11 +90,27 @@ export function getPrevioCredentialCandidates(credentialsSecretName?: string | n
   const candidates: PrevioCredentialCandidate[] = [];
   const seen = new Set<string>();
 
-  if (credentialsSecretName) {
-    const secretValue = Deno.env.get(credentialsSecretName) || "";
-    for (const candidate of parseSecretCandidates(secretValue, credentialsSecretName)) {
+  const configuredSecretName = clean(credentialsSecretName);
+  if (configuredSecretName) {
+    const secretValue = clean(Deno.env.get(configuredSecretName));
+    if (!secretValue) {
+      throw new Error(
+        `Configured Previo credential secret "${configuredSecretName}" is empty or missing. Update that secret with username:password, JSON {"username","password"}, or USERNAME/PASSWORD pairs.`,
+      );
+    }
+
+    const secretCandidates = parseSecretCandidates(secretValue, configuredSecretName);
+    if (secretCandidates.length === 0) {
+      throw new Error(
+        `Configured Previo credential secret "${configuredSecretName}" could not be parsed. Supported formats: username:password, JSON {"username","password"}, or USERNAME/PASSWORD pairs.`,
+      );
+    }
+
+    for (const candidate of secretCandidates) {
       pushCandidate(candidates, seen, candidate.user, candidate.pass, candidate.source);
     }
+
+    return candidates;
   }
 
   pushCandidate(
@@ -115,6 +131,29 @@ export function getPrevioCredentialCandidates(credentialsSecretName?: string | n
   return candidates;
 }
 
+function resolvePrevioBaseUrl(): string {
+  const rawBaseUrl = clean(Deno.env.get("PREVIO_API_BASE_URL") || Deno.env.get("PREVIO_API_URL") || "");
+  if (!rawBaseUrl) return "https://api.previo.app";
+
+  try {
+    const parsed = new URL(rawBaseUrl.includes("://") ? rawBaseUrl : `https://${rawBaseUrl}`);
+    const host = parsed.hostname.toLowerCase();
+    if (["help.previo.app", "rest.apidocs.previo.app", "pos.apidocs.previo.app"].includes(host)) {
+      console.warn(`Ignoring Previo base URL ${parsed.origin} because it points to documentation, not the API.`);
+      return "https://api.previo.app";
+    }
+
+    const normalizedPath = parsed.pathname
+      .replace(/\/(v\d+\/)?rest(?:\/.*)?$/i, "")
+      .replace(/\/+$/, "");
+
+    return `${parsed.origin}${normalizedPath}`;
+  } catch {
+    console.warn(`Invalid Previo base URL \"${rawBaseUrl}\"; falling back to https://api.previo.app`);
+    return "https://api.previo.app";
+  }
+}
+
 export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<{ response: Response; source: string }> {
   const candidates = getPrevioCredentialCandidates(options.credentialsSecretName);
   if (candidates.length === 0) {
@@ -125,7 +164,7 @@ export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<
     );
   }
 
-  const baseUrl = clean(Deno.env.get("PREVIO_API_BASE_URL") || Deno.env.get("PREVIO_API_URL") || "https://api.previo.app").replace(/\/+$/, "");
+  const baseUrl = resolvePrevioBaseUrl().replace(/\/+$/, "");
   const url = `${baseUrl}${options.path.startsWith("/") ? options.path : `/${options.path}`}`;
 
   let lastErrorBody = "";
@@ -148,7 +187,7 @@ export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<
 
     if (response.ok) {
       console.log(
-        `Previo authenticated successfully via ${candidate.source} (status=${response.status}, content-type=${response.headers.get("content-type") || "?"}, finalUrl=${response.url})`,
+        `Previo authenticated successfully via ${candidate.source} (status=${response.status}, content-type=${response.headers.get("content-type") || "?"}, requestUrl=${url}, finalUrl=${response.url})`,
       );
       return { response, source: candidate.source };
     }
