@@ -409,11 +409,7 @@ export function RoomManagement() {
 
   const handleCreateRoom = async () => {
     if (!newRoom.hotel || !newRoom.room_number) {
-      toast({
-        title: 'Error',
-        description: 'Hotel and room number are required',
-        variant: 'destructive',
-      });
+      toast.error('Hotel and room number are required');
       return;
     }
 
@@ -446,21 +442,14 @@ export function RoomManagement() {
 
       console.log('Room created successfully:', data);
 
-      toast({
-        title: 'Success',
-        description: 'Room created successfully',
-      });
+      toast.success('Room created successfully');
 
       setCreateDialogOpen(false);
       setNewRoom({ hotel: '', room_number: '', room_name: '', room_type: 'standard', bed_type: 'double', floor_number: '', room_size_sqm: '', room_capacity: '' });
       fetchRooms();
     } catch (error: any) {
       console.error('Room creation failed:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to create room',
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to create room');
     }
   };
 
@@ -490,18 +479,11 @@ export function RoomManagement() {
 
       if (error) throw error;
 
-      toast({
-        title: 'Success',
-        description: `Room status updated to ${newStatus}`,
-      });
+      toast.success(`Room status updated to ${newStatus}`);
 
       fetchRooms();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      toast.error(error.message);
     }
   };
 
