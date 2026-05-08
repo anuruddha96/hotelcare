@@ -1145,7 +1145,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             )}
 
             {/* Upload Buttons */}
-            <div className="flex justify-center gap-4 mt-4">
+            <div className="flex justify-center gap-4 mt-4 flex-wrap">
               {previoSyncEnabled && (
                 <Button
                   onClick={handlePrevioSync}
@@ -1164,6 +1164,30 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                       Sync with Previo
                     </>
                   )}
+                </Button>
+              )}
+              {previoSyncEnabled && selectedHotel === 'previo-test' && (
+                <Button
+                  variant="outline"
+                  className="w-full max-w-xs"
+                  onClick={async () => {
+                    try {
+                      const { data, error } = await supabase.functions.invoke('previo-poll-checkouts', {
+                        body: { hotelId: 'previo-test' },
+                      });
+                      if (error) throw error;
+                      const d = data as any;
+                      toast({
+                        title: 'Checkout poll complete',
+                        description: `Checked ${d?.checked ?? 0}, marked ${d?.marked ?? 0} ready-to-clean`,
+                      });
+                    } catch (e: any) {
+                      toast({ title: 'Checkout poll failed', description: e?.message || String(e), variant: 'destructive' });
+                    }
+                  }}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Refresh Checkouts
                 </Button>
               )}
             </div>
