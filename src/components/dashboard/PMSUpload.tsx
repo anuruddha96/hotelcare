@@ -1177,12 +1177,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                       });
                       if (error) throw error;
                       const d = data as any;
-                      toast({
-                        title: 'Checkout poll complete',
+                      toast.success('Checkout poll complete', {
                         description: `Checked ${d?.checked ?? 0}, marked ${d?.marked ?? 0} ready-to-clean`,
                       });
                     } catch (e: any) {
-                      toast({ title: 'Checkout poll failed', description: e?.message || String(e), variant: 'destructive' });
+                      toast.error('Checkout poll failed', { description: e?.message || String(e) });
                     }
                   }}
                 >
