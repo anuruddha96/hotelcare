@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
