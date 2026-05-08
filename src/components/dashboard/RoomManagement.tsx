@@ -812,10 +812,15 @@ export function RoomManagement() {
                       ? 'Loading rooms from Previo…'
                       : `${previoPreviewRooms.length} rooms currently available from Previo for preview.`}
                   </p>
+                  {previoPreviewError && !loadingPrevioPreview && (
+                    <p className="text-xs text-destructive">
+                      Last preview attempt failed — click Refresh preview to retry.
+                    </p>
+                  )}
                 </div>
                 <Button
                   variant="outline"
-                  onClick={fetchPrevioPreview}
+                  onClick={() => fetchPrevioPreview()}
                   disabled={loadingPrevioPreview || importingPrevio}
                   className="flex items-center gap-2"
                 >
