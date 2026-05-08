@@ -23,6 +23,16 @@ function paxFromText(text: string | null): number {
   return m ? parseInt(m[1], 10) : 0;
 }
 
+// Normalize raw room values like "66EC.QRP216", "QRP-216", "Room 216" → "216".
+// Strategy: take the LAST contiguous run of digits (>=2 digits). Fallback to trimmed input.
+function normalizeRoomNumber(raw: string): string {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return "";
+  const matches = trimmed.match(/\d{2,}/g);
+  if (matches && matches.length > 0) return matches[matches.length - 1];
+  return trimmed;
+}
+
 function detectStayDate(sheetName: string, rows: any[][], fallback: string): string {
   // 1. ISO in name
   let m = sheetName.match(/(\d{4})-(\d{2})-(\d{2})/);
@@ -118,8 +128,10 @@ serve(async (req) => {
       for (let i = headerIdx + 1; i < rows.length; i++) {
         const row = rows[i];
         if (!row) continue;
-        const room = String(row[cRoom] ?? "").trim();
-        if (!room || room.toLowerCase().startsWith("total")) continue;
+        const rawRoom = String(row[cRoom] ?? "").trim();
+        if (!rawRoom || rawRoom.toLowerCase().startsWith("total")) continue;
+        const room = normalizeRoomNumber(rawRoom);
+        if (!room) continue;
         const arrText = row[cArr] != null ? String(row[cArr]) : null;
         const ongText = row[cOng] != null ? String(row[cOng]) : null;
         const guests = [...extractGuests(arrText), ...extractGuests(ongText)];

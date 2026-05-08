@@ -38,20 +38,28 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Look up the HotelCare hotel_id + per-hotel credentials secret from the Previo hotel ID
-    const { data: pmsConfig } = await supabase
+    // Accept either the Previo numeric hotel ID OR the HotelCare slug.
+    // If the value is non-numeric, look up by hotel_id; otherwise by pms_hotel_id.
+    const isNumeric = /^\d+$/.test(hotelId);
+    const lookupQuery = supabase
       .from('pms_configurations')
-      .select('hotel_id, credentials_secret_name')
-      .eq('pms_hotel_id', hotelId)
-      .eq('pms_type', 'previo')
-      .single();
+      .select('hotel_id, pms_hotel_id, credentials_secret_name')
+      .eq('pms_type', 'previo');
+    const { data: pmsConfig, error: cfgErr } = isNumeric
+      ? await lookupQuery.eq('pms_hotel_id', hotelId).maybeSingle()
+      : await lookupQuery.eq('hotel_id', hotelId).maybeSingle();
 
+    if (cfgErr) {
+      console.error('PMS config lookup error:', cfgErr);
+      throw new Error(`Config lookup failed: ${cfgErr.message}`);
+    }
     if (!pmsConfig) {
-      throw new Error(`No PMS configuration found for Previo hotel ID: ${hotelId}`);
+      throw new Error(`No Previo PMS configuration found for: ${hotelId}`);
     }
 
     const hotelCareHotelId = pmsConfig.hotel_id;
-    console.log(`Syncing rooms from Previo REST API for Previo ID: ${hotelId}, HotelCare ID: ${hotelCareHotelId}`);
+    const previoNumericId = String(pmsConfig.pms_hotel_id || '');
+    console.log(`Syncing rooms from Previo REST API for Previo ID: ${previoNumericId}, HotelCare ID: ${hotelCareHotelId}`);
 
     // Resolve credentials: prefer per-hotel secret, fall back to legacy global env
     let previoUser = '';
@@ -79,7 +87,7 @@ serve(async (req) => {
       method: 'GET',
       headers: {
         'Authorization': `Basic ${auth}`,
-        'X-Previo-Hotel-ID': hotelId,
+        'X-Previo-Hotel-ID': previoNumericId,
         'Content-Type': 'application/json',
       }
     });
@@ -225,7 +233,7 @@ serve(async (req) => {
         sync_type: 'rooms_import',
         direction: 'from_previo',
         hotel_id: hotelCareHotelId,
-        data: { ...importResults, previo_hotel_id: hotelId },
+        data: { ...importResults, previo_hotel_id: previoNumericId },
         changed_by: userId,
         sync_status: importResults.errors.length ? 'partial' : 'success',
         error_message: importResults.errors.length ? importResults.errors.join('; ') : null,
@@ -346,7 +354,7 @@ serve(async (req) => {
         updated: syncResults.updated,
         created: syncResults.created,
         errors: syncResults.errors,
-        previo_hotel_id: hotelId
+        previo_hotel_id: previoNumericId
       },
       changed_by: userId,
       sync_status: syncResults.errors.length > 0 ? 'partial' : 'success',

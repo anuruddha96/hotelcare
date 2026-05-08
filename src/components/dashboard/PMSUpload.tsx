@@ -13,6 +13,7 @@ import { CheckoutRoomsView } from './CheckoutRoomsView';
 import { PMSUploadHistoryDialog } from './PMSUploadHistoryDialog';
 import { PMSSyncHistoryDialog } from './PMSSyncHistoryDialog';
 import * as XLSX from 'xlsx';
+import { formatDistanceToNow } from 'date-fns';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -187,6 +188,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   const [isSyncingPrevio, setIsSyncingPrevio] = useState(false);
   const [previoSyncEnabled, setPrevioSyncEnabled] = useState(false);
   const [resolvedHotelName, setResolvedHotelName] = useState<string | undefined>(undefined);
+  const [lastCheckoutSync, setLastCheckoutSync] = useState<Date | null>(null);
+  const [isPollingCheckouts, setIsPollingCheckouts] = useState(false);
 
   // Resolve hotel slug to full hotel name for filtering
   useEffect(() => {
@@ -948,8 +951,10 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       const { data, error } = await supabase.functions.invoke('previo-pms-sync', {
         body: { hotelId: selectedHotel },
       });
-      if (error) throw new Error(error.message || 'Sync failed');
-      if (!data?.ok) throw new Error(data?.error || 'Sync failed');
+      if (error || (data && data.ok === false)) {
+        throw new Error((data as any)?.error || error?.message || 'Sync failed');
+      }
+      if (!data?.ok) throw new Error((data as any)?.error || 'Sync failed');
 
       const rows: Record<string, any>[] = data.rows || [];
       if (rows.length === 0) {
@@ -979,8 +984,58 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     }
   };
 
+  // Poll Previo for checkouts (manual + auto). Restricted to previo-test.
+  const pollCheckouts = useCallback(async (silent = false) => {
+    if (selectedHotel !== 'previo-test') return;
+    setIsPollingCheckouts(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('previo-poll-checkouts', {
+        body: { hotelId: 'previo-test' },
+      });
+      const d = data as any;
+      if (error || (d && d.ok === false)) {
+        throw new Error(d?.error || error?.message || 'Poll failed');
+      }
+      setLastCheckoutSync(new Date());
+      if (!silent) {
+        toast.success('Checkout poll complete', {
+          description: `Checked ${d?.checked ?? 0}, marked ${d?.marked ?? 0} ready-to-clean`,
+        });
+      }
+    } catch (e: any) {
+      if (!silent) toast.error('Checkout poll failed', { description: e?.message || String(e) });
+      console.error('[Previo] checkout poll error:', e);
+    } finally {
+      setIsPollingCheckouts(false);
+    }
+  }, [selectedHotel]);
 
-  // Check if Previo sync should be enabled for this hotel
+  // Auto-poll checkouts every 30 minutes for previo-test only.
+  useEffect(() => {
+    if (selectedHotel !== 'previo-test') return;
+    let cancelled = false;
+    (async () => {
+      // Load most recent poll timestamp
+      const { data } = await supabase
+        .from('pms_sync_history')
+        .select('changed_at, created_at')
+        .eq('hotel_id', 'previo-test')
+        .eq('sync_type', 'checkouts_poll')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      const ts = (data as any)?.changed_at || (data as any)?.created_at;
+      if (ts) setLastCheckoutSync(new Date(ts));
+      // If stale (>30 min) or never polled, kick one off silently
+      const stale = !ts || (Date.now() - new Date(ts).getTime()) > 30 * 60 * 1000;
+      if (stale) pollCheckouts(true);
+    })();
+    const id = setInterval(() => pollCheckouts(true), 30 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selectedHotel, pollCheckouts]);
+
+
   useEffect(() => {
     const checkPrevioEnabled = async () => {
       if (!selectedHotel) {
@@ -1167,27 +1222,22 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                 </Button>
               )}
               {previoSyncEnabled && selectedHotel === 'previo-test' && (
-                <Button
-                  variant="outline"
-                  className="w-full max-w-xs"
-                  onClick={async () => {
-                    try {
-                      const { data, error } = await supabase.functions.invoke('previo-poll-checkouts', {
-                        body: { hotelId: 'previo-test' },
-                      });
-                      if (error) throw error;
-                      const d = data as any;
-                      toast.success('Checkout poll complete', {
-                        description: `Checked ${d?.checked ?? 0}, marked ${d?.marked ?? 0} ready-to-clean`,
-                      });
-                    } catch (e: any) {
-                      toast.error('Checkout poll failed', { description: e?.message || String(e) });
-                    }
-                  }}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh Checkouts
-                </Button>
+                <div className="flex flex-col items-center gap-1 w-full max-w-xs">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={isPollingCheckouts}
+                    onClick={() => pollCheckouts(false)}
+                  >
+                    <RefreshCw className={`mr-2 h-4 w-4 ${isPollingCheckouts ? 'animate-spin' : ''}`} />
+                    Refresh Checkouts
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    {lastCheckoutSync
+                      ? `Last auto-update: ${formatDistanceToNow(lastCheckoutSync, { addSuffix: true })}`
+                      : 'Auto-updates every 30 min'}
+                  </p>
+                </div>
               )}
             </div>
           </>

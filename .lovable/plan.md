@@ -1,126 +1,74 @@
+# Fix List
 
-# Previo API integration (Phase 2) — scoped to **previo-test** hotel only
+Four scoped fixes. All Previo-related changes stay gated to `previo-test` so OttoFiori and other live hotels remain untouched.
 
-Hard rule for every change below: **OttoFiori and all other live hotels must keep working exactly as today.** Every new code path is gated either by `pms_configurations.connection_mode = 'manual'` AND `hotel_id = 'previo-test'`, or by a feature flag column we add on the PMS config row. OttoFiori's row stays untouched, so none of the new paths fire for it.
+## 1. "Import from Previo" button (Rooms tab) not working
 
----
+The button in `RoomManagement.tsx` calls `previo-sync-rooms` with `{ hotelId: '730099', importLocal: true }`. The edge function expects the **Previo numeric hotel ID** in `hotelId` and looks up the config row by `pms_hotel_id = '730099'`. We will:
 
-## 1. Admin can switch organization (not just hotel)
+- Add proper error surfacing (read `data.error` even when `error` is null — supabase-js swallows non-2xx into `data`).
+- Verify the edge function's auth header forwarding (currently it pulls the user from `Authorization`, but `supabase.functions.invoke` already sends it — confirmed).
+- The most likely real cause based on the screenshot ("Edge Function returned a non-2xx status code") is the `pms_hotel_id` lookup or credentials secret resolution. Add detailed `console.error` logging in the function and return the underlying message in the response body so the toast shows the real reason.
+- Also accept `hotelId` as the HotelCare `hotel_id` (`previo-test`) and resolve the Previo numeric ID from the config row, so the frontend doesn't have to hard-code `730099`.
 
-**Issue:** `OrganizationSwitcher` already exists but hides itself when `organizations.length <= 1` and only renders for `admin` / `is_super_admin`. The hotel picker (`HotelSelectionScreen`) on first login also only lists hotels in the current org, so an admin landing in one org cannot reach a hotel in another org without manually changing the URL.
+## 2. Auth page logo spacing
 
-**Changes (UI only):**
-- `HotelSelectionScreen.tsx` — for `admin` / `is_super_admin`, add an Organization dropdown above the hotel list. Selecting an org updates `profile.organization_slug`, clears `assigned_hotel`, navigates to `/{slug}`, and re-fetches hotels.
-- `OrganizationSwitcher.tsx` — drop the `organizations.length <= 1` gate for admins so it always renders for them in the header.
-- No DB or backend changes.
+In `src/pages/Auth.tsx` (lines 211-221) the logo image is `h-16 sm:h-20 md:h-24` inside a `flex-col` with `gap-1`, but the `CardHeader` has `space-y-1 pb-3 sm:pb-4` and the image is `object-contain` inside its own box, leaving visual whitespace below the lotus.
 
----
+- Replace the existing `hotelcare-logo-auth.png` asset with the newly uploaded `Hotelcare_app_logo-2.png` (copy to `src/assets/hotelcare-logo-auth.png`, overwriting).
+- Tighten spacing: remove `gap-1`, set the image to `-mb-2` (or wrap in a tighter container) so the lotus visually sits right above "Hotel Care".
+- Keep responsive sizing but reduce to `h-14 sm:h-16 md:h-20` so it doesn't dominate the card.
 
-## 2. One-click PMS Upload via API (previo-test only)
+## 3. Memories Budapest — room 216 missing on `/bb` page
 
-**Today:** `PMSUpload.tsx` parses an Excel file (`buildColumnMap`, dozens of columns) and writes daily cleaning + checkout rooms.
+The roster file has the room as `66EC.QRP216`. The current `breakfast-roster-upload` edge function inserts the raw cell value (`row[cRoom]`) as `room_number`, so it stores `66EC.QRP216` while the rooms table / lookup uses `216`.
 
-**New behavior — only when `selectedHotel === 'previo-test'`:**
-- Replace the dropzone with a single **"Sync from Previo API"** button. The Excel dropzone stays untouched for every other hotel (OttoFiori included).
-- Button calls a new edge function **`previo-pms-sync`** that returns the same shape today's Excel parser produces (`{ checkoutRooms, dailyCleaningRooms, results }`), so the rest of the page (CheckoutRoomsView, assignment lists, history) keeps working unchanged.
+Fix in `supabase/functions/breakfast-roster-upload/index.ts`:
+- Add a `normalizeRoomNumber(raw)` helper that:
+  - Trims whitespace.
+  - If the value matches a pattern like `<prefix>.QRP<digits>` or `<letters/digits>.<letters>(\d+)`, extracts the trailing digit group.
+  - Otherwise, if the value contains digits, returns the last contiguous digit group (≥2 digits).
+  - Falls back to the original trimmed string.
+- Apply it to `room` before pushing into `upserts`.
+- This is hotel-agnostic and safe: existing rooms that are already plain numbers (e.g. `101`) pass through unchanged.
 
-**`previo-pms-sync` edge function (new):**
-1. Auth: require Bearer token, look up profile, must be admin/manager assigned to the hotel.
-2. Load PMS config for `hotel_id = 'previo-test'`, resolve credentials via `credentials_secret_name` (existing pattern).
-3. Pull from Previo REST API the data the Excel file contained today:
-   - `GET /rest/rooms` → room list + current `roomCleanStatusId` + linked `reservation` block (arrival/departure/status)
-   - `Hotel.searchReservations` (XML) for today ±1 day → guest count (`people`), nationality, notes, total nights — fields not in `/rest/rooms`
-   - `Hotel.getGuest` only when a reservation needs guest details
-4. Project the merged result into the same row shape `processFile` builds (`Room`, `Occupied`, `Departure`, `Arrival`, `People`, `NightTotal`, `Note`, `Nationality`, `Defect`, `Status`).
-5. Reuse the existing server-side write path: insert into `pms_uploads`, replace today's `daily_cleaning_assignments` for hotel `previo-test`, populate `checkout_rooms`. The shared writer is currently inline in `PMSUpload.tsx`; we will extract it into a small helper that both the manual Excel path and the new API path call. Helper is pure, no schema change.
-6. Return the same `{ inserted, updated, skipped, checkoutRooms, dailyCleaningRooms }` payload.
+Also re-run / re-upload the latest Memories Budapest roster after deploy (user action) so the row updates from `66EC.QRP216` → `216`.
 
-**Verification we'll run before considering it done:**
-- Side-by-side: upload today's Excel for `previo-test` AND run API sync; row counts and per-room fields must match. If anything differs, fix the mapping until they match 100%.
-- Run with `selectedHotel = 'ottofiori'` and confirm the new function refuses (`hotel_id != 'previo-test'` guard) and that the Excel upload still works untouched.
+## 4. Sync issues + auto Refresh Checkouts every 30 min
 
----
+Two sub-fixes, all `previo-test` only:
 
-## 3. Push room cleanliness back to Previo on supervisor approval
+### 4a. Surface real sync errors
+- In `PMSUpload.tsx` `handlePrevioSync`, when `error` is set by `supabase.functions.invoke`, also fetch `data?.error` from the response context and show it in the toast (currently the user just sees the generic non-2xx message).
+- Same treatment for the `Refresh Checkouts` button.
+- In `previo-pms-sync` and `previo-poll-checkouts`, log and return the upstream Previo HTTP status + first 300 chars of body so failures are diagnosable.
 
-**Today:** `SupervisorApprovalView.tsx` already calls `previo-update-room-status` after approval. We just need to make it correct + safe for `previo-test`.
+### 4b. Auto Refresh Checkouts every 30 min + last-update display
+Frontend-only polling (no new cron, keeps the change isolated to `previo-test` UI):
 
-**Changes:**
-- `previo-update-room-status` — switch to the correct Previo REST endpoint. Per Previo docs, room cleanliness uses `PUT /rest/rooms/{roomId}/clean-status` (not `/housekeeping/room-status`, which 404s today). Use the mapped `pms_room_id` from `pms_room_mappings`, not `room_number`.
-- Map approved → Previo `clean`. Add a guard: function is a no-op (returns 200 with `skipped: true`) unless the hotel's PMS config has `connection_mode = 'manual'` AND `hotel_id = 'previo-test'`. This protects OttoFiori, which has the function wired but should keep its current behavior.
-- Log every call to `pms_sync_history` (already does).
+- In `PMSUpload.tsx`, when `selectedHotel === 'previo-test'`:
+  - On mount, read `pms_sync_history` for the most recent `sync_type = 'checkouts_poll'` row for this hotel and store `lastCheckoutSync`.
+  - Set up a `setInterval` (30 min) that calls the same `previo-poll-checkouts` invocation as the manual button, then refreshes `lastCheckoutSync`.
+  - Also auto-trigger one poll on mount if `lastCheckoutSync` is older than 30 min.
+  - Render a small muted line next to the "Refresh Checkouts" button: `Last auto-update: <relative time>` (using a simple `formatDistanceToNow` from `date-fns`, already in the project).
+  - Clear the interval on unmount / when the hotel changes away from `previo-test`.
 
-**Verification:** Approve a room on previo-test → confirm Previo PMS UI shows it as Clean and `pms_sync_history` row is `success`. Approve a room on OttoFiori → confirm `skipped: true` and Previo state unchanged.
+No changes to scheduled jobs, OttoFiori, or any other hotel.
 
----
+## Files to touch
 
-## 4. Auto-mark checkout rooms as ready-to-clean (Previo → HotelCare)
+- `src/pages/Auth.tsx` — logo asset + spacing.
+- `src/assets/hotelcare-logo-auth.png` — replace with uploaded `Hotelcare_app_logo-2.png`.
+- `src/components/dashboard/RoomManagement.tsx` — better error surfacing on Import from Previo.
+- `src/components/dashboard/PMSUpload.tsx` — better error surfacing + auto-poll interval + last-update label.
+- `supabase/functions/previo-sync-rooms/index.ts` — accept `hotelId === 'previo-test'`, more verbose error responses.
+- `supabase/functions/previo-pms-sync/index.ts` — return upstream Previo error details.
+- `supabase/functions/previo-poll-checkouts/index.ts` — return upstream Previo error details.
+- `supabase/functions/breakfast-roster-upload/index.ts` — `normalizeRoomNumber` helper.
 
-Previo doesn't push webhooks for our test account, so we **poll** instead of relying on a webhook.
+## Verification
 
-**New edge function `previo-poll-checkouts`:**
-- Scheduled? No — for now, triggered (a) automatically right after `previo-pms-sync` finishes, and (b) by a small "Refresh checkouts" button on the PMS Upload screen for `previo-test`.
-- Calls `GET /rest/rooms`, filters rooms whose reservation `status` indicates the guest has departed (Previo's "checked out" state) and whose local `rooms.status` is still `occupied` / `dirty`.
-- For each, updates local `rooms.status = 'dirty'` (ready to clean) and inserts a row into `daily_cleaning_assignments` for today if not already there.
-- Hard-scoped to `hotel_id = 'previo-test'`. OttoFiori is never touched.
-
-This removes the manual "mark as ready to clean" step today's managers do.
-
----
-
-## 5. Rooms tab → "Import rooms from Previo"
-
-**Changes (previo-test only):**
-- In `Rooms` page header (admin-visible), add a button **"Import from Previo"** next to "Add Room" / "Bulk Add Rooms". Button is only rendered when current hotel = `previo-test`.
-- Clicking it calls existing `previo-sync-rooms` (already implemented) but extends it to also upsert into the `rooms` table:
-  - `room_number` ← Previo `name`
-  - `room_type` ← Previo `roomKindName`
-  - `capacity` ← Previo `capacity` + `extraCapacity`
-  - Special features (e.g. `isHourlyBased`) → stored in a new nullable `pms_metadata jsonb` column on `rooms` (migration). Existing rows keep `pms_metadata = null`, no behavioral impact.
-- Also auto-populates `pms_room_mappings` so step 3 finds the mapping without any manual data entry.
-
----
-
-## 6. What else gets automated for previo-test (no extra UI work)
-
-Triggered automatically as side effects of the buttons above:
-- Reservation refresh (today ± 7 days) — runs as part of `previo-pms-sync` so reception sees up-to-date arrivals/departures without a separate sync.
-- Guest details — pulled lazily via `Hotel.getGuest` only when reception opens a reservation that's missing them; cached locally.
-- Note / nationality / pax count — pulled in step 2 above so they stop being a manual data entry chore.
-
-Not in scope yet (will follow once the above is verified): rate push, occupancy/pickup ingestion for Revenue. Those are a Phase 3 ticket.
-
----
-
-## Technical details
-
-**New / modified files**
-
-- `src/components/dashboard/HotelSelectionScreen.tsx` — admin org dropdown.
-- `src/components/layout/OrganizationSwitcher.tsx` — drop `length <= 1` gate for admins.
-- `src/components/dashboard/PMSUpload.tsx` — branch on `selectedHotel === 'previo-test'`; render API sync button + "Refresh checkouts" instead of dropzone. Extract row-write logic into a helper used by both flows.
-- `src/components/dashboard/Rooms.tsx` (or wherever Add Room lives) — "Import from Previo" button gated to `previo-test`.
-- `supabase/functions/previo-pms-sync/index.ts` — **new**.
-- `supabase/functions/previo-poll-checkouts/index.ts` — **new**.
-- `supabase/functions/previo-sync-rooms/index.ts` — extend to upsert local `rooms` + mappings.
-- `supabase/functions/previo-update-room-status/index.ts` — fix endpoint, use `pms_room_id`, gate to `previo-test`.
-
-**Migration**
-
-- `ALTER TABLE rooms ADD COLUMN pms_metadata jsonb;` (nullable, no default change).
-- No other schema changes. No RLS changes; new function endpoints reuse existing `pms_configurations` / `rooms` / `daily_cleaning_assignments` policies.
-
-**Safety guards summarized**
-
-- New API sync UI only renders when `selectedHotel = 'previo-test'`. Excel dropzone unchanged for every other hotel.
-- All four new/modified edge functions early-return when called for any hotel other than `previo-test`, except `previo-update-room-status` which keeps existing behavior for OttoFiori (no-op + skipped log) and only writes to Previo for `previo-test`.
-- No changes to OttoFiori's PMS config row, room mappings, or scheduled sync settings.
-
-**Verification checklist before delivering**
-
-1. Excel upload for OttoFiori still works and creates today's assignments correctly.
-2. `previo-test` API sync produces row counts identical to the Excel export for the same day.
-3. Approving a `previo-test` room flips it to Clean in Previo within seconds; OttoFiori approvals do not call Previo.
-4. Checking a guest out in Previo for `previo-test` results in the room appearing in HotelCare's "ready to clean" list within one poll cycle.
-5. "Import from Previo" populates `previo-test` rooms + mappings; OttoFiori rooms unaffected.
-
+- Click **Import from Previo** in Rooms tab while on `previo-test` → toast shows either success counts or the real Previo/Supabase error.
+- Auth page → lotus logo sits visually adjacent to the "Hotel Care" wordmark.
+- Re-upload the Memories Budapest breakfast roster → `/bb` lookup for room `216` returns the row.
+- On `previo-test` PMS Upload tab → "Last auto-update: X minutes ago" is visible; after 30 min (or immediate stale poll) the timestamp advances; OttoFiori PMS Upload UI is unchanged.

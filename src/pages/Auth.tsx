@@ -209,11 +209,11 @@ export default function Auth() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
       <Card className="w-full max-w-sm sm:max-w-lg shadow-2xl border-0">
         <CardHeader className="text-center space-y-1 pb-3 sm:pb-4">
-          <div className="mx-auto flex flex-col items-center justify-center gap-1">
+          <div className="mx-auto flex flex-col items-center justify-center">
             <img
               src={hotelcareLogoAuth}
               alt="Hotel Care Logo"
-              className="h-16 sm:h-20 md:h-24 w-auto object-contain"
+              className="h-12 sm:h-14 md:h-16 w-auto object-contain -mb-1"
             />
             <span className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent leading-tight">
               Hotel Care

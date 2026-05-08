@@ -484,10 +484,13 @@ export function RoomManagement() {
                       try {
                         toast({ title: 'Importing rooms from Previo…' });
                         const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
-                          body: { hotelId: '730099', importLocal: true },
+                          body: { hotelId: 'previo-test', importLocal: true },
                         });
-                        if (error) throw error;
-                        const r = (data as any)?.results;
+                        const d = data as any;
+                        if (error || (d && d.success === false)) {
+                          throw new Error(d?.error || error?.message || 'Sync failed');
+                        }
+                        const r = d?.results;
                         toast({
                           title: 'Import complete',
                           description: r ? `Upserted ${r.upserted}/${r.total}, mapped ${r.mapped}` : 'Done',
