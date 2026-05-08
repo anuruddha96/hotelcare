@@ -205,6 +205,11 @@ export default function Breakfast() {
                 </Button>
               ))}
             </div>
+            <div className="pt-2 border-t">
+              <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => window.location.assign("/bb/auth")}>
+                Staff sign-in
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

@@ -1,81 +1,61 @@
 ## Problem
 
-1. **Wrong guest names** for room 306. Today's overview parser picks `ongoing || arrival || departure` as the guest cell. For breakfast on 06/05, the guest who slept in the room last night is the **Departure** or **Ongoing** guest — never **Arrival** (they haven't arrived yet). Room 306 = `(1) DOMINIK FURTWAENGLER` in Departure, but UI shows `(1) Hein Gunter` from Arrival.
-2. The page lacks an at-a-glance view of the day — staff need to see all rooms eligible for breakfast and their status (pending / partial / served / not arrived).
+Two issues combine to give breakfast_staff a blank page:
 
-## Fix 1 — Guest selection priority (parser)
+1. **`/bb/auth` does not exist.** `PublicBreakfastApp` (the provider tree mounted whenever `window.location.pathname` starts with `/bb`) only registers routes `/bb` and `/bb/:hotelCode`. Any other `/bb/*` URL renders nothing — hence the blank screen the user sees at `/bb/auth`.
+2. **Client-side `<Navigate to="/bb">` keeps the user inside `MainApp`.** When `Index.tsx` routes a `breakfast_staff` user with `<Navigate to="/bb" replace />`, React Router stays mounted in `MainApp`, which has no `/bb` route → falls through to `NotFound` (blank-ish). The `window.location.pathname` check in `App.tsx` only runs on initial load, not on client navigations, so `PublicBreakfastApp` never takes over.
 
-In `supabase/functions/revenue-overview-upload/index.ts`, change the guest cell priority for breakfast-context rows:
+We also want breakfast_staff users to be confined to `/bb` and to never trigger the manager `RealtimeNotificationProvider`.
 
-- **Departure** wins (guest checking out today ate breakfast this morning).
-- Then **Ongoing** (mid-stay guest).
-- **Arrival** is ignored for guest_names/pax (they arrive in the afternoon — not at breakfast).
+## Fix
 
-Status logic stays the same, but `guest_names`/`pax` are derived only from Departure ⟶ Ongoing. If only Arrival is present, `guest_names = null`, `pax = 0`, and `status = "arriving"` (not eligible for today's breakfast — they weren't here last night).
+### 1. `src/pages/Index.tsx` — hard-redirect breakfast_staff
+Replace the `<Navigate to="/bb" replace />` for `profile?.role === 'breakfast_staff'` with a full reload:
 
-The breakfast/lunch/dinner counts in the row already reflect today's meals correctly so they stay as-is.
-
-User must re-upload the affected daily overview xlsx after deploy.
-
-## Fix 2 — Lookup respects the new rule
-
-`breakfast-public-lookup` already returns `guest_names` and `status` from the snapshot, so no logic change needed beyond Fix 1. Add an `arriving` short-circuit: if status is `arriving` and breakfast counts are 0 → return `not_eligible_no_breakfast` with hint "Guest has not arrived yet."
-
-## Fix 3 — Replace "Show today's served list" with a Room Chip Grid
-
-In `src/pages/Breakfast.tsx`, below the lookup card, render a grid of small room chips for the selected hotel + date.
-
-**Data source:** new edge function `breakfast-rooms-overview` (or extend `breakfast-public-lookup` with a `mode: "list"` branch). Returns for the selected hotel/date:
-
+```ts
+useEffect(() => {
+  if (profile?.role === 'breakfast_staff' && window.location.pathname !== '/bb') {
+    window.location.replace('/bb');
+  }
+}, [profile?.role]);
 ```
-[
-  { room: "306", room_type_label: "Single", pax: 1, breakfast: 1,
-    served: 1, status: "served" | "partial" | "pending" | "arriving" | "no_breakfast",
-    guest_names: [...] }, ...
-]
+Render the loading spinner while redirecting. This guarantees `PublicBreakfastApp` mounts on the next load, so no manager notifications subscribe.
+
+### 2. `src/pages/Auth.tsx` — same hard-redirect after login
+After a successful `signIn`, before the `<Navigate>` for `user`, check the freshly-loaded profile role. If `breakfast_staff` → `window.location.replace('/bb')`. (Use a small `useEffect` watching `user` + `profile.role` rather than the inline `<Navigate>` for that role.)
+
+### 3. `src/App.tsx` — add `/bb/auth` to `PublicBreakfastApp`
+Add a new lightweight component `BreakfastAuth` (new file `src/pages/BreakfastAuth.tsx`) and register:
+
+```tsx
+<Route path="/bb/auth" element={<BreakfastAuth />} />
 ```
 
-It joins `daily_overview_snapshots` with aggregated `breakfast_attendance` for that hotel+date and computes status:
-- `arriving` → arrival-only row, no Departure/Ongoing guest
-- `no_breakfast` → breakfast=0 and all_inclusive=0
-- `served` → served_total ≥ breakfast count
-- `partial` → 0 < served_total < breakfast count
-- `pending` → eligible, served_total = 0
+`BreakfastAuth` is a self-contained sign-in page (does NOT use `useAuth` / `AuthProvider`):
+- Email + password form.
+- Calls `supabase.auth.signInWithPassword(...)`.
+- After success, fetches the user's `profiles` row to read `role`.
+  - If role === `breakfast_staff` → `window.location.replace('/bb')`.
+  - Otherwise → call `supabase.auth.signOut()` and show "This login is for breakfast staff only. Please use the main app."
+- Reuses HotelCare branding (logo + same gradient card) for visual consistency.
 
-**UI:**
+### 4. `src/pages/Breakfast.tsx` — gate access for logged-in non-staff & offer login for staff
+At the top of `Breakfast`, check `supabase.auth.getSession()` once on mount:
+- If a session exists AND profile role is `breakfast_staff` → continue normally (and show a small "Sign out" button in the header that calls `supabase.auth.signOut()` then `window.location.replace('/bb/auth')`).
+- If a session exists with any other role → ignore it (page stays public; do NOT log them out — managers may legitimately open `/bb` to test).
+- If no session → page stays fully public as today.
 
-```text
-[ 101 ] [ 102 ] [ 103✓ ] [ 104◐ ] [ 105 ] ...
- pend    pend    served   partial  pend
-```
+Add a small "Staff sign-in" link in the footer of the hotel-picker view that points to `/bb/auth`, so breakfast staff have an obvious way in.
 
-Color codes (Tailwind):
-- pending: `bg-blue-100 text-blue-900 border-blue-300`
-- partial: `bg-amber-100 text-amber-900 border-amber-400`
-- served: `bg-green-100 text-green-900 border-green-400`
-- arriving: `bg-slate-100 text-slate-500 border-slate-300` (muted, disabled-look)
-- no_breakfast: `bg-rose-50 text-rose-700 border-rose-200`
+### 5. Confine breakfast_staff inside `MainApp` routes
+In `useAuth` (or a small guard inside `TenantRouter`), if `profile?.role === 'breakfast_staff'` and the current path is not `/bb*`, perform `window.location.replace('/bb')`. This handles the case where a staff user manually types a manager URL.
 
-Chip shows room number + a small icon/dot. Tapping a chip calls the same `lookup()` flow with that room number — opens the existing eligible card so the staff can confirm/partial-confirm.
+## Files touched
+- `src/pages/Index.tsx` — replace `<Navigate>` with `window.location.replace`.
+- `src/pages/Auth.tsx` — post-login role check, hard redirect for breakfast_staff.
+- `src/App.tsx` — register `/bb/auth` route in `PublicBreakfastApp`.
+- `src/pages/BreakfastAuth.tsx` — new self-contained sign-in page.
+- `src/pages/Breakfast.tsx` — optional sign-out button + "Staff sign-in" link, no functional change for public users.
+- `src/hooks/useAuth.tsx` (or `TenantRouter`) — guard non-/bb routes for breakfast_staff.
 
-A small legend row above the grid explains the colors.
-
-**Real-time updates:** subscribe to `breakfast_attendance` Postgres changes filtered by `hotel_id=eq.{selection.hotel_id}` and `stay_date=eq.{date}` via `supabase.channel(...).on("postgres_changes", ...)`. On INSERT/UPDATE/DELETE, refetch the chip list (debounced ~300ms). Also refetch right after a successful `markServed`.
-
-Remove the existing "Show today's served list" toggle and `loadTodayList`/`todayList` state — the chip grid replaces it.
-
-## Translation keys
-
-Add to `src/lib/breakfast-translations.ts` for en/hu/es/vi/mn/az: `roomsTitle`, `legendPending`, `legendPartial`, `legendServed`, `legendArriving`, `legendNoBreakfast`, `notArrivedYet`.
-
-## Files to change
-
-- `supabase/functions/revenue-overview-upload/index.ts` — guest cell priority + pax derivation
-- `supabase/functions/breakfast-public-lookup/index.ts` — `arriving` short-circuit; new `mode: "list"` returning per-room status
-- `src/pages/Breakfast.tsx` — remove served-list toggle; add chip grid + realtime subscription + click-to-open
-- `src/lib/breakfast-translations.ts` — new keys in 6 languages
-
-## Out of scope
-
-- No DB schema change.
-- Re-upload of past xlsx files needed for guest names to correct.
+No DB changes needed.

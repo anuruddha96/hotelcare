@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
@@ -27,9 +27,19 @@ const Index = () => {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
   }
 
-  // Breakfast staff: dedicated landing on /bb (public breakfast tool)
+  // Breakfast staff: hard-redirect to public /bb so PublicBreakfastApp mounts
+  // (no manager realtime/notification providers).
+  useEffect(() => {
+    if (profile?.role === 'breakfast_staff' && !window.location.pathname.startsWith('/bb')) {
+      window.location.replace('/bb');
+    }
+  }, [profile?.role]);
   if (profile?.role === 'breakfast_staff') {
-    return <Navigate to="/bb" replace />;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   // Show hotel picker once per session for managers/admins

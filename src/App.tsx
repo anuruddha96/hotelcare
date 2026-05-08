@@ -21,6 +21,7 @@ import ChannelManager from "./pages/ChannelManager";
 import Revenue from "./pages/Revenue";
 import RevenueHotelDetail from "./pages/RevenueHotelDetail";
 import Breakfast from "./pages/Breakfast";
+import BreakfastAuth from "./pages/BreakfastAuth";
 
 const queryClient = new QueryClient();
 
@@ -61,6 +62,7 @@ const PublicBreakfastApp = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/bb" element={<Breakfast />} />
+          <Route path="/bb/auth" element={<BreakfastAuth />} />
           <Route path="/bb/:hotelCode" element={<Breakfast />} />
         </Routes>
       </BrowserRouter>
