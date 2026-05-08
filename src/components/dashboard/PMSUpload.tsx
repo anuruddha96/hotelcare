@@ -1117,7 +1117,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               </div>
             </div>
             
-            {selectedHotel && (
+            {selectedHotel && selectedHotel !== 'previo-test' && (
               <div 
                 {...getRootProps()} 
                 className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
