@@ -175,3 +175,34 @@ export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<
     `Previo authentication failed for all credential sources. Last (${lastSource || "unknown"}): ${lastStatus ? `[${lastStatus}] ` : ""}${lastErrorBody.slice(0, 300)}`,
   );
 }
+
+/**
+ * Safely parse a Previo response body as JSON. If Previo returns HTML
+ * (e.g. a docs/help/redirect page) on a 2xx, throw a descriptive error
+ * with status, content-type, final URL, and a body snippet so the UI and
+ * import-history can show what actually happened instead of a raw
+ * "Unexpected token '<'" SyntaxError.
+ */
+export async function safePrevioJson<T = unknown>(
+  response: Response,
+  context: { path: string; source?: string },
+): Promise<T> {
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+
+  if (!contentType.toLowerCase().includes("json")) {
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 300);
+    throw new Error(
+      `Previo returned non-JSON from ${context.path} (status=${response.status}, content-type=${contentType || "?"}, finalUrl=${response.url}${context.source ? `, via=${context.source}` : ""}): ${snippet}`,
+    );
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch (err) {
+    const snippet = text.slice(0, 300);
+    throw new Error(
+      `Previo returned malformed JSON from ${context.path} (status=${response.status}, content-type=${contentType}): ${snippet}`,
+    );
+  }
+}
