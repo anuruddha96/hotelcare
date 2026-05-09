@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useInView } from 'framer-motion';
 import { Lightbulb, Trophy, Handshake, ShieldCheck, ArrowRight, TrendingUp, Brain, Hotel, Users, Star, CalendarDays } from 'lucide-react';
@@ -26,6 +26,10 @@ const serviceIcons = [TrendingUp, Brain, Hotel, Users, Star, CalendarDays];
 
 export default function WebsiteAbout() {
   const { t } = useWebsiteLang();
+
+  useEffect(() => {
+    document.title = `RD Hotels | ${t.nav.about}`;
+  }, [t]);
 
   const values = [
     { title: t.about.v1_title, desc: t.about.v1_desc },

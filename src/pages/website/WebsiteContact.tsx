@@ -1,6 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { MapPin, Clock, Mail, Linkedin, Facebook, CheckCircle2, Loader2 } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { useWebsiteLang } from '@/contexts/WebsiteLanguageContext';
 import { supabase } from '@/integrations/supabase/client';
 import WebsiteLayout from './WebsiteLayout';
@@ -21,46 +24,59 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
   );
 }
 
+const contactSchema = z.object({
+  full_name: z.string().min(2, 'Name must be at least 2 characters'),
+  email: z.string().email('Please enter a valid email address'),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  interest: z.string().optional(),
+  message: z.string().optional(),
+});
+
+type ContactFormData = z.infer<typeof contactSchema>;
+
 export default function WebsiteContact() {
   const { t, language } = useWebsiteLang();
-  const [form, setForm] = useState({
-    full_name: '', email: '', phone: '', company: '', message: '', interest: '',
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
+  const [serverError, setServerError] = React.useState('');
+  const [success, setSuccess] = React.useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  };
+  useEffect(() => {
+    document.title = `RD Hotels | ${t.nav.contact}`;
+  }, [t]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.full_name.trim() || !form.email.trim()) return;
-    setSubmitting(true);
-    setError('');
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<ContactFormData>({ resolver: zodResolver(contactSchema) });
 
+  const onSubmit = async (data: ContactFormData) => {
+    setServerError('');
     const { error: dbError } = await supabase.from('website_leads').insert({
       lead_type: 'contact',
-      full_name: form.full_name,
-      email: form.email,
-      phone: form.phone || null,
-      company: form.company || null,
-      message: form.message || null,
-      interest: form.interest || null,
+      full_name: data.full_name,
+      email: data.email,
+      phone: data.phone || null,
+      company: data.company || null,
+      message: data.message || null,
+      interest: data.interest || null,
       language,
     });
 
-    setSubmitting(false);
     if (dbError) {
-      setError('Something went wrong. Please try again or email us directly.');
+      setServerError('Something went wrong. Please try again or email us directly.');
     } else {
       setSuccess(true);
-      setForm({ full_name: '', email: '', phone: '', company: '', message: '', interest: '' });
+      reset();
     }
   };
 
-  const inputClass = 'w-full bg-white border border-[#e5e0d8] rounded-xl px-4 py-3.5 text-[#0d1b2a] placeholder-[#0d1b2a]/30 text-sm focus:outline-none focus:border-[#c9a84c] focus:ring-2 focus:ring-[#c9a84c]/20 transition-all';
+  const inputBase = 'w-full bg-white border rounded-xl px-4 py-3.5 text-[#0d1b2a] placeholder-[#0d1b2a]/30 text-sm focus:outline-none focus:ring-2 transition-all';
+  const inputNormal = `${inputBase} border-[#e5e0d8] focus:border-[#c9a84c] focus:ring-[#c9a84c]/20`;
+  const inputError = `${inputBase} border-red-400 focus:border-red-400 focus:ring-red-200`;
+
+  const fieldClass = (hasError: boolean) => hasError ? inputError : inputNormal;
 
   return (
     <WebsiteLayout>
@@ -125,34 +141,34 @@ export default function WebsiteContact() {
                     </button>
                   </motion.div>
                 ) : (
-                  <form onSubmit={handleSubmit} className="space-y-5">
+                  <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       <div>
                         <label className="block text-xs font-semibold text-[#0d1b2a]/60 uppercase tracking-widest mb-2">
                           {t.contact.field_name} *
                         </label>
                         <input
-                          name="full_name"
-                          value={form.full_name}
-                          onChange={handleChange}
-                          required
-                          className={inputClass}
+                          {...register('full_name')}
+                          className={fieldClass(!!errors.full_name)}
                           placeholder="John Doe"
                         />
+                        {errors.full_name && (
+                          <p className="mt-1.5 text-xs text-red-500">{errors.full_name.message}</p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-[#0d1b2a]/60 uppercase tracking-widest mb-2">
                           {t.contact.field_email} *
                         </label>
                         <input
-                          name="email"
+                          {...register('email')}
                           type="email"
-                          value={form.email}
-                          onChange={handleChange}
-                          required
-                          className={inputClass}
+                          className={fieldClass(!!errors.email)}
                           placeholder="john@example.com"
                         />
+                        {errors.email && (
+                          <p className="mt-1.5 text-xs text-red-500">{errors.email.message}</p>
+                        )}
                       </div>
                     </div>
 
@@ -162,11 +178,9 @@ export default function WebsiteContact() {
                           {t.contact.field_phone}
                         </label>
                         <input
-                          name="phone"
+                          {...register('phone')}
                           type="tel"
-                          value={form.phone}
-                          onChange={handleChange}
-                          className={inputClass}
+                          className={fieldClass(!!errors.phone)}
                           placeholder="+36 ..."
                         />
                       </div>
@@ -175,10 +189,8 @@ export default function WebsiteContact() {
                           {t.contact.field_company}
                         </label>
                         <input
-                          name="company"
-                          value={form.company}
-                          onChange={handleChange}
-                          className={inputClass}
+                          {...register('company')}
+                          className={fieldClass(!!errors.company)}
                           placeholder="Hotel / Company name"
                         />
                       </div>
@@ -189,10 +201,8 @@ export default function WebsiteContact() {
                         {t.contact.field_interest}
                       </label>
                       <select
-                        name="interest"
-                        value={form.interest}
-                        onChange={handleChange}
-                        className={inputClass + ' cursor-pointer'}
+                        {...register('interest')}
+                        className={fieldClass(false) + ' cursor-pointer'}
                       >
                         <option value="">— Select —</option>
                         <option value="management">{t.contact.interest_management}</option>
@@ -207,25 +217,23 @@ export default function WebsiteContact() {
                         {t.contact.field_message}
                       </label>
                       <textarea
-                        name="message"
-                        value={form.message}
-                        onChange={handleChange}
+                        {...register('message')}
                         rows={5}
-                        className={inputClass + ' resize-none'}
+                        className={fieldClass(false) + ' resize-none'}
                         placeholder="Tell us about your property and how we can help..."
                       />
                     </div>
 
-                    {error && (
-                      <p className="text-red-500 text-sm">{error}</p>
+                    {serverError && (
+                      <p className="text-red-500 text-sm">{serverError}</p>
                     )}
 
                     <button
                       type="submit"
-                      disabled={submitting}
+                      disabled={isSubmitting}
                       className="w-full flex items-center justify-center gap-2 bg-[#0d1b2a] hover:bg-[#1a2f45] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-4 rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99]"
                     >
-                      {submitting ? (
+                      {isSubmitting ? (
                         <><Loader2 size={18} className="animate-spin" /> Sending...</>
                       ) : (
                         t.contact.submit
@@ -238,7 +246,6 @@ export default function WebsiteContact() {
 
             {/* Info Panel */}
             <FadeIn delay={0.15} className="lg:col-span-2 space-y-5">
-              {/* Address */}
               <div className="bg-[#0d1b2a] rounded-2xl p-7">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-9 h-9 bg-[#c9a84c]/15 rounded-lg flex items-center justify-center">
@@ -249,7 +256,6 @@ export default function WebsiteContact() {
                 <p className="text-white/50 text-sm leading-relaxed">{t.contact.addr}</p>
               </div>
 
-              {/* Hours */}
               <div className="bg-white rounded-2xl p-7 border border-[#e8e0d0]">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-9 h-9 bg-[#0d1b2a] rounded-lg flex items-center justify-center">
@@ -260,7 +266,6 @@ export default function WebsiteContact() {
                 <p className="text-[#0d1b2a]/55 text-sm">{t.contact.hours}</p>
               </div>
 
-              {/* Email */}
               <div className="bg-white rounded-2xl p-7 border border-[#e8e0d0]">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-9 h-9 bg-[#0d1b2a] rounded-lg flex items-center justify-center">
@@ -268,15 +273,11 @@ export default function WebsiteContact() {
                   </div>
                   <h3 className="text-[#0d1b2a] font-semibold">{t.contact.email_title}</h3>
                 </div>
-                <a
-                  href="mailto:info@rdhotels.hu"
-                  className="text-[#c9a84c] hover:underline text-sm font-medium"
-                >
+                <a href="mailto:info@rdhotels.hu" className="text-[#c9a84c] hover:underline text-sm font-medium">
                   info@rdhotels.hu
                 </a>
               </div>
 
-              {/* Social */}
               <div className="bg-[#f8f6f2] rounded-2xl p-7 border border-[#e8e0d0]">
                 <h3 className="text-[#0d1b2a] font-semibold mb-4">{t.footer.follow}</h3>
                 <div className="flex gap-4">

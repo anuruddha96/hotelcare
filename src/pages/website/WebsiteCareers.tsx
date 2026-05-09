@@ -1,6 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { Heart, Zap, Users, Globe2, CheckCircle2, Loader2, Mail } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { useWebsiteLang } from '@/contexts/WebsiteLanguageContext';
 import { supabase } from '@/integrations/supabase/client';
 import WebsiteLayout from './WebsiteLayout';
@@ -21,6 +24,16 @@ function FadeIn({ children, className = '', delay = 0 }: { children: React.React
   );
 }
 
+const careerSchema = z.object({
+  first_name: z.string().min(2, 'First name is required'),
+  last_name: z.string().optional(),
+  email: z.string().email('Please enter a valid email address'),
+  position: z.string().optional(),
+  about: z.string().optional(),
+});
+
+type CareerFormData = z.infer<typeof careerSchema>;
+
 const culturePoints = [
   { icon: Heart, title: 'Passion-Driven', desc: 'We pour heart into every guest interaction and every hotel we manage.' },
   { icon: Zap, title: 'Fast-Paced Growth', desc: 'Rapid development opportunities for ambitious hospitality professionals.' },
@@ -30,40 +43,43 @@ const culturePoints = [
 
 export default function WebsiteCareers() {
   const { t, language } = useWebsiteLang();
-  const [form, setForm] = useState({ first_name: '', last_name: '', email: '', position: '', about: '' });
-  const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
+  const [serverError, setServerError] = React.useState('');
+  const [success, setSuccess] = React.useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  };
+  useEffect(() => {
+    document.title = `RD Hotels | ${t.nav.careers}`;
+  }, [t]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.first_name.trim() || !form.email.trim()) return;
-    setSubmitting(true);
-    setError('');
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<CareerFormData>({ resolver: zodResolver(careerSchema) });
 
+  const onSubmit = async (data: CareerFormData) => {
+    setServerError('');
     const { error: dbError } = await supabase.from('website_leads').insert({
       lead_type: 'career',
-      full_name: `${form.first_name} ${form.last_name}`.trim(),
-      email: form.email,
-      message: form.about || null,
-      position: form.position || null,
+      full_name: `${data.first_name} ${data.last_name || ''}`.trim(),
+      email: data.email,
+      message: data.about || null,
+      position: data.position || null,
       language,
     });
 
-    setSubmitting(false);
     if (dbError) {
-      setError('Something went wrong. Please try again or email us directly.');
+      setServerError('Something went wrong. Please try again or email us directly.');
     } else {
       setSuccess(true);
-      setForm({ first_name: '', last_name: '', email: '', position: '', about: '' });
+      reset();
     }
   };
 
-  const inputClass = 'w-full bg-white border border-[#e5e0d8] rounded-xl px-4 py-3.5 text-[#0d1b2a] placeholder-[#0d1b2a]/30 text-sm focus:outline-none focus:border-[#c9a84c] focus:ring-2 focus:ring-[#c9a84c]/20 transition-all';
+  const inputBase = 'w-full bg-white border rounded-xl px-4 py-3.5 text-[#0d1b2a] placeholder-[#0d1b2a]/30 text-sm focus:outline-none focus:ring-2 transition-all';
+  const inputNormal = `${inputBase} border-[#e5e0d8] focus:border-[#c9a84c] focus:ring-[#c9a84c]/20`;
+  const inputError = `${inputBase} border-red-400 focus:border-red-400 focus:ring-red-200`;
+  const fieldClass = (hasError: boolean) => hasError ? inputError : inputNormal;
 
   return (
     <WebsiteLayout>
@@ -110,7 +126,6 @@ export default function WebsiteCareers() {
                 {t.careers.culture_title}
               </h2>
               <p className="text-[#0d1b2a]/60 text-lg leading-relaxed mb-8">{t.careers.culture_text}</p>
-
               <div className="flex items-center gap-3 p-4 bg-[#f8f6f2] rounded-xl border border-[#e8e0d0]">
                 <Mail size={18} className="text-[#c9a84c] shrink-0" />
                 <div>
@@ -170,30 +185,28 @@ export default function WebsiteCareers() {
                   </button>
                 </motion.div>
               ) : (
-                <form onSubmit={handleSubmit} className="space-y-5">
+                <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                       <label className="block text-xs font-semibold text-[#0d1b2a]/60 uppercase tracking-widest mb-2">
                         {t.careers.field_first} *
                       </label>
                       <input
-                        name="first_name"
-                        value={form.first_name}
-                        onChange={handleChange}
-                        required
-                        className={inputClass}
+                        {...register('first_name')}
+                        className={fieldClass(!!errors.first_name)}
                         placeholder="First name"
                       />
+                      {errors.first_name && (
+                        <p className="mt-1.5 text-xs text-red-500">{errors.first_name.message}</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-[#0d1b2a]/60 uppercase tracking-widest mb-2">
                         {t.careers.field_last}
                       </label>
                       <input
-                        name="last_name"
-                        value={form.last_name}
-                        onChange={handleChange}
-                        className={inputClass}
+                        {...register('last_name')}
+                        className={fieldClass(false)}
                         placeholder="Last name"
                       />
                     </div>
@@ -204,14 +217,14 @@ export default function WebsiteCareers() {
                       {t.careers.field_email} *
                     </label>
                     <input
-                      name="email"
+                      {...register('email')}
                       type="email"
-                      value={form.email}
-                      onChange={handleChange}
-                      required
-                      className={inputClass}
+                      className={fieldClass(!!errors.email)}
                       placeholder="your@email.com"
                     />
+                    {errors.email && (
+                      <p className="mt-1.5 text-xs text-red-500">{errors.email.message}</p>
+                    )}
                   </div>
 
                   <div>
@@ -219,10 +232,8 @@ export default function WebsiteCareers() {
                       {t.careers.field_position}
                     </label>
                     <input
-                      name="position"
-                      value={form.position}
-                      onChange={handleChange}
-                      className={inputClass}
+                      {...register('position')}
+                      className={fieldClass(false)}
                       placeholder="e.g. Front Office Manager, Revenue Analyst..."
                     />
                   </div>
@@ -232,23 +243,21 @@ export default function WebsiteCareers() {
                       {t.careers.field_about}
                     </label>
                     <textarea
-                      name="about"
-                      value={form.about}
-                      onChange={handleChange}
+                      {...register('about')}
                       rows={5}
-                      className={inputClass + ' resize-none'}
+                      className={fieldClass(false) + ' resize-none'}
                       placeholder="Tell us about your experience, skills, and why you'd love to join RD Hotels..."
                     />
                   </div>
 
-                  {error && <p className="text-red-500 text-sm">{error}</p>}
+                  {serverError && <p className="text-red-500 text-sm">{serverError}</p>}
 
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={isSubmitting}
                     className="w-full flex items-center justify-center gap-2 bg-[#0d1b2a] hover:bg-[#1a2f45] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-4 rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99]"
                   >
-                    {submitting ? (
+                    {isSubmitting ? (
                       <><Loader2 size={18} className="animate-spin" /> Sending...</>
                     ) : (
                       t.careers.submit

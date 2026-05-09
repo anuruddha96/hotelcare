@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { useWebsiteLang } from '@/contexts/WebsiteLanguageContext';
 import WebsiteLayout from './WebsiteLayout';
@@ -65,6 +65,10 @@ function MemberCard({ member, index }: { member: TeamMember; index: number }) {
 
 export default function WebsiteTeam() {
   const { t } = useWebsiteLang();
+
+  useEffect(() => {
+    document.title = `RD Hotels | ${t.nav.team}`;
+  }, [t]);
 
   return (
     <WebsiteLayout>

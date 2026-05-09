@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { TranslationProvider } from "@/hooks/useTranslation";
 import { TenantProvider } from "@/contexts/TenantContext";
@@ -14,6 +14,7 @@ import WebsiteAbout from "./pages/website/WebsiteAbout";
 import WebsiteContact from "./pages/website/WebsiteContact";
 import WebsiteTeam from "./pages/website/WebsiteTeam";
 import WebsiteCareers from "./pages/website/WebsiteCareers";
+import WebsiteNotFound from "./pages/website/WebsiteNotFound";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -30,6 +31,13 @@ import Breakfast from "./pages/Breakfast";
 import BreakfastAuth from "./pages/BreakfastAuth";
 
 const queryClient = new QueryClient();
+
+// Single language provider wrapping all public website routes
+const WebsiteWrapper = () => (
+  <WebsiteLanguageProvider>
+    <Outlet />
+  </WebsiteLanguageProvider>
+);
 
 // Tenant Router Component - handles organization-specific routing
 const TenantRouter = () => {
@@ -88,12 +96,15 @@ const MainApp = () => (
               <TrainingWelcomePrompt />
               <BrowserRouter>
                 <Routes>
-                  {/* Public marketing website */}
-                  <Route path="/" element={<WebsiteLanguageProvider><WebsiteHome /></WebsiteLanguageProvider>} />
-                  <Route path="/about-us" element={<WebsiteLanguageProvider><WebsiteAbout /></WebsiteLanguageProvider>} />
-                  <Route path="/contact" element={<WebsiteLanguageProvider><WebsiteContact /></WebsiteLanguageProvider>} />
-                  <Route path="/team" element={<WebsiteLanguageProvider><WebsiteTeam /></WebsiteLanguageProvider>} />
-                  <Route path="/join-our-team" element={<WebsiteLanguageProvider><WebsiteCareers /></WebsiteLanguageProvider>} />
+                  {/* Public marketing website — single language provider */}
+                  <Route element={<WebsiteWrapper />}>
+                    <Route path="/" element={<WebsiteHome />} />
+                    <Route path="/about-us" element={<WebsiteAbout />} />
+                    <Route path="/contact" element={<WebsiteContact />} />
+                    <Route path="/team" element={<WebsiteTeam />} />
+                    <Route path="/join-our-team" element={<WebsiteCareers />} />
+                    <Route path="/404" element={<WebsiteNotFound />} />
+                  </Route>
 
                   {/* Legacy admin auth redirect */}
                   <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />

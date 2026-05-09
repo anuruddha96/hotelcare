@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useInView } from 'framer-motion';
 import {
@@ -48,6 +48,11 @@ const whyIcons = [Award, Cpu, MapPin, Handshake];
 
 export default function WebsiteHome() {
   const { t } = useWebsiteLang();
+
+  useEffect(() => {
+    document.title = `RD Hotels | ${t.hero.subtitle}`;
+  }, [t]);
+
   const servicesRef = useRef(null);
   const servicesInView = useInView(servicesRef, { once: true, margin: '-80px' });
 
