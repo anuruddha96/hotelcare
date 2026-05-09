@@ -4115,6 +4115,49 @@ export type Database = {
         ]
       }
     }
+      website_leads: {
+        Row: {
+          id: string
+          lead_type: string
+          full_name: string
+          email: string
+          phone: string | null
+          company: string | null
+          message: string | null
+          interest: string | null
+          position: string | null
+          language: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          lead_type?: string
+          full_name: string
+          email: string
+          phone?: string | null
+          company?: string | null
+          message?: string | null
+          interest?: string | null
+          position?: string | null
+          language?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          lead_type?: string
+          full_name?: string
+          email?: string
+          phone?: string | null
+          company?: string | null
+          message?: string | null
+          interest?: string | null
+          position?: string | null
+          language?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+    }
     Views: {
       [_ in never]: never
     }
