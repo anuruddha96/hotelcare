@@ -276,7 +276,8 @@ export function RoomManagement() {
 
       setRooms(roomsWithExtras);
     } catch (error: any) {
-      toast.error('Failed to fetch rooms');
+      console.error('Failed to fetch rooms:', error);
+      toast.error(`Failed to fetch rooms: ${error?.message || 'unknown error'}`);
     } finally {
       setLoading(false);
     }
