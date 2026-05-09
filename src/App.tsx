@@ -8,6 +8,12 @@ import { TenantProvider } from "@/contexts/TenantContext";
 import { TrainingGuideProvider } from "@/contexts/TrainingGuideContext";
 import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNotificationProvider";
 import { TrainingOverlay, TrainingWelcomePrompt } from "@/components/training";
+import { WebsiteLanguageProvider } from "@/contexts/WebsiteLanguageContext";
+import WebsiteHome from "./pages/website/WebsiteHome";
+import WebsiteAbout from "./pages/website/WebsiteAbout";
+import WebsiteContact from "./pages/website/WebsiteContact";
+import WebsiteTeam from "./pages/website/WebsiteTeam";
+import WebsiteCareers from "./pages/website/WebsiteCareers";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -82,8 +88,14 @@ const MainApp = () => (
               <TrainingWelcomePrompt />
               <BrowserRouter>
                 <Routes>
-                  {/* Legacy routes - redirect to rdhotels organization */}
-                  <Route path="/" element={<Navigate to="/rdhotels" replace />} />
+                  {/* Public marketing website */}
+                  <Route path="/" element={<WebsiteLanguageProvider><WebsiteHome /></WebsiteLanguageProvider>} />
+                  <Route path="/about-us" element={<WebsiteLanguageProvider><WebsiteAbout /></WebsiteLanguageProvider>} />
+                  <Route path="/contact" element={<WebsiteLanguageProvider><WebsiteContact /></WebsiteLanguageProvider>} />
+                  <Route path="/team" element={<WebsiteLanguageProvider><WebsiteTeam /></WebsiteLanguageProvider>} />
+                  <Route path="/join-our-team" element={<WebsiteLanguageProvider><WebsiteCareers /></WebsiteLanguageProvider>} />
+
+                  {/* Legacy admin auth redirect */}
                   <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
 
                   {/* Guest minibar - public, no auth needed */}
