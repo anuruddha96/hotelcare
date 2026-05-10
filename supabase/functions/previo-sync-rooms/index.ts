@@ -51,7 +51,7 @@ serve(async (req) => {
     const isNumeric = /^\d+$/.test(hotelId);
     const lookupQuery = supabase
       .from('pms_configurations')
-      .select('hotel_id, pms_hotel_id, credentials_secret_name')
+      .select('hotel_id, pms_hotel_id, credentials_secret_name, sync_enabled, is_active')
       .eq('pms_type', 'previo');
     const { data: pmsConfig, error: cfgErr } = isNumeric
       ? await lookupQuery.eq('pms_hotel_id', hotelId).maybeSingle()
@@ -63,6 +63,22 @@ serve(async (req) => {
     }
     if (!pmsConfig) {
       throw new Error(`No Previo PMS configuration found for: ${hotelId}`);
+    }
+
+    // Hard guard: refuse to sync if prerequisites are missing.
+    const missing: string[] = [];
+    if (!pmsConfig.pms_hotel_id) missing.push('pms_hotel_id');
+    if (!pmsConfig.credentials_secret_name) missing.push('credentials_secret_name');
+    if (missing.length > 0) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'missing_pms_config',
+          missing,
+          error: `Cannot sync — missing required PMS configuration: ${missing.join(', ')}. Open Admin → PMS Configuration to fix.`,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     const hotelCareHotelId = pmsConfig.hotel_id;
