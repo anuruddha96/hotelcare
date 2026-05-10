@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import PmsSyncStatus from '@/components/admin/PmsSyncStatus';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -1120,6 +1121,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Previo sync status + one-click sync (renders empty if hotel has no Previo config) */}
+        {selectedHotel && previoSyncEnabled && (
+          <PmsSyncStatus hotelId={selectedHotel} compact />
+        )}
+
         {/* Hotel Selection Warning */}
         {selectedHotel && (
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">

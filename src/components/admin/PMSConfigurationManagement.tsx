@@ -9,6 +9,7 @@ import { Plus, Trash2, Save, RefreshCw, ShieldAlert, CheckCircle2, XCircle } fro
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import PmsSyncStatus from './PmsSyncStatus';
 
 interface PMSConfig {
   id: string;
@@ -398,6 +399,9 @@ export default function PMSConfigurationManagement() {
                   </p>
                 )}
               </div>
+
+              {/* Setup checklist + sync status */}
+              <PmsSyncStatus hotelId={selectedHotelId} />
 
               {/* Room Mappings */}
               {pmsConfig && (
