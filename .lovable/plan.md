@@ -1,132 +1,173 @@
-# Previo Integration & Automated Revenue Management — Roadmap
+# Previo-powered Revenue Management — Build Plan
 
-## Phase 0 — Fix current bugs (immediate, this loop)
-
-**0.1 PMS Upload "108 issues — room not found"**
-- Cause: rooms in test hotel haven't been synced from Previo yet, so the upload's room-code matching can't find 201/203/204…
-- Fix: run `previo-sync-rooms` for `previo-test` first (also wire a "Sync rooms now" button on the PMS Upload screen).
-
-**0.2 "Failed to fetch rooms" toast on /rdhotels housekeeping**
-- Investigate which call throws. Likely the same Previo endpoint (Channel Manager / Rooms tab) failing because the base URL secret previously pointed at help.previo.app. Confirm `PREVIO_API_BASE_URL=https://api.previo.app` is now correct and the front-end query handles a non-Previo hotel gracefully (don't toast for hotels without PMS configured).
-
-**0.3 Hardening already in place**
-- `previoAuth.ts` already strips `/soap`, ignores docs hosts, and throws a descriptive error on HTML responses. Keep.
+Focused on this round's request. Phases ship in order; each is a deployable increment that does not disturb live housekeeping.
 
 ---
 
-## Phase 1 — Solid Previo data layer (foundation for everything else)
+## Phase A — PMS config hardening + "Sync test hotel rooms" button
 
-Goal: one reliable, cached, rate-limited Previo client used by every feature.
+Goal: an admin can sit on `/admin → PMS Configuration`, see exactly what's missing for a hotel, fix it in 30 seconds, and run a room sync with one click.
 
-- New shared module `_shared/previoClient.ts` with typed methods: `listRooms`, `listReservations(from,to)`, `getReservation(id)`, `listGuests`, `getAvailability(from,to)`, `getRates(from,to)`, `pushRates`, `updateRoomStatus`.
-- Persist raw API pulls in new tables so the UI reads from DB (fast) and Previo is the source-of-truth refresher:
-  - `previo_rooms_cache`, `previo_reservations_cache`, `previo_guests_cache`, `previo_availability_daily`, `previo_rates_daily`.
-  - Each row scoped by `hotel_id`, `pms_hotel_id`, `fetched_at`.
-- Cron edge functions (pg_cron → invoke):
-  - `previo-sync-rooms` — daily
-  - `previo-sync-reservations` — every 30 min, rolling 90-day window
-  - `previo-sync-availability` — every 2 hours, **next 12 months**
-  - `previo-sync-rates` — every 2 hours, next 12 months
-- All syncs are **append-only snapshots** for occupancy/pickup so we keep history forever (yearly performance comparisons).
+**A1. Setup checklist card** (top of `PMSConfigurationManagement` for the selected hotel)
+A coloured list of pre-flight items, each with status icon + inline action:
+- PMS type selected (previo)
+- `pms_hotel_id` entered (e.g. `730099`)
+- `credentials_secret_name` set + secret exists in Lovable Cloud (verified via a small `pms-check-secrets` edge function)
+- `previo-test-connection` last result green within 24 h
+- At least 1 room mapping or "auto-import from Previo" performed
 
----
+**A2. Hard block on sync when prerequisites are missing**
+- Existing `previo-sync-rooms`, `previo-sync-reservations`, etc. start with a guard that returns `{ ok:false, code:"missing_pms_config", missing:[…] }`.
+- Frontend converts that into a red banner: "Cannot sync — fix these items first" with deep links to the matching field.
 
-## Phase 2 — Channel Manager UI in Previo style
+**A3. "Sync rooms now" button** on both:
+- Admin → PMS Configuration card
+- Housekeeping → PMS Upload tab (top-right, next to "View History")
+Calls `previo-sync-rooms` for the currently-selected hotel and streams progress via the existing `pms_sync_history` table.
 
-Rebuild `/[org]/channel-manager` to match the Previo grid screenshots:
-- Top toolbar: rate plan dropdown, date navigator, "Bulk settings" button (matches "Bulk settings for rate plan").
-- Grid: rows per room type → Room status, Rooms for sale, % occupancy, single-occ price, double-occ price, Min stay, Max stay. Columns = days, grouped by month header.
-- Color cells (green/orange/red) by `room_status` from API.
-- Bulk-edit dialog mirroring screenshot: date range, weekday checkboxes, currency, "Set following values" checkboxes, per-room-type matrix.
-- Reads from `previo_rates_daily` + `previo_availability_daily`. Writes go through `previo-push-rates` (already exists) + a new `previo-bulk-update`.
+**A4. Sync Status panel** (re-usable component `<PmsSyncStatus hotelId=… />`)
+Shows: last successful sync time, rooms imported, rooms updated, rooms unchanged, last error (with copy-to-clipboard), button "Re-sync now". Also visible inside the PMS Upload screen so the "108 not found" outcome immediately points to "rooms last synced: never".
 
 ---
 
-## Phase 3 — Reservations & Guests from API
+## Phase B — Continuous Previo data ingestion (12-month window, kept forever)
 
-- `/[org]/reservations`: list view matching Previo "RESERVATIONS LIST" (Created, Date, Nights, Voucher, Guests, Price, Balance, Type, Room) with the same filter sidebar (Date, Operation, Room, Currency, Status, Type, Payment, Company, Partner, Source, Number of rooms/guests, Check-in done).
-- `/[org]/guests`: pulled from `previo_guests_cache`, search + detail page, link to reservations.
-- All writes (create / modify / cancel reservation, check-in/out) proxied through new edge functions to Previo, then re-cached.
-- **Housekeeping is untouched.** New tables; the existing `rooms`, `cleaning_assignments`, attendance, etc. keep working. Only additive linking via `pms_reservation_id`.
+Goal: every 2 hours, the app pulls availability, sold rooms, and ADR for the next 365 days from Previo for every PMS-enabled hotel, and appends snapshots so we keep full history for YoY comparison.
+
+**B1. New edge function `previo-sync-availability`**
+- Reads availability + sold counts + total revenue per (room_type, stay_date) for `today … today+365`.
+- Writes append-only into:
+  - `previo_rate_snapshots` (already exists)
+  - `occupancy_snapshots` (already exists) — one row per (hotel, stay_date, captured_at)
+  - `pickup_snapshots` (already exists) — Δ vs previous snapshot
+- Updates `revenue_ingest_runs` with rows fetched / errors / duration.
+
+**B2. Cron via pg_cron + pg_net**
+- Every 2 h: `previo-sync-availability` (one invocation per active hotel, sequential to respect Previo rate limits).
+- Daily 03:00: `previo-sync-rooms` (full refresh of room inventory).
+- Every 30 min: `previo-sync-reservations` (rolling 90-day window for the upcoming reservations list).
+
+**B3. Append-only history is the source of YoY comparison**
+- New view `revenue_yoy_daily` aggregating occupancy_snapshots + previo_rate_snapshots into per-day Occ%, ADR, RevPAR with `current_year` and `last_year` columns.
 
 ---
 
-## Phase 4 — Automated Revenue Management (the core ask)
+## Phase C — Revenue page rebuild (`/[org]/revenue`)
 
-### 4.1 Data foundation
-- Pull occupancy & rate snapshots every 2h for **next 365 days**.
-- `pickup_snapshots` already exists — extend to write a row per (hotel, stay_date, captured_at) on every sync. Pickup = rooms_sold(now) − rooms_sold(prev snapshot).
-- `revenue_yearly_performance` materialized view: ADR, RevPAR, Occ%, total revenue per (hotel, year, month, day-of-week) — for YoY comparison.
+Replace the current cards with a real revenue cockpit. Per hotel:
 
-### 4.2 Pickup detection engine (every 2h cron)
-For each (hotel, stay_date in next 90 days):
-1. Compute Δ vs. last snapshot and rolling 24h Δ.
-2. **Email alert** to admins if ≥ 2 bookings for the same stay_date in the last 60 minutes.
-3. **Sudden pickup rule** (configurable defaults — see Phase 4.4):
-   - If 60-min Δ ≥ 2 OR 24h Δ ≥ 4 OR occupancy crossed a threshold (60/75/85/90%), raise price by **+€10 to +€20** (scaled by occupancy band — 60%→+€10, 75%→+€12, 85%→+€15, 90%+→+€20).
-   - Push new price via `previo-push-rates`.
-   - Log to `rate_changes_audit` with reason, old price, new price, trigger metrics.
-   - Emit in-app notification (Sonner toast + bell) to revenue managers: "System raised €X on dd/mm — reason: pickup +N in 1h".
+**C1. KPI strip**
+12-month rolling totals: Occ%, ADR, RevPAR — each with YoY delta chip and sparkline of last 90 days.
 
-### 4.3 Manual-override protection
+**C2. 12-month performance chart**
+Dual-axis line: Occ% vs ADR per month, current year vs last year (uses `revenue_yoy_daily`). Hover shows exact values.
+
+**C3. Pickup heatmap (next 90 days)**
+Calendar grid using existing `CalendarYearView`, colored by 24-h pickup Δ. Click a day → side panel with: current rate, suggested rate, drivers (existing `PricingDriverChips`), pickup last 1 h / 24 h / 7 d, demand-forecast badge from PredictHQ (Phase E).
+
+**C4. ADR-by-room-type table**
+Per room type: this-week ADR, last-week ADR, last-year-same-week ADR, occupancy. Highlights a room type whose ADR is dropping while occupancy is rising (= leaving money on the table) in amber.
+
+**C5. Pickup ticker**
+Live feed (Supabase realtime on `pickup_snapshots`) at the top: "+2 bookings for 24 May at Hotel Ottofiori in the last 47 min".
+
+---
+
+## Phase D — Real-time pickup engine + automated price action
+
+Sharper version of the existing `revenue-engine-tick`.
+
+**D1. Trigger cadence**
+- Every 2 h cron (existing).
+- Plus a Supabase realtime trigger: when `pickup_snapshots` inserts a row with `delta >= 2 within 60 min`, call `revenue-engine-tick` immediately for that hotel/date.
+
+**D2. Bookings-per-hour rule (your explicit ask)**
+- "If ≥ 2 bookings for the same stay_date inside 1 h" → write a `revenue_alerts` row of type `rapid_pickup` and email all admins + top_management.
+
+**D3. Sudden-pickup price action**
+- Tiered increase (already in `pickup_increase_tiers`): +€10 (2-3 bookings), +€15 (4-6), +€20 (7+). Capped by `max_daily_change_eur`.
+- Behaviour controlled by per-hotel `auto_apply_mode`:
+  - `auto` → push via `previo-push-rates`, log to `rate_change_audit`, in-app toast to revenue managers, email digest at 08:00.
+  - `recommend` → create `rate_recommendations` row with `status=pending`, badge on the calendar cell.
+  - Default `recommend` for first 30 days, switch to `auto` per hotel later.
+
+**D4. Manual-override protection**
 - New table `manual_rate_overrides(hotel_id, stay_date, room_type, set_by, set_at, locked_until)`.
-- Whenever a revenue manager edits a price in the Channel Manager UI → insert/refresh override (default lock 7 days).
-- Engine **never** auto-changes a locked cell. Instead it creates a `rate_recommendations` row (status=`pending_manual_review`) and shows a visual badge on that cell ("System suggests +€15 — approve / reject"). Approval applies via `previo-push-rates`.
+- Engine never auto-pushes a locked cell. Lock visualised with a 🔒 badge + tooltip "Manually set by X on Y. Engine paused until Z."
 
-### 4.4 "Budapest 4★ city-center" pricing brain
-Encoded as configurable rules (UI in `/revenue/settings`) seeded with sensible defaults from research:
-- **Never undercut floor**: floor price per room type per season (high/shoulder/low). Engine cannot drop below floor even if occupancy is weak.
-- **Pace-based**: compare current pickup pace to same day last year (from `revenue_yearly_performance`). Below pace → small drop (€5) only if > 21 days out and not below floor. Above pace → raise.
-- **Day-of-week weighting**: Fri/Sat premium, Sun/Mon discount.
-- **Event awareness**: keep existing `revenue-events-fetch`; events boost ceiling by 30%.
-- **Length-of-stay**: encourage 2+ nights when occupancy < 50%, 14+ days out (min-stay tweak instead of price drop).
-- **Compset placeholder** for future rate-shopper integration.
-- Goal function: maximize occupancy × ADR (RevPAR), with hard floor and soft ceiling. Bias toward filling the house at fair price rather than discounting deeply.
-
-### 4.5 UI surfacing
-- On `/revenue/[hotel]`: 12-month grid showing Occ%, ADR, system-set price, manual-override badge, pending recommendations, YoY comparison chip.
-- "Activity feed" panel: every automatic price change in last 7 days with reason.
-- Email digest daily 08:00 to admins summarizing changes + alerts.
+**D5. Floor protection — never undercut**
+- `hotel_revenue_settings.floor_price_eur` already exists. Add per-room-type floor in `room_types.min_price_eur`. Engine takes the higher of the two.
+- Decrease logic stays disabled by default; if enabled, max −€5 and only when occupancy < 40 % AND > 21 days out.
 
 ---
 
-## Phase 5 — Housekeeping API bridge (additive only)
+## Phase E — Demand forecasting (PredictHQ + flight/hotel/airbnb signals)
 
-- New `previo-sync-housekeeping-status` reads room-status from Previo (clean/dirty/inspected) and **mirrors** to a new column `pms_status` on existing `rooms` table.
-- Existing housekeeping logic continues to use its own `status` field — no behavioral change.
-- Optional toggle per hotel: "Trust PMS status as source of truth". Off by default so live operations are not disrupted.
-- On checkout in our app → push status to Previo via existing `previo-update-room-status`.
+**E1. PredictHQ integration**
+- Add `PREDICTHQ_API_KEY` secret (we'll request via Lovable secret tool).
+- New edge function `demand-forecast-fetch` runs nightly: pulls events (concerts, sports, conferences, public holidays, school holidays, severe weather) for Budapest with PHQ Rank ≥ 50 for the next 365 days.
+- Stores in new `demand_signals(hotel_id, stay_date, source, score, label, payload, fetched_at)` — additive to existing `revenue-events-fetch`.
+
+**E2. Flight + hotel + airbnb heat signals**
+- Adapter pattern `demand-signal-adapter` so we can plug in: PredictHQ Flights (paid tier) for inbound BUD seat capacity; AirDNA / Inside Airbnb for occupancy index; STR / OTA Insight if you have access. Each adapter writes to the same `demand_signals` table with a `source` tag.
+- If only PredictHQ key is provided, only events + flights are populated; the rest are placeholders awaiting their respective keys.
+
+**E3. Forecast score → engine input**
+- New per-day field `demand_score` (0-100) computed from blended signals + occupancy pace vs last year.
+- Engine adds an extra increase tier when `demand_score ≥ 70`: ceiling lifts by +€15 above normal cap (still respects manual locks and per-room max).
+
+**E4. UI**
+- Badge on the calendar day: 🔥 Demand 82 — "Sziget Festival opening, +12 % BUD seat capacity, hotel comp-set ADR +18 %".
+- Forecast tab on `/revenue/[hotel]` with a 12-month bar of demand scores.
+
+---
+
+## Phase F — Customisable rules UI for admins + top_management
+
+`/[org]/revenue/settings/[hotel]` (gated by `admin` or `top_management`).
+
+Tabs:
+1. **Floors & ceilings** — per room type min/max €, season floors (high/shoulder/low), max daily change.
+2. **Pickup tiers** — table of (min Δ bookings, max Δ, € increase). Add/remove rows.
+3. **Decrease rules** — on/off, max € drop, only when occupancy < X % and lead > Y days.
+4. **DOW & monthly weights** — already exists; surface in the same screen.
+5. **Demand sensitivity** — slider Low/Medium/High, threshold for "high demand", extra € on top of pickup tier.
+6. **Auto-apply mode** — `recommend` / `auto` / `hybrid (auto if Δ < €N)`.
+7. **Alert recipients** — email list per hotel + role-based defaults.
+8. **Manual lock duration** — 24 h / 7 d / 30 d / until cleared.
+
+All saves write to existing `hotel_revenue_settings` + new `revenue_settings_history` audit table. Top management can see/override every hotel; admins only their own.
+
+---
+
+## Phase G — Yearly performance reporting
+
+- New page `/[org]/revenue/reports`:
+  - Year-vs-year occupancy, ADR, RevPAR (line + bar).
+  - Per-month booking pace curve (current year overlaid on last year, grey line = 2 years ago).
+  - Pickup quality: average lead time, % of nights closed-out, % over rack, % under floor.
+  - Export CSV / XLSX (already have `revenue-export`).
 
 ---
 
 ## Build pipeline (delivery order)
 
-1. **P0 hotfixes** — sync test hotel rooms, silence "Failed to fetch rooms" for non-PMS hotels.
-2. **P1 data layer** — previoClient + cache tables + cron syncs.
-3. **P4.1 + 4.2** — pickup detection, email/in-app alerts, automatic +€10–€20 pricing (writes blocked behind a feature flag until reviewed).
-4. **P4.3 + 4.4** — manual overrides, Budapest pricing rules, settings UI.
-5. **P4.5** — 12-month grid, activity feed, daily digest.
-6. **P2** — Channel Manager Previo-style UI.
-7. **P3** — Reservations + Guests pages from API.
-8. **P5** — Housekeeping mirror (opt-in).
+1. **Phase A** — checklist + Sync Status panel + Sync rooms button.
+2. **Phase B** — `previo-sync-availability` + crons + `revenue_yoy_daily` view.
+3. **Phase C** — Revenue page rebuild (KPIs, YoY chart, pickup heatmap, ADR table, ticker).
+4. **Phase D** — engine upgrade (rapid-pickup email, manual locks, floors, auto/recommend toggle).
+5. **Phase E** — PredictHQ integration + demand badge + engine input.
+6. **Phase F** — Settings UI for full customisation.
+7. **Phase G** — Yearly performance reports.
 
-Each phase ships behind a feature flag per hotel so `/rdhotels` production is unaffected until you opt in.
-
----
-
-## Technical notes
-
-- All Previo calls go through `_shared/previoClient.ts` (Basic auth, retries, redirect=manual, JSON guard — already implemented in `previoAuth.ts`).
-- New tables get RLS scoped by `assigned_hotel` + `organization_slug` per project memory.
-- Email alerts use existing `send-email-notification` function; recipients = users with role `admin` or `top_management` for that org.
-- Cron via `pg_cron` + `pg_net` invoking edge functions with service-role JWT.
-- No changes to existing `cleaning_assignments`, `attendance_records`, `rooms.status`, ticket flow.
+Each phase is independently shippable behind a per-hotel feature flag so live `/rdhotels` operations are not affected.
 
 ---
 
-## Open questions before I start (will ask after plan approval)
+## Open questions before I start coding Phase A
 
-1. Auto-push price changes immediately, or always require manager approval first (safer rollout)?
-2. Default price floor per room type for the test hotel — do you have numbers, or should I infer from last 90 days minimum?
-3. Lock duration for manual overrides — 7 days OK, or until manager clears it?
-4. Email recipients — all admins/top_management, or a specific revenue distribution list?
+1. **Auto vs recommend default** — Push price changes to Previo immediately, or always require manager approval first (recommended for the first 30 days)?
+2. **Price floors** — Infer from last 90 days minimum, or you'll enter floors per room type yourself in the settings UI (Phase F)?
+3. **Manual lock duration** — 7 days, until manager clears, or 30 days?
+4. **Alert recipients** — All admins + top_management, just `info@hotelcare.app`, or a custom distribution list per hotel?
+5. **PredictHQ key** — Do you already have a PredictHQ API key, or should I add a secret slot and you'll paste it when you sign up?
