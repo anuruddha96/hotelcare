@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -49,15 +50,19 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
     }
 
     try {
-      // Fetch dirty rooms filtered by manager's assigned hotel
+      // Resolve slug -> [slug, hotel_name] so we match rooms regardless
+      // of which form is stored on each row.
+      const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
+
+      // Fetch dirty rooms filtered by manager's hotel (any matching key)
       const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
         .select('id, room_number, status, hotel')
         .eq('status', 'dirty')
-        .eq('hotel', profile.assigned_hotel)
+        .in('hotel', hotelKeys.length > 0 ? hotelKeys : [profile.assigned_hotel])
         .order('room_number');
 
-      // Fetch housekeeping staff filtered by same hotel and organization
+      // Housekeeping staff are stored against the slug — keep that filter
       const { data: staffData, error: staffError } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
