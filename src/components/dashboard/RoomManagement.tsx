@@ -225,7 +225,7 @@ export function RoomManagement() {
           .select('*, is_checkout_room, checkout_time, guest_count');
         
         // Filter by assigned hotel - use direct match
-        if (profile.assigned_hotel) {
+        if (profile?.assigned_hotel) {
           const hotelKeys = Array.from(visibleHotelKeys);
           query = query.in('hotel', hotelKeys.length > 0 ? hotelKeys : [profile.assigned_hotel]);
           console.log('🏨 Filtering rooms by assigned_hotel keys:', hotelKeys);
