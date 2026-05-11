@@ -178,6 +178,12 @@ export function RoomManagement() {
   }, [profile?.assigned_hotel]);
 
   const fetchRooms = async () => {
+    // Guard: profile may not be hydrated on first render. Bail without
+    // surfacing an error — the effect re-runs once `profile` arrives.
+    if (!profile) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       let roomsData: any[] | null = null;
@@ -185,7 +191,7 @@ export function RoomManagement() {
 
       const base = supabase.from('rooms');
 
-      if (profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') {
+      if (profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'top_management') {
         // Resolve hotel_id slug to actual hotel_name used in rooms table
         let hotelFilter = profile.assigned_hotel;
         if (hotelFilter) {
