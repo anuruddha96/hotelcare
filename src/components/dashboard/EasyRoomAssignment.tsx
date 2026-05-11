@@ -50,15 +50,19 @@ export function EasyRoomAssignment({ onAssignmentCreated }: EasyRoomAssignmentPr
     }
 
     try {
-      // Fetch dirty rooms filtered by manager's assigned hotel
+      // Resolve slug -> [slug, hotel_name] so we match rooms regardless
+      // of which form is stored on each row.
+      const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
+
+      // Fetch dirty rooms filtered by manager's hotel (any matching key)
       const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
         .select('id, room_number, status, hotel')
         .eq('status', 'dirty')
-        .eq('hotel', profile.assigned_hotel)
+        .in('hotel', hotelKeys.length > 0 ? hotelKeys : [profile.assigned_hotel])
         .order('room_number');
 
-      // Fetch housekeeping staff filtered by same hotel and organization
+      // Housekeeping staff are stored against the slug — keep that filter
       const { data: staffData, error: staffError } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
