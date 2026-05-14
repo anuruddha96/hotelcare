@@ -150,15 +150,20 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
   // is NOT in today's PMS departure set should be reset, otherwise yesterday's
   // checkouts linger in the overview.
   try {
-    const staleQuery = supabase
+    const { data: stale } = await supabase
       .from("rooms")
-      .update({ is_checkout_room: false, checkout_time: null, updated_at: new Date().toISOString() })
+      .select("id")
       .in("hotel", hotelKeys)
       .eq("is_checkout_room", true);
-    if (checkoutRoomIds.size > 0) {
-      staleQuery.not("id", "in", `(${Array.from(checkoutRoomIds).join(",")})`);
+    const staleIds = (stale ?? [])
+      .map((r: any) => r.id as string)
+      .filter((id) => !checkoutRoomIds.has(id));
+    if (staleIds.length > 0) {
+      await supabase
+        .from("rooms")
+        .update({ is_checkout_room: false, checkout_time: null, updated_at: new Date().toISOString() })
+        .in("id", staleIds);
     }
-    await staleQuery;
   } catch (e) {
     console.warn("[pmsRefresh] stale checkout cleanup failed:", e);
   }
