@@ -404,6 +404,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       // selectedHotel can be hotel_id (e.g. 'memories-budapest') or hotel_name (e.g. 'Hotel Memories Budapest')
       // rooms table stores 'hotel' as the full name, so we must resolve it first
       let hotelNameForFilter = selectedHotel;
+      let hotelKeys: string[] = selectedHotel ? [selectedHotel] : [];
       if (selectedHotel) {
         const { data: hotelConfig } = await supabase
           .from('hotel_configurations')
@@ -411,7 +412,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           .eq('hotel_id', selectedHotel)
           .maybeSingle();
         hotelNameForFilter = hotelConfig?.hotel_name || selectedHotel;
-        console.log(`[PMS] Resolved hotel filter: ${selectedHotel} -> ${hotelNameForFilter}`);
+        const resolved = await resolveHotelKeys(selectedHotel);
+        hotelKeys = resolved.length ? resolved : [selectedHotel];
+        console.log(`[PMS] Resolved hotel filter: ${selectedHotel} -> ${hotelNameForFilter} (keys: ${hotelKeys.join(', ')})`);
       }
 
       // Reset ONLY the selected hotel's current day room assignments since PMS upload will reset room data
