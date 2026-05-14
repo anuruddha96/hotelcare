@@ -54,24 +54,41 @@ const MANAGER_ROLES = new Set([
 export function PmsRefreshButton({ onRefreshed }: Props) {
   const { profile, user } = useAuth();
   const [busy, setBusy] = useState(false);
-  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  const [lastSync, setLastSync] = useState<LastSyncInfo | null>(null);
+  const [tick, setTick] = useState(0); // re-render so "x min ago" stays fresh
 
   const isAllowedHotel = profile?.assigned_hotel === ALLOWED_HOTEL;
   const isManager = profile?.role ? MANAGER_ROLES.has(profile.role) : false;
   const visible = isAllowedHotel && isManager;
+
+  // Re-render every 30s for relative time accuracy.
+  useEffect(() => {
+    if (!visible) return;
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [visible]);
 
   useEffect(() => {
     if (!visible) return;
     (async () => {
       const { data } = await supabase
         .from('pms_sync_history')
-        .select('changed_at, created_at')
+        .select('changed_at, created_at, sync_status, data')
         .eq('hotel_id', ALLOWED_HOTEL)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
       const ts = (data as any)?.changed_at || (data as any)?.created_at;
-      if (ts) setLastSyncAt(new Date(ts));
+      if (!ts) return;
+      const d = (data as any)?.data || {};
+      setLastSync({
+        at: new Date(ts),
+        status: ((data as any)?.sync_status as SyncStatus) || 'success',
+        updated: d.updated ?? d.upserted ?? d.updated_rooms ?? 0,
+        total: d.total ?? d.rowCount ?? 0,
+        notFound: d.notFound ?? 0,
+        checkouts: d.checkouts ?? 0,
+      });
     })();
   }, [visible]);
 
