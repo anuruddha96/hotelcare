@@ -10,6 +10,7 @@ import { Coffee, Search, CheckCircle2, RefreshCw, MapPin, Building2, ArrowLeft, 
 import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
+import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
 
 interface HotelDef {
   hotel_id: string;
