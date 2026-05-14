@@ -16,6 +16,7 @@ import { RoomAssignmentSummary } from '@/components/dashboard/RoomAssignmentSumm
 import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge';
 import { TrainingHelpButton } from '@/components/training';
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
+import { LiveSyncIndicator } from '@/components/layout/LiveSyncIndicator';
 import { LogOut, Settings, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
 import { Link, useParams } from 'react-router-dom';
@@ -116,6 +117,7 @@ export function Header() {
             <HotelSwitcher />
             <LanguageSwitcher />
             <InstallAppPrompt />
+            <LiveSyncIndicator />
             <TrainingHelpButton />
             
             {/* Revenue moved to PMSNavigation main tab bar */}
