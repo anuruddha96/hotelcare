@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, AlertTriangle, XCircle, Loader2, Radio, RefreshCw } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, Loader2, Radio, RefreshCw, Info } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -98,8 +98,11 @@ export function LiveSyncIndicator() {
             const isSync = t.status === "syncing";
             const isErr = t.status === "error";
             const isPartial = t.status === "partial";
+            const isUnsupported = t.meta?.supported === false;
             const TaskIcon = isSync
               ? Loader2
+              : isUnsupported
+              ? Info
               : isErr
               ? XCircle
               : isPartial
@@ -109,6 +112,8 @@ export function LiveSyncIndicator() {
               : Radio;
             const colorClass = isSync
               ? "text-primary"
+              : isUnsupported
+              ? "text-muted-foreground"
               : isErr
               ? "text-destructive"
               : isPartial
@@ -128,6 +133,8 @@ export function LiveSyncIndicator() {
                     <div className="text-[10px] text-muted-foreground truncate">
                       {isSync
                         ? "syncing…"
+                        : isUnsupported
+                        ? "not available in Previo"
                         : t.lastAt
                         ? `${formatDistanceToNow(t.lastAt)} ago`
                         : "not synced yet"}
@@ -141,16 +148,18 @@ export function LiveSyncIndicator() {
                       {t.meta.checkouts} checkouts
                     </Badge>
                   )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0"
-                    onClick={() => void refresh(t.key)}
-                    disabled={isSync}
-                    title="Refresh"
-                  >
-                    <RefreshCw className={cn("h-3 w-3", isSync ? "animate-spin" : "")} />
-                  </Button>
+                  {!isUnsupported && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 w-6 p-0"
+                      onClick={() => void refresh(t.key)}
+                      disabled={isSync}
+                      title="Refresh"
+                    >
+                      <RefreshCw className={cn("h-3 w-3", isSync ? "animate-spin" : "")} />
+                    </Button>
+                  )}
                 </div>
               </div>
             );

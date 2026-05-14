@@ -1,86 +1,46 @@
-## Goal
+## What's actually happening
 
-Make the app feel "live" by silently syncing PMS + Revenue data from the Previo API whenever an eligible user logs in (manager, admin, top_management — never housekeepers, maintenance, reception), with a small, unobtrusive status indicator while it runs.
+The Revenue live-sync calls `previo-pull-rates`, which in turn hits `https://api.previo.app/rest/calendar`. Previo replies:
 
-## Scope (only hotels with a Previo PMS config — Ottofiori untouched)
-
-Sync targets per login:
-1. **PMS rooms / today's checkouts** → `previo-pms-sync` (existing, hotel `previo-test` only for now)
-2. **Revenue rates / occupancy** → `previo-pull-rates` (existing) + revenue snapshots
-3. **Reservations** → `previo-sync-reservations` (existing)
-
-Each is gated by the hotel having an active `pms_configurations` row, so OttoFiori (no Previo config) is naturally skipped.
-
-## Architecture
-
-### 1. New `useLiveSync` hook (`src/hooks/useLiveSync.tsx`)
-- Runs on auth ready + role check (`manager | admin | top_management`)
-- Reads `assigned_hotel` (or all hotels for admin) and checks `pms_configurations.is_active`
-- Triggers sync tasks in parallel via `supabase.functions.invoke`
-- Tracks per-task state in a global Zustand-style context: `idle | syncing | success | partial | error`, `lastSyncedAt`, `error`
-- Throttle: skip if last successful sync < 2 minutes ago (sessionStorage key per hotel+task)
-- Re-run on `window` `focus` event after 5+ min idle
-- Never blocks the UI — fire-and-forget
-
-### 2. New `LiveSyncContext` (`src/contexts/LiveSyncContext.tsx`)
-- Provides `{ tasks: Record<TaskName, SyncState>, refresh(taskName?) }`
-- Wrapped at App root inside `AuthProvider`
-
-### 3. New `LiveSyncIndicator` component (`src/components/layout/LiveSyncIndicator.tsx`)
-- Compact pill in `Header.tsx` (next to user menu): spinner + "Syncing PMS…" while any task running; green dot "Live · 2m ago" when idle; amber/red on partial/error with tooltip listing failed tasks
-- Click opens a popover listing each task with status, last-synced time, manual "Refresh" button per task
-
-### 4. Reuse existing surfaces
-- `PmsRefreshButton` (Team View) — read state from `LiveSyncContext` instead of local state; manual click forces refresh
-- `Revenue.tsx` page — replace the "Run engine" / upload-only flow with a top status banner reading from `LiveSyncContext.tasks.revenue`; show "Last pulled · X min ago" and a refresh button. Keep manual upload as fallback.
-- `PMSUpload.tsx` — keep the upload as fallback for non-Previo hotels; for Previo hotels show "Auto-synced from Previo · last update X min ago" instead of the upload CTA (per earlier instruction to hide upload on test hotel)
-
-### 5. Edge function additions
-- New `previo-revenue-sync` wrapping `previo-pull-rates` for the next 120 days + writing into existing `previo_rate_snapshots` and feeding the revenue grid — single call per login
-- Add `sync_type` values to `pms_sync_history`: `auto_login`, `auto_focus`, `manual`
-
-### 6. Role gating
-- `useLiveSync` early-returns for roles `housekeeper | maintenance | reception | front_desk`
-- Server side: existing role checks in each edge function already prevent unauthorized sync
-
-## Status indicator UX
-
-```text
-Header (top-right):
-[●  Live · synced 2m ago ▾]   ← green
-[⟳  Syncing PMS… ]            ← primary (spinner)
-[●  Partial · 1 failed ▾]     ← amber
-[●  Sync failed ▾]            ← destructive
+```
+405 {"code":405,"error":"Action 'getAction' is unknown","message":null}
 ```
 
-Popover content:
-```text
-PMS rooms        ✓ 2m ago        [Refresh]
-Reservations     ✓ 2m ago        [Refresh]
-Revenue rates    ⟳ syncing…
-```
+This is Previo's standard "this endpoint/action doesn't exist for your account" response. The other Previo functions in this project (`previo-pms-sync`, `previo-sync-rooms`, `previo-sync-reservations`) only ever use `/rest/rooms` — there is no proven REST calendar/rates endpoint enabled for this hotel. So the live rate pull was never going to work against this Previo deployment, regardless of credentials.
 
-## Safety / non-regressions
+The real problem is therefore not "the API is broken" — it's that we treat a *legitimately unsupported* endpoint as a hard error and surface it as red banner spam every login.
 
-- OttoFiori has no `pms_configurations` row → loop yields zero tasks → no calls
-- All sync calls are read-only against PMS; writes only to our own snapshot tables
-- Housekeeper assignments are NOT touched (per existing memory rule — only manual/auto-assign resets them)
-- Throttle + focus-based refresh prevents API hammering
-- All errors swallowed into the indicator; never blocks navigation
+## Fix (no DB / no UI redesign)
 
-## Files to add
-- `src/hooks/useLiveSync.tsx`
-- `src/contexts/LiveSyncContext.tsx`
-- `src/components/layout/LiveSyncIndicator.tsx`
-- `supabase/functions/previo-revenue-sync/index.ts`
+### 1. `supabase/functions/previo-pull-rates/index.ts`
+- After calling `/rest/calendar`, if the response is `404`, `405`, or the body contains `"is unknown"` / `"Action '` (Previo's "endpoint not enabled" signal), return:
+  ```json
+  { "ok": true, "supported": false, "upserted": 0, "total": 0,
+    "message": "Previo live rate pull is not enabled for this hotel — use the XLSX upload." }
+  ```
+  instead of `{ ok: false, error: "Previo 405: ..." }`.
+- All other failure modes (auth, 5xx, network) still return `ok: false` so we keep visibility into real outages.
 
-## Files to edit
-- `src/App.tsx` — wrap with `LiveSyncProvider`
-- `src/components/layout/Header.tsx` — add `LiveSyncIndicator`
-- `src/components/dashboard/PmsRefreshButton.tsx` — read from context
-- `src/pages/Revenue.tsx` — show live status banner
-- `src/components/dashboard/PMSUpload.tsx` — hide upload for Previo hotels, show live status
+### 2. `src/contexts/LiveSyncContext.tsx` — `runRevenue`
+- When the response contains `supported === false`:
+  - set `tasks.revenue` to `{ status: "idle", lastAt: now, meta: { supported: false, message } }` (no `error` status, no toast).
+  - flip a session-scoped flag (`sessionStorage["liveSync.revenue.unsupported.<hotelId>"] = "1"`) so subsequent auto-triggers in the same session skip the call entirely (manual "Refresh" still bypasses it).
+- Real errors continue to set `status: "error"` as today.
 
-## Open question
+### 3. `src/pages/Revenue.tsx` — top banner
+- Add a third visual state alongside success / error:
+  - if `revenue.meta?.supported === false` → render a **muted info banner** (`bg-muted text-muted-foreground`, info icon) reading "Live rate sync isn't enabled for this hotel in Previo — upload the XLSX files below to keep numbers fresh." Hide the red treatment.
+- Same change in `LiveSyncIndicator` popover: show "Not available" pill (neutral) for revenue task instead of red "Error".
 
-Should the Revenue auto-sync run for **all hotels with a Previo config** on every eligible login, or only when a manager actually opens the Revenue page? (The first is more "live"; the second saves API calls.) Default in this plan: PMS sync runs on login; Revenue sync runs on login *and* on Revenue page open.
+### 4. `src/components/layout/LiveSyncIndicator.tsx`
+- Treat `status === "idle"` with `meta?.supported === false` as a non-issue: don't count it toward the overall "partial/error" pill colour. The pill stays green when only PMS is healthy and Revenue is "not supported".
+
+## Out of scope
+- No attempt to discover an alternative Previo rates endpoint — that would be guesswork without Previo docs/account confirmation. The XLSX upload path remains the source of truth for rates until Previo confirms a working endpoint.
+- No DB migration. No changes to `runPmsRefresh` (PMS sync is healthy).
+
+## Result for the user
+- The red "Live sync failed · Previo 405 …" banner disappears.
+- Revenue page shows a calm info note explaining live rates aren't enabled and pointing at upload.
+- Header LiveSync pill stays green when PMS is fine.
+- Next login won't re-fire the failing call repeatedly.
