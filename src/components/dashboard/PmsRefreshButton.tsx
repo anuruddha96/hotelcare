@@ -1,15 +1,28 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Loader2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { RefreshCw, Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, DoorOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { formatDistanceToNow } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 interface Props {
   /** Called after a successful refresh so parent views can re-fetch. */
   onRefreshed?: () => void;
+}
+
+type SyncStatus = 'success' | 'partial' | 'error' | 'idle';
+
+interface LastSyncInfo {
+  at: Date;
+  status: SyncStatus;
+  updated: number;
+  total: number;
+  notFound: number;
+  checkouts: number;
 }
 
 const ALLOWED_HOTEL = 'previo-test';
