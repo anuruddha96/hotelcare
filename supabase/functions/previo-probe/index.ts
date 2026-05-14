@@ -1,4 +1,4 @@
-// Temporary probe to discover the correct Previo reservations endpoint.
+// Temporary probe v2.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth } from "../_shared/previoAuth.ts";
@@ -23,22 +23,17 @@ serve(async (req) => {
       .maybeSingle();
 
     const today = new Date().toISOString().slice(0, 10);
+    const headers = { "X-Previo-Language-ID": "2" };
     const paths = [
       `/rest/reservation`,
-      `/rest/reservation/list`,
       `/rest/reservation?dateFrom=${today}&dateTo=${today}`,
-      `/rest/reservations/list`,
-      `/rest/reservations/find?dateFrom=${today}&dateTo=${today}`,
-      `/rest/stay`,
-      `/rest/stay?dateFrom=${today}&dateTo=${today}`,
-      `/rest/stay/list?dateFrom=${today}&dateTo=${today}`,
-      `/rest/calendar?dateFrom=${today}&dateTo=${today}`,
-      `/rest/calendar/reservations?dateFrom=${today}&dateTo=${today}`,
-      `/rest/booking`,
-      `/rest/booking?dateFrom=${today}&dateTo=${today}`,
-      `/rest/bookings?dateFrom=${today}&dateTo=${today}`,
-      `/rest/reports/departures?date=${today}`,
-      `/rest/reports/arrivals?date=${today}`,
+      `/rest/reservation?arrivalDateFrom=${today}&arrivalDateTo=${today}`,
+      `/rest/reservation?departureDateFrom=${today}&departureDateTo=${today}`,
+      `/rest/reservation?dateFrom=${today}&dateTo=${today}&dateType=departure`,
+      `/rest/reservation?dateFrom=${today}&dateTo=${today}&dateType=stay`,
+      `/rest/reservation/list`,
+      `/rest/reservation/list?dateFrom=${today}&dateTo=${today}`,
+      `/rest/reservation/find?dateFrom=${today}&dateTo=${today}`,
     ];
 
     const results: any[] = [];
@@ -48,9 +43,10 @@ serve(async (req) => {
           credentialsSecretName: cfg?.credentials_secret_name,
           path: p,
           pmsHotelId: String(cfg?.pms_hotel_id || ""),
+          headers,
         });
         const text = await response.text();
-        results.push({ path: p, status: response.status, snippet: text.slice(0, 250) });
+        results.push({ path: p, status: response.status, snippet: text.slice(0, 400) });
       } catch (e: any) {
         results.push({ path: p, error: e?.message?.slice(0, 250) });
       }
