@@ -52,7 +52,7 @@ serve(async (req) => {
 <login>${creds.user}</login>
 <password>${creds.pass}</password>
 <hotId>${hotId}</hotId>
-<term><from>${today}</from><to>${today}</to></term>
+<term><from>${today}</from><to>${tomorrow}</to></term>
 </request>`;
 
   const urls = [
