@@ -213,6 +213,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
             errors.push(`Room ${rawRoomName}: ${updErr.message}`);
           } else {
             updated++;
+            if (isCheckout) checkouts++;
           }
         } catch (e: any) {
           errors.push(`Row error: ${e?.message || String(e)}`);
