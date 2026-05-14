@@ -118,6 +118,15 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
         }
       }
 
+      // Mirror Previo's room cleanliness state. Previo is treated as the
+      // source of truth: "Clean" -> clean, anything else (Untidy/Dirty) -> dirty.
+      // Only set when the row provided a status; never blank it out.
+      const previoStatusRaw = row.Status ? String(row.Status).trim().toLowerCase() : "";
+      const mappedStatus =
+        previoStatusRaw === "" ? null
+        : previoStatusRaw.startsWith("clean") ? "clean"
+        : "dirty";
+
       const updateData: Record<string, any> = {
         is_checkout_room: isCheckout,
         checkout_time: isCheckout ? new Date().toISOString() : null,
@@ -127,6 +136,12 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
         linen_change_required: linen,
         updated_at: new Date().toISOString(),
       };
+      if (mappedStatus) {
+        updateData.status = mappedStatus;
+        if (mappedStatus === "clean") {
+          updateData.last_cleaned_at = new Date().toISOString();
+        }
+      }
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
       if (row.Note) updateData.notes = String(row.Note);
