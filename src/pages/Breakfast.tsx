@@ -383,6 +383,10 @@ export default function Breakfast() {
           )}
 
           {!hotelCode && selection && (
+            <OccupancyPickupChart hotelId={selection.hotel_id} days={14} />
+          )}
+
+          {!hotelCode && selection && (
             <div className="pt-3 border-t">
               <div className="flex items-center justify-between mb-2">
                 <div className="font-semibold text-sm">{tt("roomsTitle")} · {rooms.length}</div>
