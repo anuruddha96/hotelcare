@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle, Radio, Info } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
+import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 
 interface PickupDateRow { stay_date: string; delta: number }
 interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
