@@ -142,6 +142,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
 
       let updated = 0;
       let notFound = 0;
+      let checkouts = 0;
       const errors: string[] = [];
       const today = new Date().toISOString().split('T')[0];
 
@@ -212,13 +213,13 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
             errors.push(`Room ${rawRoomName}: ${updErr.message}`);
           } else {
             updated++;
+            if (isCheckout) checkouts++;
           }
         } catch (e: any) {
           errors.push(`Row error: ${e?.message || String(e)}`);
         }
       }
 
-      const checkouts = rows.filter((r) => r.Departure).length;
       const status: SyncStatus = errors.length ? 'partial' : 'success';
 
       // Log a sync history entry so the timestamp stays accurate.
