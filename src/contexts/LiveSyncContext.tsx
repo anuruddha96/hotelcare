@@ -142,15 +142,14 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     lastRunRef.current.revenue = now;
     setTasks((p) => ({ ...p, revenue: { ...p.revenue, status: "syncing" } }));
     try {
-      const dateFrom = new Date().toISOString().slice(0, 10);
-      const dateTo = new Date(Date.now() + 120 * 86400000).toISOString().slice(0, 10);
-      const { data, error } = await supabase.functions.invoke("previo-pull-rates", {
-        body: { hotelId, dateFrom, dateTo },
+      const { data, error } = await supabase.functions.invoke("previo-pull-revenue", {
+        body: { hotelId, days: 365 },
       });
-      if (error || (data && (data as any).ok === false)) {
-        throw new Error((data as any)?.error || error?.message || "Revenue sync failed");
-      }
+      if (error) throw new Error(error.message || "Revenue sync failed");
       const payload = (data || {}) as any;
+      if (payload.ok === false) {
+        throw new Error(payload.error || "Revenue sync failed");
+      }
       if (payload.supported === false) {
         sessionStorage.setItem(unsupportedKey, "1");
         setTasks((p) => ({
@@ -164,6 +163,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         }));
         return;
       }
+      // Clear any prior unsupported flag now that the call succeeded.
+      sessionStorage.removeItem(unsupportedKey);
       setTasks((p) => ({
         ...p,
         revenue: { status: "success", lastAt: new Date(), meta: payload },
