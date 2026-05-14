@@ -21,17 +21,23 @@ serve(async (req) => {
 
   const today = new Date().toISOString().slice(0, 10);
   const headers = { "X-Previo-Language-ID": "2" };
+  // Common Previo RESTful patterns + likely list endpoints
   const tests = [
-    { m: "GET", p: `/rest/rooms?date=${today}` },
-    { m: "GET", p: `/rest/rooms?dateFrom=${today}&dateTo=${today}` },
-    { m: "GET", p: `/rest/room?date=${today}` },
-    { m: "POST", p: `/rest/reservation/search`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
-    { m: "POST", p: `/rest/reservation/find`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
-    { m: "POST", p: `/rest/reservation/list`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
-    { m: "POST", p: `/rest/reservation`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
-    { m: "POST", p: `/rest/calendar`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
-    { m: "POST", p: `/rest/roomReservation/search`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
-    { m: "POST", p: `/rest/roomReservation`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
+    { m: "GET", p: `/rest/rooms?date=${today}&extended=1` },
+    { m: "GET", p: `/rest/rooms?date=${today}&withReservation=1` },
+    { m: "GET", p: `/rest/rooms?date=${today}&include=reservation` },
+    { m: "GET", p: `/rest/availability?dateFrom=${today}&dateTo=${today}` },
+    { m: "GET", p: `/rest/occupancy?dateFrom=${today}&dateTo=${today}` },
+    { m: "GET", p: `/rest/dayState?date=${today}` },
+    { m: "GET", p: `/rest/dayUse?date=${today}` },
+    { m: "GET", p: `/rest/checkin?date=${today}` },
+    { m: "GET", p: `/rest/checkout?date=${today}` },
+    { m: "GET", p: `/rest/arrival?date=${today}` },
+    { m: "GET", p: `/rest/departure?date=${today}` },
+    { m: "GET", p: `/rest/billing?dateFrom=${today}&dateTo=${today}` },
+    { m: "GET", p: `/rest/guest?dateFrom=${today}&dateTo=${today}` },
+    { m: "GET", p: `/rest/crm?dateFrom=${today}&dateTo=${today}` },
+    { m: "GET", p: `/rest/roomKind` },
   ];
   const results: any[] = [];
   for (const t of tests) {
@@ -42,10 +48,10 @@ serve(async (req) => {
         pmsHotelId: String(cfg?.pms_hotel_id || ""),
         method: t.m,
         headers,
-        body: t.body,
       });
       const text = await response.text();
-      results.push({ test: `${t.m} ${t.p}`, status: response.status, snippet: text.slice(0, 500) });
+      const has = /reservation|departure|arrival/i.test(text);
+      results.push({ test: `${t.m} ${t.p}`, status: response.status, has, snippet: text.slice(0, 350) });
     } catch (e: any) {
       results.push({ test: `${t.m} ${t.p}`, error: e?.message?.slice(0, 250) });
     }
