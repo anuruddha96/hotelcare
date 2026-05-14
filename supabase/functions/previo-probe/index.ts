@@ -39,6 +39,7 @@ serve(async (req) => {
     .maybeSingle();
 
   const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   const hotId = String(cfg?.pms_hotel_id || "");
   const secret = clean(Deno.env.get(cfg?.credentials_secret_name || "") || "");
   const creds = parseCreds(secret);
