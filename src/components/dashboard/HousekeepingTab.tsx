@@ -133,6 +133,13 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   useEffect(() => {
     const checkDefaultTab = async () => {
       if (hasManagerAccess) {
+        // For hotels where the PMS Upload tab is hidden (managed via Team
+        // View → PMS Refresh), default straight to Team View / approvals.
+        if (hidePmsUploadTab) {
+          setActiveTab(pendingCount > 0 ? 'supervisor' : 'manage');
+          return;
+        }
+
         // Check if PMS upload has been done today
         const today = new Date().toISOString().split('T')[0];
         const { data: pmsData } = await supabase
@@ -158,13 +165,13 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         setActiveTab('assignments');
       }
     };
-    
+
     checkDefaultTab();
-  }, [hasManagerAccess, userRole, pendingCount]);
-  
+  }, [hasManagerAccess, userRole, pendingCount, hidePmsUploadTab]);
+
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
   const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'reception'].includes(userRole);
-  
+
   // Read-only access for housekeeping staff only
   const isReadOnlyAccess = ['housekeeping'].includes(userRole) && !hasManagerAccess;
   const isReceptionReadOnly = userRole === 'reception';
@@ -176,11 +183,9 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       'completion-photos', 'dnd-photos', 'maintenance-photos', 'lost-and-found',
       'dirty-linen', 'attendance', 'minibar'
     ];
-    
-    if (orderedTabs.length > 0) {
-      return orderedTabs;
-    }
-    return defaultOrder;
+
+    const order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
+    return hidePmsUploadTab ? order.filter((id) => id !== 'pms-upload') : order;
   };
 
   const renderTabTrigger = (tabId: string) => {
