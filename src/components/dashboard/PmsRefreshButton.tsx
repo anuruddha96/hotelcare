@@ -218,19 +218,28 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         }
       }
 
+      const checkouts = rows.filter((r) => r.Departure).length;
+      const status: SyncStatus = errors.length ? 'partial' : 'success';
+
       // Log a sync history entry so the timestamp stays accurate.
       try {
         await supabase.from('pms_sync_history').insert({
           hotel_id: ALLOWED_HOTEL,
           sync_type: 'rooms_refresh',
-          sync_status: errors.length ? 'partial' : 'success',
+          sync_status: status,
           error_message: errors.length ? errors.slice(0, 5).join(' | ') : null,
-          data: { updated, notFound, total: rows.length },
+          data: { updated, notFound, total: rows.length, checkouts },
         } as any);
       } catch (_) { /* non-fatal */ }
 
-      setLastSyncAt(new Date());
-      const checkouts = rows.filter((r) => r.Departure).length;
+      setLastSync({
+        at: new Date(),
+        status,
+        updated,
+        total: rows.length,
+        notFound,
+        checkouts,
+      });
       toast.success(
         `PMS refreshed — ${updated} rooms updated, ${checkouts} checkouts today`
           + (notFound ? ` · ${notFound} not matched` : ''),
@@ -238,6 +247,15 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
       onRefreshed?.();
     } catch (e: any) {
       console.error('[PmsRefresh] failed:', e);
+      setLastSync((prev) => ({
+        at: new Date(),
+        status: 'error',
+        updated: 0,
+        total: 0,
+        notFound: 0,
+        checkouts: 0,
+        ...(prev ? {} : {}),
+      }));
       toast.error(`PMS refresh failed: ${e?.message || 'unknown error'}`);
     } finally {
       setBusy(false);
@@ -246,22 +264,131 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
 
   if (!visible) return null;
 
+  // Status visuals
+  const statusMeta = (() => {
+    if (busy) {
+      return {
+        label: 'Syncing…',
+        Icon: Loader2,
+        iconClass: 'animate-spin text-primary',
+        wrapClass: 'border-primary/30 bg-primary/5',
+        dotClass: 'bg-primary animate-pulse',
+      };
+    }
+    if (!lastSync) {
+      return {
+        label: 'Not synced yet',
+        Icon: Clock,
+        iconClass: 'text-muted-foreground',
+        wrapClass: 'border-border bg-muted/30',
+        dotClass: 'bg-muted-foreground/50',
+      };
+    }
+    if (lastSync.status === 'error') {
+      return {
+        label: 'Sync failed',
+        Icon: XCircle,
+        iconClass: 'text-destructive',
+        wrapClass: 'border-destructive/30 bg-destructive/5',
+        dotClass: 'bg-destructive',
+      };
+    }
+    if (lastSync.status === 'partial') {
+      return {
+        label: 'Partial',
+        Icon: AlertTriangle,
+        iconClass: 'text-amber-600 dark:text-amber-500',
+        wrapClass: 'border-amber-500/30 bg-amber-500/5',
+        dotClass: 'bg-amber-500',
+      };
+    }
+    return {
+      label: 'Up to date',
+      Icon: CheckCircle2,
+      iconClass: 'text-emerald-600 dark:text-emerald-500',
+      wrapClass: 'border-emerald-500/30 bg-emerald-500/5',
+      dotClass: 'bg-emerald-500',
+    };
+  })();
+
+  const StatusIcon = statusMeta.Icon;
+  const relTime = lastSync ? `${formatDistanceToNow(lastSync.at)} ago` : '—';
+  // touch tick so eslint doesn't complain about unused state
+  void tick;
+
   return (
-    <div className="flex items-center gap-2">
+    <div
+      className={cn(
+        'flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors',
+        statusMeta.wrapClass,
+      )}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
+          <span
+            className={cn(
+              'absolute inline-flex h-full w-full rounded-full opacity-60',
+              busy ? 'animate-ping' : '',
+              statusMeta.dotClass,
+            )}
+          />
+          <span className={cn('relative inline-flex h-2.5 w-2.5 rounded-full', statusMeta.dotClass)} />
+        </span>
+        <div className="flex flex-col leading-tight min-w-0">
+          <div className="flex items-center gap-1.5">
+            <StatusIcon className={cn('h-3.5 w-3.5 shrink-0', statusMeta.iconClass)} />
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              PMS Sync
+            </span>
+            <Badge variant="outline" className="h-4 px-1.5 text-[10px] font-medium">
+              {statusMeta.label}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 truncate">
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {relTime}
+            </span>
+            {lastSync && (
+              <>
+                <span className="opacity-40">·</span>
+                <span>
+                  <span className="font-medium text-foreground">{lastSync.updated}</span>
+                  <span className="hidden sm:inline">/{lastSync.total}</span> rooms
+                </span>
+                {lastSync.checkouts > 0 && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="inline-flex items-center gap-1">
+                      <DoorOpen className="h-3 w-3" />
+                      <span className="font-medium text-foreground">{lastSync.checkouts}</span>
+                      <span className="hidden md:inline">checkouts</span>
+                    </span>
+                  </>
+                )}
+                {lastSync.notFound > 0 && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="text-amber-600 dark:text-amber-500">
+                      {lastSync.notFound} unmatched
+                    </span>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
       <Button
+        size="sm"
         variant="outline"
         onClick={handleRefresh}
         disabled={busy}
-        className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
+        className="h-8 shrink-0 gap-1.5 bg-background/60 backdrop-blur"
       >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-        <span className="truncate">PMS Refresh</span>
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        <span>{busy ? 'Refreshing' : 'PMS Refresh'}</span>
       </Button>
-      {lastSyncAt && (
-        <span className="hidden md:inline text-xs text-muted-foreground">
-          {formatDistanceToNow(lastSyncAt)} ago
-        </span>
-      )}
     </div>
   );
 }
