@@ -263,6 +263,8 @@ export default function Revenue() {
 
       <p className="text-xs text-muted-foreground">Click <b>Upload</b> on a hotel card to add Pickup, Occupancy, or Daily Overview XLSX files. The file's hotel name is verified before saving.</p>
 
+      <RevenueSyncHistory limit={8} />
+
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
         {hotels.map((h) => (
           <Card key={h.hotel_id} className={h.abnormal ? "border-red-500" : ""}>
