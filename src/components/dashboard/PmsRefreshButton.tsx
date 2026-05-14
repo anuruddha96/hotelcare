@@ -219,7 +219,6 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         }
       }
 
-      const checkouts = rows.filter((r) => r.Departure).length;
       const status: SyncStatus = errors.length ? 'partial' : 'success';
 
       // Log a sync history entry so the timestamp stays accurate.
