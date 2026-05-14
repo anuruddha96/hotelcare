@@ -294,7 +294,7 @@ serve(async (req) => {
         rowCount: rows.length,
         departuresToday: departureCount,
         arrivalsToday: arrivalCount,
-        reservationsAvailable: reservationsByRoomId.size,
+        reservationsAvailable: reservationsByRoomName.size,
         reservationFetchError,
         rows,
       }),
