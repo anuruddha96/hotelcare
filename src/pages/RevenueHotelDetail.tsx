@@ -384,6 +384,10 @@ export default function RevenueHotelDetail() {
           <PickupTab data={pickupChartData} top={topPickupDates} onSelect={setSelectedDate} />
         </TabsContent>
 
+        <TabsContent value="analyst">
+          <AnalystPanel hotelId={hotelId!} />
+        </TabsContent>
+
         <TabsContent value="strategy" className="space-y-3">
           <Tabs defaultValue="rooms">
             <TabsList>
