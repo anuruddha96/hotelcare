@@ -132,48 +132,123 @@ serve(async (req) => {
     const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
     const today = todayUtcDate();
 
-    // Also pull today's reservations — /rest/rooms doesn't include the
-    // reservation block for this hotel, so checkouts/arrivals must come
-    // from /rest/reservations.
-    interface PrevioReservation {
-      reservationId: number;
-      roomId: number;
-      arrivalDate: string;
-      departureDate: string;
-      status?: string;
-      guestsCount?: number;
-      note?: string;
+    // Pull today's reservations via the Previo XML API. The REST API has no
+    // list endpoint for reservations, but the XML `searchReservations` method
+    // returns full reservation objects with the assigned room (object/name)
+    // and term (from/to). We index by room name (since /rest/rooms uses the
+    // same `name`) and by objId for safety.
+    interface ParsedReservation {
+      objId: number | null;
+      roomName: string;
+      arrivalDate: string;   // YYYY-MM-DD
+      departureDate: string; // YYYY-MM-DD
+      statusId: number;
+      guestsCount: number;
+      note: string | null;
     }
-    const reservationsByRoomId = new Map<number, PrevioReservation>();
+    const reservationsByRoomName = new Map<string, ParsedReservation>();
+    const reservationsByObjId = new Map<number, ParsedReservation>();
     let reservationFetchError: string | null = null;
     try {
-      // Fetch reservations active today (arrival <= today AND departure >= today)
-      const resPath = `/rest/reservations?dateFrom=${today}&dateTo=${today}`;
-      const { response: rresp } = await fetchPrevioWithAuth({
-        credentialsSecretName: cfg.credentials_secret_name,
-        path: resPath,
-        pmsHotelId: String(cfg.pms_hotel_id || ""),
-      });
-      if (!rresp.ok) {
-        const t = await rresp.text();
-        reservationFetchError = `Previo ${rresp.status}: ${t.slice(0, 200)}`;
-        console.warn(`[previo-pms-sync] reservations fetch failed: ${reservationFetchError}`);
+      // Read raw credentials directly from the configured secret so we can
+      // embed login/password in the XML body (XML API uses inline auth, not
+      // Basic Auth headers).
+      const rawSecret = String(Deno.env.get(cfg.credentials_secret_name || "") || "").trim();
+      const stripQuotes = (s: string) =>
+        (s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))
+          ? s.slice(1, -1).trim() : s;
+      let xmlUser = ""; let xmlPass = "";
+      const cleaned = stripQuotes(rawSecret);
+      try {
+        const j = JSON.parse(cleaned);
+        if (j && typeof j === "object") {
+          xmlUser = stripQuotes(String(j.username ?? j.user ?? j.login ?? j.email ?? ""));
+          xmlPass = stripQuotes(String(j.password ?? j.pass ?? j.secret ?? ""));
+        }
+      } catch {}
+      if (!xmlUser || !xmlPass) {
+        const m = cleaned.match(/^([^:\s]+):(.+)$/);
+        if (m) { xmlUser = stripQuotes(m[1]); xmlPass = stripQuotes(m[2]); }
+      }
+
+      if (!xmlUser || !xmlPass) {
+        reservationFetchError = "Could not parse Previo XML credentials";
       } else {
-        const reservations = await safePrevioJson<PrevioReservation[]>(rresp, { path: resPath });
-        console.log(`[previo-pms-sync] fetched ${reservations.length} reservations active on ${today}`);
-        // Index latest reservation per roomId, prioritizing departures today
-        for (const r of reservations) {
-          if (!r.roomId) continue;
-          const existing = reservationsByRoomId.get(r.roomId);
-          // Prefer the reservation that departs today (checkout) over one that arrives today
-          if (!existing || r.departureDate === today) {
-            reservationsByRoomId.set(r.roomId, r);
+        // XML API requires from < to. Use [today, today+2) to safely capture
+        // anything departing today (term.to date == today).
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+        const xmlBody = `<?xml version="1.0"?>
+<request>
+<login>${xmlUser}</login>
+<password>${xmlPass}</password>
+<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
+<term><from>${today}</from><to>${tomorrow}</to></term>
+</request>`;
+        const xmlResp = await fetch("https://api.previo.cz/x1/hotel/searchReservations/", {
+          method: "POST",
+          headers: { "Content-Type": "text/xml; charset=UTF-8" },
+          body: xmlBody,
+        });
+        const xmlText = await xmlResp.text();
+        if (!xmlResp.ok || /<error>/i.test(xmlText)) {
+          const errMatch = xmlText.match(/<message>([^<]*)<\/message>/i);
+          reservationFetchError = `XML API ${xmlResp.status}: ${errMatch?.[1] || xmlText.slice(0, 200)}`;
+          console.warn(`[previo-pms-sync] XML reservations failed: ${reservationFetchError}`);
+        } else {
+          // Naive XML parse — extract each <reservation>...</reservation> block.
+          const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
+          const grab = (s: string, tag: string) => {
+            const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+            return m ? m[1].trim() : "";
+          };
+          for (const block of blocks) {
+            const fromStr = grab(block, "from");
+            const toStr = grab(block, "to");
+            if (!fromStr || !toStr) continue;
+            const arrival = fromStr.slice(0, 10);
+            const departure = toStr.slice(0, 10);
+            const statusId = parseInt(grab(block, "statusId") || "0", 10);
+            // Skip cancelled (7) and no-show (8) reservations
+            if (statusId === 7 || statusId === 8) continue;
+            const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
+            const objId = objMatch ? parseInt(objMatch[1], 10) : null;
+            const roomName = objMatch ? objMatch[2].trim() : "";
+            if (!roomName && !objId) continue;
+            const guestsCount = (block.match(/<guest>/g) || []).length;
+            const noteMatch = block.match(/<note>([^<]*)<\/note>/);
+
+            const rec: ParsedReservation = {
+              objId,
+              roomName,
+              arrivalDate: arrival,
+              departureDate: departure,
+              statusId,
+              guestsCount,
+              note: noteMatch ? noteMatch[1].trim() || null : null,
+            };
+
+            // Prefer the reservation departing today (checkout) over an
+            // arrival or stay-through when one room has multiple records.
+            const replaceIfBetter = (existing: ParsedReservation | undefined) => {
+              if (!existing) return true;
+              if (rec.departureDate === today && existing.departureDate !== today) return true;
+              if (existing.departureDate === today) return false;
+              if (rec.arrivalDate <= today && rec.departureDate > today) return true;
+              return false;
+            };
+            if (roomName && replaceIfBetter(reservationsByRoomName.get(roomName))) {
+              reservationsByRoomName.set(roomName, rec);
+            }
+            if (objId != null && replaceIfBetter(reservationsByObjId.get(objId))) {
+              reservationsByObjId.set(objId, rec);
+            }
           }
+          console.log(`[previo-pms-sync] XML returned ${blocks.length} reservations, indexed ${reservationsByRoomName.size} rooms`);
         }
       }
     } catch (e: any) {
       reservationFetchError = e?.message || String(e);
-      console.warn(`[previo-pms-sync] reservations fetch threw: ${reservationFetchError}`);
+      console.warn(`[previo-pms-sync] XML reservations threw: ${reservationFetchError}`);
     }
 
     // Build Excel-compatible rows. Header names match those that PMSUpload's
