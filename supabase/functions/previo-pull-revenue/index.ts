@@ -345,14 +345,15 @@ serve(async (req) => {
       else console.error("breakfast_roster upsert error:", error.message);
     }
 
-    // ---- 6. Log ingest run ----
+    // ---- 6. Log PMS sync history (revenue) ----
     try {
-      await service.from("revenue_ingest_runs").insert({
+      await service.from("pms_sync_history").insert({
         hotel_id: hotelId,
-        organization_slug: orgSlug,
-        kind: "previo-live",
-        status: "success",
-        meta: {
+        sync_type: "revenue_live",
+        direction: "from_previo",
+        sync_status: "success",
+        changed_by: userRes.user.id,
+        data: {
           days,
           totalRooms,
           reservations: reservations.length,
@@ -361,7 +362,7 @@ serve(async (req) => {
           breakfastUpserted,
         },
       } as any);
-    } catch { /* table may have different cols, non-fatal */ }
+    } catch { /* non-fatal */ }
 
     return new Response(
       JSON.stringify({
