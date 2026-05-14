@@ -254,7 +254,7 @@ serve(async (req) => {
     // Build Excel-compatible rows. Header names match those that PMSUpload's
     // fuzzy column matcher recognizes (English variants).
     const rows = rooms.map((r) => {
-      const res = reservationsByRoomId.get(r.roomId) ?? r.reservation;
+      const res = reservationsByObjId.get(r.roomId) ?? reservationsByRoomName.get(r.name);
       const isOccupied = !!res && res.arrivalDate <= today && res.departureDate > today;
       const isDeparture = !!res && res.departureDate === today;
       const isArrival = !!res && res.arrivalDate === today;
