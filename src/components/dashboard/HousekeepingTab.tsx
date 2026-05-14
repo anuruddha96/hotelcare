@@ -78,10 +78,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       if (user?.id) {
         const { data } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, assigned_hotel')
           .eq('id', user.id)
           .single();
         setUserRole(data?.role || '');
+        setAssignedHotel(data?.assigned_hotel || '');
       }
     };
     fetchUserRole();
