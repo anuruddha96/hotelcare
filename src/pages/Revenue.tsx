@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle, Radio, Info } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
+import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 
 interface PickupDateRow { stay_date: string; delta: number }
 interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
@@ -262,6 +263,8 @@ export default function Revenue() {
       })()}
 
       <p className="text-xs text-muted-foreground">Click <b>Upload</b> on a hotel card to add Pickup, Occupancy, or Daily Overview XLSX files. The file's hotel name is verified before saving.</p>
+
+      <RevenueSyncHistory limit={8} />
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
         {hotels.map((h) => (

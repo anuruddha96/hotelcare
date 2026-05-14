@@ -10,6 +10,7 @@ import { Coffee, Search, CheckCircle2, RefreshCw, MapPin, Building2, ArrowLeft, 
 import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
+import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
 
 interface HotelDef {
   hotel_id: string;
@@ -379,6 +380,10 @@ export default function Breakfast() {
                 <div className="text-red-600 text-sm">{result.message}</div>
               )}
             </div>
+          )}
+
+          {!hotelCode && selection && (
+            <OccupancyPickupChart hotelId={selection.hotel_id} days={14} />
           )}
 
           {!hotelCode && selection && (
