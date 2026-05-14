@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useLiveSync } from "@/contexts/LiveSyncContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle, Radio } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 interface PickupDateRow { stay_date: string; delta: number }
@@ -46,6 +48,7 @@ export default function Revenue() {
   const { profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const navigate = useNavigate();
+  const liveSync = useLiveSync();
   const [hotels, setHotels] = useState<HotelStat[]>([]);
   const [busy, setBusy] = useState(false);
   const [hotelDialog, setHotelDialog] = useState<{ id: string; name: string } | null>(null);
