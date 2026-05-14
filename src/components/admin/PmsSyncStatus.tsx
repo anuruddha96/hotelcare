@@ -167,10 +167,12 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
           <ListChecks className="h-4 w-4" />
           Previo sync — {hotelId}
         </div>
-        <Button size="sm" onClick={handleSync} disabled={syncing || !ready}>
-          {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-          Sync rooms now
-        </Button>
+        {!compact && (
+          <Button size="sm" onClick={handleSync} disabled={syncing || !ready}>
+            {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            Sync rooms now
+          </Button>
+        )}
       </div>
 
       {!compact && (

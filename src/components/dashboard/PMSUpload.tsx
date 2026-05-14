@@ -947,7 +947,30 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     setCheckoutRooms([]);
     setDailyCleaningRooms([]);
 
+    let catalogMsg = '';
     try {
+      // Step 1 (test hotel only): upsert the rooms catalog so Team View /
+      // Auto-Assign / Rooms tab all see the same room list. This replaces
+      // the separate "Sync rooms now" button.
+      if (selectedHotel === 'previo-test') {
+        try {
+          console.log('[Previo] Calling previo-sync-rooms for', selectedHotel);
+          const { data: rd, error: rerr } = await supabase.functions.invoke('previo-sync-rooms', {
+            body: { hotelId: selectedHotel, importLocal: true },
+          });
+          if (rerr || (rd && rd.success === false)) {
+            console.warn('[Previo] catalog sync warning:', rerr || (rd as any)?.error);
+          } else {
+            const r = (rd as any)?.results || {};
+            const imported = r.upserted ?? r.updated ?? 0;
+            catalogMsg = `Catalog: ${imported} rooms · `;
+          }
+        } catch (e: any) {
+          console.warn('[Previo] catalog sync failed (non-fatal):', e?.message || e);
+        }
+      }
+
+      // Step 2: pull today's reservation snapshot (Excel-equivalent rows)
       console.log('[Previo] Calling previo-pms-sync for', selectedHotel);
       const { data, error } = await supabase.functions.invoke('previo-pms-sync', {
         body: { hotelId: selectedHotel },
@@ -976,7 +999,17 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
       markUploadToday();
       await processFile(file);
-      toast.success(`Synced ${rows.length} rooms from Previo`);
+
+      // Step 3 (test hotel only): poll checkouts so Team View reflects departures.
+      let checkoutMsg = '';
+      if (selectedHotel === 'previo-test') {
+        try {
+          await pollCheckouts(true);
+          checkoutMsg = ' · Checkouts refreshed';
+        } catch (_) { /* non-fatal */ }
+      }
+
+      toast.success(`${catalogMsg}Snapshot: ${rows.length} rooms${checkoutMsg}`);
     } catch (err: any) {
       console.error('Previo sync error:', err);
       toast.error(`Previo sync failed: ${err.message}`);

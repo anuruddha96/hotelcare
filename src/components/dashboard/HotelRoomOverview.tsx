@@ -19,6 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 
 interface RoomData {
   id: string;
@@ -176,11 +177,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const fetchData = async () => {
     setLoading(true);
     try {
+      const hotelKeys = await resolveHotelKeys(hotelName);
+      const keys = hotelKeys.length ? hotelKeys : [hotelName];
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
           .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required')
-          .eq('hotel', hotelName)
+          .in('hotel', keys)
           .order('room_number'),
         supabase
           .from('room_assignments')
@@ -189,7 +192,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         supabase
           .from('general_tasks')
           .select('id, task_name, task_type, assigned_to, status')
-          .eq('hotel', hotelName)
+          .in('hotel', keys)
           .eq('assigned_date', selectedDate),
         supabase
           .from('room_assignments')
