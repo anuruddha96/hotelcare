@@ -138,6 +138,9 @@ verify_jwt = true
 [functions.previo-pull-rates]
 verify_jwt = true
 
+[functions.previo-pull-revenue]
+verify_jwt = true
+
 [functions.revenue-occupancy-upload]
 verify_jwt = true
 
