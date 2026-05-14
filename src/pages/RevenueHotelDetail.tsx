@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Upload, TrendingUp, TrendingDown,
   AlertTriangle, Loader2, Check, Edit3, X, Calendar as CalIcon, BarChart3,
-  Settings2, Sparkles, Plus, RefreshCw,
+  Settings2, Sparkles, Plus, RefreshCw, Bot,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
@@ -23,6 +23,7 @@ import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
 import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
 import PricingDriverChips from "@/components/revenue/PricingDriverChips";
+import AnalystPanel from "@/components/revenue/AnalystPanel";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
@@ -353,6 +354,7 @@ export default function RevenueHotelDetail() {
           <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
           <TabsTrigger value="pickup"><BarChart3 className="h-4 w-4 mr-1" />Pickup</TabsTrigger>
           <TabsTrigger value="minstay">Min Stay</TabsTrigger>
+          <TabsTrigger value="analyst"><Bot className="h-4 w-4 mr-1" />Analyst</TabsTrigger>
           <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
         </TabsList>
 
@@ -380,6 +382,10 @@ export default function RevenueHotelDetail() {
 
         <TabsContent value="pickup">
           <PickupTab data={pickupChartData} top={topPickupDates} onSelect={setSelectedDate} />
+        </TabsContent>
+
+        <TabsContent value="analyst">
+          <AnalystPanel hotelId={hotelId!} />
         </TabsContent>
 
         <TabsContent value="strategy" className="space-y-3">
