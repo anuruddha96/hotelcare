@@ -1,89 +1,169 @@
-# Plan — Live Previo → Revenue auto-sync (previo-test only) + checkout count fix
 
-## Scope guard
-**Only `hotel_id = 'previo-test'` is touched by the new automation.** All other hotels (incl. `hotelcare-test`, OttoFiori, etc.) keep the current XLSX-upload flow unchanged.
+# Comprehensive Revenue Management — Auto Pilot + Better UI
 
----
-
-## Part A — Real Previo data into Revenue (auto on login)
-
-The previous fix made the 405 silent because we were calling a non-existent `/rest/calendar` endpoint. Previo's actual data we *do* have access to is the **XML `searchReservations`** API (already used in `previo-pms-sync` for today). We will reuse it over a 12-month window to derive Pickup, Occupancy, and Daily Overview ourselves — no new Previo endpoint needed.
-
-### A1. New edge function `previo-pull-revenue` (replaces `previo-pull-rates` for previo-test)
-- Hard-gate: returns `{ ok:true, supported:false }` for any `hotelId !== 'previo-test'`.
-- Inputs: `{ hotelId, days = 365 }`.
-- Steps:
-  1. Load `pms_configurations` row, parse credentials (same logic as `previo-pms-sync`).
-  2. Fetch `/rest/rooms` once → total room inventory (denominator for occupancy).
-  3. Call XML `searchReservations` with `term = [today, today + 365d]`. Skip statusId 7 (cancelled) and 8 (no-show).
-  4. For each day D in the next 365 days, compute:
-     - **rooms_sold(D)** = count of reservations where `arrivalDate ≤ D < departureDate`.
-     - **occupancy_pct(D)** = rooms_sold / total_rooms.
-     - **bookings_current(D)** = count of reservations whose `arrivalDate == D` (new arrivals — used as "pickup current" baseline).
-     - **breakfast/people(D)** = sum of `<guest>` count for reservations active on D, plus their notes (used by /bb).
-  5. Upsert per stay_date into:
-     - `occupancy_snapshots` (`hotel_id, organization_slug, stay_date, occupancy_pct, rooms_sold, snapshot_label='previo-live', source='previo'`).
-     - `pickup_snapshots` (`bookings_current = arrivals_for_D`, `bookings_last_year = NULL`, `delta = NULL`, `snapshot_label='previo-live'`, `source='previo'`). Pickup deltas vs prior snapshot are computed by the existing pickup engine on read; we only write the current-day booking count.
-     - `breakfast_roster` per `(hotel_id, stay_date, room_number)`: `pax = guestsCount`, `breakfast_count = guestsCount` if reservation note contains a breakfast marker (configurable: default treat all bookings as breakfast=pax for previo-test since Previo Test is the breakfast pilot — toggleable later). `guest_names` left empty until guest-list endpoint is wired (out of scope).
-  6. Return `{ ok:true, supported:true, days, rooms, reservations, upserts: { occupancy, pickup, breakfast } }`.
-- Conflict targets already exist on these tables (used by current XLSX uploads); we'll match the same `onConflict` keys to avoid duplicates.
-
-### A2. Wire into LiveSync (`src/contexts/LiveSyncContext.tsx`)
-- Replace the `previo-pull-rates` invocation with `previo-pull-revenue`.
-- Remove the "unsupported" sessionStorage short-circuit *for previo-test* (keep it for any other hotel — they remain "not supported"). 
-- While the call is in-flight, `tasks.revenue.status = 'syncing'` is already wired → the existing pill + Revenue page banner will show "Refreshing live data…".
-- On success, store `meta = { reservations, upserts, days }` so the Revenue page can show "Live · 365 days from Previo · last refresh hh:mm".
-
-### A3. Revenue page (`src/pages/Revenue.tsx`)
-- Replace the "Live rate sync not available" muted banner (for previo-test only) with a live status row:
-  - Syncing → spinner + "Pulling 12 months from Previo…".
-  - Success → green dot + "Live · last refresh ⟨relative⟩ · ⟨reservations⟩ reservations".
-  - Error → red banner with retry button.
-- Keep XLSX upload visible as a manual fallback (don't hide it).
-
-### A4. Header pill (`LiveSyncIndicator.tsx`)
-- No structural change — the existing Revenue task line will now show real progress for previo-test.
+Scope: `previo-test` only for the live PMS pieces. Other hotels keep XLSX uploads. Eligible roles: `admin`, `top_management`.
 
 ---
 
-## Part B — Checkout count discrepancy (PMS pill = 3, Overview = 2)
+## Part 1 — Fix the empty "Open" view (auto-fill from Previo)
 
-### Root cause confirmed in DB
-Right now only **room 105** has `is_checkout_room = true` in `rooms` for previo-test, yet the overview renders Salto 101 + 106. That means:
-- The overview's "Checkout Rooms" count uses `is_checkout_room || assignment_type='checkout_cleaning'` (already known).
-- `runPmsRefresh` did update `is_checkout_room=true` for the 3 PMS departures returned by Previo — but only **one of them** (room name "Salto 101") matches a `rooms` row, because the new XML reservation includes 3 rooms whose Previo `name` doesn't cleanly map to numeric `room_number`. Room 106 in the overview is purely from a manual `checkout_cleaning` assignment, not from PMS.
+**Root cause:** `RevenueHotelDetail.tsx` reads `room_types`, `daily_rates`, `dow/monthly/lead/occupancy` from local tables that are empty for previo-test. Nothing populates `room_types` or `daily_rates` from Previo.
 
-### Fix
-1. **`supabase/functions/previo-pms-sync`** — when emitting rows, also include `roomId` (Previo numeric ID) and the raw `roomKindName` so the client can fall back through more matchers.
-2. **`src/lib/pmsRefresh.ts`** — extend lookup order:
-   - exact `room_number == rawRoomName`
-   - exact `room_number == extractedDigits` 
-   - **new:** match against `rooms.pms_room_id` (or `pms_room_mappings`) using Previo `roomId`
-   - **new:** ilike fallback on the trailing token (`Salto 101` → matches room with code `Salto 101` *or* number `101`)
-3. **Reset stale flags:** before applying the new snapshot, clear `is_checkout_room=false, checkout_time=null` for all rooms in the hotel that are NOT in today's PMS departure set. This prevents yesterday's checkout (room 105) from lingering.
-4. **Overview component** (`HotelRoomOverview.tsx`) — add a tiny breakdown under the "Checkout Rooms" header: `{pmsCount} from PMS · {manualCount} manual` so the source of each room is obvious.
+**Fix — extend `previo-pull-revenue` to also seed Setup data:**
 
-After this, the PMS pill ("3 checkouts") and the overview count will reconcile to 3 (assuming all 3 PMS departures match a local room — if any still don't match, the sync history will show `notFound` and we'll surface that as a warning chip on the pill).
+1. **Rooms Setup** — from `/rest/rooms` + `/rest/roomKinds`, upsert one `room_types` row per Previo room kind:
+   - `name`, `pms_room_id` = roomKindId, `room_count` = count of rooms in that kind
+   - `is_reference` = the kind with the largest count (only set if no row already flagged)
+   - `base_price_eur` = leave existing if present; otherwise compute from current Previo rate (see #2). Never overwrite a manager-edited value.
+2. **Daily Rates** — call Previo `/rest/prices` (or `pricelist/getPrices` XML) per roomKind for `[today, today+365]` → upsert `daily_rates(stay_date, rate_eur)` for the **reference** room kind. Tag `source='previo'`.
+3. **Pricing defaults seed (only if tables empty)** — insert sensible defaults so the calendar isn't blank on day 1:
+   - `dow_adjustments` 0% Mon–Thu, +10% Fri, +15% Sat, +5% Sun
+   - `monthly_adjustments` 0% (manager tunes later)
+   - `lead_time_adjustments` reflecting the top-down strategy (see Part 2)
+   - `occupancy_targets` 75% all months, `occupancy_strategy.aggressiveness='medium'`
+   - `hotel_revenue_settings`: `floor_price_eur`, `max_daily_change_eur=30`, `weekday_decrease_eur=3`, `weekend_decrease_eur=2`, `abnormal_pickup_threshold=2`, `pickup_increase_tiers=[{min:1,max:2,increase:10},{min:3,max:5,increase:20},{min:6,max:99,increase:30}]`
+4. Return counts (`roomTypes`, `dailyRates`) in the response so the LiveSync banner can show "Synced 24 room types · 365 daily rates".
 
 ---
 
-## Out of scope
-- Pushing rates back to Previo.
-- Wiring `hotelcare-test` (788619) — left as-is until the user confirms.
-- Guest-name population in `breakfast_roster` (Previo XML doesn't return guest first/last in the reservation block; would need `getReservationDetails` per ID — defer).
-- Any change to non-Previo hotels' upload flows.
+## Part 2 — Top-down auto-pricing engine
 
-## Files
+A new edge function **`revenue-autopilot-tick`** (cron: every hour, also runnable on demand). Per eligible hotel:
 
-**New**
-- `supabase/functions/previo-pull-revenue/index.ts`
+### A. Daily decay (top-down)
+For each `stay_date` in the next 90 days where:
+- there has been **no pickup** in the last 24h (`pickup_snapshots.delta` for the latest capture is 0), AND
+- current rate > `floor_price_eur` and > `room_types.min_price_eur`
 
-**Edited**
-- `src/contexts/LiveSyncContext.tsx` — call new function, drop unsupported gate for previo-test.
-- `src/pages/Revenue.tsx` — live status row.
-- `src/lib/pmsRefresh.ts` — extra lookup strategies + clear stale checkout flags.
-- `supabase/functions/previo-pms-sync/index.ts` — emit `roomId` + raw name in rows.
-- `src/components/dashboard/HotelRoomOverview.tsx` — PMS vs manual breakdown.
+→ decrement the rate by `weekday_decrease_eur` (Mon–Thu/Sun) or `weekend_decrease_eur` (Fri/Sat), clamped by the max-daily-change and floor. Persist as a **pending `rate_recommendation`** with `reason="Top-down decay (no pickup 24h)"`. Auto-approve if `auto_apply` flag is on (new column on `hotel_revenue_settings`, default off so manager keeps control).
 
-**Removed/deprecated**
-- `supabase/functions/previo-pull-rates/index.ts` — kept as a thin shim that returns `supported:false` so any cached client still works; will delete once LiveSync is updated.
+### B. Pickup-velocity surge detector
+New table **`booking_velocity_events`** (see Tech). On each tick:
+- For each `stay_date` in next 90 days, look at arrivals captured in `pickup_snapshots` in the **last 60 minutes**.
+- If `arrivals_60min ≥ 2` (configurable: `surge_threshold`), insert a `revenue_alerts` row (`alert_type='pickup_surge'`) AND a pending recommendation increasing the rate by `pickup_increase_tiers` (clamped to +€30/day).
+- If `arrivals_60min ≥ 3` *or* the day is < 14 days out, raise to the +€20–30 tier and mark `priority='urgent'`.
+
+This is in addition to the existing per-snapshot pickup tier engine; the new path reacts within an hour rather than per snapshot.
+
+### C. Occupancy + lead-time multipliers
+Already present in `revenuePricing.ts` — keep as-is, but the autopilot now feeds it real `currentRate` (from Part 1 daily_rates) and real `occupancyPct` (from `occupancy_snapshots`).
+
+### D. Push to Previo (opt-in, gated)
+`previo-push-rates` already exists as a 501 stub. Wire it for `previo-test` only:
+- For each approved recommendation with `auto_pushed=false`, call Previo `pricelist/setPrices` XML with `(roomKindId, dateFrom=dateTo=stay_date, price)`.
+- Flip `rate_history.pushed_at` and `rate_recommendations.auto_pushed=true`.
+- Behind a per-hotel feature flag `auto_push_to_pms` (default off).
+
+---
+
+## Part 3 — Better calendar UI (price + pickup + occupancy per cell)
+
+Replace the current sparse month grid in `RevenueHotelDetail.tsx` with a unified **"Strategy Calendar"** that shows all three signals at once, instead of needing 4 separate tabs (Prices / Occupancy / Pickup / Min Stay). Keep the tabs as filtered focus modes but make the default the combined view.
+
+**Each day cell (month view):**
+
+```text
+┌─────────────────────────┐
+│ 14 Sa            [event]│  ← day, optional event dot, weekend tint
+│ €189   ▲ +€8            │  ← current rate · suggested delta chip
+│ ████████░░  72%         │  ← occupancy bar + %
+│ ⚡ +3 last 24h          │  ← pickup delta with surge icon if hot
+└─────────────────────────┘
+```
+
+- **Color band on the left edge** encodes pricing pressure (red = surge / increase recommended, amber = stable, green = decay applied today).
+- **Surge** (`booking_velocity_events`) shows a pulsing red dot.
+- **Abnormal pickup** keeps the existing alert ring.
+- Hover/click → existing day-detail Sheet, but with new sections:
+  - "Why this price" — driver chips (already built via `PricingDriverChips`) reused
+  - "Last 7 captures" — sparkline of pickup + price changes
+  - "Surge events today" — list of velocity events with timestamps
+  - One-click "Approve recommendation" / "Hold" / "Override price"
+
+**Density modes:** Week (large cells with chart), Month (combined cells above), Quarter/Year (heatmap of one signal — toggle which signal via segmented control).
+
+**Top KPI strip** (replaces the current single-row info):
+- 90-day RevPAR forecast (rate × occupancy)
+- Pickup pace vs last week
+- Pending recommendations / surge alerts (clickable → filter calendar)
+- Auto-pilot status pill: "Auto-pilot ON · last tick 12 min ago" with a toggle.
+
+---
+
+## Part 4 — Analyst panel (more control & insight)
+
+New collapsible panel "Analyst" on the detail page:
+
+1. **Decision log** — every autopilot action (decay, surge, push) with reason + before/after rate. Lets the manager audit the bot.
+2. **Pickup velocity timeline** — last 7 days of `booking_velocity_events` charted by hour-of-day → spot booking patterns.
+3. **What-if simulator** — sliders for `weekday_decrease_eur`, `surge_threshold`, `auto_apply` toggle. Shows projected next-30-day price curve before saving.
+4. **Force re-base prices** — button to reset the next 90 days to `base_price × multipliers` (top-down restart).
+
+---
+
+## Part 5 — Where the autopilot runs
+
+- `revenue-autopilot-tick` invoked from `LiveSyncContext` after every successful `previo-pull-revenue` (so eligible users keep it warm just by being logged in).
+- A pg_cron entry hits it hourly for off-hours coverage.
+- All actions are idempotent per `(hotel_id, stay_date, captured_at hour bucket)`.
+
+---
+
+## Out of scope (call out, not built)
+
+- Multi-room-kind differential pricing (we set one reference rate; derived rooms follow Previo's existing derivation rules).
+- Competitor/rate-shopping data (no provider configured).
+- Push to PMS for non-Previo hotels.
+
+---
+
+## Technical details
+
+**New table `booking_velocity_events`**
+```sql
+create table public.booking_velocity_events (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id text not null,
+  organization_slug text not null,
+  stay_date date not null,
+  detected_at timestamptz not null default now(),
+  arrivals_in_window int not null,
+  window_minutes int not null default 60,
+  recommended_increase_eur int not null,
+  acted boolean not null default false,
+  created_at timestamptz not null default now()
+);
+-- RLS: select for admin/top_management of the org; service role inserts.
+create index on public.booking_velocity_events (hotel_id, stay_date, detected_at desc);
+```
+
+**`hotel_revenue_settings` additions**
+- `auto_apply boolean default false`
+- `auto_push_to_pms boolean default false`
+- `surge_threshold int default 2`
+- `surge_window_minutes int default 60`
+- `decay_window_days int default 90`
+
+**`rate_recommendations` additions**
+- `priority text default 'normal'` ('normal' | 'urgent')
+- `auto_generated boolean default false`
+- `auto_pushed boolean default false`
+
+**Files**
+
+New
+- `supabase/functions/revenue-autopilot-tick/index.ts`
+- `src/components/revenue/StrategyCalendar.tsx`
+- `src/components/revenue/AnalystPanel.tsx`
+- `src/components/revenue/AutopilotStatusPill.tsx`
+- migration: `booking_velocity_events` + settings/rec columns
+
+Edited
+- `supabase/functions/previo-pull-revenue/index.ts` — also seed `room_types`, `daily_rates`, defaults; fetch `/rest/prices`.
+- `supabase/functions/previo-push-rates/index.ts` — implement for `previo-test`.
+- `src/pages/RevenueHotelDetail.tsx` — new combined calendar as default, KPI strip, analyst panel.
+- `src/lib/revenuePricing.ts` — expose pure `decayStep()` + `surgeIncrement()` helpers reused by edge function.
+- `src/contexts/LiveSyncContext.tsx` — chain autopilot tick after pull.
+- `src/components/revenue/CalendarYearView.tsx` — heatmap signal toggle.
+- `supabase/config.toml` — register `revenue-autopilot-tick`.
+

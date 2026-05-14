@@ -101,6 +101,48 @@ export type Database = {
         }
         Relationships: []
       }
+      autopilot_decisions: {
+        Row: {
+          after_rate_eur: number | null
+          before_rate_eur: number | null
+          created_at: string
+          decision_type: string
+          delta_eur: number | null
+          hotel_id: string
+          id: string
+          meta: Json
+          organization_slug: string
+          reason: string | null
+          stay_date: string
+        }
+        Insert: {
+          after_rate_eur?: number | null
+          before_rate_eur?: number | null
+          created_at?: string
+          decision_type: string
+          delta_eur?: number | null
+          hotel_id: string
+          id?: string
+          meta?: Json
+          organization_slug: string
+          reason?: string | null
+          stay_date: string
+        }
+        Update: {
+          after_rate_eur?: number | null
+          before_rate_eur?: number | null
+          created_at?: string
+          decision_type?: string
+          delta_eur?: number | null
+          hotel_id?: string
+          id?: string
+          meta?: Json
+          organization_slug?: string
+          reason?: string | null
+          stay_date?: string
+        }
+        Relationships: []
+      }
       benchmark_snapshots: {
         Row: {
           captured_at: string
@@ -134,6 +176,48 @@ export type Database = {
           metric?: string
           organization_slug?: string
           value?: number | null
+        }
+        Relationships: []
+      }
+      booking_velocity_events: {
+        Row: {
+          acted: boolean
+          arrivals_in_window: number
+          created_at: string
+          detected_at: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+          rate_recommendation_id: string | null
+          recommended_increase_eur: number
+          stay_date: string
+          window_minutes: number
+        }
+        Insert: {
+          acted?: boolean
+          arrivals_in_window: number
+          created_at?: string
+          detected_at?: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          rate_recommendation_id?: string | null
+          recommended_increase_eur: number
+          stay_date: string
+          window_minutes?: number
+        }
+        Update: {
+          acted?: boolean
+          arrivals_in_window?: number
+          created_at?: string
+          detected_at?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          rate_recommendation_id?: string | null
+          recommended_increase_eur?: number
+          stay_date?: string
+          window_minutes?: number
         }
         Relationships: []
       }
@@ -1359,7 +1443,11 @@ export type Database = {
       hotel_revenue_settings: {
         Row: {
           abnormal_pickup_threshold: number
+          auto_apply: boolean
+          auto_push_to_pms: boolean
+          autopilot_enabled: boolean
           created_at: string
+          decay_window_days: number
           decrease_interval_hours: number
           engine_uses_room_setup: boolean
           floor_price_eur: number
@@ -1372,13 +1460,20 @@ export type Database = {
           organization_slug: string
           pickup_increase_tiers: Json
           skip_within_days: number
+          surge_increase_eur: number
+          surge_threshold: number
+          surge_window_minutes: number
           updated_at: string
           weekday_decrease_eur: number
           weekend_decrease_eur: number
         }
         Insert: {
           abnormal_pickup_threshold?: number
+          auto_apply?: boolean
+          auto_push_to_pms?: boolean
+          autopilot_enabled?: boolean
           created_at?: string
+          decay_window_days?: number
           decrease_interval_hours?: number
           engine_uses_room_setup?: boolean
           floor_price_eur?: number
@@ -1391,13 +1486,20 @@ export type Database = {
           organization_slug: string
           pickup_increase_tiers?: Json
           skip_within_days?: number
+          surge_increase_eur?: number
+          surge_threshold?: number
+          surge_window_minutes?: number
           updated_at?: string
           weekday_decrease_eur?: number
           weekend_decrease_eur?: number
         }
         Update: {
           abnormal_pickup_threshold?: number
+          auto_apply?: boolean
+          auto_push_to_pms?: boolean
+          autopilot_enabled?: boolean
           created_at?: string
+          decay_window_days?: number
           decrease_interval_hours?: number
           engine_uses_room_setup?: boolean
           floor_price_eur?: number
@@ -1410,6 +1512,9 @@ export type Database = {
           organization_slug?: string
           pickup_increase_tiers?: Json
           skip_within_days?: number
+          surge_increase_eur?: number
+          surge_threshold?: number
+          surge_window_minutes?: number
           updated_at?: string
           weekday_decrease_eur?: number
           weekend_decrease_eur?: number
@@ -2924,47 +3029,59 @@ export type Database = {
       }
       rate_recommendations: {
         Row: {
+          auto_generated: boolean
+          auto_pushed: boolean
           created_at: string
           current_rate_eur: number | null
           delta_eur: number
           hotel_id: string
           id: string
           organization_slug: string
+          priority: string
           pushed_at: string | null
           reason: string | null
           recommended_rate_eur: number
           reviewed_at: string | null
           reviewed_by: string | null
+          source_kind: string | null
           status: Database["public"]["Enums"]["rate_recommendation_status"]
           stay_date: string
         }
         Insert: {
+          auto_generated?: boolean
+          auto_pushed?: boolean
           created_at?: string
           current_rate_eur?: number | null
           delta_eur: number
           hotel_id: string
           id?: string
           organization_slug: string
+          priority?: string
           pushed_at?: string | null
           reason?: string | null
           recommended_rate_eur: number
           reviewed_at?: string | null
           reviewed_by?: string | null
+          source_kind?: string | null
           status?: Database["public"]["Enums"]["rate_recommendation_status"]
           stay_date: string
         }
         Update: {
+          auto_generated?: boolean
+          auto_pushed?: boolean
           created_at?: string
           current_rate_eur?: number | null
           delta_eur?: number
           hotel_id?: string
           id?: string
           organization_slug?: string
+          priority?: string
           pushed_at?: string | null
           reason?: string | null
           recommended_rate_eur?: number
           reviewed_at?: string | null
           reviewed_by?: string | null
+          source_kind?: string | null
           status?: Database["public"]["Enums"]["rate_recommendation_status"]
           stay_date?: string
         }
@@ -4394,7 +4511,12 @@ export type Database = {
         | "checkout_cleaning"
         | "maintenance"
         | "deep_cleaning"
-      rate_change_source: "engine" | "manual" | "bulk" | "previo_push"
+      rate_change_source:
+        | "engine"
+        | "manual"
+        | "bulk"
+        | "previo_push"
+        | "autopilot"
       rate_recommendation_status:
         | "pending"
         | "approved"
@@ -4408,7 +4530,11 @@ export type Database = {
         | "checked_out"
         | "cancelled"
         | "no_show"
-      revenue_alert_type: "abnormal_pickup" | "floor_breached" | "engine_error"
+      revenue_alert_type:
+        | "abnormal_pickup"
+        | "floor_breached"
+        | "engine_error"
+        | "pickup_surge"
       ticket_priority: "low" | "medium" | "high" | "urgent"
       ticket_status: "open" | "in_progress" | "completed"
       user_role:
@@ -4565,7 +4691,13 @@ export const Constants = {
         "maintenance",
         "deep_cleaning",
       ],
-      rate_change_source: ["engine", "manual", "bulk", "previo_push"],
+      rate_change_source: [
+        "engine",
+        "manual",
+        "bulk",
+        "previo_push",
+        "autopilot",
+      ],
       rate_recommendation_status: [
         "pending",
         "approved",
@@ -4581,7 +4713,12 @@ export const Constants = {
         "cancelled",
         "no_show",
       ],
-      revenue_alert_type: ["abnormal_pickup", "floor_breached", "engine_error"],
+      revenue_alert_type: [
+        "abnormal_pickup",
+        "floor_breached",
+        "engine_error",
+        "pickup_surge",
+      ],
       ticket_priority: ["low", "medium", "high", "urgent"],
       ticket_status: ["open", "in_progress", "completed"],
       user_role: [

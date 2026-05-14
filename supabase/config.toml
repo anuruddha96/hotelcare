@@ -149,3 +149,6 @@ verify_jwt = true
 
 [functions.revenue-overview-upload]
 verify_jwt = true
+
+[functions.revenue-autopilot-tick]
+verify_jwt = false

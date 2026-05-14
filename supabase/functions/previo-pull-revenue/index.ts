@@ -345,6 +345,87 @@ serve(async (req) => {
       else console.error("breakfast_roster upsert error:", error.message);
     }
 
+    // ---- 5b. Seed Rooms Setup + Daily Rates + sensible defaults (idempotent) ----
+    let roomTypesSeeded = 0;
+    let dailyRatesSeeded = 0;
+
+    const { count: existingRoomTypes } = await service
+      .from("room_types").select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId);
+
+    if ((existingRoomTypes ?? 0) === 0 && previoRooms.length > 0) {
+      const byCapacity = new Map<number, PrevioRoom[]>();
+      for (const r of previoRooms) {
+        const arr = byCapacity.get(r.capacity) ?? [];
+        arr.push(r);
+        byCapacity.set(r.capacity, arr);
+      }
+      const sorted = Array.from(byCapacity.entries()).sort((a, b) => b[1].length - a[1].length);
+      const rtRows = sorted.map(([cap, rooms], idx) => ({
+        hotel_id: hotelId,
+        organization_slug: orgSlug,
+        name: `Room (cap ${cap}) — ${rooms.length} units`,
+        pms_room_id: rooms.map((r) => r.roomId).join(","),
+        num_rooms: rooms.length,
+        is_reference: idx === 0,
+        derivation_mode: "absolute",
+        derivation_value: 0,
+        base_price_eur: 120,
+        min_price_eur: 70,
+        max_price_eur: 350,
+        sort_order: idx,
+      }));
+      const { error: rtErr } = await service.from("room_types").insert(rtRows);
+      if (!rtErr) roomTypesSeeded = rtRows.length;
+      else console.error("room_types seed error:", rtErr.message);
+    }
+
+    const { data: existingRates } = await service
+      .from("daily_rates").select("stay_date")
+      .eq("hotel_id", hotelId).gte("stay_date", today).lt("stay_date", horizon).limit(2000);
+    const existingRateDates = new Set((existingRates ?? []).map((r: any) => r.stay_date));
+
+    const { data: refRoomRows } = await service
+      .from("room_types").select("base_price_eur,is_reference")
+      .eq("hotel_id", hotelId);
+    const refRoom = (refRoomRows ?? []).find((r: any) => r.is_reference) ?? (refRoomRows ?? [])[0];
+    const seedRate = Number(refRoom?.base_price_eur) || 120;
+
+    const rateRows: any[] = [];
+    for (let i = 0; i < days; i++) {
+      const stay_date = addDays(today, i);
+      if (existingRateDates.has(stay_date)) continue;
+      rateRows.push({
+        hotel_id: hotelId, organization_slug: orgSlug, stay_date,
+        rate_eur: seedRate, source: "manual",
+      });
+    }
+    for (const part of chunk(rateRows, 300)) {
+      const { error } = await service.from("daily_rates").insert(part);
+      if (!error) dailyRatesSeeded += part.length;
+      else console.error("daily_rates seed error:", error.message);
+    }
+
+    // Default settings + dow/monthly/occupancy targets (insert if missing).
+    await service.from("hotel_revenue_settings").upsert(
+      { hotel_id: hotelId, organization_slug: orgSlug },
+      { onConflict: "hotel_id", ignoreDuplicates: true },
+    );
+    const dowDefaults = [
+      { dow: 0, percent: 0 }, { dow: 1, percent: 0 }, { dow: 2, percent: 0 },
+      { dow: 3, percent: 0 }, { dow: 4, percent: 10 }, { dow: 5, percent: 15 },
+      { dow: 6, percent: 5 },
+    ].map((x) => ({ ...x, hotel_id: hotelId, organization_slug: orgSlug }));
+    await service.from("dow_adjustments").upsert(dowDefaults, { onConflict: "hotel_id,dow", ignoreDuplicates: true });
+    const monthDefaults = Array.from({ length: 12 }, (_, i) => ({
+      hotel_id: hotelId, organization_slug: orgSlug, month: i + 1, percent: 0,
+    }));
+    await service.from("monthly_adjustments").upsert(monthDefaults, { onConflict: "hotel_id,month", ignoreDuplicates: true });
+    const occDefaults = Array.from({ length: 12 }, (_, i) => ({
+      hotel_id: hotelId, organization_slug: orgSlug, month: i + 1, target_pct: 75,
+    }));
+    await service.from("occupancy_targets").upsert(occDefaults, { onConflict: "hotel_id,month", ignoreDuplicates: true });
+
     // ---- 6. Log PMS sync history (revenue) ----
     try {
       await service.from("pms_sync_history").insert({
@@ -354,24 +435,29 @@ serve(async (req) => {
         sync_status: "success",
         changed_by: userRes.user.id,
         data: {
-          days,
-          totalRooms,
-          reservations: reservations.length,
-          occInserted,
-          pickupInserted,
-          breakfastUpserted,
+          days, totalRooms, reservations: reservations.length,
+          occInserted, pickupInserted, breakfastUpserted,
+          roomTypesSeeded, dailyRatesSeeded,
         },
       } as any);
     } catch { /* non-fatal */ }
 
+    // ---- 7. Chain autopilot tick (best-effort, non-blocking error) ----
+    try {
+      await service.functions.invoke("revenue-autopilot-tick", { body: { hotelId } });
+    } catch (e) {
+      console.error("autopilot chain failed:", e);
+    }
+
     return new Response(
       JSON.stringify({
-        ok: true,
-        supported: true,
-        days,
-        totalRooms,
+        ok: true, supported: true, days, totalRooms,
         reservations: reservations.length,
-        upserts: { occupancy: occInserted, pickup: pickupInserted, breakfast: breakfastUpserted },
+        upserts: {
+          occupancy: occInserted, pickup: pickupInserted,
+          breakfast: breakfastUpserted,
+          roomTypes: roomTypesSeeded, dailyRates: dailyRatesSeeded,
+        },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
