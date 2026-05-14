@@ -1,82 +1,55 @@
-## Root causes
+## Goal
 
-I checked the sync function code, the live DB for `previo-test`, and the most recent Previo edge-function logs. Three independent bugs.
+Simplify Previo test hotel housekeeping flow: remove the dedicated PMS Upload tab/button, surface a single **PMS Refresh** button inside Team View for managers, and ensure the refresh updates room/PMS state **without wiping housekeeper assignments**. Other hotels (incl. OttoFiori) untouched.
 
-### 1. "Issues Found" in PMS upload (Single 901, Single 902, hk202)
+## Scope guard
 
-Confirmed via DB query: `Single 901`, `Single 902`, `hk202`, `Onity 101`, `Salto 101`, `Deluxe 1..4`, `Room 1..4`, etc. are **all present** in the `rooms` table for `previo-test` — they were imported correctly with the full Previo room name as `room_number`.
+Every change below is gated by `selectedHotel === 'previo-test'`. OttoFiori and all other live hotels render exactly as they do today.
 
-The error comes from the upload pipeline:
-- `previo-pms-sync` emits each row with `Room: r.name` (e.g. `"Single 901"`).
-- `PMSUpload.extractRoomNumber()` is built for legacy Excel formats (`Q-101`, `DB/TW-102`, `7TWIN-034SH`, …) and reduces `"Single 901"` → `"901"`.
-- The matcher then runs `.eq('room_number', '901')` — and 901 is not a room number, `Single 901` is. Match fails → "not found".
+## Changes
 
-This affects every room whose Previo `name` doesn't reduce cleanly to digits.
+### 1. `HousekeepingTab.tsx` — hide PMS Upload tab for previo-test
+- When the active hotel is `previo-test`, exclude `'pms-upload'` from `getTabOrder()` and from the default-tab logic (skip the "no upload today → switch to pms-upload" branch; default managers to `'manage'` / Team View).
+- Leave the tab visible for every other hotel — Excel upload flow stays intact for OttoFiori etc.
 
-### 2. Onity 101 "missing" in the app
+### 2. `HousekeepingManagerView.tsx` / `HotelRoomOverview.tsx` — add PMS Refresh button
+- Inside the Team View → Hotel Room Overview header, add a **PMS Refresh** button.
+- Visible only when:
+  - `selectedHotel === 'previo-test'`, AND
+  - user role is in the manager set (`admin`, `top_management`, `manager`, `housekeeping_manager`, `front_office`).
+- On click:
+  1. Invoke `previo-pms-sync` edge function (same call PMSUpload already makes).
+  2. Pipe returned rows through the **existing** PMS processing pipeline, but in a new "refresh" mode that:
+     - Updates `is_checkout_room`, `is_checkin_room`, `guest_nights_total`, `guest_count`, `guest_notes`, occupancy, PMS status fields on `rooms`.
+     - **Does NOT** clear/overwrite `assigned_to` (housekeeper assignments) or delete from `room_assignments` for the day.
+  3. Refresh the room overview list.
+- Reuse the inline "Last sync … Status …" summary from `PmsSyncStatus` (compact mode) directly above/next to the button so managers see freshness without leaving Team View.
 
-It is **not** missing from the DB — it's there as `room_number = 'Onity 101'`. So this is the same root cause as #1: any view that runs PMS data through `extractRoomNumber` and then looks up by digits will silently drop it. The Rooms › Room Status Overview list itself includes it (RoomManagement does not filter alpha names). Once #1 is fixed, the Issues panel will stop reporting it, and any housekeeping rows that depend on the upload-derived status will populate.
+### 3. PMSUpload pipeline — non-destructive refresh path
+- Add a `mode: 'full' | 'refresh'` parameter to the room-update routine in `PMSUpload.tsx` (extract the per-row update into a small helper if needed).
+- `'full'` (Excel upload + manual "Sync with Previo" button, current behaviour) keeps today's reset behaviour for hotels that still rely on it.
+- `'refresh'` (new Team View button) skips:
+  - resetting `assigned_to` / cleaning-status downgrades tied to assignment churn,
+  - the "Data Reset Warning" side-effects.
+  Only PMS-derived fields (checkout/checkin/occupancy/guest info) are written.
+- Manual & auto room-assignment paths remain the **only** things that mutate housekeeper assignments — unchanged.
 
-### 3. Room 106 checkout not captured
+### 4. Cleanup
+- Remove the standalone "Sync with Previo" + "Refresh Checkouts" buttons from the previo-test PMS Upload card *only if* tab is hidden (kept reachable via admin if needed). For now: leave the PMS Upload component file intact, just hide the tab — zero risk to other hotels.
+- No translation keys removed; `housekeeping.tabs.pmsUpload` still used by other hotels.
 
-Confirmed from `previo-sync-rooms` edge logs (sample row from today's sync):
+## Out of scope (for this round)
+- Changing OttoFiori or any other hotel's behaviour.
+- Auto-scheduled background PMS polling (will be added later via API once test hotel is validated).
+- Touching `previo-pms-sync` edge function — already returns the rows we need.
+- Removing PMS Upload tab globally — only hidden for previo-test.
 
-```
-{ "roomId": 699176, "name": "201", "roomKindName": "...", "roomCleanStatusId": 1, ... }
-```
+## Technical notes
+- Manager role check already exists in `HousekeepingTab` as `hasManagerAccess`; reuse the same predicate for the new button so visibility rules stay consistent.
+- `PmsSyncStatus` already exposes `compact` mode — drop it in next to the button with `compact={true}` and `hotelId="previo-test"`.
+- Refresh mode reuses the same Supabase update statements minus the `assigned_to: null` / assignment-clearing branches.
 
-There is **no `reservation` field** on the rooms returned by Previo `/rest/rooms` for this hotel. `previo-pms-sync` decides checkouts purely from `r.reservation.departureDate === today`, so with no reservation block it always emits `Departure: null` → 0 checkout rooms forever, regardless of what Previo actually shows on the calendar. (Same reason `previo-poll-checkouts` has nothing to mark.)
-
-Today's checkouts have to come from a reservations endpoint, not `/rest/rooms`.
-
-## Plan (test hotel only — `previo-test` / 730099)
-
-### Fix A — Match rooms by full Previo name in the upload pipeline
-
-File: `src/components/dashboard/PMSUpload.tsx`, around lines 555–580.
-
-Change the lookup to a 2-step match (still hotel-scoped via `hotelKeys`):
-
-1. First try `.eq('room_number', rawRoomVal.trim())` (exact, case-sensitive — Previo names are stable).
-2. If 0 rows, try `.ilike('room_number', rawRoomVal.trim())` for case-insensitive safety.
-3. Only if both fail, fall back to the existing `extractRoomNumber(...)` digit match (keeps legacy Excel uploads for OttoFiori etc. working).
-4. Update the error message to show both values: `Room "<raw>" (also tried extracted "<num>") not found in <hotel>`.
-
-This fixes Single 901 / 902 / hk202 / Onity 101 / Salto 101 / Deluxe N / Room N etc. in one shot, and does not touch logic for any other hotel because OttoFiori room numbers are pure digits and step 1 will simply find them too.
-
-### Fix B — Pull today's checkouts from Previo and inject them into the synthesized rows
-
-File: `supabase/functions/previo-pms-sync/index.ts`.
-
-After fetching `/rest/rooms`, also call Previo's reservations endpoint for today (still hard-gated to `previo-test`):
-
-- `GET /rest/reservations?dateFrom=<today>&dateTo=<today>` (or the equivalent `arrivalDate` / `departureDate` query the Previo REST docs document — `_shared/previoAuth.ts` already handles auth).
-- Build two maps keyed by `roomId` (and fallback by room name):
-  - `departuresToday` = reservations where `departureDate === today`
-  - `arrivalsToday` = reservations where `arrivalDate === today`
-- When emitting each row, override:
-  - `Departure: "12:00"` if room is in `departuresToday`
-  - `Arrival: "15:00"` if room is in `arrivalsToday`
-  - `Occupied: "Yes"` if either, or if the room currently has an in-house reservation `arrivalDate <= today < departureDate`
-  - `People`, `Note`, `Night / Total` from the matched reservation when available
-
-This is the only behavioral change needed — `PMSUpload` already converts `Departure != null` into `is_checkout_room = true` (lines 644–671), so room 106 will start landing in the checkout list automatically once the field is populated.
-
-If Previo's reservation endpoint isn't available or returns an error, log it and emit the rows with empty Departure/Arrival as today (no regression).
-
-### Fix C — Stop the false "Issues Found" noise after Fix A
-
-After Fix A succeeds, only genuine misses (a Previo room with no matching local row) should appear. Add a small note to the Issues panel header clarifying that successful matches via either the raw name or extracted digit count as found.
-
-### Out of scope (not changing now)
-
-- `previo-poll-checkouts` — same root cause (no reservation in `/rest/rooms`), but the upload-driven path above is enough to surface today's checkouts. We can revisit polling once the reservations endpoint is wired in.
-- Live hotels (OttoFiori etc.). All changes remain gated by `selectedHotel === 'previo-test'` for the sync flow; Fix A's raw-name match is harmless for digit-only room numbers.
-- Revenue / dashboards / additional Previo endpoints.
-
-## Acceptance checks
-
-1. Run "Sync with Previo" on `previo-test`. Issues Found = 0 (or only truly orphaned Previo rooms).
-2. Housekeeping › Team View › Hotel Room Overview shows room 106 (and any other rooms departing today) as a checkout room.
-3. Onity 101, Salto 101, Single 901/902, hk202 all show their PMS-derived status (no longer reported as "not found").
-4. No changes observed for any non-`previo-test` hotel.
+## Verification
+- previo-test as manager: PMS Upload tab gone; Team View shows PMS Refresh button; clicking it updates checkout flags + occupancy without removing housekeeper assignments.
+- previo-test as housekeeper: no button visible.
+- OttoFiori as manager: PMS Upload tab still present, Excel upload unchanged, no PMS Refresh button in Team View.

@@ -63,19 +63,26 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   const { user } = useAuth();
   const { t } = useTranslation();
   const [userRole, setUserRole] = useState<string>('');
+  const [assignedHotel, setAssignedHotel] = useState<string>('');
   const [activeTab, setActiveTab] = useState('assignments');
   const [orderedTabs, setOrderedTabs] = useState<string[]>([]);
   const { totalCount: pendingCount } = usePendingApprovals();
+
+  // Hotels where the standalone PMS Upload tab is hidden (managed via Team
+  // View → "PMS Refresh" button instead). Currently only the Previo test hotel.
+  const PMS_UPLOAD_HIDDEN_HOTELS = new Set(['previo-test']);
+  const hidePmsUploadTab = PMS_UPLOAD_HIDDEN_HOTELS.has(assignedHotel);
 
   useEffect(() => {
     const fetchUserRole = async () => {
       if (user?.id) {
         const { data } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, assigned_hotel')
           .eq('id', user.id)
           .single();
         setUserRole(data?.role || '');
+        setAssignedHotel(data?.assigned_hotel || '');
       }
     };
     fetchUserRole();
@@ -126,6 +133,13 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   useEffect(() => {
     const checkDefaultTab = async () => {
       if (hasManagerAccess) {
+        // For hotels where the PMS Upload tab is hidden (managed via Team
+        // View → PMS Refresh), default straight to Team View / approvals.
+        if (hidePmsUploadTab) {
+          setActiveTab(pendingCount > 0 ? 'supervisor' : 'manage');
+          return;
+        }
+
         // Check if PMS upload has been done today
         const today = new Date().toISOString().split('T')[0];
         const { data: pmsData } = await supabase
@@ -151,13 +165,13 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         setActiveTab('assignments');
       }
     };
-    
+
     checkDefaultTab();
-  }, [hasManagerAccess, userRole, pendingCount]);
-  
+  }, [hasManagerAccess, userRole, pendingCount, hidePmsUploadTab]);
+
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
   const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'reception'].includes(userRole);
-  
+
   // Read-only access for housekeeping staff only
   const isReadOnlyAccess = ['housekeeping'].includes(userRole) && !hasManagerAccess;
   const isReceptionReadOnly = userRole === 'reception';
@@ -169,11 +183,9 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       'completion-photos', 'dnd-photos', 'maintenance-photos', 'lost-and-found',
       'dirty-linen', 'attendance', 'minibar'
     ];
-    
-    if (orderedTabs.length > 0) {
-      return orderedTabs;
-    }
-    return defaultOrder;
+
+    const order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
+    return hidePmsUploadTab ? order.filter((id) => id !== 'pms-upload') : order;
   };
 
   const renderTabTrigger = (tabId: string) => {
@@ -297,9 +309,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
               <PerformanceLeaderboard />
             </TabsContent>
 
-            <TabsContent value="pms-upload" className="space-y-6">
-              <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
-            </TabsContent>
+            {!hidePmsUploadTab && (
+              <TabsContent value="pms-upload" className="space-y-6">
+                <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
+              </TabsContent>
+            )}
 
             <TabsContent value="supervisor" className="space-y-6">
               <div className="space-y-6">

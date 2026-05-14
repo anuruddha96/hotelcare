@@ -21,6 +21,7 @@ import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { HotelRoomOverview } from './HotelRoomOverview';
 import { PublicAreaAssignment } from './PublicAreaAssignment';
 import { AssignmentSuccessAnimation } from './AssignmentSuccessAnimation';
+import { PmsRefreshButton } from './PmsRefreshButton';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -555,6 +556,13 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
+          <PmsRefreshButton
+            onRefreshed={() => {
+              fetchTeamAssignments();
+              fetchRoomAssignments();
+              setOverviewRefreshKey((prev) => prev + 1);
+            }}
+          />
           {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
             <>
               <Button
