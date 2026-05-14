@@ -64,12 +64,15 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
   let checkouts = 0;
   const errors: string[] = [];
   const today = new Date().toISOString().split("T")[0];
+  const matchedRoomIds = new Set<string>();
+  const checkoutRoomIds = new Set<string>();
 
   for (const row of rows) {
     try {
       const rawRoomName = String(row.Room ?? "").trim();
       if (!rawRoomName) continue;
       const roomNumber = extractRoomNumber(rawRoomName);
+      const previoRoomId = row.RoomId != null ? String(row.RoomId) : "";
 
       const lookup = async (matcher: (q: any) => any) => {
         const q = supabase.from("rooms").select("id, room_number").in("hotel", hotelKeys);
@@ -83,14 +86,24 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
       if ((!rooms || rooms.length === 0) && roomNumber && roomNumber !== rawRoomName) {
         ({ data: rooms } = await lookup((q) => q.eq("room_number", roomNumber)));
       }
+      // Final fallback: match against Previo numeric roomId stored in
+      // rooms.pms_metadata->>roomId. Catches rooms whose local number
+      // doesn't share a token with the Previo display name.
+      if ((!rooms || rooms.length === 0) && previoRoomId) {
+        ({ data: rooms } = await lookup((q) =>
+          q.filter("pms_metadata->>roomId", "eq", previoRoomId),
+        ));
+      }
       if (!rooms || rooms.length === 0) {
         notFound++;
         continue;
       }
       const room = rooms[0];
+      matchedRoomIds.add(room.id);
 
       const departureParsed = excelTimeToString(row.Departure);
       const isCheckout = departureParsed !== null;
+      if (isCheckout) checkoutRoomIds.add(room.id);
 
       const nightTotal = parseNightTotal(row["Night / Total"]);
       let guestNightsStayed = 0;
@@ -131,6 +144,28 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
     } catch (e: any) {
       errors.push(`Row error: ${e?.message || String(e)}`);
     }
+  }
+
+  // Clear stale checkout flags: any room currently flagged as checkout that
+  // is NOT in today's PMS departure set should be reset, otherwise yesterday's
+  // checkouts linger in the overview.
+  try {
+    const { data: stale } = await supabase
+      .from("rooms")
+      .select("id")
+      .in("hotel", hotelKeys)
+      .eq("is_checkout_room", true);
+    const staleIds = (stale ?? [])
+      .map((r: any) => r.id as string)
+      .filter((id) => !checkoutRoomIds.has(id));
+    if (staleIds.length > 0) {
+      await supabase
+        .from("rooms")
+        .update({ is_checkout_room: false, checkout_time: null, updated_at: new Date().toISOString() })
+        .in("id", staleIds);
+    }
+  } catch (e) {
+    console.warn("[pmsRefresh] stale checkout cleanup failed:", e);
   }
 
   const status: PmsSyncStatus = errors.length ? "partial" : "success";

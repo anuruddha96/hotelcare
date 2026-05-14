@@ -910,10 +910,20 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         onDrop={isManagerOrAdmin ? (e) => handleDrop(e, sectionType) : undefined}
       >
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {icon}
             <span className="text-sm font-semibold">{title}</span>
             <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
+            {sectionType === 'checkout' && roomList.length > 0 && (() => {
+              const pmsCount = roomList.filter(r => r.is_checkout_room).length;
+              const manualCount = roomList.length - pmsCount;
+              if (pmsCount === 0 && manualCount === 0) return null;
+              return (
+                <span className="text-[10px] text-muted-foreground">
+                  {pmsCount} PMS · {manualCount} manual
+                </span>
+              );
+            })()}
             {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">Drop here</Badge>}
           </div>
           {dndCount > 0 && (

@@ -268,6 +268,8 @@ serve(async (req) => {
 
       return {
         Room: r.name,
+        RoomId: r.roomId,
+        RoomKindName: r.roomKindName,
         Occupied: isOccupied || isDeparture ? "Yes" : "No",
         // Excel uses time strings; we don't have actual times from /rest/rooms,
         // so use sentinel "12:00" if the date matches today. The pipeline only
