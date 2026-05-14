@@ -309,9 +309,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
               <PerformanceLeaderboard />
             </TabsContent>
 
-            <TabsContent value="pms-upload" className="space-y-6">
-              <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
-            </TabsContent>
+            {!hidePmsUploadTab && (
+              <TabsContent value="pms-upload" className="space-y-6">
+                <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
+              </TabsContent>
+            )}
 
             <TabsContent value="supervisor" className="space-y-6">
               <div className="space-y-6">
