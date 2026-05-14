@@ -1,55 +1,82 @@
-# Fix Team View room visibility + simplify Previo sync (test hotel only)
+## Root causes
 
-Scope is limited to the `previo-test` hotel for the new sync behaviour. No change to OttoFiori or other live hotels' workflows.
+I checked the sync function code, the live DB for `previo-test`, and the most recent Previo edge-function logs. Three independent bugs.
 
-## Problem 1 — Team View › Hotel Room Overview is empty
+### 1. "Issues Found" in PMS upload (Single 901, Single 902, hk202)
 
-`HotelRoomOverview.tsx` filters rooms with `.eq('hotel', hotelName)` where `hotelName` comes from `profile.assigned_hotel` (the slug `previo-test`). Rooms imported from Previo are stored under the resolved hotel name (e.g. `Previo Test Hotel`), so the slug never matches and the overview shows 0 rooms — even though Rooms › Room Status Overview (which already does slug→name resolution) shows them correctly.
+Confirmed via DB query: `Single 901`, `Single 902`, `hk202`, `Onity 101`, `Salto 101`, `Deluxe 1..4`, `Room 1..4`, etc. are **all present** in the `rooms` table for `previo-test` — they were imported correctly with the full Previo room name as `room_number`.
 
-This is the same root cause we already fixed in `EasyRoomAssignment` and `PMSUpload` using `src/lib/hotelKeys.ts`.
+The error comes from the upload pipeline:
+- `previo-pms-sync` emits each row with `Room: r.name` (e.g. `"Single 901"`).
+- `PMSUpload.extractRoomNumber()` is built for legacy Excel formats (`Q-101`, `DB/TW-102`, `7TWIN-034SH`, …) and reduces `"Single 901"` → `"901"`.
+- The matcher then runs `.eq('room_number', '901')` — and 901 is not a room number, `Single 901` is. Match fails → "not found".
 
-### Fix
-- In `HotelRoomOverview.tsx`:
-  - Import `resolveHotelKeys` from `@/lib/hotelKeys`.
-  - In `fetchData` (around line 174), resolve `hotelKeys = await resolveHotelKeys(hotelName)` once.
-  - Replace both `.eq('hotel', hotelName)` calls (rooms query line 183, assignments-related query line 192) with `.in('hotel', hotelKeys)`.
-  - Also pass the resolved keys (or canonical name) down where `hotelName` is used for child queries that hit the `rooms` table.
-- Audit siblings used by Team View for the same bug and patch them with the same pattern:
-  - `CheckoutRoomsView.tsx`
-  - `HousekeepingManagerView.tsx`
-  - `AutoRoomAssignment.tsx` / `AutoAssignmentService.tsx` (auto-assign path)
-  - Any other `.eq('hotel', ...)` against `rooms` / `room_assignments` reachable from Team View.
+This affects every room whose Previo `name` doesn't reduce cleanly to digits.
 
-This unblocks Team View, Auto-Assign and Checkout Rooms for `previo-test` without touching OttoFiori (resolver is a no-op when slug == hotel_name).
+### 2. Onity 101 "missing" in the app
 
-## Problem 2 — Two sync buttons doing overlapping work
+It is **not** missing from the DB — it's there as `room_number = 'Onity 101'`. So this is the same root cause as #1: any view that runs PMS data through `extractRoomNumber` and then looks up by digits will silently drop it. The Rooms › Room Status Overview list itself includes it (RoomManagement does not filter alpha names). Once #1 is fixed, the Issues panel will stop reporting it, and any housekeeping rows that depend on the upload-derived status will populate.
 
-Today the PMS Upload tab shows:
-- **Sync rooms now** (top right) → `previo-sync-rooms` edge fn → upserts the rooms catalog (room numbers, types, capacities) into the `rooms` table.
-- **Sync with Previo** (bottom) → `previo-pms-sync` edge fn → returns today's reservation snapshot shaped like the legacy Excel, then runs the existing upload pipeline (checkouts / dirty / cleaning assignments).
+### 3. Room 106 checkout not captured
 
-Users have to click both, which is exactly the friction you described. They serve different purposes but should run as a single action.
+Confirmed from `previo-sync-rooms` edge logs (sample row from today's sync):
 
-### Fix (test hotel only)
-- Make **Sync with Previo** the single user-facing action for `previo-test`:
-  1. Call `previo-sync-rooms` first (catalog upsert) — guarded by the existing config checklist.
-  2. Then call `previo-pms-sync` + run `processFile` exactly as today (operational snapshot).
-  3. Then run `pollCheckouts` once so Team View reflects departures immediately.
-  4. Surface combined progress + a single toast: `Catalog: X rooms · Snapshot: Y rooms · Checkouts: Z marked`.
-- Hide the standalone **Sync rooms now** button in `PmsSyncStatus` when `compact` mode is used inside PMS Upload (keep it visible in Admin › PMS Configuration for setup/debug only).
-- Keep the setup checklist + last-sync/error panel visible in PMS Upload (read-only) so admins still see status without an extra click.
-- Trigger the same combined sync automatically:
-  - On entering the PMS Upload tab if `last_sync_at` is older than 30 minutes.
-  - On a 30-minute interval while the tab is open (already partially in place via `pollCheckouts`).
-- All of the above is gated by `selectedHotel === 'previo-test'`. For every other hotel the existing Excel upload + manual buttons are unchanged.
+```
+{ "roomId": 699176, "name": "201", "roomKindName": "...", "roomCleanStatusId": 1, ... }
+```
 
-## Out of scope (intentionally deferred)
-- Rolling auto-sync out to OttoFiori or other live hotels.
-- 12-month availability/pickup ingestion (Phase 2 in the existing pipeline).
-- Any change to the revenue page.
+There is **no `reservation` field** on the rooms returned by Previo `/rest/rooms` for this hotel. `previo-pms-sync` decides checkouts purely from `r.reservation.departureDate === today`, so with no reservation block it always emits `Departure: null` → 0 checkout rooms forever, regardless of what Previo actually shows on the calendar. (Same reason `previo-poll-checkouts` has nothing to mark.)
 
-## Acceptance
-- Team View › Hotel Room Overview lists the 102 `previo-test` rooms with the same statuses shown on Rooms › Room Status Overview.
-- Auto-Assign and Checkout Rooms see the same room set.
-- One click on **Sync with Previo** refreshes catalog, runs the Excel-equivalent pipeline and polls checkouts; no second click needed.
-- OttoFiori and other live hotels behave exactly as before — verified by reading the slug guard in each new code path.
+Today's checkouts have to come from a reservations endpoint, not `/rest/rooms`.
+
+## Plan (test hotel only — `previo-test` / 730099)
+
+### Fix A — Match rooms by full Previo name in the upload pipeline
+
+File: `src/components/dashboard/PMSUpload.tsx`, around lines 555–580.
+
+Change the lookup to a 2-step match (still hotel-scoped via `hotelKeys`):
+
+1. First try `.eq('room_number', rawRoomVal.trim())` (exact, case-sensitive — Previo names are stable).
+2. If 0 rows, try `.ilike('room_number', rawRoomVal.trim())` for case-insensitive safety.
+3. Only if both fail, fall back to the existing `extractRoomNumber(...)` digit match (keeps legacy Excel uploads for OttoFiori etc. working).
+4. Update the error message to show both values: `Room "<raw>" (also tried extracted "<num>") not found in <hotel>`.
+
+This fixes Single 901 / 902 / hk202 / Onity 101 / Salto 101 / Deluxe N / Room N etc. in one shot, and does not touch logic for any other hotel because OttoFiori room numbers are pure digits and step 1 will simply find them too.
+
+### Fix B — Pull today's checkouts from Previo and inject them into the synthesized rows
+
+File: `supabase/functions/previo-pms-sync/index.ts`.
+
+After fetching `/rest/rooms`, also call Previo's reservations endpoint for today (still hard-gated to `previo-test`):
+
+- `GET /rest/reservations?dateFrom=<today>&dateTo=<today>` (or the equivalent `arrivalDate` / `departureDate` query the Previo REST docs document — `_shared/previoAuth.ts` already handles auth).
+- Build two maps keyed by `roomId` (and fallback by room name):
+  - `departuresToday` = reservations where `departureDate === today`
+  - `arrivalsToday` = reservations where `arrivalDate === today`
+- When emitting each row, override:
+  - `Departure: "12:00"` if room is in `departuresToday`
+  - `Arrival: "15:00"` if room is in `arrivalsToday`
+  - `Occupied: "Yes"` if either, or if the room currently has an in-house reservation `arrivalDate <= today < departureDate`
+  - `People`, `Note`, `Night / Total` from the matched reservation when available
+
+This is the only behavioral change needed — `PMSUpload` already converts `Departure != null` into `is_checkout_room = true` (lines 644–671), so room 106 will start landing in the checkout list automatically once the field is populated.
+
+If Previo's reservation endpoint isn't available or returns an error, log it and emit the rows with empty Departure/Arrival as today (no regression).
+
+### Fix C — Stop the false "Issues Found" noise after Fix A
+
+After Fix A succeeds, only genuine misses (a Previo room with no matching local row) should appear. Add a small note to the Issues panel header clarifying that successful matches via either the raw name or extracted digit count as found.
+
+### Out of scope (not changing now)
+
+- `previo-poll-checkouts` — same root cause (no reservation in `/rest/rooms`), but the upload-driven path above is enough to surface today's checkouts. We can revisit polling once the reservations endpoint is wired in.
+- Live hotels (OttoFiori etc.). All changes remain gated by `selectedHotel === 'previo-test'` for the sync flow; Fix A's raw-name match is harmless for digit-only room numbers.
+- Revenue / dashboards / additional Previo endpoints.
+
+## Acceptance checks
+
+1. Run "Sync with Previo" on `previo-test`. Issues Found = 0 (or only truly orphaned Previo rooms).
+2. Housekeeping › Team View › Hotel Room Overview shows room 106 (and any other rooms departing today) as a checkout room.
+3. Onity 101, Salto 101, Single 901/902, hk202 all show their PMS-derived status (no longer reported as "not found").
+4. No changes observed for any non-`previo-test` hotel.

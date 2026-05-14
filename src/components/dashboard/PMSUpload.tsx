@@ -558,24 +558,34 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             continue;
           }
 
-          // Extract room number from complex room name
-          const roomNumber = extractRoomNumber(String(roomVal).trim());
-          
-          // Find the room by extracted number with hotel filter
-          let roomQuery = supabase
-            .from('rooms')
-            .select('id, status, room_number, room_type, is_checkout_room, hotel, is_dnd')
-            .eq('room_number', roomNumber);
+          const rawRoomName = String(roomVal).trim();
+          const roomNumber = extractRoomNumber(rawRoomName);
 
-          // Filter by selected hotel using pre-resolved hotel name
-          if (hotelNameForFilter) {
-            roomQuery = roomQuery.in('hotel', hotelKeys);
+          // Helper to run a hotel-scoped lookup
+          const lookupRoom = async (matcher: (q: any) => any) => {
+            let q = supabase
+              .from('rooms')
+              .select('id, status, room_number, room_type, is_checkout_room, hotel, is_dnd');
+            q = matcher(q);
+            if (hotelNameForFilter) q = q.in('hotel', hotelKeys);
+            return await q;
+          };
+
+          // 1) Try exact match on full Previo/raw name (handles "Onity 101", "Single 901", "hk202", ...)
+          let { data: rooms, error: roomError } = await lookupRoom((q) => q.eq('room_number', rawRoomName));
+
+          // 2) Case-insensitive fallback
+          if (!roomError && (!rooms || rooms.length === 0) && rawRoomName !== roomNumber) {
+            ({ data: rooms, error: roomError } = await lookupRoom((q) => q.ilike('room_number', rawRoomName)));
           }
 
-          const { data: rooms, error: roomError } = await roomQuery;
+          // 3) Legacy Excel digit-extracted match (OttoFiori etc.)
+          if (!roomError && (!rooms || rooms.length === 0) && roomNumber && roomNumber !== rawRoomName) {
+            ({ data: rooms, error: roomError } = await lookupRoom((q) => q.eq('room_number', roomNumber)));
+          }
 
           if (roomError || !rooms || rooms.length === 0) {
-            processed.errors.push(`Room ${roomVal} (extracted: ${roomNumber}) not found in ${selectedHotel || 'any hotel'}`);
+            processed.errors.push(`Room "${rawRoomName}" (also tried extracted "${roomNumber}") not found in ${selectedHotel || 'any hotel'}`);
             continue;
           }
 
