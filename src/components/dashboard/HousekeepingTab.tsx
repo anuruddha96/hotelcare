@@ -63,9 +63,15 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   const { user } = useAuth();
   const { t } = useTranslation();
   const [userRole, setUserRole] = useState<string>('');
+  const [assignedHotel, setAssignedHotel] = useState<string>('');
   const [activeTab, setActiveTab] = useState('assignments');
   const [orderedTabs, setOrderedTabs] = useState<string[]>([]);
   const { totalCount: pendingCount } = usePendingApprovals();
+
+  // Hotels where the standalone PMS Upload tab is hidden (managed via Team
+  // View → "PMS Refresh" button instead). Currently only the Previo test hotel.
+  const PMS_UPLOAD_HIDDEN_HOTELS = new Set(['previo-test']);
+  const hidePmsUploadTab = PMS_UPLOAD_HIDDEN_HOTELS.has(assignedHotel);
 
   useEffect(() => {
     const fetchUserRole = async () => {
