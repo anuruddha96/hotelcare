@@ -212,31 +212,51 @@ export default function Revenue() {
         const rev = liveSync.tasks.revenue;
         const isSync = rev.status === 'syncing';
         const isErr = rev.status === 'error';
-        const Icon = isSync ? Loader2 : isErr ? XCircle : rev.lastAt ? CheckCircle2 : Radio;
+        const isUnsupported = rev.meta?.supported === false;
+        const Icon = isSync
+          ? Loader2
+          : isUnsupported
+          ? Info
+          : isErr
+          ? XCircle
+          : rev.lastAt
+          ? CheckCircle2
+          : Radio;
         const color = isSync
           ? 'border-primary/30 bg-primary/5 text-primary'
+          : isUnsupported
+          ? 'border-border bg-muted/40 text-muted-foreground'
           : isErr
           ? 'border-destructive/30 bg-destructive/5 text-destructive'
           : rev.lastAt
           ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400'
           : 'border-border bg-muted/30 text-muted-foreground';
+        const title = isSync
+          ? 'Pulling live data from Previo…'
+          : isUnsupported
+          ? 'Live rate sync not available'
+          : isErr
+          ? 'Live sync failed'
+          : rev.lastAt
+          ? 'Live · connected to Previo'
+          : 'Live · ready';
+        const subtitle = isUnsupported
+          ? (rev.message || "Previo hasn't enabled the rates endpoint for this hotel — upload the XLSX files below to keep numbers fresh.")
+          : `${rev.lastAt ? `Last update ${formatDistanceToNow(rev.lastAt)} ago` : 'Auto-syncs on login & focus'}${isErr && rev.message ? ` · ${rev.message}` : ''}`;
         return (
           <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${color}`}>
             <div className="flex items-center gap-2 min-w-0">
               <Icon className={`h-4 w-4 shrink-0 ${isSync ? 'animate-spin' : ''}`} />
               <div className="min-w-0">
-                <div className="font-medium">
-                  {isSync ? 'Pulling live data from Previo…' : isErr ? 'Live sync failed' : rev.lastAt ? 'Live · connected to Previo' : 'Live · ready'}
-                </div>
-                <div className="text-xs opacity-80 truncate">
-                  {rev.lastAt ? `Last update ${formatDistanceToNow(rev.lastAt)} ago` : 'Auto-syncs on login & focus'}
-                  {isErr && rev.message ? ` · ${rev.message}` : ''}
-                </div>
+                <div className="font-medium">{title}</div>
+                <div className="text-xs opacity-80 truncate">{subtitle}</div>
               </div>
             </div>
-            <Button size="sm" variant="ghost" disabled={isSync} onClick={() => void liveSync.refresh('revenue')}>
-              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isSync ? 'animate-spin' : ''}`} /> Refresh
-            </Button>
+            {!isUnsupported && (
+              <Button size="sm" variant="ghost" disabled={isSync} onClick={() => void liveSync.refresh('revenue')}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isSync ? 'animate-spin' : ''}`} /> Refresh
+              </Button>
+            )}
           </div>
         );
       })()}

@@ -91,6 +91,26 @@ serve(async (req) => {
 
     if (!resp.ok) {
       const text = await resp.text();
+      // Previo returns 404/405 + "Action 'X' is unknown" when the endpoint
+      // isn't enabled for this hotel. Treat that as "not supported" rather
+      // than a hard error so the UI can degrade gracefully to XLSX upload.
+      const unsupported =
+        resp.status === 404 ||
+        resp.status === 405 ||
+        /is unknown|Action '/i.test(text);
+      if (unsupported) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            supported: false,
+            upserted: 0,
+            total: 0,
+            message:
+              "Previo live rate pull is not enabled for this hotel — use the XLSX upload below.",
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       return new Response(
         JSON.stringify({
           ok: false,
