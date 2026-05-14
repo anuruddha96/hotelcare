@@ -1,11 +1,30 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
-import { fetchPrevioWithAuth } from "../_shared/previoAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function clean(v: any): string {
+  const s = String(v ?? "").trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) return s.slice(1, -1).trim();
+  return s;
+}
+function parseCreds(raw: string): { user: string; pass: string } | null {
+  const r = clean(raw);
+  try {
+    const j = JSON.parse(r);
+    if (j && typeof j === "object") {
+      const u = j.username ?? j.user ?? j.login ?? j.email;
+      const p = j.password ?? j.pass ?? j.secret;
+      if (u && p) return { user: clean(u), pass: clean(p) };
+    }
+  } catch {}
+  const m = r.match(/^([^:\s]+):(.+)$/);
+  if (m) return { user: clean(m[1]), pass: clean(m[2]) };
+  return null;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -20,44 +39,40 @@ serve(async (req) => {
     .maybeSingle();
 
   const today = new Date().toISOString().slice(0, 10);
-  const hotelId = String(cfg?.pms_hotel_id || "");
+  const hotId = String(cfg?.pms_hotel_id || "");
+  const secret = clean(Deno.env.get(cfg?.credentials_secret_name || "") || "");
+  const creds = parseCreds(secret);
+  if (!creds) {
+    return new Response(JSON.stringify({ error: "no creds" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
 
-  // Try Previo XML API: searchReservations
-  const xmlBody = `<?xml version="1.0" encoding="UTF-8"?>
+  const xmlBody = `<?xml version="1.0"?>
 <request>
-  <method>searchReservations</method>
-  <params>
-    <hotId>${hotelId}</hotId>
-    <dateFrom>${today}</dateFrom>
-    <dateTo>${today}</dateTo>
-    <dateType>stay</dateType>
-  </params>
+<login>${creds.user}</login>
+<password>${creds.pass}</password>
+<hotId>${hotId}</hotId>
+<term><from>${today}</from><to>${today}</to></term>
 </request>`;
 
-  const tests = [
-    { m: "POST", p: `/`, headers: { "Content-Type": "text/xml" }, body: xmlBody },
-    { m: "POST", p: `/api`, headers: { "Content-Type": "text/xml" }, body: xmlBody },
-    { m: "POST", p: `/xml`, headers: { "Content-Type": "text/xml" }, body: xmlBody },
-    { m: "POST", p: `/xml/`, headers: { "Content-Type": "text/xml" }, body: xmlBody },
+  const urls = [
+    "https://api.previo.cz/x1/hotel/searchReservations/",
+    "https://api.previo.app/x1/hotel/searchReservations/",
   ];
   const results: any[] = [];
-  for (const t of tests) {
+  for (const u of urls) {
     try {
-      const { response } = await fetchPrevioWithAuth({
-        credentialsSecretName: cfg?.credentials_secret_name,
-        path: t.p,
-        pmsHotelId: hotelId,
-        method: t.m,
-        headers: t.headers,
-        body: t.body,
+      const r = await fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "text/xml; charset=UTF-8" },
+        body: xmlBody,
       });
-      const text = await response.text();
-      results.push({ test: `${t.m} ${t.p}`, status: response.status, snippet: text.slice(0, 600) });
+      const t = await r.text();
+      results.push({ url: u, status: r.status, snippet: t.slice(0, 1500) });
     } catch (e: any) {
-      results.push({ test: `${t.m} ${t.p}`, error: e?.message?.slice(0, 250) });
+      results.push({ url: u, error: e?.message });
     }
   }
-  return new Response(JSON.stringify({ today, hotelId, results }, null, 2), {
+  return new Response(JSON.stringify({ today, hotId, results }, null, 2), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
