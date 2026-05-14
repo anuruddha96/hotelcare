@@ -132,10 +132,54 @@ serve(async (req) => {
     const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
     const today = todayUtcDate();
 
+    // Also pull today's reservations — /rest/rooms doesn't include the
+    // reservation block for this hotel, so checkouts/arrivals must come
+    // from /rest/reservations.
+    interface PrevioReservation {
+      reservationId: number;
+      roomId: number;
+      arrivalDate: string;
+      departureDate: string;
+      status?: string;
+      guestsCount?: number;
+      note?: string;
+    }
+    const reservationsByRoomId = new Map<number, PrevioReservation>();
+    let reservationFetchError: string | null = null;
+    try {
+      // Fetch reservations active today (arrival <= today AND departure >= today)
+      const resPath = `/rest/reservations?dateFrom=${today}&dateTo=${today}`;
+      const { response: rresp } = await fetchPrevioWithAuth({
+        credentialsSecretName: cfg.credentials_secret_name,
+        path: resPath,
+        pmsHotelId: String(cfg.pms_hotel_id || ""),
+      });
+      if (!rresp.ok) {
+        const t = await rresp.text();
+        reservationFetchError = `Previo ${rresp.status}: ${t.slice(0, 200)}`;
+        console.warn(`[previo-pms-sync] reservations fetch failed: ${reservationFetchError}`);
+      } else {
+        const reservations = await safePrevioJson<PrevioReservation[]>(rresp, { path: resPath });
+        console.log(`[previo-pms-sync] fetched ${reservations.length} reservations active on ${today}`);
+        // Index latest reservation per roomId, prioritizing departures today
+        for (const r of reservations) {
+          if (!r.roomId) continue;
+          const existing = reservationsByRoomId.get(r.roomId);
+          // Prefer the reservation that departs today (checkout) over one that arrives today
+          if (!existing || r.departureDate === today) {
+            reservationsByRoomId.set(r.roomId, r);
+          }
+        }
+      }
+    } catch (e: any) {
+      reservationFetchError = e?.message || String(e);
+      console.warn(`[previo-pms-sync] reservations fetch threw: ${reservationFetchError}`);
+    }
+
     // Build Excel-compatible rows. Header names match those that PMSUpload's
     // fuzzy column matcher recognizes (English variants).
     const rows = rooms.map((r) => {
-      const res = r.reservation;
+      const res = reservationsByRoomId.get(r.roomId) ?? r.reservation;
       const isOccupied = !!res && res.arrivalDate <= today && res.departureDate > today;
       const isDeparture = !!res && res.departureDate === today;
       const isArrival = !!res && res.arrivalDate === today;
