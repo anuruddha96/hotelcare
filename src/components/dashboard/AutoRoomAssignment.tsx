@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Wand2, Users, ArrowRight, Check, Loader2, RefreshCw, AlertCircle, Clock, AlertTriangle, Move, MapPin, Trash2, Info, Undo2, Printer, EyeOff, Eye } from 'lucide-react';
 import { toast } from 'sonner';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { 
   autoAssignRooms, 
   AssignmentPreview, 
