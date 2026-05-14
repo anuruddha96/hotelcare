@@ -6,6 +6,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { TranslationProvider } from "@/hooks/useTranslation";
 import { TenantProvider } from "@/contexts/TenantContext";
 import { TrainingGuideProvider } from "@/contexts/TrainingGuideContext";
+import { LiveSyncProvider } from "@/contexts/LiveSyncContext";
 import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNotificationProvider";
 import { TrainingOverlay, TrainingWelcomePrompt } from "@/components/training";
 import Index from "./pages/Index";
@@ -74,6 +75,7 @@ const MainApp = () => (
   <QueryClientProvider client={queryClient}>
     <TranslationProvider>
       <AuthProvider>
+        <LiveSyncProvider>
         <TrainingGuideProvider>
           <RealtimeNotificationProvider>
             <TooltipProvider>
@@ -100,6 +102,7 @@ const MainApp = () => (
             </TooltipProvider>
           </RealtimeNotificationProvider>
         </TrainingGuideProvider>
+        </LiveSyncProvider>
       </AuthProvider>
     </TranslationProvider>
   </QueryClientProvider>

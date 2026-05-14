@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useLiveSync } from "@/contexts/LiveSyncContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle, Radio } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 interface PickupDateRow { stay_date: string; delta: number }
@@ -46,6 +48,7 @@ export default function Revenue() {
   const { profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const navigate = useNavigate();
+  const liveSync = useLiveSync();
   const [hotels, setHotels] = useState<HotelStat[]>([]);
   const [busy, setBusy] = useState(false);
   const [hotelDialog, setHotelDialog] = useState<{ id: string; name: string } | null>(null);
@@ -204,6 +207,39 @@ export default function Revenue() {
         <SummaryStat label="Pending recs" value={hotels.reduce((a, h) => a + h.pending_recs, 0)} highlight={hotels.some((h) => h.pending_recs > 0)} />
         <SummaryStat label="Abnormal pickups" value={hotels.filter((h) => h.abnormal).length} danger={hotels.some((h) => h.abnormal)} />
       </div>
+
+      {liveSync.enabled && (() => {
+        const rev = liveSync.tasks.revenue;
+        const isSync = rev.status === 'syncing';
+        const isErr = rev.status === 'error';
+        const Icon = isSync ? Loader2 : isErr ? XCircle : rev.lastAt ? CheckCircle2 : Radio;
+        const color = isSync
+          ? 'border-primary/30 bg-primary/5 text-primary'
+          : isErr
+          ? 'border-destructive/30 bg-destructive/5 text-destructive'
+          : rev.lastAt
+          ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400'
+          : 'border-border bg-muted/30 text-muted-foreground';
+        return (
+          <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${color}`}>
+            <div className="flex items-center gap-2 min-w-0">
+              <Icon className={`h-4 w-4 shrink-0 ${isSync ? 'animate-spin' : ''}`} />
+              <div className="min-w-0">
+                <div className="font-medium">
+                  {isSync ? 'Pulling live data from Previo…' : isErr ? 'Live sync failed' : rev.lastAt ? 'Live · connected to Previo' : 'Live · ready'}
+                </div>
+                <div className="text-xs opacity-80 truncate">
+                  {rev.lastAt ? `Last update ${formatDistanceToNow(rev.lastAt)} ago` : 'Auto-syncs on login & focus'}
+                  {isErr && rev.message ? ` · ${rev.message}` : ''}
+                </div>
+              </div>
+            </div>
+            <Button size="sm" variant="ghost" disabled={isSync} onClick={() => void liveSync.refresh('revenue')}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isSync ? 'animate-spin' : ''}`} /> Refresh
+            </Button>
+          </div>
+        );
+      })()}
 
       <p className="text-xs text-muted-foreground">Click <b>Upload</b> on a hotel card to add Pickup, Occupancy, or Daily Overview XLSX files. The file's hotel name is verified before saving.</p>
 

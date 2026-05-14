@@ -1,55 +1,86 @@
 ## Goal
 
-Simplify Previo test hotel housekeeping flow: remove the dedicated PMS Upload tab/button, surface a single **PMS Refresh** button inside Team View for managers, and ensure the refresh updates room/PMS state **without wiping housekeeper assignments**. Other hotels (incl. OttoFiori) untouched.
+Make the app feel "live" by silently syncing PMS + Revenue data from the Previo API whenever an eligible user logs in (manager, admin, top_management — never housekeepers, maintenance, reception), with a small, unobtrusive status indicator while it runs.
 
-## Scope guard
+## Scope (only hotels with a Previo PMS config — Ottofiori untouched)
 
-Every change below is gated by `selectedHotel === 'previo-test'`. OttoFiori and all other live hotels render exactly as they do today.
+Sync targets per login:
+1. **PMS rooms / today's checkouts** → `previo-pms-sync` (existing, hotel `previo-test` only for now)
+2. **Revenue rates / occupancy** → `previo-pull-rates` (existing) + revenue snapshots
+3. **Reservations** → `previo-sync-reservations` (existing)
 
-## Changes
+Each is gated by the hotel having an active `pms_configurations` row, so OttoFiori (no Previo config) is naturally skipped.
 
-### 1. `HousekeepingTab.tsx` — hide PMS Upload tab for previo-test
-- When the active hotel is `previo-test`, exclude `'pms-upload'` from `getTabOrder()` and from the default-tab logic (skip the "no upload today → switch to pms-upload" branch; default managers to `'manage'` / Team View).
-- Leave the tab visible for every other hotel — Excel upload flow stays intact for OttoFiori etc.
+## Architecture
 
-### 2. `HousekeepingManagerView.tsx` / `HotelRoomOverview.tsx` — add PMS Refresh button
-- Inside the Team View → Hotel Room Overview header, add a **PMS Refresh** button.
-- Visible only when:
-  - `selectedHotel === 'previo-test'`, AND
-  - user role is in the manager set (`admin`, `top_management`, `manager`, `housekeeping_manager`, `front_office`).
-- On click:
-  1. Invoke `previo-pms-sync` edge function (same call PMSUpload already makes).
-  2. Pipe returned rows through the **existing** PMS processing pipeline, but in a new "refresh" mode that:
-     - Updates `is_checkout_room`, `is_checkin_room`, `guest_nights_total`, `guest_count`, `guest_notes`, occupancy, PMS status fields on `rooms`.
-     - **Does NOT** clear/overwrite `assigned_to` (housekeeper assignments) or delete from `room_assignments` for the day.
-  3. Refresh the room overview list.
-- Reuse the inline "Last sync … Status …" summary from `PmsSyncStatus` (compact mode) directly above/next to the button so managers see freshness without leaving Team View.
+### 1. New `useLiveSync` hook (`src/hooks/useLiveSync.tsx`)
+- Runs on auth ready + role check (`manager | admin | top_management`)
+- Reads `assigned_hotel` (or all hotels for admin) and checks `pms_configurations.is_active`
+- Triggers sync tasks in parallel via `supabase.functions.invoke`
+- Tracks per-task state in a global Zustand-style context: `idle | syncing | success | partial | error`, `lastSyncedAt`, `error`
+- Throttle: skip if last successful sync < 2 minutes ago (sessionStorage key per hotel+task)
+- Re-run on `window` `focus` event after 5+ min idle
+- Never blocks the UI — fire-and-forget
 
-### 3. PMSUpload pipeline — non-destructive refresh path
-- Add a `mode: 'full' | 'refresh'` parameter to the room-update routine in `PMSUpload.tsx` (extract the per-row update into a small helper if needed).
-- `'full'` (Excel upload + manual "Sync with Previo" button, current behaviour) keeps today's reset behaviour for hotels that still rely on it.
-- `'refresh'` (new Team View button) skips:
-  - resetting `assigned_to` / cleaning-status downgrades tied to assignment churn,
-  - the "Data Reset Warning" side-effects.
-  Only PMS-derived fields (checkout/checkin/occupancy/guest info) are written.
-- Manual & auto room-assignment paths remain the **only** things that mutate housekeeper assignments — unchanged.
+### 2. New `LiveSyncContext` (`src/contexts/LiveSyncContext.tsx`)
+- Provides `{ tasks: Record<TaskName, SyncState>, refresh(taskName?) }`
+- Wrapped at App root inside `AuthProvider`
 
-### 4. Cleanup
-- Remove the standalone "Sync with Previo" + "Refresh Checkouts" buttons from the previo-test PMS Upload card *only if* tab is hidden (kept reachable via admin if needed). For now: leave the PMS Upload component file intact, just hide the tab — zero risk to other hotels.
-- No translation keys removed; `housekeeping.tabs.pmsUpload` still used by other hotels.
+### 3. New `LiveSyncIndicator` component (`src/components/layout/LiveSyncIndicator.tsx`)
+- Compact pill in `Header.tsx` (next to user menu): spinner + "Syncing PMS…" while any task running; green dot "Live · 2m ago" when idle; amber/red on partial/error with tooltip listing failed tasks
+- Click opens a popover listing each task with status, last-synced time, manual "Refresh" button per task
 
-## Out of scope (for this round)
-- Changing OttoFiori or any other hotel's behaviour.
-- Auto-scheduled background PMS polling (will be added later via API once test hotel is validated).
-- Touching `previo-pms-sync` edge function — already returns the rows we need.
-- Removing PMS Upload tab globally — only hidden for previo-test.
+### 4. Reuse existing surfaces
+- `PmsRefreshButton` (Team View) — read state from `LiveSyncContext` instead of local state; manual click forces refresh
+- `Revenue.tsx` page — replace the "Run engine" / upload-only flow with a top status banner reading from `LiveSyncContext.tasks.revenue`; show "Last pulled · X min ago" and a refresh button. Keep manual upload as fallback.
+- `PMSUpload.tsx` — keep the upload as fallback for non-Previo hotels; for Previo hotels show "Auto-synced from Previo · last update X min ago" instead of the upload CTA (per earlier instruction to hide upload on test hotel)
 
-## Technical notes
-- Manager role check already exists in `HousekeepingTab` as `hasManagerAccess`; reuse the same predicate for the new button so visibility rules stay consistent.
-- `PmsSyncStatus` already exposes `compact` mode — drop it in next to the button with `compact={true}` and `hotelId="previo-test"`.
-- Refresh mode reuses the same Supabase update statements minus the `assigned_to: null` / assignment-clearing branches.
+### 5. Edge function additions
+- New `previo-revenue-sync` wrapping `previo-pull-rates` for the next 120 days + writing into existing `previo_rate_snapshots` and feeding the revenue grid — single call per login
+- Add `sync_type` values to `pms_sync_history`: `auto_login`, `auto_focus`, `manual`
 
-## Verification
-- previo-test as manager: PMS Upload tab gone; Team View shows PMS Refresh button; clicking it updates checkout flags + occupancy without removing housekeeper assignments.
-- previo-test as housekeeper: no button visible.
-- OttoFiori as manager: PMS Upload tab still present, Excel upload unchanged, no PMS Refresh button in Team View.
+### 6. Role gating
+- `useLiveSync` early-returns for roles `housekeeper | maintenance | reception | front_desk`
+- Server side: existing role checks in each edge function already prevent unauthorized sync
+
+## Status indicator UX
+
+```text
+Header (top-right):
+[●  Live · synced 2m ago ▾]   ← green
+[⟳  Syncing PMS… ]            ← primary (spinner)
+[●  Partial · 1 failed ▾]     ← amber
+[●  Sync failed ▾]            ← destructive
+```
+
+Popover content:
+```text
+PMS rooms        ✓ 2m ago        [Refresh]
+Reservations     ✓ 2m ago        [Refresh]
+Revenue rates    ⟳ syncing…
+```
+
+## Safety / non-regressions
+
+- OttoFiori has no `pms_configurations` row → loop yields zero tasks → no calls
+- All sync calls are read-only against PMS; writes only to our own snapshot tables
+- Housekeeper assignments are NOT touched (per existing memory rule — only manual/auto-assign resets them)
+- Throttle + focus-based refresh prevents API hammering
+- All errors swallowed into the indicator; never blocks navigation
+
+## Files to add
+- `src/hooks/useLiveSync.tsx`
+- `src/contexts/LiveSyncContext.tsx`
+- `src/components/layout/LiveSyncIndicator.tsx`
+- `supabase/functions/previo-revenue-sync/index.ts`
+
+## Files to edit
+- `src/App.tsx` — wrap with `LiveSyncProvider`
+- `src/components/layout/Header.tsx` — add `LiveSyncIndicator`
+- `src/components/dashboard/PmsRefreshButton.tsx` — read from context
+- `src/pages/Revenue.tsx` — show live status banner
+- `src/components/dashboard/PMSUpload.tsx` — hide upload for Previo hotels, show live status
+
+## Open question
+
+Should the Revenue auto-sync run for **all hotels with a Previo config** on every eligible login, or only when a manager actually opens the Revenue page? (The first is more "live"; the second saves API calls.) Default in this plan: PMS sync runs on login; Revenue sync runs on login *and* on Revenue page open.
