@@ -68,7 +68,7 @@ serve(async (req) => {
         body: xmlBody,
       });
       const t = await r.text();
-      results.push({ url: u, status: r.status, snippet: t.slice(0, 1500) });
+      results.push({ url: u, status: r.status, snippet: t.slice(0, 8000) });
     } catch (e: any) {
       results.push({ url: u, error: e?.message });
     }
