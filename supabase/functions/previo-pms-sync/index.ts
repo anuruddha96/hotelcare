@@ -208,8 +208,21 @@ serve(async (req) => {
       };
     });
 
+    const departureCount = rows.filter((r) => r.Departure).length;
+    const arrivalCount = rows.filter((r) => r.Arrival).length;
+    console.log(`[previo-pms-sync] emitted ${rows.length} rows (${departureCount} departures, ${arrivalCount} arrivals today)`);
+
     return new Response(
-      JSON.stringify({ ok: true, hotel_id: targetHotel, rowCount: rows.length, rows }),
+      JSON.stringify({
+        ok: true,
+        hotel_id: targetHotel,
+        rowCount: rows.length,
+        departuresToday: departureCount,
+        arrivalsToday: arrivalCount,
+        reservationsAvailable: reservationsByRoomId.size,
+        reservationFetchError,
+        rows,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e: any) {
