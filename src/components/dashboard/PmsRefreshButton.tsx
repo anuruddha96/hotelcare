@@ -142,6 +142,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
 
       let updated = 0;
       let notFound = 0;
+      let checkouts = 0;
       const errors: string[] = [];
       const today = new Date().toISOString().split('T')[0];
 
