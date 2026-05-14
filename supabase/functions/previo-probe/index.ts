@@ -20,24 +20,25 @@ serve(async (req) => {
     .maybeSingle();
 
   const today = new Date().toISOString().slice(0, 10);
-  const headers = { "X-Previo-Language-ID": "2" };
-  // Common Previo RESTful patterns + likely list endpoints
+  const hotelId = String(cfg?.pms_hotel_id || "");
+
+  // Try Previo XML API: searchReservations
+  const xmlBody = `<?xml version="1.0" encoding="UTF-8"?>
+<request>
+  <method>searchReservations</method>
+  <params>
+    <hotId>${hotelId}</hotId>
+    <dateFrom>${today}</dateFrom>
+    <dateTo>${today}</dateTo>
+    <dateType>stay</dateType>
+  </params>
+</request>`;
+
   const tests = [
-    { m: "GET", p: `/rest/rooms?date=${today}&extended=1` },
-    { m: "GET", p: `/rest/rooms?date=${today}&withReservation=1` },
-    { m: "GET", p: `/rest/rooms?date=${today}&include=reservation` },
-    { m: "GET", p: `/rest/availability?dateFrom=${today}&dateTo=${today}` },
-    { m: "GET", p: `/rest/occupancy?dateFrom=${today}&dateTo=${today}` },
-    { m: "GET", p: `/rest/dayState?date=${today}` },
-    { m: "GET", p: `/rest/dayUse?date=${today}` },
-    { m: "GET", p: `/rest/checkin?date=${today}` },
-    { m: "GET", p: `/rest/checkout?date=${today}` },
-    { m: "GET", p: `/rest/arrival?date=${today}` },
-    { m: "GET", p: `/rest/departure?date=${today}` },
-    { m: "GET", p: `/rest/billing?dateFrom=${today}&dateTo=${today}` },
-    { m: "GET", p: `/rest/guest?dateFrom=${today}&dateTo=${today}` },
-    { m: "GET", p: `/rest/crm?dateFrom=${today}&dateTo=${today}` },
-    { m: "GET", p: `/rest/roomKind` },
+    { m: "POST", p: `/`, headers: { "Content-Type": "text/xml" }, body: xmlBody },
+    { m: "POST", p: `/api`, headers: { "Content-Type": "text/xml" }, body: xmlBody },
+    { m: "POST", p: `/xml`, headers: { "Content-Type": "text/xml" }, body: xmlBody },
+    { m: "POST", p: `/xml/`, headers: { "Content-Type": "text/xml" }, body: xmlBody },
   ];
   const results: any[] = [];
   for (const t of tests) {
@@ -45,18 +46,18 @@ serve(async (req) => {
       const { response } = await fetchPrevioWithAuth({
         credentialsSecretName: cfg?.credentials_secret_name,
         path: t.p,
-        pmsHotelId: String(cfg?.pms_hotel_id || ""),
+        pmsHotelId: hotelId,
         method: t.m,
-        headers,
+        headers: t.headers,
+        body: t.body,
       });
       const text = await response.text();
-      const has = /reservation|departure|arrival/i.test(text);
-      results.push({ test: `${t.m} ${t.p}`, status: response.status, has, snippet: text.slice(0, 350) });
+      results.push({ test: `${t.m} ${t.p}`, status: response.status, snippet: text.slice(0, 600) });
     } catch (e: any) {
       results.push({ test: `${t.m} ${t.p}`, error: e?.message?.slice(0, 250) });
     }
   }
-  return new Response(JSON.stringify({ today, results }, null, 2), {
+  return new Response(JSON.stringify({ today, hotelId, results }, null, 2), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
