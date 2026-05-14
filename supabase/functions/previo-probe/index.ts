@@ -21,36 +21,33 @@ serve(async (req) => {
 
   const today = new Date().toISOString().slice(0, 10);
   const headers = { "X-Previo-Language-ID": "2" };
-  const paths = [
-    `/rest/calendar`,
-    `/rest/calendar?dateFrom=${today}&dateTo=${today}`,
-    `/rest/calendar/reservation?dateFrom=${today}&dateTo=${today}`,
-    `/rest/calendar/reservations?dateFrom=${today}&dateTo=${today}`,
-    `/rest/calendar/changes?dateFrom=${today}&dateTo=${today}`,
-    `/rest/roomReservation`,
-    `/rest/roomReservation?dateFrom=${today}&dateTo=${today}`,
-    `/rest/roomReservation?arrivalDate=${today}`,
-    `/rest/roomReservation?departureDate=${today}`,
-    `/rest/commission?dateFrom=${today}&dateTo=${today}`,
-    `/rest/reports?dateFrom=${today}&dateTo=${today}`,
-    `/rest/reports/departure?date=${today}`,
-    `/rest/reports/arrival?date=${today}`,
-    `/rest/reports/checkout?date=${today}`,
-    `/rest/reports/dailyReport?date=${today}`,
+  const tests = [
+    { m: "GET", p: `/rest/rooms?date=${today}` },
+    { m: "GET", p: `/rest/rooms?dateFrom=${today}&dateTo=${today}` },
+    { m: "GET", p: `/rest/room?date=${today}` },
+    { m: "POST", p: `/rest/reservation/search`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
+    { m: "POST", p: `/rest/reservation/find`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
+    { m: "POST", p: `/rest/reservation/list`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
+    { m: "POST", p: `/rest/reservation`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
+    { m: "POST", p: `/rest/calendar`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
+    { m: "POST", p: `/rest/roomReservation/search`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
+    { m: "POST", p: `/rest/roomReservation`, body: JSON.stringify({ dateFrom: today, dateTo: today }) },
   ];
   const results: any[] = [];
-  for (const p of paths) {
+  for (const t of tests) {
     try {
       const { response } = await fetchPrevioWithAuth({
         credentialsSecretName: cfg?.credentials_secret_name,
-        path: p,
+        path: t.p,
         pmsHotelId: String(cfg?.pms_hotel_id || ""),
+        method: t.m,
         headers,
+        body: t.body,
       });
       const text = await response.text();
-      results.push({ path: p, status: response.status, snippet: text.slice(0, 400) });
+      results.push({ test: `${t.m} ${t.p}`, status: response.status, snippet: text.slice(0, 500) });
     } catch (e: any) {
-      results.push({ path: p, error: e?.message?.slice(0, 250) });
+      results.push({ test: `${t.m} ${t.p}`, error: e?.message?.slice(0, 250) });
     }
   }
   return new Response(JSON.stringify({ today, results }, null, 2), {
