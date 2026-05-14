@@ -19,6 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 
 interface RoomData {
   id: string;
