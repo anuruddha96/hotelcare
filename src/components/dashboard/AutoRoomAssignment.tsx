@@ -271,10 +271,12 @@ export function AutoRoomAssignment({
       }
 
       // Fetch dirty rooms that don't have assignments for today
+      const hotelKeys = await resolveHotelKeys(hotelName);
+      const keys = hotelKeys.length ? hotelKeys : [hotelName];
       const { data: roomsData } = await supabase
         .from('rooms')
         .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration')
-        .eq('hotel', hotelName)
+        .in('hotel', keys)
         .eq('status', 'dirty');
 
       // Get existing assignments for today
