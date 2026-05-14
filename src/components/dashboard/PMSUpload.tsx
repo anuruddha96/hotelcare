@@ -425,7 +425,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         const { data: selectedHotelRooms } = await supabase
           .from('rooms')
           .select('id')
-          .eq('hotel', hotelNameForFilter);
+          .in('hotel', hotelKeys);
         
         if (selectedHotelRooms && selectedHotelRooms.length > 0) {
           const roomIds = selectedHotelRooms.map(r => r.id);
@@ -447,7 +447,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const { error: dndResetError } = await supabase
             .from('rooms')
             .update({ is_dnd: false, dnd_marked_at: null, dnd_marked_by: null })
-            .eq('hotel', hotelNameForFilter);
+            .in('hotel', hotelKeys);
           
           if (dndResetError) {
             console.warn(`Error resetting DND for ${hotelNameForFilter}:`, dndResetError);
@@ -456,7 +456,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             const { count: dndStillOn } = await supabase
               .from('rooms')
               .select('id', { count: 'exact', head: true })
-              .eq('hotel', hotelNameForFilter)
+              .in('hotel', hotelKeys)
               .eq('is_dnd', true);
             if (dndStillOn && dndStillOn > 0) {
               console.error(`DND reset FAILED - ${dndStillOn} rooms still have DND=true. Likely RLS issue.`);
@@ -470,7 +470,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const { error: tcResetError } = await supabase
             .from('rooms')
             .update({ towel_change_required: false, linen_change_required: false, bed_configuration: null } as any)
-            .eq('hotel', hotelNameForFilter);
+            .in('hotel', hotelKeys);
           
           if (tcResetError) {
             console.warn(`Error resetting T/RC/bed_config flags for ${hotelNameForFilter}:`, tcResetError);
@@ -479,7 +479,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             const { count: tcStillOn } = await supabase
               .from('rooms')
               .select('id', { count: 'exact', head: true })
-              .eq('hotel', hotelNameForFilter)
+              .in('hotel', hotelKeys)
               .or('towel_change_required.eq.true,linen_change_required.eq.true');
             if (tcStillOn && tcStillOn > 0) {
               console.error(`T/RC reset FAILED - ${tcStillOn} rooms still have flags set. Likely RLS issue.`);
@@ -493,7 +493,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const { error: checkoutResetError } = await supabase
             .from('rooms')
             .update({ is_checkout_room: false, checkout_time: null })
-            .eq('hotel', hotelNameForFilter);
+            .in('hotel', hotelKeys);
           
           if (checkoutResetError) {
             console.warn(`Error resetting checkout flags for ${hotelNameForFilter}:`, checkoutResetError);
@@ -510,7 +510,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         const { data: hotelRooms } = await supabase
           .from('rooms')
           .select('id')
-          .eq('hotel', hotelNameForFilter);
+          .in('hotel', hotelKeys);
         
         if (hotelRooms && hotelRooms.length > 0) {
           const roomIds = hotelRooms.map(r => r.id);
@@ -569,7 +569,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
           // Filter by selected hotel using pre-resolved hotel name
           if (hotelNameForFilter) {
-            roomQuery = roomQuery.eq('hotel', hotelNameForFilter);
+            roomQuery = roomQuery.in('hotel', hotelKeys);
           }
 
           const { data: rooms, error: roomError } = await roomQuery;
