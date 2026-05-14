@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 import PmsSyncStatus from '@/components/admin/PmsSyncStatus';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
