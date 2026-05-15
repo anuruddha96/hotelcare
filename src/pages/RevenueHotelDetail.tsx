@@ -24,6 +24,8 @@ import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmen
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
 import PricingDriverChips from "@/components/revenue/PricingDriverChips";
 import AnalystPanel from "@/components/revenue/AnalystPanel";
+import StrategyCalendar from "@/components/revenue/StrategyCalendar";
+import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
@@ -64,6 +66,9 @@ export default function RevenueHotelDetail() {
   const [minStays, setMinStays] = useState<MinStay[]>([]);
   const [abnormalDates, setAbnormalDates] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [decisions, setDecisions] = useState<{ stay_date: string; decision_type: string; reason: string | null }[]>([]);
+  const [autopilotBusy, setAutopilotBusy] = useState(false);
+  const [lastPushAt, setLastPushAt] = useState<string | null>(null);
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("prices");
@@ -120,6 +125,17 @@ export default function RevenueHotelDetail() {
     setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
+
+    // Autopilot decisions + last push timestamp (best-effort, errors ignored)
+    const [{ data: dec }, { data: lp }] = await Promise.all([
+      (supabase as any).from("autopilot_decisions").select("stay_date,decision_type,reason")
+        .eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(500),
+      (supabase as any).from("pms_sync_history").select("created_at,sync_status")
+        .eq("hotel_id", hotelId).eq("sync_type", "rate_push").eq("sync_status", "success")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    setDecisions((dec ?? []) as any);
+    setLastPushAt(lp?.created_at ?? null);
 
     const refRoom = (rooms ?? []).find((rt: any) => rt.is_reference) ?? (rooms ?? [])[0];
     const dowMap: Record<number, number> = {};
@@ -299,8 +315,26 @@ export default function RevenueHotelDetail() {
     setPushBusy(true);
     const { data, error } = await supabase.functions.invoke("previo-push-rates", { body: { hotel_id: hotelId } });
     setPushBusy(false);
+    if (data?.code === "no_mapping") {
+      toast.error("No Previo rate-plan mapping. Configure it in Pricing Strategy → Rooms Setup.", { duration: 6000 });
+      setTab("strategy");
+      return;
+    }
     if (error || data?.error) { toast.error(data?.error || error?.message || "Failed"); return; }
-    toast.success("Rates pushed to Previo");
+    toast.success(`Rates pushed · ${data?.pushed ?? 0} updated`);
+    void load();
+  }
+
+  async function runAutopilot() {
+    if (!hotelId) return;
+    setAutopilotBusy(true);
+    toast.info("Autopilot running…");
+    const { data, error } = await supabase.functions.invoke("revenue-autopilot-tick", { body: { hotel_id: hotelId } });
+    setAutopilotBusy(false);
+    if (error) { toast.error(error.message); return; }
+    const d = data as any;
+    toast.success(`Autopilot · ${d?.decisions ?? 0} decisions · ${d?.surges ?? 0} surges · ${d?.recsCreated ?? 0} new recs`);
+    void load();
   }
 
   async function pullFromPrevio() {
@@ -342,14 +376,25 @@ export default function RevenueHotelDetail() {
         <Button variant="outline" size="sm" onClick={pullFromPrevio}>
           <RefreshCw className="h-4 w-4 mr-1" />Pull from Previo
         </Button>
-        <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
-          {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Upload Prices
+        <Button variant="outline" size="sm" onClick={runAutopilot} disabled={autopilotBusy}>
+          {autopilotBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Bot className="h-4 w-4 mr-1" />}Run Autopilot
         </Button>
+        <div className="flex flex-col items-end">
+          <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
+            {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Push to Previo
+          </Button>
+          {lastPushAt && (
+            <span className="text-[10px] text-muted-foreground mt-0.5">
+              last: {new Date(lastPushAt).toLocaleString()}
+            </span>
+          )}
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Prices</TabsTrigger>
+          <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
           <TabsTrigger value="pickup"><BarChart3 className="h-4 w-4 mr-1" />Pickup</TabsTrigger>
@@ -385,7 +430,28 @@ export default function RevenueHotelDetail() {
         </TabsContent>
 
         <TabsContent value="analyst">
-          <AnalystPanel hotelId={hotelId!} />
+          <AnalystPanel hotelId={hotelId!} onAfterRun={load} />
+        </TabsContent>
+
+        <TabsContent value="calendar" className="space-y-3">
+          <StrategyRecommendationsPanel
+            recs={recs}
+            decisions={decisions}
+            settings={settings as any}
+            hotelId={hotelId!}
+            orgSlug={profile?.organization_slug ?? "rdhotels"}
+            profileId={profile?.id}
+            onChange={load}
+          />
+          <StrategyCalendar
+            rowsByDate={rowsByDate}
+            onSelect={setSelectedDate}
+            decisionsByDate={(() => {
+              const m = new Map<string, any>();
+              for (const d of decisions) if (!m.has(d.stay_date)) m.set(d.stay_date, d);
+              return m;
+            })()}
+          />
         </TabsContent>
 
         <TabsContent value="strategy" className="space-y-3">

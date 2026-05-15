@@ -27,7 +27,7 @@ interface VelocityEvent {
   acted: boolean;
 }
 
-export default function AnalystPanel({ hotelId }: { hotelId: string }) {
+export default function AnalystPanel({ hotelId, onAfterRun }: { hotelId: string; onAfterRun?: () => void }) {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [events, setEvents] = useState<VelocityEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +57,7 @@ export default function AnalystPanel({ hotelId }: { hotelId: string }) {
       if (error) throw error;
       toast.success(`Autopilot ran · ${(data as any)?.decisions ?? 0} decisions, ${(data as any)?.surges ?? 0} surges`);
       await load();
+      onAfterRun?.();
     } catch (e: any) {
       toast.error(e?.message ?? "Autopilot failed");
     } finally {

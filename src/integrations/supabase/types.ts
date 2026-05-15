@@ -2735,6 +2735,50 @@ export type Database = {
           },
         ]
       }
+      previo_rate_plan_mapping: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          is_default: boolean
+          organization_slug: string
+          previo_rate_plan_id: string | null
+          previo_room_type_id: string | null
+          room_type_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          is_default?: boolean
+          organization_slug: string
+          previo_rate_plan_id?: string | null
+          previo_room_type_id?: string | null
+          room_type_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          is_default?: boolean
+          organization_slug?: string
+          previo_rate_plan_id?: string | null
+          previo_room_type_id?: string | null
+          room_type_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "previo_rate_plan_mapping_room_type_id_fkey"
+            columns: ["room_type_id"]
+            isOneToOne: false
+            referencedRelation: "room_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       previo_rate_snapshots: {
         Row: {
           availability: number | null

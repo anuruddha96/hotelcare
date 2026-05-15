@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import PrevioRatePlanMapping from "@/components/revenue/PrevioRatePlanMapping";
 
 interface Room {
   id: string;
@@ -80,6 +81,7 @@ export default function RoomsSetupTab({ hotelId, orgSlug }: { hotelId: string; o
   const totalRooms = rows.reduce((s, r) => s + (r.num_rooms || 0), 0);
 
   return (
+    <div className="space-y-3">
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Rooms Setup</CardTitle>
@@ -141,5 +143,7 @@ export default function RoomsSetupTab({ hotelId, orgSlug }: { hotelId: string; o
         )}
       </CardContent>
     </Card>
+    <PrevioRatePlanMapping hotelId={hotelId} orgSlug={orgSlug} />
+    </div>
   );
 }
