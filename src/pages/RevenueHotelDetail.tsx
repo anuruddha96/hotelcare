@@ -376,9 +376,19 @@ export default function RevenueHotelDetail() {
         <Button variant="outline" size="sm" onClick={pullFromPrevio}>
           <RefreshCw className="h-4 w-4 mr-1" />Pull from Previo
         </Button>
-        <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
-          {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Upload Prices
+        <Button variant="outline" size="sm" onClick={runAutopilot} disabled={autopilotBusy}>
+          {autopilotBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Bot className="h-4 w-4 mr-1" />}Run Autopilot
         </Button>
+        <div className="flex flex-col items-end">
+          <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
+            {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Push to Previo
+          </Button>
+          {lastPushAt && (
+            <span className="text-[10px] text-muted-foreground mt-0.5">
+              last: {new Date(lastPushAt).toLocaleString()}
+            </span>
+          )}
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
