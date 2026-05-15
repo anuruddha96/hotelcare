@@ -38,6 +38,8 @@ interface ParsedReservation {
   statusId: number;
   guestsCount: number;
   note: string | null;
+  priceEur: number | null;       // total reservation price in EUR (null if missing)
+  nights: number;                // nights count for ADR derivation
 }
 
 function isoDate(d: Date): string {
