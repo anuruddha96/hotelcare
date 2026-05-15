@@ -66,6 +66,9 @@ export default function RevenueHotelDetail() {
   const [minStays, setMinStays] = useState<MinStay[]>([]);
   const [abnormalDates, setAbnormalDates] = useState<Set<string>>(new Set());
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [decisions, setDecisions] = useState<{ stay_date: string; decision_type: string; reason: string | null }[]>([]);
+  const [autopilotBusy, setAutopilotBusy] = useState(false);
+  const [lastPushAt, setLastPushAt] = useState<string | null>(null);
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("prices");
