@@ -430,7 +430,28 @@ export default function RevenueHotelDetail() {
         </TabsContent>
 
         <TabsContent value="analyst">
-          <AnalystPanel hotelId={hotelId!} />
+          <AnalystPanel hotelId={hotelId!} onAfterRun={load} />
+        </TabsContent>
+
+        <TabsContent value="calendar" className="space-y-3">
+          <StrategyRecommendationsPanel
+            recs={recs}
+            decisions={decisions}
+            settings={settings as any}
+            hotelId={hotelId!}
+            orgSlug={profile?.organization_slug ?? "rdhotels"}
+            profileId={profile?.id}
+            onChange={load}
+          />
+          <StrategyCalendar
+            rowsByDate={rowsByDate}
+            onSelect={setSelectedDate}
+            decisionsByDate={(() => {
+              const m = new Map<string, any>();
+              for (const d of decisions) if (!m.has(d.stay_date)) m.set(d.stay_date, d);
+              return m;
+            })()}
+          />
         </TabsContent>
 
         <TabsContent value="strategy" className="space-y-3">
