@@ -315,8 +315,26 @@ export default function RevenueHotelDetail() {
     setPushBusy(true);
     const { data, error } = await supabase.functions.invoke("previo-push-rates", { body: { hotel_id: hotelId } });
     setPushBusy(false);
+    if (data?.code === "no_mapping") {
+      toast.error("No Previo rate-plan mapping. Configure it in Pricing Strategy → Rooms Setup.", { duration: 6000 });
+      setTab("strategy");
+      return;
+    }
     if (error || data?.error) { toast.error(data?.error || error?.message || "Failed"); return; }
-    toast.success("Rates pushed to Previo");
+    toast.success(`Rates pushed · ${data?.pushed ?? 0} updated`);
+    void load();
+  }
+
+  async function runAutopilot() {
+    if (!hotelId) return;
+    setAutopilotBusy(true);
+    toast.info("Autopilot running…");
+    const { data, error } = await supabase.functions.invoke("revenue-autopilot-tick", { body: { hotel_id: hotelId } });
+    setAutopilotBusy(false);
+    if (error) { toast.error(error.message); return; }
+    const d = data as any;
+    toast.success(`Autopilot · ${d?.decisions ?? 0} decisions · ${d?.surges ?? 0} surges · ${d?.recsCreated ?? 0} new recs`);
+    void load();
   }
 
   async function pullFromPrevio() {
