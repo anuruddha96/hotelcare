@@ -588,7 +588,9 @@ serve(async (req) => {
         data: {
           days, totalRooms, reservations: reservations.length,
           occInserted, pickupInserted, breakfastUpserted,
-          roomTypesSeeded, dailyRatesSeeded,
+          roomTypesSeeded, dailyRatesSeeded, dailyRatesPms, dailyRatesRealized,
+          minStaySynced,
+          pricelist: { method: pricelistMethodUsed, entries: pricelistEntries.length, error: pricelistError },
         },
       } as any);
     } catch { /* non-fatal */ }
@@ -604,11 +606,12 @@ serve(async (req) => {
       JSON.stringify({
         ok: true, supported: true, days, totalRooms,
         reservations: reservations.length,
+        pricelist: { method: pricelistMethodUsed, entries: pricelistEntries.length, error: pricelistError },
         upserts: {
           occupancy: occInserted, pickup: pickupInserted,
           breakfast: breakfastUpserted,
           roomTypes: roomTypesSeeded, dailyRates: dailyRatesSeeded,
-          dailyRatesRealized,
+          dailyRatesPms, dailyRatesRealized, minStaySynced,
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
