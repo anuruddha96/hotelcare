@@ -426,9 +426,11 @@ export default function RevenueHotelDetail() {
             <span className="text-muted-foreground text-xs"> / night</span>
           </div>
           <div className="text-xs text-muted-foreground">
-            Calendar shows realised ADR per day where Previo has booked reservations
-            (<span className="text-emerald-700 font-medium">live</span>),
-            otherwise this base price (<span className="font-medium">base</span>).
+            Each day shows the rate from Previo's Pricelist screen
+            (<span className="text-primary font-medium">PMS</span>),
+            falling back to the average booked rate
+            (<span className="text-emerald-700 font-medium">ADR</span>) or this base reference
+            (<span className="font-medium">default</span>).
           </div>
         </div>
       )}
