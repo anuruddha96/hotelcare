@@ -238,23 +238,25 @@ serve(async (req) => {
       rooms_sold: number;
       arrivals: number;
       occupied: ParsedReservation[];
+      adrSum: number;        // sum of per-night room price for nights with priceEur
+      adrCount: number;      // number of priced nights
     }
     const dayMap = new Map<string, DayAgg>();
     for (let i = 0; i < days; i++) {
-      dayMap.set(addDays(today, i), { rooms_sold: 0, arrivals: 0, occupied: [] });
+      dayMap.set(addDays(today, i), { rooms_sold: 0, arrivals: 0, occupied: [], adrSum: 0, adrCount: 0 });
     }
     for (const r of reservations) {
-      // Occupancy: for each day d in [arrival, departure)
+      const perNight = r.priceEur != null && r.nights > 0 ? r.priceEur / r.nights : null;
       let cursor = r.arrivalDate < today ? today : r.arrivalDate;
       while (cursor < r.departureDate && cursor < horizon) {
         const agg = dayMap.get(cursor);
         if (agg) {
           agg.rooms_sold += 1;
           agg.occupied.push(r);
+          if (perNight != null) { agg.adrSum += perNight; agg.adrCount += 1; }
         }
         cursor = addDays(cursor, 1);
       }
-      // Arrivals (pickup)
       if (r.arrivalDate >= today && r.arrivalDate < horizon) {
         const agg = dayMap.get(r.arrivalDate);
         if (agg) agg.arrivals += 1;
