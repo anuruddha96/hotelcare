@@ -198,7 +198,10 @@ export default function RevenueHotelDetail() {
       const prev = snaps[1] ?? null;
       const pickupDelta = latest && prev ? (latest.bookings_current - prev.bookings_current) : 0;
       const rate = byDateRate.get(date)?.rate_eur ?? null;
-      const occ = byDateRate.get(date)?.occupancy_pct ?? null;
+      const rateSource = (byDateRate.get(date) as any)?.source ?? null;
+      const occSnap = occByDate.get(date);
+      const occ = occSnap?.occupancy_pct ?? byDateRate.get(date)?.occupancy_pct ?? null;
+      const roomsSold = occSnap?.rooms_sold ?? null;
       const rec = recByDate.get(date) ?? null;
 
       // Rule-engine suggestion (when no pending rec) using full RPG multiplier stack
@@ -227,7 +230,7 @@ export default function RevenueHotelDetail() {
 
       map.set(date, {
         date, dayNum: d.getUTCDate(), dow, isWeekend: dow === 5 || dow === 6, daysOut: i,
-        rate, occupancy: occ, pickupDelta,
+        rate, rateSource, occupancy: occ, roomsSold, pickupDelta,
         bookingsNow: latest?.bookings_current ?? null, bookingsLY: latest?.bookings_last_year ?? null,
         rec, suggestedRate, suggestedDelta,
         abnormal: abnormalDates.has(date),
