@@ -394,6 +394,7 @@ export default function RevenueHotelDetail() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Prices</TabsTrigger>
+          <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
           <TabsTrigger value="pickup"><BarChart3 className="h-4 w-4 mr-1" />Pickup</TabsTrigger>
