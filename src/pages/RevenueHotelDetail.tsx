@@ -625,9 +625,9 @@ export default function RevenueHotelDetail() {
   );
 }
 
-// --- Calendar grid ---
+// --- Unified calendar grid: rate + occupancy + pickup + min stay + events ---
 function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
-  days: Date[]; rowsByDate: Map<string, Row>; inMonth: (d: Date) => boolean;
+  days: Date[]; rowsByDate: Map<string, any>; inMonth: (d: Date) => boolean;
   variant: "prices"|"occupancy"|"minstay"; onSelect: (d: string) => void;
 }) {
   return (
@@ -639,65 +639,80 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
         <div className="grid grid-cols-7 gap-1">
           {days.map(d => {
             const date = iso(d);
-            const r = rowsByDate.get(date);
+            const r = rowsByDate.get(date) as any;
             const muted = !inMonth(d);
+            const occ = r?.occupancy as number | null;
+            const occColor = occ == null ? "" : occ >= 85 ? "bg-red-500" : occ >= 60 ? "bg-amber-400" : "bg-emerald-500";
+            const isRealRate = r?.rateSource === "previo_realized";
             return (
               <button key={date} onClick={() => onSelect(date)}
-                className={`min-h-[88px] rounded-lg border text-left p-2 transition hover:border-primary
+                className={`min-h-[112px] rounded-lg border text-left p-2 transition hover:border-primary
                   ${muted ? "opacity-40" : ""}
                   ${r?.abnormal ? "border-red-500 ring-1 ring-red-300" : ""}
-                  ${r?.events.length ? "bg-purple-50/40" : ""}`}>
+                  ${r?.events?.length ? "bg-purple-50/40" : ""}`}>
                 <div className="flex items-center justify-between text-xs">
                   <span className={`font-semibold ${r?.isWeekend ? "text-purple-700" : ""}`}>{d.getUTCDate()}</span>
-                  {variant === "prices" && r?.occupancy != null && (
-                    <span className="text-[10px] text-muted-foreground">{r.occupancy}%</span>
+                  <div className="flex items-center gap-1">
+                    {r?.minNights && r.minNights > 1 && (
+                      <span className="text-[10px] px-1 rounded bg-slate-100 text-slate-700" title={`Min ${r.minNights} nights`}>≥{r.minNights}n</span>
+                    )}
+                    {r?.events?.length > 0 && (
+                      <span className="text-[10px] text-purple-700" title={r.events.map((e: any) => e.title).join(", ")}>★</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Rate row */}
+                <div className="mt-1 flex items-baseline gap-1">
+                  <div className="text-base font-bold leading-none">
+                    {r?.rate != null ? `€${r.rate}` : <span className="text-muted-foreground text-sm font-normal">—</span>}
+                  </div>
+                  {r?.rate != null && (
+                    <span className={`text-[9px] uppercase tracking-wide ${isRealRate ? "text-emerald-700" : "text-muted-foreground"}`}
+                          title={isRealRate ? "From booked reservations (Previo)" : "Default / manual baseline"}>
+                      {isRealRate ? "live" : "base"}
+                    </span>
+                  )}
+                </div>
+                {r?.rec && (
+                  <div className={`mt-0.5 inline-flex items-center gap-1 text-[10px] px-1 py-0.5 rounded
+                    ${r.rec.delta_eur>=0?"bg-green-100 text-green-800":"bg-red-100 text-red-700"}`}>
+                    {r.rec.delta_eur>=0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
+                    €{r.rec.recommended_rate_eur}
+                  </div>
+                )}
+                {!r?.rec && r?.suggestedRate != null && (
+                  <div className={`mt-0.5 inline-flex items-center gap-1 text-[10px] px-1 py-0.5 rounded border
+                    ${r.suggestedDelta>=0?"text-green-700 border-green-300":"text-red-700 border-red-300"}`}>
+                    {r.suggestedDelta>=0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
+                    €{r.suggestedRate}
+                  </div>
+                )}
+
+                {/* Occupancy bar */}
+                <div className="mt-1.5">
+                  {occ != null ? (
+                    <>
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>Occ</span><span className="font-medium text-foreground">{Math.round(occ)}%</span>
+                      </div>
+                      <div className="h-1 rounded bg-muted overflow-hidden">
+                        <div className={`h-full ${occColor}`} style={{ width: `${Math.min(100, occ)}%` }} />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[10px] text-muted-foreground">No occ data</div>
                   )}
                 </div>
 
-                {variant === "prices" && (
-                  <div className="mt-1 space-y-0.5">
-                    <div className="text-sm font-bold">{r?.rate != null ? `€${r.rate}` : <span className="text-muted-foreground">—</span>}</div>
-                    {r?.rec && (
-                      <div className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded
-                        ${r.rec.delta_eur>=0?"bg-green-100 text-green-800":"bg-red-100 text-red-700"}`}>
-                        {r.rec.delta_eur>=0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
-                        €{r.rec.recommended_rate_eur}
-                      </div>
-                    )}
-                    {!r?.rec && r?.suggestedRate != null && (
-                      <div className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border
-                        ${r.suggestedDelta!>=0?"text-green-700 border-green-300":"text-red-700 border-red-300"}`}>
-                        {r.suggestedDelta!>=0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
-                        €{r.suggestedRate}
-                      </div>
-                    )}
-                    {r?.events && r.events.length > 0 && (
-                      <div className="text-[10px] text-purple-700 truncate" title={r.events.map(e=>e.title).join(", ")}>
-                        ★ {r.events[0].title}
-                      </div>
-                    )}
+                {/* Pickup chip */}
+                {r?.pickupDelta ? (
+                  <div className={`mt-1 inline-flex items-center gap-0.5 text-[9px] font-medium px-1 rounded
+                    ${r.pickupDelta > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                    {r.pickupDelta > 0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
+                    Pickup {r.pickupDelta > 0 ? "+" : ""}{r.pickupDelta}
                   </div>
-                )}
-
-                {variant === "occupancy" && (
-                  <div className="mt-2">
-                    {r?.occupancy != null ? (
-                      <>
-                        <div className="text-lg font-bold">{r.occupancy}%</div>
-                        <div className="h-1.5 rounded bg-muted overflow-hidden">
-                          <div className={`h-full ${r.occupancy>=80?"bg-red-500":r.occupancy>=50?"bg-amber-400":"bg-green-500"}`}
-                            style={{ width: `${Math.min(100, r.occupancy)}%` }} />
-                        </div>
-                      </>
-                    ) : <span className="text-xs text-muted-foreground">—</span>}
-                  </div>
-                )}
-
-                {variant === "minstay" && (
-                  <div className="mt-2">
-                    <div className="text-lg font-bold">{r?.minNights ?? 1}<span className="text-xs text-muted-foreground"> nt</span></div>
-                  </div>
-                )}
+                ) : null}
               </button>
             );
           })}
