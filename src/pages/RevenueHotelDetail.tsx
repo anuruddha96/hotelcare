@@ -61,7 +61,7 @@ export default function RevenueHotelDetail() {
   const [hotelName, setHotelName] = useState("");
   const [snapshots, setSnapshots] = useState<Snap[]>([]);
   const [recs, setRecs] = useState<Rec[]>([]);
-  const [rates, setRates] = useState<DailyRate[]>([]);
+  const [rates, setRates] = useState<Array<DailyRate & { source?: string }>>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [minStays, setMinStays] = useState<MinStay[]>([]);
   const [abnormalDates, setAbnormalDates] = useState<Set<string>>(new Set());
@@ -69,6 +69,8 @@ export default function RevenueHotelDetail() {
   const [decisions, setDecisions] = useState<{ stay_date: string; decision_type: string; reason: string | null }[]>([]);
   const [autopilotBusy, setAutopilotBusy] = useState(false);
   const [lastPushAt, setLastPushAt] = useState<string | null>(null);
+  const [occByDate, setOccByDate] = useState<Map<string, { occupancy_pct: number; rooms_sold: number }>>(new Map());
+  const [refRoomInfo, setRefRoomInfo] = useState<{ name: string; base_price_eur: number; num_rooms: number } | null>(null);
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("prices");
