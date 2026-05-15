@@ -412,14 +412,33 @@ export default function RevenueHotelDetail() {
         </div>
       </div>
 
+      {/* Reference price banner */}
+      {refRoomInfo && (
+        <div className="rounded-lg border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <div>
+            <span className="text-muted-foreground">Reference room: </span>
+            <span className="font-semibold">{refRoomInfo.name}</span>
+            <span className="text-muted-foreground"> · {refRoomInfo.num_rooms} units</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Base reference price: </span>
+            <span className="font-bold text-base">€{refRoomInfo.base_price_eur}</span>
+            <span className="text-muted-foreground text-xs"> / night</span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Calendar shows realised ADR per day where Previo has booked reservations
+            (<span className="text-emerald-700 font-medium">live</span>),
+            otherwise this base price (<span className="font-medium">base</span>).
+          </div>
+        </div>
+      )}
+
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Prices</TabsTrigger>
+          <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
-          <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
           <TabsTrigger value="pickup"><BarChart3 className="h-4 w-4 mr-1" />Pickup</TabsTrigger>
-          <TabsTrigger value="minstay">Min Stay</TabsTrigger>
           <TabsTrigger value="analyst"><Bot className="h-4 w-4 mr-1" />Analyst</TabsTrigger>
           <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
         </TabsList>
@@ -434,16 +453,8 @@ export default function RevenueHotelDetail() {
           )}
         </TabsContent>
 
-        <TabsContent value="occupancy">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="occupancy" onSelect={setSelectedDate} />
-        </TabsContent>
-
         <TabsContent value="events">
           <EventsTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} events={events} onChange={load} />
-        </TabsContent>
-
-        <TabsContent value="minstay">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="minstay" onSelect={setSelectedDate} />
         </TabsContent>
 
         <TabsContent value="pickup">
