@@ -241,7 +241,7 @@ export default function RevenueHotelDetail() {
       } as any);
     }
     return map;
-  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers]);
+  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers, occByDate]);
 
   // Calendar grid for month view
   const gridDays = useMemo(() => {
