@@ -475,24 +475,47 @@ serve(async (req) => {
     for (const r of existingRates ?? []) existingByDate.set((r as any).stay_date, (r as any).source ?? "manual");
 
     const { data: refRoomRows } = await service
-      .from("room_types").select("base_price_eur,is_reference")
+      .from("room_types").select("name,base_price_eur,is_reference,num_rooms,pms_room_id")
       .eq("hotel_id", hotelId);
-    const refRoom = (refRoomRows ?? []).find((r: any) => r.is_reference) ?? (refRoomRows ?? [])[0];
+    const refRoom: any = (refRoomRows ?? []).find((r: any) => r.is_reference) ?? (refRoomRows ?? [])[0];
     const seedRate = Number(refRoom?.base_price_eur) || 120;
+    const refObjIds = new Set<number>(
+      String(refRoom?.pms_room_id || "").split(",").map((s: string) => parseInt(s.trim(), 10)).filter(Boolean),
+    );
+    const refCapacity = (() => {
+      const caps = previoRooms.filter(r => refObjIds.has(r.roomId)).map(r => r.capacity);
+      return caps.length ? Math.max(...caps) : 2;
+    })();
+
+    // Build pricelist reference price per date: prefer entries matching ref room
+    // at full capacity, else any ref-room entry, else cheapest entry of the day.
+    const pricelistRefByDate = new Map<string, { rate: number; minStay: number | null }>();
+    for (const [date, entries] of pricelistByDate) {
+      const pick = entries.find(e => e.objId && refObjIds.has(e.objId) && e.persons === refCapacity)
+        || entries.find(e => e.objId && refObjIds.has(e.objId))
+        || entries.find(e => e.persons === refCapacity)
+        || entries.slice().sort((a, b) => a.amount - b.amount)[0];
+      if (pick) pricelistRefByDate.set(date, { rate: Math.round(pick.amount), minStay: pick.minStay });
+    }
 
     let dailyRatesRealized = 0;
+    let dailyRatesPms = 0;
     const seedRows: any[] = [];
     const realizedUpdates: { stay_date: string; rate_eur: number }[] = [];
+    const pmsUpdates: { stay_date: string; rate_eur: number }[] = [];
+    const minStayUpserts: { stay_date: string; min_nights: number }[] = [];
     for (let i = 0; i < days; i++) {
       const stay_date = addDays(today, i);
       const agg = dayMap.get(stay_date);
       const adr = agg && agg.adrCount > 0 ? Math.round(agg.adrSum / agg.adrCount) : null;
+      const pms = pricelistRefByDate.get(stay_date);
       const existingSrc = existingByDate.get(stay_date);
-      if (adr != null) {
-        // Realized ADR overwrites seed/manual placeholders, but never overrides explicit overrides.
-        if (!existingSrc || existingSrc === "manual" || existingSrc === "previo_realized" || existingSrc === "engine") {
-          realizedUpdates.push({ stay_date, rate_eur: adr });
-        }
+      const overridable = !existingSrc || existingSrc === "manual" || existingSrc === "previo_realized" || existingSrc === "previo_pms" || existingSrc === "engine";
+      if (pms && overridable) {
+        pmsUpdates.push({ stay_date, rate_eur: pms.rate });
+        if (pms.minStay && pms.minStay > 1) minStayUpserts.push({ stay_date, min_nights: pms.minStay });
+      } else if (adr != null && overridable) {
+        realizedUpdates.push({ stay_date, rate_eur: adr });
       } else if (!existingSrc) {
         seedRows.push({
           hotel_id: hotelId, organization_slug: orgSlug, stay_date,
@@ -505,6 +528,15 @@ serve(async (req) => {
       if (!error) dailyRatesSeeded += part.length;
       else console.error("daily_rates seed error:", error.message);
     }
+    for (const part of chunk(pmsUpdates, 200)) {
+      const upsertRows = part.map(r => ({
+        hotel_id: hotelId, organization_slug: orgSlug,
+        stay_date: r.stay_date, rate_eur: r.rate_eur, source: "previo_pms",
+      }));
+      const { error } = await service.from("daily_rates").upsert(upsertRows, { onConflict: "hotel_id,stay_date" });
+      if (!error) dailyRatesPms += part.length;
+      else console.error("daily_rates pms upsert error:", error.message);
+    }
     for (const part of chunk(realizedUpdates, 200)) {
       const upsertRows = part.map(r => ({
         hotel_id: hotelId, organization_slug: orgSlug,
@@ -513,6 +545,16 @@ serve(async (req) => {
       const { error } = await service.from("daily_rates").upsert(upsertRows, { onConflict: "hotel_id,stay_date" });
       if (!error) dailyRatesRealized += part.length;
       else console.error("daily_rates realized upsert error:", error.message);
+    }
+    let minStaySynced = 0;
+    for (const part of chunk(minStayUpserts, 200)) {
+      const upsertRows = part.map(r => ({
+        hotel_id: hotelId, organization_slug: orgSlug,
+        stay_date: r.stay_date, min_nights: r.min_nights, source: "previo_pms",
+      }));
+      const { error } = await service.from("min_stay_rules").upsert(upsertRows, { onConflict: "hotel_id,stay_date" });
+      if (!error) minStaySynced += part.length;
+      else console.error("min_stay_rules upsert error:", error.message);
     }
 
     // Default settings + dow/monthly/occupancy targets (insert if missing).
