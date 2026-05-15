@@ -396,9 +396,10 @@ serve(async (req) => {
     }
 
     const { data: existingRates } = await service
-      .from("daily_rates").select("stay_date")
+      .from("daily_rates").select("stay_date,source")
       .eq("hotel_id", hotelId).gte("stay_date", today).lt("stay_date", horizon).limit(2000);
-    const existingRateDates = new Set((existingRates ?? []).map((r: any) => r.stay_date));
+    const existingByDate = new Map<string, string>();
+    for (const r of existingRates ?? []) existingByDate.set((r as any).stay_date, (r as any).source ?? "manual");
 
     const { data: refRoomRows } = await service
       .from("room_types").select("base_price_eur,is_reference")
@@ -406,19 +407,39 @@ serve(async (req) => {
     const refRoom = (refRoomRows ?? []).find((r: any) => r.is_reference) ?? (refRoomRows ?? [])[0];
     const seedRate = Number(refRoom?.base_price_eur) || 120;
 
-    const rateRows: any[] = [];
+    let dailyRatesRealized = 0;
+    const seedRows: any[] = [];
+    const realizedUpdates: { stay_date: string; rate_eur: number }[] = [];
     for (let i = 0; i < days; i++) {
       const stay_date = addDays(today, i);
-      if (existingRateDates.has(stay_date)) continue;
-      rateRows.push({
-        hotel_id: hotelId, organization_slug: orgSlug, stay_date,
-        rate_eur: seedRate, source: "manual",
-      });
+      const agg = dayMap.get(stay_date);
+      const adr = agg && agg.adrCount > 0 ? Math.round(agg.adrSum / agg.adrCount) : null;
+      const existingSrc = existingByDate.get(stay_date);
+      if (adr != null) {
+        // Realized ADR overwrites seed/manual placeholders, but never overrides explicit overrides.
+        if (!existingSrc || existingSrc === "manual" || existingSrc === "previo_realized" || existingSrc === "engine") {
+          realizedUpdates.push({ stay_date, rate_eur: adr });
+        }
+      } else if (!existingSrc) {
+        seedRows.push({
+          hotel_id: hotelId, organization_slug: orgSlug, stay_date,
+          rate_eur: seedRate, source: "manual",
+        });
+      }
     }
-    for (const part of chunk(rateRows, 300)) {
+    for (const part of chunk(seedRows, 300)) {
       const { error } = await service.from("daily_rates").insert(part);
       if (!error) dailyRatesSeeded += part.length;
       else console.error("daily_rates seed error:", error.message);
+    }
+    for (const part of chunk(realizedUpdates, 200)) {
+      const upsertRows = part.map(r => ({
+        hotel_id: hotelId, organization_slug: orgSlug,
+        stay_date: r.stay_date, rate_eur: r.rate_eur, source: "previo_realized",
+      }));
+      const { error } = await service.from("daily_rates").upsert(upsertRows, { onConflict: "hotel_id,stay_date" });
+      if (!error) dailyRatesRealized += part.length;
+      else console.error("daily_rates realized upsert error:", error.message);
     }
 
     // Default settings + dow/monthly/occupancy targets (insert if missing).
