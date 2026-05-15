@@ -493,6 +493,7 @@ serve(async (req) => {
           occupancy: occInserted, pickup: pickupInserted,
           breakfast: breakfastUpserted,
           roomTypes: roomTypesSeeded, dailyRates: dailyRatesSeeded,
+          dailyRatesRealized,
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
