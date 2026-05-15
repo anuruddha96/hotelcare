@@ -211,14 +211,25 @@ serve(async (req) => {
       if (!roomName && !objId) continue;
       const guestsCount = (block.match(/<guest>/g) || []).length;
       const noteMatch = block.match(/<note>([^<]*)<\/note>/);
+      // Parse total price (try several common Previo tags)
+      const priceTagMatch = block.match(/<(?:price|priceTotal|totalPrice|amount)>([\d.,]+)<\/(?:price|priceTotal|totalPrice|amount)>/i);
+      const currencyMatch = block.match(/<currency>([^<]+)<\/currency>/i);
+      const rawPrice = priceTagMatch ? parseFloat(priceTagMatch[1].replace(",", ".")) : NaN;
+      const currency = currencyMatch ? currencyMatch[1].trim().toUpperCase() : "EUR";
+      // Convert CZK→EUR fallback ratio (rough). Best-effort: only EUR is trusted.
+      let priceEur: number | null = null;
+      if (Number.isFinite(rawPrice) && rawPrice > 0) {
+        if (currency === "EUR") priceEur = rawPrice;
+        else if (currency === "CZK") priceEur = Math.round((rawPrice / 25) * 100) / 100;
+      }
+      const arrival = fromStr.slice(0, 10);
+      const departure = toStr.slice(0, 10);
+      const nights = Math.max(1, Math.round((new Date(departure + "T00:00:00Z").getTime() - new Date(arrival + "T00:00:00Z").getTime()) / 86400000));
       reservations.push({
-        objId,
-        roomName,
-        arrivalDate: fromStr.slice(0, 10),
-        departureDate: toStr.slice(0, 10),
-        statusId,
-        guestsCount: guestsCount || 1,
+        objId, roomName, arrivalDate: arrival, departureDate: departure,
+        statusId, guestsCount: guestsCount || 1,
         note: noteMatch ? (noteMatch[1].trim() || null) : null,
+        priceEur, nights,
       });
     }
 
