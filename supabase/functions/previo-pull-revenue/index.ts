@@ -233,6 +233,79 @@ serve(async (req) => {
       });
     }
 
+    // ---- 2b. Pricelist XML (the prices visible in Previo's Pricelist screen) ----
+    // Tries several known method names; failures are logged but non-fatal so the
+    // rest of the sync still completes.
+    interface PricelistEntry { date: string; objId: number | null; persons: number | null; amount: number; currency: string; minStay: number | null; maxStay: number | null; }
+    const pricelistEntries: PricelistEntry[] = [];
+    let pricelistMethodUsed: string | null = null;
+    let pricelistError: string | null = null;
+    const pricelistMethods = ["getPricelist", "getPriceList", "pricelist", "getPrices", "getRates"];
+    for (const method of pricelistMethods) {
+      try {
+        const body = `<?xml version="1.0"?>
+<request>
+<login>${xmlUser}</login>
+<password>${xmlPass}</password>
+<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
+<term><from>${today}</from><to>${horizon}</to></term>
+</request>`;
+        const resp = await fetch(`https://api.previo.cz/x1/hotel/${method}/`, {
+          method: "POST",
+          headers: { "Content-Type": "text/xml; charset=UTF-8" },
+          body,
+        });
+        const text = await resp.text();
+        if (!resp.ok || /<error>/i.test(text) || /not\s*found/i.test(text)) {
+          pricelistError = `${method}: ${resp.status} ${text.slice(0, 120)}`;
+          continue;
+        }
+        // Parse <price> blocks (defensive — Previo XML uses different tag names across deployments).
+        const blocks = text.match(/<price[\s>][\s\S]*?<\/price>/gi) || text.match(/<priceItem[\s>][\s\S]*?<\/priceItem>/gi) || [];
+        if (blocks.length === 0) {
+          pricelistError = `${method}: no <price> blocks (snippet: ${text.replace(/\s+/g, " ").slice(0, 200)})`;
+          continue;
+        }
+        const grabAny = (s: string, tags: string[]) => {
+          for (const t of tags) {
+            const m = s.match(new RegExp(`<${t}>([^<]*)</${t}>`, "i"));
+            if (m) return m[1].trim();
+          }
+          return "";
+        };
+        for (const b of blocks) {
+          const date = grabAny(b, ["date", "day"]).slice(0, 10);
+          if (!date) continue;
+          const objId = parseInt(grabAny(b, ["objId", "roomId", "objectId", "objTypeId"]) || "0", 10) || null;
+          const persons = parseInt(grabAny(b, ["persons", "occupancy", "people", "pax"]) || "0", 10) || null;
+          const amountRaw = grabAny(b, ["amount", "price", "rate", "value"]);
+          const amount = parseFloat(amountRaw.replace(",", "."));
+          if (!Number.isFinite(amount) || amount <= 0) continue;
+          const currency = (grabAny(b, ["currency", "curr"]) || "EUR").toUpperCase();
+          const minStay = parseInt(grabAny(b, ["minStay", "minNights"]) || "0", 10) || null;
+          const maxStay = parseInt(grabAny(b, ["maxStay", "maxNights"]) || "0", 10) || null;
+          pricelistEntries.push({ date, objId, persons, amount, currency, minStay, maxStay });
+        }
+        pricelistMethodUsed = method;
+        pricelistError = null;
+        break;
+      } catch (e: any) {
+        pricelistError = `${method}: ${e?.message || e}`;
+      }
+    }
+    console.log(`Pricelist: method=${pricelistMethodUsed}, entries=${pricelistEntries.length}, lastError=${pricelistError ?? "none"}`);
+
+    // Aggregate per date: pick the reference price (capacity-matched, cheapest fallback).
+    // We compute it after we know the reference room type below; for now group raw entries.
+    const pricelistByDate = new Map<string, PricelistEntry[]>();
+    for (const e of pricelistEntries) {
+      const eur = e.currency === "EUR" ? e.amount : e.currency === "CZK" ? e.amount / 25 : null;
+      if (eur == null) continue;
+      const arr = pricelistByDate.get(e.date) ?? [];
+      arr.push({ ...e, amount: eur, currency: "EUR" });
+      pricelistByDate.set(e.date, arr);
+    }
+
     // ---- 3. Aggregate per stay_date ----
     interface DayAgg {
       rooms_sold: number;
