@@ -38,6 +38,8 @@ interface ParsedReservation {
   statusId: number;
   guestsCount: number;
   note: string | null;
+  priceEur: number | null;       // total reservation price in EUR (null if missing)
+  nights: number;                // nights count for ADR derivation
 }
 
 function isoDate(d: Date): string {
@@ -209,14 +211,25 @@ serve(async (req) => {
       if (!roomName && !objId) continue;
       const guestsCount = (block.match(/<guest>/g) || []).length;
       const noteMatch = block.match(/<note>([^<]*)<\/note>/);
+      // Parse total price (try several common Previo tags)
+      const priceTagMatch = block.match(/<(?:price|priceTotal|totalPrice|amount)>([\d.,]+)<\/(?:price|priceTotal|totalPrice|amount)>/i);
+      const currencyMatch = block.match(/<currency>([^<]+)<\/currency>/i);
+      const rawPrice = priceTagMatch ? parseFloat(priceTagMatch[1].replace(",", ".")) : NaN;
+      const currency = currencyMatch ? currencyMatch[1].trim().toUpperCase() : "EUR";
+      // Convert CZK→EUR fallback ratio (rough). Best-effort: only EUR is trusted.
+      let priceEur: number | null = null;
+      if (Number.isFinite(rawPrice) && rawPrice > 0) {
+        if (currency === "EUR") priceEur = rawPrice;
+        else if (currency === "CZK") priceEur = Math.round((rawPrice / 25) * 100) / 100;
+      }
+      const arrival = fromStr.slice(0, 10);
+      const departure = toStr.slice(0, 10);
+      const nights = Math.max(1, Math.round((new Date(departure + "T00:00:00Z").getTime() - new Date(arrival + "T00:00:00Z").getTime()) / 86400000));
       reservations.push({
-        objId,
-        roomName,
-        arrivalDate: fromStr.slice(0, 10),
-        departureDate: toStr.slice(0, 10),
-        statusId,
-        guestsCount: guestsCount || 1,
+        objId, roomName, arrivalDate: arrival, departureDate: departure,
+        statusId, guestsCount: guestsCount || 1,
         note: noteMatch ? (noteMatch[1].trim() || null) : null,
+        priceEur, nights,
       });
     }
 
@@ -225,23 +238,25 @@ serve(async (req) => {
       rooms_sold: number;
       arrivals: number;
       occupied: ParsedReservation[];
+      adrSum: number;        // sum of per-night room price for nights with priceEur
+      adrCount: number;      // number of priced nights
     }
     const dayMap = new Map<string, DayAgg>();
     for (let i = 0; i < days; i++) {
-      dayMap.set(addDays(today, i), { rooms_sold: 0, arrivals: 0, occupied: [] });
+      dayMap.set(addDays(today, i), { rooms_sold: 0, arrivals: 0, occupied: [], adrSum: 0, adrCount: 0 });
     }
     for (const r of reservations) {
-      // Occupancy: for each day d in [arrival, departure)
+      const perNight = r.priceEur != null && r.nights > 0 ? r.priceEur / r.nights : null;
       let cursor = r.arrivalDate < today ? today : r.arrivalDate;
       while (cursor < r.departureDate && cursor < horizon) {
         const agg = dayMap.get(cursor);
         if (agg) {
           agg.rooms_sold += 1;
           agg.occupied.push(r);
+          if (perNight != null) { agg.adrSum += perNight; agg.adrCount += 1; }
         }
         cursor = addDays(cursor, 1);
       }
-      // Arrivals (pickup)
       if (r.arrivalDate >= today && r.arrivalDate < horizon) {
         const agg = dayMap.get(r.arrivalDate);
         if (agg) agg.arrivals += 1;
@@ -381,9 +396,10 @@ serve(async (req) => {
     }
 
     const { data: existingRates } = await service
-      .from("daily_rates").select("stay_date")
+      .from("daily_rates").select("stay_date,source")
       .eq("hotel_id", hotelId).gte("stay_date", today).lt("stay_date", horizon).limit(2000);
-    const existingRateDates = new Set((existingRates ?? []).map((r: any) => r.stay_date));
+    const existingByDate = new Map<string, string>();
+    for (const r of existingRates ?? []) existingByDate.set((r as any).stay_date, (r as any).source ?? "manual");
 
     const { data: refRoomRows } = await service
       .from("room_types").select("base_price_eur,is_reference")
@@ -391,19 +407,39 @@ serve(async (req) => {
     const refRoom = (refRoomRows ?? []).find((r: any) => r.is_reference) ?? (refRoomRows ?? [])[0];
     const seedRate = Number(refRoom?.base_price_eur) || 120;
 
-    const rateRows: any[] = [];
+    let dailyRatesRealized = 0;
+    const seedRows: any[] = [];
+    const realizedUpdates: { stay_date: string; rate_eur: number }[] = [];
     for (let i = 0; i < days; i++) {
       const stay_date = addDays(today, i);
-      if (existingRateDates.has(stay_date)) continue;
-      rateRows.push({
-        hotel_id: hotelId, organization_slug: orgSlug, stay_date,
-        rate_eur: seedRate, source: "manual",
-      });
+      const agg = dayMap.get(stay_date);
+      const adr = agg && agg.adrCount > 0 ? Math.round(agg.adrSum / agg.adrCount) : null;
+      const existingSrc = existingByDate.get(stay_date);
+      if (adr != null) {
+        // Realized ADR overwrites seed/manual placeholders, but never overrides explicit overrides.
+        if (!existingSrc || existingSrc === "manual" || existingSrc === "previo_realized" || existingSrc === "engine") {
+          realizedUpdates.push({ stay_date, rate_eur: adr });
+        }
+      } else if (!existingSrc) {
+        seedRows.push({
+          hotel_id: hotelId, organization_slug: orgSlug, stay_date,
+          rate_eur: seedRate, source: "manual",
+        });
+      }
     }
-    for (const part of chunk(rateRows, 300)) {
+    for (const part of chunk(seedRows, 300)) {
       const { error } = await service.from("daily_rates").insert(part);
       if (!error) dailyRatesSeeded += part.length;
       else console.error("daily_rates seed error:", error.message);
+    }
+    for (const part of chunk(realizedUpdates, 200)) {
+      const upsertRows = part.map(r => ({
+        hotel_id: hotelId, organization_slug: orgSlug,
+        stay_date: r.stay_date, rate_eur: r.rate_eur, source: "previo_realized",
+      }));
+      const { error } = await service.from("daily_rates").upsert(upsertRows, { onConflict: "hotel_id,stay_date" });
+      if (!error) dailyRatesRealized += part.length;
+      else console.error("daily_rates realized upsert error:", error.message);
     }
 
     // Default settings + dow/monthly/occupancy targets (insert if missing).
@@ -457,6 +493,7 @@ serve(async (req) => {
           occupancy: occInserted, pickup: pickupInserted,
           breakfast: breakfastUpserted,
           roomTypes: roomTypesSeeded, dailyRates: dailyRatesSeeded,
+          dailyRatesRealized,
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },

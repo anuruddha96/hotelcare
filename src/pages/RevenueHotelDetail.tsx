@@ -61,7 +61,7 @@ export default function RevenueHotelDetail() {
   const [hotelName, setHotelName] = useState("");
   const [snapshots, setSnapshots] = useState<Snap[]>([]);
   const [recs, setRecs] = useState<Rec[]>([]);
-  const [rates, setRates] = useState<DailyRate[]>([]);
+  const [rates, setRates] = useState<Array<DailyRate & { source?: string }>>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [minStays, setMinStays] = useState<MinStay[]>([]);
   const [abnormalDates, setAbnormalDates] = useState<Set<string>>(new Set());
@@ -69,6 +69,8 @@ export default function RevenueHotelDetail() {
   const [decisions, setDecisions] = useState<{ stay_date: string; decision_type: string; reason: string | null }[]>([]);
   const [autopilotBusy, setAutopilotBusy] = useState(false);
   const [lastPushAt, setLastPushAt] = useState<string | null>(null);
+  const [occByDate, setOccByDate] = useState<Map<string, { occupancy_pct: number; rooms_sold: number }>>(new Map());
+  const [refRoomInfo, setRefRoomInfo] = useState<{ name: string; base_price_eur: number; num_rooms: number } | null>(null);
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("prices");
@@ -94,14 +96,14 @@ export default function RevenueHotelDetail() {
     if (!hotelId) return;
     const today = iso(new Date());
     const horizon = iso(addDays(new Date(), 365));
-    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }] = await Promise.all([
+    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }, { data: occSnaps }] = await Promise.all([
       supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon)
         .order("captured_at", { ascending: false }).limit(5000),
       supabase.from("rate_recommendations").select("*")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
-      (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct")
+      (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct,source")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
       (supabase as any).from("hotel_events").select("*").eq("hotel_id", hotelId)
         .gte("event_date", today).lte("event_date", horizon).limit(500),
@@ -109,22 +111,33 @@ export default function RevenueHotelDetail() {
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
       supabase.from("revenue_alerts").select("stay_date").eq("hotel_id", hotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
       supabase.from("hotel_revenue_settings").select("*").eq("hotel_id", hotelId).maybeSingle(),
-      (supabase as any).from("room_types").select("base_price_eur,min_price_eur,max_price_eur,is_reference").eq("hotel_id", hotelId),
+      (supabase as any).from("room_types").select("name,base_price_eur,min_price_eur,max_price_eur,is_reference,num_rooms").eq("hotel_id", hotelId),
       (supabase as any).from("dow_adjustments").select("dow,percent").eq("hotel_id", hotelId),
       (supabase as any).from("monthly_adjustments").select("month,percent").eq("hotel_id", hotelId),
       (supabase as any).from("lead_time_adjustments").select("bucket,percent").eq("hotel_id", hotelId),
       (supabase as any).from("occupancy_targets").select("month,target_pct").eq("hotel_id", hotelId),
       (supabase as any).from("occupancy_strategy").select("aggressiveness").eq("hotel_id", hotelId).maybeSingle(),
+      (supabase as any).from("occupancy_snapshots")
+        .select("stay_date,occupancy_pct,rooms_sold,captured_at")
+        .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon)
+        .order("captured_at", { ascending: false }).limit(5000),
     ]);
 
     setHotelName(h?.hotel_name ?? hotelId);
     setSnapshots((s ?? []) as Snap[]);
     setRecs((r ?? []) as Rec[]);
-    setRates((dr ?? []) as DailyRate[]);
+    setRates((dr ?? []) as any);
     setEvents((ev ?? []) as Event[]);
     setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
+
+    // Latest occupancy snapshot per date (occSnaps already ordered desc by captured_at).
+    const occMap = new Map<string, { occupancy_pct: number; rooms_sold: number }>();
+    for (const o of (occSnaps ?? []) as any[]) {
+      if (!occMap.has(o.stay_date)) occMap.set(o.stay_date, { occupancy_pct: Number(o.occupancy_pct) || 0, rooms_sold: o.rooms_sold ?? 0 });
+    }
+    setOccByDate(occMap);
 
     // Autopilot decisions + last push timestamp (best-effort, errors ignored)
     const [{ data: dec }, { data: lp }] = await Promise.all([
@@ -138,6 +151,11 @@ export default function RevenueHotelDetail() {
     setLastPushAt(lp?.created_at ?? null);
 
     const refRoom = (rooms ?? []).find((rt: any) => rt.is_reference) ?? (rooms ?? [])[0];
+    if (refRoom) setRefRoomInfo({
+      name: refRoom.name ?? "Reference room",
+      base_price_eur: Number(refRoom.base_price_eur) || 0,
+      num_rooms: refRoom.num_rooms ?? 0,
+    });
     const dowMap: Record<number, number> = {};
     for (const d of dow ?? []) dowMap[d.dow] = Number(d.percent) || 0;
     const monMap: Record<number, number> = {};
@@ -180,7 +198,10 @@ export default function RevenueHotelDetail() {
       const prev = snaps[1] ?? null;
       const pickupDelta = latest && prev ? (latest.bookings_current - prev.bookings_current) : 0;
       const rate = byDateRate.get(date)?.rate_eur ?? null;
-      const occ = byDateRate.get(date)?.occupancy_pct ?? null;
+      const rateSource = (byDateRate.get(date) as any)?.source ?? null;
+      const occSnap = occByDate.get(date);
+      const occ = occSnap?.occupancy_pct ?? byDateRate.get(date)?.occupancy_pct ?? null;
+      const roomsSold = occSnap?.rooms_sold ?? null;
       const rec = recByDate.get(date) ?? null;
 
       // Rule-engine suggestion (when no pending rec) using full RPG multiplier stack
@@ -209,7 +230,7 @@ export default function RevenueHotelDetail() {
 
       map.set(date, {
         date, dayNum: d.getUTCDate(), dow, isWeekend: dow === 5 || dow === 6, daysOut: i,
-        rate, occupancy: occ, pickupDelta,
+        rate, rateSource, occupancy: occ, roomsSold, pickupDelta,
         bookingsNow: latest?.bookings_current ?? null, bookingsLY: latest?.bookings_last_year ?? null,
         rec, suggestedRate, suggestedDelta,
         abnormal: abnormalDates.has(date),
@@ -220,7 +241,7 @@ export default function RevenueHotelDetail() {
       } as any);
     }
     return map;
-  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers]);
+  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers, occByDate]);
 
   // Calendar grid for month view
   const gridDays = useMemo(() => {
@@ -391,14 +412,33 @@ export default function RevenueHotelDetail() {
         </div>
       </div>
 
+      {/* Reference price banner */}
+      {refRoomInfo && (
+        <div className="rounded-lg border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <div>
+            <span className="text-muted-foreground">Reference room: </span>
+            <span className="font-semibold">{refRoomInfo.name}</span>
+            <span className="text-muted-foreground"> · {refRoomInfo.num_rooms} units</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Base reference price: </span>
+            <span className="font-bold text-base">€{refRoomInfo.base_price_eur}</span>
+            <span className="text-muted-foreground text-xs"> / night</span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Calendar shows realised ADR per day where Previo has booked reservations
+            (<span className="text-emerald-700 font-medium">live</span>),
+            otherwise this base price (<span className="font-medium">base</span>).
+          </div>
+        </div>
+      )}
+
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Prices</TabsTrigger>
+          <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
-          <TabsTrigger value="occupancy">Occupancy</TabsTrigger>
           <TabsTrigger value="pickup"><BarChart3 className="h-4 w-4 mr-1" />Pickup</TabsTrigger>
-          <TabsTrigger value="minstay">Min Stay</TabsTrigger>
           <TabsTrigger value="analyst"><Bot className="h-4 w-4 mr-1" />Analyst</TabsTrigger>
           <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
         </TabsList>
@@ -413,16 +453,8 @@ export default function RevenueHotelDetail() {
           )}
         </TabsContent>
 
-        <TabsContent value="occupancy">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="occupancy" onSelect={setSelectedDate} />
-        </TabsContent>
-
         <TabsContent value="events">
           <EventsTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} events={events} onChange={load} />
-        </TabsContent>
-
-        <TabsContent value="minstay">
-          <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="minstay" onSelect={setSelectedDate} />
         </TabsContent>
 
         <TabsContent value="pickup">
@@ -604,9 +636,9 @@ export default function RevenueHotelDetail() {
   );
 }
 
-// --- Calendar grid ---
+// --- Unified calendar grid: rate + occupancy + pickup + min stay + events ---
 function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
-  days: Date[]; rowsByDate: Map<string, Row>; inMonth: (d: Date) => boolean;
+  days: Date[]; rowsByDate: Map<string, any>; inMonth: (d: Date) => boolean;
   variant: "prices"|"occupancy"|"minstay"; onSelect: (d: string) => void;
 }) {
   return (
@@ -618,65 +650,80 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
         <div className="grid grid-cols-7 gap-1">
           {days.map(d => {
             const date = iso(d);
-            const r = rowsByDate.get(date);
+            const r = rowsByDate.get(date) as any;
             const muted = !inMonth(d);
+            const occ = r?.occupancy as number | null;
+            const occColor = occ == null ? "" : occ >= 85 ? "bg-red-500" : occ >= 60 ? "bg-amber-400" : "bg-emerald-500";
+            const isRealRate = r?.rateSource === "previo_realized";
             return (
               <button key={date} onClick={() => onSelect(date)}
-                className={`min-h-[88px] rounded-lg border text-left p-2 transition hover:border-primary
+                className={`min-h-[112px] rounded-lg border text-left p-2 transition hover:border-primary
                   ${muted ? "opacity-40" : ""}
                   ${r?.abnormal ? "border-red-500 ring-1 ring-red-300" : ""}
-                  ${r?.events.length ? "bg-purple-50/40" : ""}`}>
+                  ${r?.events?.length ? "bg-purple-50/40" : ""}`}>
                 <div className="flex items-center justify-between text-xs">
                   <span className={`font-semibold ${r?.isWeekend ? "text-purple-700" : ""}`}>{d.getUTCDate()}</span>
-                  {variant === "prices" && r?.occupancy != null && (
-                    <span className="text-[10px] text-muted-foreground">{r.occupancy}%</span>
+                  <div className="flex items-center gap-1">
+                    {r?.minNights && r.minNights > 1 && (
+                      <span className="text-[10px] px-1 rounded bg-slate-100 text-slate-700" title={`Min ${r.minNights} nights`}>≥{r.minNights}n</span>
+                    )}
+                    {r?.events?.length > 0 && (
+                      <span className="text-[10px] text-purple-700" title={r.events.map((e: any) => e.title).join(", ")}>★</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Rate row */}
+                <div className="mt-1 flex items-baseline gap-1">
+                  <div className="text-base font-bold leading-none">
+                    {r?.rate != null ? `€${r.rate}` : <span className="text-muted-foreground text-sm font-normal">—</span>}
+                  </div>
+                  {r?.rate != null && (
+                    <span className={`text-[9px] uppercase tracking-wide ${isRealRate ? "text-emerald-700" : "text-muted-foreground"}`}
+                          title={isRealRate ? "From booked reservations (Previo)" : "Default / manual baseline"}>
+                      {isRealRate ? "live" : "base"}
+                    </span>
+                  )}
+                </div>
+                {r?.rec && (
+                  <div className={`mt-0.5 inline-flex items-center gap-1 text-[10px] px-1 py-0.5 rounded
+                    ${r.rec.delta_eur>=0?"bg-green-100 text-green-800":"bg-red-100 text-red-700"}`}>
+                    {r.rec.delta_eur>=0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
+                    €{r.rec.recommended_rate_eur}
+                  </div>
+                )}
+                {!r?.rec && r?.suggestedRate != null && (
+                  <div className={`mt-0.5 inline-flex items-center gap-1 text-[10px] px-1 py-0.5 rounded border
+                    ${r.suggestedDelta>=0?"text-green-700 border-green-300":"text-red-700 border-red-300"}`}>
+                    {r.suggestedDelta>=0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
+                    €{r.suggestedRate}
+                  </div>
+                )}
+
+                {/* Occupancy bar */}
+                <div className="mt-1.5">
+                  {occ != null ? (
+                    <>
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>Occ</span><span className="font-medium text-foreground">{Math.round(occ)}%</span>
+                      </div>
+                      <div className="h-1 rounded bg-muted overflow-hidden">
+                        <div className={`h-full ${occColor}`} style={{ width: `${Math.min(100, occ)}%` }} />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[10px] text-muted-foreground">No occ data</div>
                   )}
                 </div>
 
-                {variant === "prices" && (
-                  <div className="mt-1 space-y-0.5">
-                    <div className="text-sm font-bold">{r?.rate != null ? `€${r.rate}` : <span className="text-muted-foreground">—</span>}</div>
-                    {r?.rec && (
-                      <div className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded
-                        ${r.rec.delta_eur>=0?"bg-green-100 text-green-800":"bg-red-100 text-red-700"}`}>
-                        {r.rec.delta_eur>=0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
-                        €{r.rec.recommended_rate_eur}
-                      </div>
-                    )}
-                    {!r?.rec && r?.suggestedRate != null && (
-                      <div className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border
-                        ${r.suggestedDelta!>=0?"text-green-700 border-green-300":"text-red-700 border-red-300"}`}>
-                        {r.suggestedDelta!>=0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
-                        €{r.suggestedRate}
-                      </div>
-                    )}
-                    {r?.events && r.events.length > 0 && (
-                      <div className="text-[10px] text-purple-700 truncate" title={r.events.map(e=>e.title).join(", ")}>
-                        ★ {r.events[0].title}
-                      </div>
-                    )}
+                {/* Pickup chip */}
+                {r?.pickupDelta ? (
+                  <div className={`mt-1 inline-flex items-center gap-0.5 text-[9px] font-medium px-1 rounded
+                    ${r.pickupDelta > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                    {r.pickupDelta > 0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
+                    Pickup {r.pickupDelta > 0 ? "+" : ""}{r.pickupDelta}
                   </div>
-                )}
-
-                {variant === "occupancy" && (
-                  <div className="mt-2">
-                    {r?.occupancy != null ? (
-                      <>
-                        <div className="text-lg font-bold">{r.occupancy}%</div>
-                        <div className="h-1.5 rounded bg-muted overflow-hidden">
-                          <div className={`h-full ${r.occupancy>=80?"bg-red-500":r.occupancy>=50?"bg-amber-400":"bg-green-500"}`}
-                            style={{ width: `${Math.min(100, r.occupancy)}%` }} />
-                        </div>
-                      </>
-                    ) : <span className="text-xs text-muted-foreground">—</span>}
-                  </div>
-                )}
-
-                {variant === "minstay" && (
-                  <div className="mt-2">
-                    <div className="text-lg font-bold">{r?.minNights ?? 1}<span className="text-xs text-muted-foreground"> nt</span></div>
-                  </div>
-                )}
+                ) : null}
               </button>
             );
           })}
