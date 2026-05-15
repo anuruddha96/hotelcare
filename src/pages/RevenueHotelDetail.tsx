@@ -126,6 +126,17 @@ export default function RevenueHotelDetail() {
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
 
+    // Autopilot decisions + last push timestamp (best-effort, errors ignored)
+    const [{ data: dec }, { data: lp }] = await Promise.all([
+      (supabase as any).from("autopilot_decisions").select("stay_date,decision_type,reason")
+        .eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(500),
+      (supabase as any).from("pms_sync_history").select("created_at,sync_status")
+        .eq("hotel_id", hotelId).eq("sync_type", "rate_push").eq("sync_status", "success")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    setDecisions((dec ?? []) as any);
+    setLastPushAt(lp?.created_at ?? null);
+
     const refRoom = (rooms ?? []).find((rt: any) => rt.is_reference) ?? (rooms ?? [])[0];
     const dowMap: Record<number, number> = {};
     for (const d of dow ?? []) dowMap[d.dow] = Number(d.percent) || 0;
