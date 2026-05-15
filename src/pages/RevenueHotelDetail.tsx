@@ -426,9 +426,11 @@ export default function RevenueHotelDetail() {
             <span className="text-muted-foreground text-xs"> / night</span>
           </div>
           <div className="text-xs text-muted-foreground">
-            Calendar shows realised ADR per day where Previo has booked reservations
-            (<span className="text-emerald-700 font-medium">live</span>),
-            otherwise this base price (<span className="font-medium">base</span>).
+            Each day shows the rate from Previo's Pricelist screen
+            (<span className="text-primary font-medium">PMS</span>),
+            falling back to the average booked rate
+            (<span className="text-emerald-700 font-medium">ADR</span>) or this base reference
+            (<span className="font-medium">default</span>).
           </div>
         </div>
       )}
@@ -654,7 +656,14 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
             const muted = !inMonth(d);
             const occ = r?.occupancy as number | null;
             const occColor = occ == null ? "" : occ >= 85 ? "bg-red-500" : occ >= 60 ? "bg-amber-400" : "bg-emerald-500";
-            const isRealRate = r?.rateSource === "previo_realized";
+            const src: string | null = r?.rateSource ?? null;
+            const srcMeta = src === "previo_pms"
+              ? { label: "PMS", cls: "text-primary", title: "From Previo Pricelist (live PMS rate)" }
+              : src === "previo_realized"
+              ? { label: "ADR", cls: "text-emerald-700", title: "Average rate from booked reservations" }
+              : src === "engine"
+              ? { label: "AUTO", cls: "text-amber-600", title: "Set by autopilot engine" }
+              : { label: "default", cls: "text-muted-foreground", title: "Default / manual baseline (no PMS price yet)" };
             return (
               <button key={date} onClick={() => onSelect(date)}
                 className={`min-h-[112px] rounded-lg border text-left p-2 transition hover:border-primary
@@ -679,9 +688,8 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
                     {r?.rate != null ? `€${r.rate}` : <span className="text-muted-foreground text-sm font-normal">—</span>}
                   </div>
                   {r?.rate != null && (
-                    <span className={`text-[9px] uppercase tracking-wide ${isRealRate ? "text-emerald-700" : "text-muted-foreground"}`}
-                          title={isRealRate ? "From booked reservations (Previo)" : "Default / manual baseline"}>
-                      {isRealRate ? "live" : "base"}
+                    <span className={`text-[9px] uppercase tracking-wide ${srcMeta.cls}`} title={srcMeta.title}>
+                      {srcMeta.label}
                     </span>
                   )}
                 </div>
@@ -716,14 +724,16 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
                   )}
                 </div>
 
-                {/* Pickup chip */}
-                {r?.pickupDelta ? (
-                  <div className={`mt-1 inline-flex items-center gap-0.5 text-[9px] font-medium px-1 rounded
-                    ${r.pickupDelta > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                    {r.pickupDelta > 0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
-                    Pickup {r.pickupDelta > 0 ? "+" : ""}{r.pickupDelta}
-                  </div>
-                ) : null}
+                {/* Pickup chip — always shown so users can see when pickup is flat */}
+                <div className={`mt-1 inline-flex items-center gap-0.5 text-[9px] font-medium px-1 rounded
+                  ${r?.pickupDelta > 0 ? "bg-emerald-100 text-emerald-700"
+                    : r?.pickupDelta < 0 ? "bg-red-100 text-red-700"
+                    : "bg-muted text-muted-foreground"}`}
+                  title={`Pickup since previous snapshot · ${r?.bookingsNow ?? 0} on the books`}>
+                  {r?.pickupDelta > 0 ? <TrendingUp className="h-2.5 w-2.5"/>
+                    : r?.pickupDelta < 0 ? <TrendingDown className="h-2.5 w-2.5"/> : null}
+                  Pickup {r?.pickupDelta > 0 ? "+" : ""}{r?.pickupDelta ?? 0}
+                </div>
               </button>
             );
           })}
