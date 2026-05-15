@@ -96,14 +96,14 @@ export default function RevenueHotelDetail() {
     if (!hotelId) return;
     const today = iso(new Date());
     const horizon = iso(addDays(new Date(), 365));
-    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }] = await Promise.all([
+    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }, { data: occSnaps }] = await Promise.all([
       supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon)
         .order("captured_at", { ascending: false }).limit(5000),
       supabase.from("rate_recommendations").select("*")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
-      (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct")
+      (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct,source")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
       (supabase as any).from("hotel_events").select("*").eq("hotel_id", hotelId)
         .gte("event_date", today).lte("event_date", horizon).limit(500),
@@ -111,22 +111,33 @@ export default function RevenueHotelDetail() {
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(1000),
       supabase.from("revenue_alerts").select("stay_date").eq("hotel_id", hotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
       supabase.from("hotel_revenue_settings").select("*").eq("hotel_id", hotelId).maybeSingle(),
-      (supabase as any).from("room_types").select("base_price_eur,min_price_eur,max_price_eur,is_reference").eq("hotel_id", hotelId),
+      (supabase as any).from("room_types").select("name,base_price_eur,min_price_eur,max_price_eur,is_reference,num_rooms").eq("hotel_id", hotelId),
       (supabase as any).from("dow_adjustments").select("dow,percent").eq("hotel_id", hotelId),
       (supabase as any).from("monthly_adjustments").select("month,percent").eq("hotel_id", hotelId),
       (supabase as any).from("lead_time_adjustments").select("bucket,percent").eq("hotel_id", hotelId),
       (supabase as any).from("occupancy_targets").select("month,target_pct").eq("hotel_id", hotelId),
       (supabase as any).from("occupancy_strategy").select("aggressiveness").eq("hotel_id", hotelId).maybeSingle(),
+      (supabase as any).from("occupancy_snapshots")
+        .select("stay_date,occupancy_pct,rooms_sold,captured_at")
+        .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon)
+        .order("captured_at", { ascending: false }).limit(5000),
     ]);
 
     setHotelName(h?.hotel_name ?? hotelId);
     setSnapshots((s ?? []) as Snap[]);
     setRecs((r ?? []) as Rec[]);
-    setRates((dr ?? []) as DailyRate[]);
+    setRates((dr ?? []) as any);
     setEvents((ev ?? []) as Event[]);
     setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
+
+    // Latest occupancy snapshot per date (occSnaps already ordered desc by captured_at).
+    const occMap = new Map<string, { occupancy_pct: number; rooms_sold: number }>();
+    for (const o of (occSnaps ?? []) as any[]) {
+      if (!occMap.has(o.stay_date)) occMap.set(o.stay_date, { occupancy_pct: Number(o.occupancy_pct) || 0, rooms_sold: o.rooms_sold ?? 0 });
+    }
+    setOccByDate(occMap);
 
     // Autopilot decisions + last push timestamp (best-effort, errors ignored)
     const [{ data: dec }, { data: lp }] = await Promise.all([
@@ -140,6 +151,11 @@ export default function RevenueHotelDetail() {
     setLastPushAt(lp?.created_at ?? null);
 
     const refRoom = (rooms ?? []).find((rt: any) => rt.is_reference) ?? (rooms ?? [])[0];
+    if (refRoom) setRefRoomInfo({
+      name: refRoom.name ?? "Reference room",
+      base_price_eur: Number(refRoom.base_price_eur) || 0,
+      num_rooms: refRoom.num_rooms ?? 0,
+    });
     const dowMap: Record<number, number> = {};
     for (const d of dow ?? []) dowMap[d.dow] = Number(d.percent) || 0;
     const monMap: Record<number, number> = {};
