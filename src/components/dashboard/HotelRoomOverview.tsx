@@ -888,7 +888,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <Ban className="h-3 w-3" /> Mark No Service
+                  <Ban className="h-3 w-3" /> {t('roomOverview.markNoService')}
                 </button>
               )}
 
