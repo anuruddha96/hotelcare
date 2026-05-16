@@ -35,13 +35,14 @@ const ELIGIBLE_ROLES = new Set([
 ]);
 
 const THROTTLE_MS = 2 * 60 * 1000; // 2 min
+const CHECKOUTS_INTERVAL_MS = 10 * 60 * 1000; // 10 min
 
 const initialTask: TaskState = { status: "idle", lastAt: null };
 
 const LiveSyncContext = createContext<LiveSyncContextValue>({
   enabled: false,
   hotelId: null,
-  tasks: { pms: initialTask, revenue: initialTask },
+  tasks: { pms: initialTask, revenue: initialTask, checkouts: initialTask },
   refresh: async () => {},
 });
 
@@ -52,8 +53,9 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   const [tasks, setTasks] = useState<Record<TaskName, TaskState>>({
     pms: initialTask,
     revenue: initialTask,
+    checkouts: initialTask,
   });
-  const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0 });
+  const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0, checkouts: 0 });
 
   const enabled = !!user && !!profile?.role && ELIGIBLE_ROLES.has(profile.role) && hasPrevio;
 
