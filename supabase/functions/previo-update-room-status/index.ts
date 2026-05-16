@@ -13,15 +13,17 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  let roomIdForLog: string | null = null;
+  let hotelForLog: string = 'unknown';
+
   try {
     const { roomId, status } = await req.json();
-    
-    console.log('Updating Previo room status via REST API:', { roomId, status });
+    roomIdForLog = roomId;
 
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('Updating Previo room status via REST API:', { roomId, status });
 
     // Get room information from HotelCare
     const { data: room, error: roomError } = await supabase
