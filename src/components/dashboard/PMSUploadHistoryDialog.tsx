@@ -110,7 +110,7 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
-            PMS Upload History
+            {t('pmsHistory.title')}
           </DialogTitle>
         </DialogHeader>
 
@@ -121,7 +121,7 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
             </div>
           ) : summaries.length === 0 ? (
             <div className="text-center p-8 text-muted-foreground">
-              No upload history found
+              {t('pmsHistory.noHistory')}
             </div>
           ) : (
             <div className="space-y-4">
@@ -134,15 +134,15 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
                     <CardHeader>
                       <div className="flex justify-between items-start">
                         <CardTitle className="text-lg">
-                          PMS Upload - {format(new Date(summary.upload_date), 'PPP p')}
+                          {t('pmsHistory.pmsUpload')} - {format(new Date(summary.upload_date), 'PPP p')}
                         </CardTitle>
                         <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300">
                           <CheckCircle className="h-3 w-3 mr-1" />
-                          Completed
+                          {t('pmsHistory.completed')}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        Uploaded by: {summary.profiles?.full_name || 'Unknown'}
+                        {t('pmsHistory.uploadedBy')}: {summary.profiles?.full_name || t('pmsHistory.unknown')}
                       </p>
                     </CardHeader>
 
@@ -154,7 +154,7 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
                             {summary.processed_rooms}
                           </div>
                           <div className="text-sm text-blue-700 dark:text-blue-400">
-                            Processed Rooms
+                            {t('pmsHistory.processedRooms')}
                           </div>
                         </div>
                         
@@ -163,7 +163,7 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
                             {summary.updated_rooms}
                           </div>
                           <div className="text-sm text-green-700 dark:text-green-400">
-                            Updated Rooms
+                            {t('pmsHistory.updatedRooms')}
                           </div>
                         </div>
                         
@@ -192,7 +192,7 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
                           <div className="flex items-center gap-2 mb-2">
                             <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
                             <h4 className="font-semibold text-red-800 dark:text-red-300">
-                              Errors ({summary.errors.length})
+                              {t('pmsHistory.errors')} ({summary.errors.length})
                             </h4>
                           </div>
                           <div className="space-y-1">
@@ -203,7 +203,7 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
                             ))}
                             {summary.errors.length > 3 && (
                               <p className="text-sm text-red-600 dark:text-red-500 italic">
-                                ... and {summary.errors.length - 3} more errors
+                                {t('pmsHistory.andMoreErrors').replace('{count}', String(summary.errors.length - 3))}
                               </p>
                             )}
                           </div>
@@ -222,12 +222,12 @@ export function PMSUploadHistoryDialog({ open, onOpenChange, hotelFilter }: PMSU
                             {isExpanded ? (
                               <>
                                 <ChevronUp className="h-4 w-4" />
-                                Hide Room Details
+                                {t('pmsHistory.hideRoomDetails')}
                               </>
                             ) : (
                               <>
                                 <ChevronDown className="h-4 w-4" />
-                                Show Room Details ({(summary.checkout_rooms?.length || 0) + (summary.daily_cleaning_rooms?.length || 0)} rooms)
+                                {t('pmsHistory.showRoomDetails').replace('{count}', String((summary.checkout_rooms?.length || 0) + (summary.daily_cleaning_rooms?.length || 0)))}
                               </>
                             )}
                           </Button>

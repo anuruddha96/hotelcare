@@ -1162,7 +1162,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               onClick={() => setHistoryDialogOpen(true)}
               className="text-sm"
             >
-              View History
+              {t('pms.viewHistory')}
             </Button>
           </div>
         </div>
@@ -1180,12 +1180,12 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5" />
               <div>
                 <h4 className="font-semibold text-blue-800 mb-1">
-                  Hotel Filter Active
+                  {t('pms.hotelFilterActive')}
                 </h4>
                 <p className="text-sm text-blue-700">
-                  Currently operating on: <strong>{selectedHotel}</strong>
+                  {t('pms.currentlyOperating')} <strong>{selectedHotel}</strong>
                   <br />
-                  Only rooms in this hotel will be affected by the PMS upload.
+                  {t('pms.onlyRoomsAffected')}
                 </p>
               </div>
             </div>
@@ -1198,10 +1198,10 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
               <div>
                 <h4 className="font-semibold text-amber-800 mb-1">
-                  No Hotel Selected
+                  {t('pms.noHotelSelected')}
                 </h4>
                 <p className="text-sm text-amber-700">
-                  Please select a hotel from the switcher at the top to upload PMS data.
+                  {t('pms.selectHotelFirst')}
                 </p>
               </div>
             </div>
@@ -1216,10 +1216,10 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                 <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
                 <div>
                   <h4 className="font-semibold text-amber-800 mb-1">
-                    Data Reset Warning
+                    {t('pms.dataResetWarning')}
                   </h4>
                   <p className="text-sm text-amber-700">
-                    Uploading a PMS file will reset all room assignments and data for {selectedHotel} for the current day
+                    {t('pms.uploadingWillReset')} {selectedHotel} {t('pms.forCurrentDay')}
                   </p>
                 </div>
               </div>
