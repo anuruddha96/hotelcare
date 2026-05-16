@@ -1357,7 +1357,7 @@ export function SupervisorApprovalView() {
                               disabled={bulkApproving === hotel}
                             >
                               <CheckCheck className="h-3.5 w-3.5 mr-1" />
-                              Approve All
+                              {t('approvals.approveAll')}
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent onClick={(e) => e.stopPropagation()}>
