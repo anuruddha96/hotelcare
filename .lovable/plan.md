@@ -1,93 +1,55 @@
-## Goal
+# Fix: Missing translations + clipped Hotel Switcher button
 
-Eliminate the manual "mark room ready to clean" step. The app should detect — within ~10 minutes — when a guest has actually checked out in Previo, and automatically flip the local room from `clean` → `dirty` + `is_checkout_room: true` so housekeeping sees it in their queue.
+## 1. Hotel Switcher button UI fix (header, mobile)
 
-Scope: **only the `previo-test` hotel** during this API testing phase. All live hotels (Ottofiori, etc.) stay completely untouched, matching the gating you already approved for the push-to-clean work.
+**Problem:** In the mobile header, the Hotel Switcher button appears clipped — the Building2 icon is half-cut (looks like a partial "b" between the logo and language flag). Cause: `Header.tsx` puts everything in an `overflow-x-auto` row, but the logo block consumes `flex-1` and squeezes the right-side icons; the HotelSwitcher button (`size="sm"` + icon only on mobile) ends up overlapping/clipped against the logo area.
 
-## What's already in place
+**Fix in `src/components/layout/HotelSwitcher.tsx`:**
+- Add `shrink-0` to the trigger Button so it never collapses
+- Add `aria-label` + proper min-width on mobile so the icon is never clipped
+- Keep the hotel name hidden on mobile (current behavior), but make sure the button itself is a clean 36px icon button
 
-- Edge function **`previo-poll-checkouts`** already exists and does exactly the right job:
-  - Calls Previo `/rest/rooms`, finds rooms whose reservation `departureDate <= today` and status matches `checked.?out|departed|left|finished|done` (the Previo statuses you screenshotted — "checked out", "no-show", "cancelled" can all be added), OR rooms whose Previo `roomCleanStatusId !== 1`.
-  - Updates the matching local `rooms` row: `status = 'dirty'`, `is_checkout_room = true`, `checkout_time = now()`.
-  - Logs every run to `pms_sync_history` (`sync_type: 'checkouts_poll'`).
-  - Hard-gated to `hotel_id = 'previo-test'`.
-- `LiveSyncContext` already runs PMS + Revenue tasks in the background for managers/admins.
+**Fix in `src/components/layout/Header.tsx`:**
+- Logo wrapper: change `flex-1 sm:flex-initial` → `shrink min-w-0` (don't grab all space on mobile) and tighten max-widths so the right-side icons get breathing room
+- Right section: already has `overflow-x-auto`, but add `pl-2` and ensure inner `shrink-0` works (it does)
 
-So the work is mostly **wiring**, not new logic.
+Result: HotelSwitcher renders as a clean icon button on mobile, no clipping, fully tappable.
 
-## Plan
+## 2. Missing translations
 
-### 1. Add a 3rd LiveSync task: `checkouts`
+The screenshots highlight untranslated English strings on these screens (visible while UI language = Hungarian):
 
-In `src/contexts/LiveSyncContext.tsx`:
-- Extend `TaskName` to `"pms" | "revenue" | "checkouts"`.
-- Add `runCheckouts(force)` that invokes `previo-poll-checkouts` with `{ hotelId }`.
-- Throttle: **10 minutes** (separate from the existing 2-min PMS throttle, per your spec).
-- Auto-run on login, on tab focus (if >10 min since last), and on a `setInterval(10 * 60 * 1000)` while the tab is open.
-- Update `tasks.checkouts` state with `{ status, lastAt, meta: { checked, marked, skipped } }`.
+| Screen | Untranslated strings |
+|---|---|
+| SupervisorApprovalView | "Room Completion Approvals", "Approve All", "Approve", "Details", "Started: X · Completed: Y" |
+| Dashboard (Housekeeping > Approval) | "Hotel Ottofiori Management System" subtitle, "Late Minibar Additions", "Pending Approvals" date row, "Rooms / Maintenance / Flagged / Oldest" stat tiles, "May 16th, 2026" date label |
+| HotelRoomOverview (Team tab) | "Hotel Room Overview", "TOTAL / EARLY C/O / NO-SHOW / ACT" labels, "Checkout Rooms", "11 PM · 0 manual" |
+| PerformanceLeaderboard | "TOP PERFORMER", "TEAM AVERAGE", "X ranked", "X% on-time", "FIGYELMET IGÉNYEL" (this one is already HU but mixed casing) |
+| LostAndFoundManagement | "Lost & Found Management", "Add Item", "Search by room number…", "Shoes / Room / Hotel / Found / By" labels, "View", "Claim", "pending" badge |
+| DNDPhotosManagement | "Do Not Disturb (DND) Photos Management", "Today" filter, "All Hotels", "No DND photos found for the selected period" |
+| AttendanceTracker (HR / Break Types) | "Duration (minutes)", "Existing Break Types", "Lunch Break" (default seeded name OK to leave), Icon label "Coffee" stays English |
+| RoomManagement (mobile) | "Search by room number or hotel…", "All Hotels", "All Status", "All Types", "Out of Order / Nem elérhető" mixed |
 
-### 2. Surface it in the header LiveSync pill
+### Approach
 
-`src/components/layout/LiveSyncIndicator.tsx` already shows PMS + Revenue. Add a small "Checkouts" row inside its tooltip/popover:
-- Green check + "X rooms auto-released" when `marked > 0`
-- Muted "No checkouts pending" otherwise
-- Amber + tooltip on error
+1. Add the missing keys to `src/hooks/useTranslation.tsx` (the canonical i18n dictionary) under appropriate namespaces (`approvals.*`, `dashboard.*`, `team.*`, `performance.*`, `lostFound.*`, `dnd.*`, `attendance.*`, `rooms.*`), with full translations for the 5 supported languages: en, hu, es, vi, mn.
+2. Replace the hardcoded English strings in the corresponding components with `t('namespace.key')` calls. Files to edit:
+   - `src/components/dashboard/SupervisorApprovalView.tsx`
+   - `src/components/dashboard/Dashboard.tsx` (subtitle line and stat-tile labels)
+   - `src/components/dashboard/HotelRoomOverview.tsx`
+   - `src/components/dashboard/PerformanceLeaderboard.tsx`
+   - `src/components/dashboard/LostAndFoundManagement.tsx`
+   - `src/components/dashboard/DNDPhotosManagement.tsx`
+   - `src/components/dashboard/AttendanceTracker.tsx` (Break Types card)
+   - `src/components/dashboard/RoomManagement.tsx` (filters)
+3. For date labels ("May 16th, 2026") use the existing locale-aware formatter or `toLocaleDateString(language)` so the date itself follows the UI language.
 
-Plus a tiny toast when `marked > 0`: *"2 checkout rooms auto-released — ready to clean."* (Sonner, max 1 visible per project rule.)
+### Scope guard
 
-### 3. Tighten the Previo status matcher
+- No backend, no schema, no logic changes — purely UI strings + one small flex/shrink CSS adjustment in the header.
+- No changes to the Previo auto-poll / push-to-Previo work; Ottofiori and live hotels remain untouched.
 
-Your screenshot shows the actual Previo reservation statuses: `confirmed`, `checked in`, `checked out`, `other`, `waiting list`, `cancelled`, `no-show`. The current regex (`checked.?out|departed|left|finished|done`) misses `no-show` and `cancelled`. Update `previo-poll-checkouts/index.ts`:
+### Out of scope (won't change unless you confirm)
 
-```ts
-const releasedStatuses = /^(checked.?out|no.?show|cancelled|departed|left)$/i;
-const departed = res && res.departureDate <= today && releasedStatuses.test(res.status || "");
-```
-
-This way, no-shows and cancellations on the departure day also auto-release the room.
-
-### 4. Server-side safety net (pg_cron)
-
-Browser polling only runs while a manager has the tab open. To guarantee the 10-min cadence even overnight or when nobody is logged in, schedule the same edge function via `pg_cron` + `pg_net`:
-
-```sql
-select cron.schedule(
-  'previo-poll-checkouts-every-10min',
-  '*/10 * * * *',
-  $$ select net.http_post(
-       url := 'https://pcmszqqklkolvvlabohq.supabase.co/functions/v1/previo-poll-checkouts',
-       headers := '{"Content-Type":"application/json","Authorization":"Bearer <SERVICE_ROLE>"}'::jsonb,
-       body := '{"hotelId":"previo-test"}'::jsonb
-     );
-  $$
-);
-```
-
-This needs a small tweak to the edge function: allow service-role calls (no user JWT) to bypass the `Unauthorized` check, but still keep the `previo-test`-only gate. I'll add an `x-cron-secret` header check as the alternative auth path.
-
-### 5. Visibility for managers
-
-In `src/components/admin/PmsSyncStatus.tsx`, add a **"Auto-released checkout rooms"** section:
-- Reads last 10 `pms_sync_history` rows where `sync_type = 'checkouts_poll'` for the active hotel.
-- Shows `checked / marked / skipped` counts + timestamp + success/error icon.
-
-## Safety guarantees
-
-- The edge function's `ALLOWED_HOTEL_ID = "previo-test"` gate stays — any other hotel returns `{ skipped: true }` and writes nothing.
-- LiveSync's `runCheckouts` will only fire when the active hotel has a Previo config (already enforced via `hasPrevio`).
-- The cron job is also pinned to `hotelId: "previo-test"`.
-
-## Testing checklist
-
-1. As manager on `previo-test`, leave the tab open. Within 10 min of a Previo guest being marked `checked out` with today's departure, the room should flip to dirty in Hotel Care and appear in housekeeping's queue. Toast should appear.
-2. Check `pms_sync_history` for a fresh `checkouts_poll` row with `marked >= 1`.
-3. Close the tab for 30 min, mark another guest checked out in Previo, then verify the pg_cron run flipped the room without anyone logged in.
-4. Verify no `checkouts_poll` rows are ever written for `ottofiori` or any other live hotel.
-
-## Files touched
-
-- `src/contexts/LiveSyncContext.tsx` — new `checkouts` task + 10-min interval
-- `src/components/layout/LiveSyncIndicator.tsx` — display checkouts task state
-- `src/components/admin/PmsSyncStatus.tsx` — auto-release history panel
-- `supabase/functions/previo-poll-checkouts/index.ts` — broader status regex, optional cron auth
-- New migration — `pg_cron` schedule (test hotel only)
+- Seeded data values like the "Lunch Break" name and icon name "Coffee" — those live in the DB, not in code. Tell me if you want those translated at render time too.
+- "ottofiori" location pill on Room Management — that's a hotel slug from the DB, not a translatable string.

@@ -89,17 +89,17 @@ export function Header() {
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
       <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between overflow-hidden max-w-full">
         {/* Logo Section - More space on mobile */}
-        <div className="min-w-0 flex-1 sm:flex-initial flex items-center">
+        <div className="min-w-0 shrink flex items-center">
           <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
             <img
               src={hotelcareLogo}
               alt="Hotel Care Logo"
-              className="h-8 sm:h-10 w-auto object-contain"
+              className="h-8 sm:h-10 w-auto object-contain shrink-0"
             />
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm sm:text-base font-semibold tracking-tight">Hotel Care</span>
+            <div className="flex flex-col leading-tight min-w-0">
+              <span className="text-sm sm:text-base font-semibold tracking-tight truncate">Hotel Care</span>
               {hotelDisplayName && (
-                <span className="text-[10px] sm:text-xs text-muted-foreground truncate max-w-[120px] sm:max-w-[200px]">
+                <span className="text-[10px] sm:text-xs text-muted-foreground truncate max-w-[90px] sm:max-w-[200px]">
                   {hotelDisplayName}
                 </span>
               )}

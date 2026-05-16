@@ -1056,7 +1056,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-sm sm:text-base font-semibold flex items-center gap-1.5 min-w-0">
               <Hotel className="h-4 w-4 text-primary shrink-0" />
-              <span className="truncate">Hotel Room Overview</span>
+              <span className="truncate">{t('team.hotelRoomOverview')}</span>
             </CardTitle>
             <div className="flex items-center gap-1 shrink-0">
               {canViewFullOverview && (
@@ -1081,7 +1081,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   aria-label="Refresh"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 sm:mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-                  <span className="hidden sm:inline">{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+                  <span className="hidden sm:inline">{refreshing ? t('team.refreshing') : t('team.refresh')}</span>
                 </Button>
               </HelpTooltip>
             </div>
@@ -1090,22 +1090,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {/* Row 2: Compact stat grid */}
           <div className="grid grid-cols-4 gap-2">
             <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center">
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Total</div>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.total')}</div>
               <div className="text-sm font-semibold leading-tight">{rooms.length}</div>
             </div>
             <div className={`rounded-lg border px-2 py-1.5 text-center ${earlyCheckoutRooms.length > 0 ? 'bg-orange-50 border-orange-200 dark:bg-orange-900/20 dark:border-orange-700' : 'bg-muted/40'}`}>
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Early C/O</div>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.earlyCheckout')}</div>
               <div className={`text-sm font-semibold leading-tight ${earlyCheckoutRooms.length > 0 ? 'text-orange-700 dark:text-orange-300' : ''}`}>{earlyCheckoutRooms.length}</div>
             </div>
             <div className={`rounded-lg border px-2 py-1.5 text-center ${noShowRooms.length > 0 ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700' : 'bg-muted/40'}`}>
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">No-Show</div>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.noShow')}</div>
               <div className={`text-sm font-semibold leading-tight ${noShowRooms.length > 0 ? 'text-red-700 dark:text-red-300' : ''}`}>{noShowRooms.length}</div>
             </div>
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center cursor-help">
-                    <div className="text-[9px] uppercase tracking-wide text-muted-foreground">ACT</div>
+                    <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.act')}</div>
                     <div className="text-sm font-semibold leading-tight">{averageCleanTime !== null ? `${averageCleanTime}m` : '--'}</div>
                   </div>
                 </TooltipTrigger>
@@ -1171,9 +1171,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             />
           ) : (
             <>
-               {renderSection('Checkout Rooms', checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
+               {renderSection(t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
                <div className="border-t border-border/50" />
-               {renderSection('Daily Rooms', dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {renderSection(t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
             </>
           )}
           {publicAreaTasks.length > 0 && (

@@ -3,6 +3,7 @@ import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
 import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
 import { pmsTranslations } from '@/lib/pms-translations';
+import { highlightedTranslations } from '@/lib/highlighted-translations';
 
 const translations = {
   en: {
@@ -2211,6 +2212,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...toStringBundle(notificationTranslations[lang as keyof typeof notificationTranslations]),
   ...toStringBundle(dashboardTranslations[lang as keyof typeof dashboardTranslations]),
   ...toStringBundle(pmsTranslations[lang]),
+  ...toStringBundle(highlightedTranslations[lang]),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {

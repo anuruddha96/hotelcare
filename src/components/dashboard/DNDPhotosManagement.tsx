@@ -216,7 +216,7 @@ export function DNDPhotosManagement() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-orange-500" />
-            Do Not Disturb (DND) Photos Management
+            {t('dnd.title')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -226,19 +226,19 @@ export function DNDPhotosManagement() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="yesterday">Yesterday</SelectItem>
-                <SelectItem value="week">Last 7 Days</SelectItem>
-                <SelectItem value="month">Last 30 Days</SelectItem>
+                <SelectItem value="today">{t('dnd.today')}</SelectItem>
+                <SelectItem value="yesterday">{t('dnd.yesterday')}</SelectItem>
+                <SelectItem value="week">{t('dnd.last7Days')}</SelectItem>
+                <SelectItem value="month">{t('dnd.last30Days')}</SelectItem>
               </SelectContent>
             </Select>
 
             <Select value={hotelFilter} onValueChange={setHotelFilter}>
               <SelectTrigger className="w-48">
-                <SelectValue placeholder="Select Hotel" />
+                <SelectValue placeholder={t('dnd.selectHotel')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Hotels</SelectItem>
+                <SelectItem value="all">{t('dnd.allHotels')}</SelectItem>
                 {hotels.map(hotel => (
                   <SelectItem key={hotel.id} value={hotel.name}>
                     {hotel.name}
@@ -342,7 +342,7 @@ export function DNDPhotosManagement() {
               {photos.length === 0 && !loading && (
                 <div className="col-span-full text-center py-8 text-muted-foreground">
                   <AlertTriangle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No DND photos found for the selected period</p>
+                  <p>{t('dnd.noPhotos')}</p>
                 </div>
               )}
             </div>

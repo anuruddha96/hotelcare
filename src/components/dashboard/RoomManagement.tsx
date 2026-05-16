@@ -945,7 +945,7 @@ export function RoomManagement() {
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1">
               <Input
-                placeholder="Search by room number or hotel..."
+                placeholder={t('rooms.searchByRoomOrHotel')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full"
@@ -957,24 +957,24 @@ export function RoomManagement() {
             />
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="All Status" />
+                <SelectValue placeholder={t('rooms.allStatus')} />
               </SelectTrigger>
               <SelectContent className="bg-white">
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="clean">Clean</SelectItem>
-                <SelectItem value="dirty">Dirty</SelectItem>
-                <SelectItem value="maintenance">Maintenance</SelectItem>
-                <SelectItem value="out_of_order">Out of Order</SelectItem>
+                <SelectItem value="all">{t('rooms.allStatus')}</SelectItem>
+                <SelectItem value="clean">{t('rooms.clean')}</SelectItem>
+                <SelectItem value="dirty">{t('rooms.dirty')}</SelectItem>
+                <SelectItem value="maintenance">{t('rooms.maintenance')}</SelectItem>
+                <SelectItem value="out_of_order">{t('rooms.outOfOrder')}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={roomTypeFilter} onValueChange={(value: 'all' | 'checkout' | 'daily') => setRoomTypeFilter(value)}>
               <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="Room Type" />
+                <SelectValue placeholder={t('rooms.roomType')} />
               </SelectTrigger>
               <SelectContent className="bg-white">
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="checkout">Checkout Rooms</SelectItem>
-                <SelectItem value="daily">Daily Cleaning Rooms</SelectItem>
+                <SelectItem value="all">{t('rooms.allTypes')}</SelectItem>
+                <SelectItem value="checkout">{t('rooms.checkoutRooms')}</SelectItem>
+                <SelectItem value="daily">{t('rooms.dailyCleaningRooms')}</SelectItem>
               </SelectContent>
             </Select>
           </div>

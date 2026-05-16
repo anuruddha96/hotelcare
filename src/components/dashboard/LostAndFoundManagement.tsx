@@ -222,12 +222,12 @@ export function LostAndFoundManagement() {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
-              Lost & Found Management
+              {t('lostFound.title')}
             </CardTitle>
             {canAddItems && (
               <Button onClick={() => setShowAddDialog(true)}>
                 <Plus className="h-4 w-4 mr-2" />
-                Add Item
+                {t('lostFound.addItem')}
               </Button>
             )}
           </div>
@@ -254,7 +254,7 @@ export function LostAndFoundManagement() {
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by room number..."
+                placeholder={t('lostFound.searchByRoom')}
                 value={searchRoom}
                 onChange={(e) => setSearchRoom(e.target.value)}
                 className="w-[200px]"
@@ -289,7 +289,7 @@ export function LostAndFoundManagement() {
                             : 'bg-blue-500'
                         }`}
                       >
-                        {item.status}
+                        {item.status === 'pending' ? t('lostFound.statusPending') : item.status === 'claimed' ? t('lostFound.statusClaimed') : item.status}
                       </Badge>
                     </div>
                   )}
@@ -301,20 +301,20 @@ export function LostAndFoundManagement() {
                       
                       <div className="text-sm text-muted-foreground space-y-1">
                         <div className="flex items-center justify-between">
-                          <span>Room:</span>
+                          <span>{t('lostFound.room')}:</span>
                           <Badge variant="outline">{item.rooms?.room_number || 'N/A'}</Badge>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>Hotel:</span>
+                          <span>{t('lostFound.hotel')}:</span>
                           <span className="text-xs">{item.rooms?.hotel || 'N/A'}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>Found:</span>
+                          <span>{t('lostFound.found')}:</span>
                           <span className="text-xs">{format(new Date(item.found_date), 'MMM dd, yyyy')}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span>By:</span>
-                          <span className="text-xs">{item.profiles?.full_name || 'Unknown'}</span>
+                          <span>{t('lostFound.by')}:</span>
+                          <span className="text-xs">{item.profiles?.full_name || t('lostFound.unknown')}</span>
                         </div>
                       </div>
 
@@ -335,7 +335,7 @@ export function LostAndFoundManagement() {
                           className="flex-1"
                         >
                           <Eye className="h-4 w-4 mr-1" />
-                          View
+                          {t('lostFound.view')}
                         </Button>
                         {item.status === 'pending' && (
                           <Button
@@ -347,7 +347,7 @@ export function LostAndFoundManagement() {
                             className="flex-1"
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
-                            Claim
+                            {t('lostFound.claim')}
                           </Button>
                         )}
                         {canDelete && (

@@ -798,7 +798,7 @@ export function SupervisorApprovalView() {
                 size="sm"
               >
                 <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                Approve
+                {t('approvals.approve')}
               </Button>
               <Button
                 variant="outline"
@@ -909,7 +909,7 @@ export function SupervisorApprovalView() {
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                Details
+                {t('approvals.details')}
               </button>
 
               {isExpanded && (
@@ -936,9 +936,9 @@ export function SupervisorApprovalView() {
 
                   {/* Start/Complete times */}
                   <div className="text-xs text-muted-foreground">
-                    Started: {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    {t('approvals.started')}: {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                     {' · '}
-                    Completed: {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {t('approvals.completed')}: {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
 
                   {/* Photos */}
@@ -1121,7 +1121,7 @@ export function SupervisorApprovalView() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <CheckCircle className="h-4 w-4 text-green-600" />
-                      <span className="text-xs font-medium text-muted-foreground">Rooms</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('approvals.rooms')}</span>
                     </div>
                     <p className="text-2xl font-bold text-foreground">{summaryStats.roomCount}</p>
                   </CardContent>
@@ -1134,7 +1134,7 @@ export function SupervisorApprovalView() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Wrench className="h-4 w-4 text-blue-600" />
-                      <span className="text-xs font-medium text-muted-foreground">Maintenance</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('approvals.maintenance')}</span>
                     </div>
                     <p className="text-2xl font-bold text-foreground">{summaryStats.maintenanceCount}</p>
                   </CardContent>
@@ -1147,7 +1147,7 @@ export function SupervisorApprovalView() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <AlertTriangle className={`h-4 w-4 ${summaryStats.flaggedCount > 0 ? 'text-orange-600' : 'text-muted-foreground'}`} />
-                      <span className="text-xs font-medium text-muted-foreground">Flagged</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('approvals.flagged')}</span>
                     </div>
                     <p className="text-2xl font-bold text-foreground">{summaryStats.flaggedCount}</p>
                   </CardContent>
@@ -1160,7 +1160,7 @@ export function SupervisorApprovalView() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Clock className={`h-4 w-4 ${summaryStats.oldestMinutes > 60 ? 'text-red-600' : 'text-muted-foreground'}`} />
-                      <span className="text-xs font-medium text-muted-foreground">Oldest</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('approvals.oldest')}</span>
                     </div>
                     <p className="text-2xl font-bold text-foreground">
                       {summaryStats.oldestMinutes > 60 
@@ -1313,7 +1313,7 @@ export function SupervisorApprovalView() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                       <CheckCircle className="h-5 w-5 text-green-600" />
-                      Room Completion Approvals
+                      {t('approvals.roomCompletion')}
                       <Badge className="bg-green-100 text-green-800 border-green-300">{pendingAssignments.length}</Badge>
                     </h3>
                   </div>
@@ -1357,7 +1357,7 @@ export function SupervisorApprovalView() {
                               disabled={bulkApproving === hotel}
                             >
                               <CheckCheck className="h-3.5 w-3.5 mr-1" />
-                              Approve All
+                              {t('approvals.approveAll')}
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent onClick={(e) => e.stopPropagation()}>
@@ -1376,12 +1376,12 @@ export function SupervisorApprovalView() {
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogCancel>{t('approvals.cancel')}</AlertDialogCancel>
                               <AlertDialogAction 
                                 onClick={() => handleBulkApprove(hotel)}
                                 className="bg-green-600 hover:bg-green-700"
                               >
-                                Approve All
+                                {t('approvals.approveAll')}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
