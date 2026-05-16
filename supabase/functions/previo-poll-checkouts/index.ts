@@ -202,6 +202,29 @@ serve(async (req) => {
       }
     }
 
+    // Clear stale checkout flags: any room currently flagged is_checkout_room
+    // that is NOT in today's true-departure set must be reset, so leftover
+    // flags from earlier polls / manual tests can't linger in the UI.
+    try {
+      const { data: stale } = await service
+        .from("rooms")
+        .select("id")
+        .eq("hotel", targetHotel)
+        .eq("is_checkout_room", true);
+      const staleIds = (stale ?? [])
+        .map((r: any) => r.id as string)
+        .filter((id) => !trueCheckoutRoomIds.has(id));
+      if (staleIds.length > 0) {
+        await service
+          .from("rooms")
+          .update({ is_checkout_room: false, checkout_time: null, updated_at: new Date().toISOString() })
+          .in("id", staleIds);
+        results.cleared = staleIds.length;
+      }
+    } catch (e: any) {
+      results.errors.push(`stale cleanup: ${e?.message || e}`);
+    }
+
     await service.from("pms_sync_history").insert({
       sync_type: "checkouts_poll",
       direction: "from_previo",
