@@ -909,7 +909,7 @@ export function SupervisorApprovalView() {
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                Details
+                {t('approvals.details')}
               </button>
 
               {isExpanded && (
