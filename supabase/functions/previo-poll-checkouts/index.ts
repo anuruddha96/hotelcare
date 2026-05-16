@@ -113,17 +113,23 @@ serve(async (req) => {
     const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
     const today = todayUtc();
 
-    // Find rooms whose guest has checked out (departureDate <= today and status indicates departed)
-    // OR whose Previo clean status is "dirty/untidy" while the local row still says clean.
-    const candidates = rooms.filter((r) => {
+    // Classify rooms:
+    //  - departed: guest actually checked out today (real checkout — set is_checkout_room=true)
+    //  - previoDirty: Previo says dirty/untidy but no departure (sync status only — DO NOT flag as checkout)
+    const classify = (r: PrevioRoom) => {
       const res = r.reservation;
-      const departed = res && res.departureDate <= today &&
-        /^(checked.?out|no.?show|cancelled|canceled|departed|left|finished|done)$/i.test((res.status || "").trim());
+      const departed = !!(res && res.departureDate <= today &&
+        /^(checked.?out|no.?show|cancelled|canceled|departed|left|finished|done)$/i.test((res.status || "").trim()));
       const previoDirty = r.roomCleanStatusId !== 1; // 1 = clean in Previo
+      return { departed, previoDirty };
+    };
+    const candidates = rooms.filter((r) => {
+      const { departed, previoDirty } = classify(r);
       return departed || previoDirty;
     });
 
-    const results = { checked: rooms.length, marked: 0, skipped: 0, errors: [] as string[], unmatched: [] as string[] };
+    const results = { checked: rooms.length, marked: 0, skipped: 0, cleared: 0, errors: [] as string[], unmatched: [] as string[] };
+    const trueCheckoutRoomIds = new Set<string>();
 
     const extractRoomNumber = (raw: string): string => {
       const m = String(raw).match(/\d+/);
@@ -159,25 +165,25 @@ serve(async (req) => {
           continue;
         }
 
-        if (localRoom.status !== "dirty") {
+        const { departed, previoDirty } = classify(r);
+        if (departed) trueCheckoutRoomIds.add(localRoom.id);
+
+        // Build update — only flag is_checkout_room when guest actually departed.
+        const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
+        if (localRoom.status !== "dirty" && (departed || previoDirty)) {
+          updateData.status = "dirty";
+        }
+        if (departed) {
+          updateData.is_checkout_room = true;
+          updateData.checkout_time = new Date().toISOString();
+        }
+        if (Object.keys(updateData).length > 1) {
           const { error: updErr } = await service
             .from("rooms")
-            .update({
-              status: "dirty",
-              is_checkout_room: true,
-              checkout_time: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
+            .update(updateData)
             .eq("id", localRoom.id);
           if (updErr) throw updErr;
-          results.marked++;
-        } else {
-          // Make sure checkout flag is set even if room was already dirty.
-          await service
-            .from("rooms")
-            .update({ is_checkout_room: true, checkout_time: localRoom.status === "dirty" ? new Date().toISOString() : new Date().toISOString(), updated_at: new Date().toISOString() })
-            .eq("id", localRoom.id)
-            .eq("is_checkout_room", false);
+          if (updateData.status === "dirty") results.marked++;
         }
 
         // Flip ready_to_clean on any open checkout_cleaning assignment so
@@ -194,6 +200,29 @@ serve(async (req) => {
       } catch (e: any) {
         results.errors.push(`${r.name}: ${e?.message || e}`);
       }
+    }
+
+    // Clear stale checkout flags: any room currently flagged is_checkout_room
+    // that is NOT in today's true-departure set must be reset, so leftover
+    // flags from earlier polls / manual tests can't linger in the UI.
+    try {
+      const { data: stale } = await service
+        .from("rooms")
+        .select("id")
+        .eq("hotel", targetHotel)
+        .eq("is_checkout_room", true);
+      const staleIds = (stale ?? [])
+        .map((r: any) => r.id as string)
+        .filter((id) => !trueCheckoutRoomIds.has(id));
+      if (staleIds.length > 0) {
+        await service
+          .from("rooms")
+          .update({ is_checkout_room: false, checkout_time: null, updated_at: new Date().toISOString() })
+          .in("id", staleIds);
+        results.cleared = staleIds.length;
+      }
+    } catch (e: any) {
+      results.errors.push(`stale cleanup: ${e?.message || e}`);
     }
 
     await service.from("pms_sync_history").insert({
