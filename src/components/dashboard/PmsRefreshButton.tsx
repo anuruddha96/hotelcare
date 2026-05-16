@@ -224,12 +224,35 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         onClick={handleClick}
         disabled={busy}
         className={cn(
-          'relative z-10 h-8 w-full shrink-0 gap-1.5 bg-background/60 backdrop-blur sm:w-auto sm:self-center',
-          busy && 'border-primary/40 text-primary',
+          'relative z-10 h-8 w-full shrink-0 gap-1.5 overflow-hidden bg-background/60 backdrop-blur sm:w-auto sm:self-center',
+          busy && 'border-primary/60 text-primary',
         )}
       >
-        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-        <span>{busy ? 'Refreshing' : 'PMS Refresh'}</span>
+        {/* Blue progress fill that sweeps across the button while syncing */}
+        {busy && (
+          <>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 bg-primary/15"
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 left-0 w-full origin-left bg-gradient-to-r from-primary/40 via-primary/30 to-primary/10"
+              style={{ animation: 'pms-fill 1.8s ease-in-out infinite' }}
+            />
+            <style>{`
+              @keyframes pms-fill {
+                0%   { transform: scaleX(0);   opacity: 0.9; }
+                70%  { transform: scaleX(1);   opacity: 0.85; }
+                100% { transform: scaleX(1);   opacity: 0; }
+              }
+            `}</style>
+          </>
+        )}
+        <span className="relative z-10 inline-flex items-center gap-1.5">
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          <span>{busy ? 'Refreshing' : 'PMS Refresh'}</span>
+        </span>
       </Button>
     </div>
   );
