@@ -395,10 +395,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           e.dataTransfer.setData('sourceType', isCheckout ? 'checkout' : 'daily');
           e.dataTransfer.effectAllowed = 'move';
           (e.currentTarget as HTMLElement).style.opacity = '0.5';
+          justDraggedRef.current = Date.now();
+          setHoveredRoomId(null);
+          if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         } : undefined}
         onDragEnd={isManagerOrAdmin ? (e) => {
           (e.currentTarget as HTMLElement).style.opacity = '1';
           setDragOverSection(null);
+          justDraggedRef.current = Date.now();
+          setHoveredRoomId(null);
         } : undefined}
         onClick={() => handleRoomClick(room)}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
