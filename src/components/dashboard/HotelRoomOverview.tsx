@@ -177,6 +177,46 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     fetchData();
   }, [selectedDate, hotelName, refreshKey]);
 
+  // Auto-refresh: realtime subscription on rooms/assignments + visibility-aware polling
+  // Ensures stale checkout flags clear from the UI as soon as the PMS poll updates the DB.
+  useEffect(() => {
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const safeFetch = () => {
+      if (cancelled || document.hidden) return;
+      fetchData();
+    };
+
+    // Realtime: any change to rooms or today's assignments triggers a refetch (debounced)
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(safeFetch, 500);
+    };
+
+    const channel = supabase
+      .channel(`room-overview-${hotelName}-${selectedDate}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, scheduleRefetch)
+      .subscribe();
+
+    // Polling fallback every 60s while tab is visible
+    pollTimer = setInterval(safeFetch, 60_000);
+
+    // Refresh immediately when the tab becomes visible again
+    const onVisible = () => { if (!document.hidden) safeFetch(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [selectedDate, hotelName]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
