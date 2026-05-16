@@ -964,13 +964,13 @@ ${activePreviews.map(preview => {
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-amber-600">
-                      {effectiveRooms.filter(r => r.is_checkout_room).length}
+                      {effectiveRooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true).length}
                     </p>
                     <p className="text-sm text-muted-foreground">{t('autoAssign.checkouts')}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-blue-600">
-                      {effectiveRooms.filter(r => !r.is_checkout_room).length}
+                      {effectiveRooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true)).length}
                     </p>
                     <p className="text-sm text-muted-foreground">{t('autoAssign.daily')}</p>
                   </div>
@@ -1248,8 +1248,8 @@ ${activePreviews.map(preview => {
                     const isOverShift = preview.exceedsShift && preview.rooms.length > 0;
                     const workloadPct = Math.min(100, Math.round((preview.totalWithBreak / maxTime) * 100));
                     const barColor = isOverShift ? 'bg-destructive' : workloadPct > 80 ? 'bg-amber-500' : 'bg-green-500';
-                    const checkoutRooms = preview.rooms.filter(r => r.is_checkout_room);
-                    const dailyRooms = preview.rooms.filter(r => !r.is_checkout_room);
+                    const checkoutRooms = preview.rooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true);
+                    const dailyRooms = preview.rooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true));
                     const towelCount = preview.rooms.filter(r => r.towel_change_required).length;
                     const linenCount = preview.rooms.filter(r => r.linen_change_required).length;
                     const activeStaffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
