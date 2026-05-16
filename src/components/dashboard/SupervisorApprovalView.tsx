@@ -1160,7 +1160,7 @@ export function SupervisorApprovalView() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Clock className={`h-4 w-4 ${summaryStats.oldestMinutes > 60 ? 'text-red-600' : 'text-muted-foreground'}`} />
-                      <span className="text-xs font-medium text-muted-foreground">Oldest</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('approvals.oldest')}</span>
                     </div>
                     <p className="text-2xl font-bold text-foreground">
                       {summaryStats.oldestMinutes > 60 
