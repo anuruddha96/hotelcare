@@ -548,7 +548,7 @@ export function Dashboard() {
             <div className="flex flex-col gap-3 sm:gap-4 justify-between items-start">
               <div>
                 <h2 className="text-xl sm:text-2xl font-bold text-foreground">
-                  {profile?.role === 'maintenance' ? t('tickets.myTickets') : t('tasks.allTickets')}
+                  {profile?.role === 'maintenance' ? t('tickets.myTickets') : t('tickets.allTickets')}
                   {profile?.assigned_hotel && (
                     <span className="block sm:inline text-base sm:text-lg font-normal text-muted-foreground sm:ml-2">
                       {profile.assigned_hotel}
@@ -559,7 +559,7 @@ export function Dashboard() {
                   {profile?.role === 'maintenance' 
                     ? t('tickets.assignedToYou') 
                     : profile?.assigned_hotel && profile?.role !== 'admin' && profile?.role !== 'top_management'
-                      ? `${t('tasks.manageTickets')} ${profile.assigned_hotel}`
+                      ? `${t('tickets.manageFor')} ${profile.assigned_hotel}`
                       : t('tickets.manageAllHotels')
                   }
                 </p>
