@@ -39,6 +39,8 @@ interface RoomData {
   guest_nights_stayed: number | null;
   towel_change_required: boolean | null;
   linen_change_required: boolean | null;
+  created_at?: string | null;
+  pms_metadata?: any;
 }
 
 interface AssignmentData {
