@@ -5,6 +5,7 @@ import { notificationTranslations, dashboardTranslations } from '@/lib/notificat
 import { pmsTranslations } from '@/lib/pms-translations';
 import { highlightedTranslations } from '@/lib/highlighted-translations';
 import { screenTranslations } from '@/lib/screen-translations';
+import { roomOverviewTranslations } from '@/lib/room-overview-translations';
 
 const translations = {
   en: {
@@ -2215,6 +2216,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...toStringBundle(pmsTranslations[lang]),
   ...toStringBundle(highlightedTranslations[lang]),
   ...toStringBundle(screenTranslations[lang]),
+  ...(roomOverviewTranslations[lang as keyof typeof roomOverviewTranslations] || {}),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {

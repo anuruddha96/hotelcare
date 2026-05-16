@@ -543,7 +543,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   statusKey === 'pending_approval' ? 'bg-violet-100 text-violet-700 border-violet-300' :
                   'bg-amber-100 text-amber-700 border-amber-300'
                 }`}>
-                  {statusKey === 'pending_approval' ? 'Pending' : statusKey.replace(/_/g, ' ')}
+                  {statusKey === 'pending_approval' ? t('roomOverview.statusPending') : statusKey === 'clean' ? t('roomOverview.statusClean') : statusKey === 'dirty' ? t('roomOverview.statusDirty') : statusKey === 'in_progress' ? t('roomOverview.statusInProgress') : statusKey.replace(/_/g, ' ')}
                 </Badge>
               </div>
 
@@ -564,18 +564,18 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <CheckCircle className="h-4 w-4" /> ✅ Mark Ready to Clean
+                  <CheckCircle className="h-4 w-4" /> ✅ {t('roomOverview.markReadyToClean')}
                 </button>
               )}
               {isCheckout && assignment?.ready_to_clean && (
                 <div className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
-                  ✅ Ready to Clean
+                  ✅ {t('roomOverview.readyToClean')}
                 </div>
               )}
 
               {/* Services Section */}
               <div className="space-y-1">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Services</p>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('roomOverview.services')}</p>
                 <button
                   className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
                     room.towel_change_required 
@@ -600,8 +600,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🔄 Towel Change</span>
-                  <span className="text-[10px]">{room.towel_change_required ? '✓ Required' : 'Off'}</span>
+                  <span>🔄 {t('roomOverview.towelChange')}</span>
+                  <span className="text-[10px]">{room.towel_change_required ? `✓ ${t('roomOverview.required')}` : t('roomOverview.off')}</span>
                 </button>
                 <button
                   className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
@@ -626,8 +626,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🛏️ Clean Room (C)</span>
-                  <span className="text-[10px]">{room.linen_change_required ? '✓ Required' : 'Off'}</span>
+                  <span>🛏️ {t('roomOverview.cleanRoomC')}</span>
+                  <span className="text-[10px]">{room.linen_change_required ? `✓ ${t('roomOverview.required')}` : t('roomOverview.off')}</span>
                 </button>
                 <button
                   className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
@@ -653,8 +653,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🧹 Room Cleaning (RC)</span>
-                  <span className="text-[10px]">{roomFlags.roomCleaning ? '✓ Required' : 'Off'}</span>
+                  <span>🧹 {t('roomOverview.roomCleaningRC')}</span>
+                  <span className="text-[10px]">{roomFlags.roomCleaning ? `✓ ${t('roomOverview.required')}` : t('roomOverview.off')}</span>
                 </button>
                 <button
                   className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
@@ -680,15 +680,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🧺 Collect Extra Towels</span>
-                  <span className="text-[10px]">{roomFlags.collectExtraTowels ? '✓ Yes' : 'Off'}</span>
+                  <span>🧺 {t('roomOverview.collectExtraTowels')}</span>
+                  <span className="text-[10px]">{roomFlags.collectExtraTowels ? `✓ ${t('roomOverview.yes')}` : t('roomOverview.off')}</span>
                 </button>
               </div>
 
               {/* Bed Configuration */}
               {isManagerOrAdmin && (
                 <div className="border-t border-border pt-1.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Bed Config</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t('roomOverview.bedConfig')}</p>
                   <select
                     className="w-full text-xs p-1.5 rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                     value={(room as any).bed_configuration || ''}
@@ -703,13 +703,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       } catch { toast.error('Failed'); }
                     }}
                   >
-                    <option value="">None</option>
-                    <option value="Double Bed">Double Bed</option>
-                    <option value="Twin Beds">Twin Beds</option>
-                    <option value="Twin Beds Separated">Twin Beds Separated</option>
-                    <option value="Single Bed">Single Bed</option>
-                    <option value="Baby Bed">Baby Bed</option>
-                    <option value="Extra Cot Added">Extra Cot Added</option>
+                    <option value="">{t('roomOverview.bedNone')}</option>
+                    <option value="Double Bed">{t('roomOverview.bedDouble')}</option>
+                    <option value="Twin Beds">{t('roomOverview.bedTwin')}</option>
+                    <option value="Twin Beds Separated">{t('roomOverview.bedTwinSeparated')}</option>
+                    <option value="Single Bed">{t('roomOverview.bedSingle')}</option>
+                    <option value="Baby Bed">{t('roomOverview.bedBaby')}</option>
+                    <option value="Extra Cot Added">{t('roomOverview.bedExtraCot')}</option>
                   </select>
                 </div>
               )}
@@ -741,7 +741,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <ArrowLeftRight className="h-3 w-3" /> Switch to {isCheckout ? 'Daily' : 'Checkout'}
+                  <ArrowLeftRight className="h-3 w-3" /> {isCheckout ? t('roomOverview.switchToDaily') : t('roomOverview.switchToCheckout')}
                 </button>
 
                 {/* Status change - hidden for checkout rooms not yet ready */}
@@ -760,7 +760,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       finally { setActionLoading(null); }
                     }}
                   >
-                    Mark as Dirty
+                    {t('roomOverview.markAsDirty')}
                   </button>
                 )}
                 {(room.status === 'dirty' || room.status === 'in_progress') && !(isCheckout && !assignment?.ready_to_clean) && (
@@ -778,7 +778,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       finally { setActionLoading(null); }
                     }}
                   >
-                    <CheckCircle className="h-3 w-3" /> Mark as Clean
+                    <CheckCircle className="h-3 w-3" /> {t('roomOverview.markAsClean')}
                   </button>
                 )}
               </div>
@@ -788,7 +788,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 <div className="border-t border-border pt-1.5">
                   <textarea
                     className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    placeholder="Manager notes..."
+                    placeholder={t('roomOverview.managerNotes')}
                     value={popoverNotes}
                     onChange={(e) => setPopoverNotes(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
@@ -827,11 +827,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {/* Send Message to Housekeeper */}
               {isManagerOrAdmin && assignment && (
                 <div className="border-t border-border pt-1.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">💬 Message Housekeeper</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">💬 {t('roomOverview.messageHousekeeper')}</p>
                   <div className="flex gap-1">
                     <input
                       className="flex-1 text-xs p-1.5 rounded border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                      placeholder="Type message..."
+                      placeholder={t('roomOverview.typeMessage')}
                       value={managerMessage}
                       onChange={(e) => setManagerMessage(e.target.value)}
                       onClick={(e) => e.stopPropagation()}
@@ -888,7 +888,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <Ban className="h-3 w-3" /> Mark No Service
+                  <Ban className="h-3 w-3" /> {t('roomOverview.markNoService')}
                 </button>
               )}
 
@@ -901,7 +901,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     openSettingsDialog(room);
                   }}
                 >
-                  <Settings className="h-3 w-3" /> Room Settings...
+                  <Settings className="h-3 w-3" /> {t('roomOverview.roomSettings')}
                 </button>
               )}
             </div>
