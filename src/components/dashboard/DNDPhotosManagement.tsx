@@ -342,7 +342,7 @@ export function DNDPhotosManagement() {
               {photos.length === 0 && !loading && (
                 <div className="col-span-full text-center py-8 text-muted-foreground">
                   <AlertTriangle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No DND photos found for the selected period</p>
+                  <p>{t('dnd.noPhotos')}</p>
                 </div>
               )}
             </div>
