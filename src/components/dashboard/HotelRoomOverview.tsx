@@ -688,7 +688,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {/* Bed Configuration */}
               {isManagerOrAdmin && (
                 <div className="border-t border-border pt-1.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Bed Config</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t('roomOverview.bedConfig')}</p>
                   <select
                     className="w-full text-xs p-1.5 rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                     value={(room as any).bed_configuration || ''}
@@ -703,13 +703,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       } catch { toast.error('Failed'); }
                     }}
                   >
-                    <option value="">None</option>
-                    <option value="Double Bed">Double Bed</option>
-                    <option value="Twin Beds">Twin Beds</option>
-                    <option value="Twin Beds Separated">Twin Beds Separated</option>
-                    <option value="Single Bed">Single Bed</option>
-                    <option value="Baby Bed">Baby Bed</option>
-                    <option value="Extra Cot Added">Extra Cot Added</option>
+                    <option value="">{t('roomOverview.bedNone')}</option>
+                    <option value="Double Bed">{t('roomOverview.bedDouble')}</option>
+                    <option value="Twin Beds">{t('roomOverview.bedTwin')}</option>
+                    <option value="Twin Beds Separated">{t('roomOverview.bedTwinSeparated')}</option>
+                    <option value="Single Bed">{t('roomOverview.bedSingle')}</option>
+                    <option value="Baby Bed">{t('roomOverview.bedBaby')}</option>
+                    <option value="Extra Cot Added">{t('roomOverview.bedExtraCot')}</option>
                   </select>
                 </div>
               )}
