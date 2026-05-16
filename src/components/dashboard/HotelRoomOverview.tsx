@@ -564,12 +564,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <CheckCircle className="h-4 w-4" /> ✅ Mark Ready to Clean
+                  <CheckCircle className="h-4 w-4" /> ✅ {t('roomOverview.markReadyToClean')}
                 </button>
               )}
               {isCheckout && assignment?.ready_to_clean && (
                 <div className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
-                  ✅ Ready to Clean
+                  ✅ {t('roomOverview.readyToClean')}
                 </div>
               )}
 
