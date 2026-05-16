@@ -185,7 +185,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
     const safeFetch = () => {
       if (cancelled || document.hidden) return;
-      fetchData();
+      fetchData(true); // silent: no loading skeleton, no blink
     };
 
     // Realtime: any change to rooms or today's assignments triggers a refetch (debounced)
@@ -217,8 +217,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     };
   }, [selectedDate, hotelName]);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (silent: boolean = false) => {
+    if (!silent) setLoading(true);
     try {
       const hotelKeys = await resolveHotelKeys(hotelName);
       const keys = hotelKeys.length ? hotelKeys : [hotelName];
@@ -267,7 +267,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     } catch (error) {
       console.error('Error fetching room overview:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
