@@ -1134,7 +1134,7 @@ export function SupervisorApprovalView() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Wrench className="h-4 w-4 text-blue-600" />
-                      <span className="text-xs font-medium text-muted-foreground">Maintenance</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('approvals.maintenance')}</span>
                     </div>
                     <p className="text-2xl font-bold text-foreground">{summaryStats.maintenanceCount}</p>
                   </CardContent>
