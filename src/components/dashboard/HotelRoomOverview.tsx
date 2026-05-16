@@ -788,7 +788,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 <div className="border-t border-border pt-1.5">
                   <textarea
                     className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    placeholder="Manager notes..."
+                    placeholder={t('roomOverview.managerNotes')}
                     value={popoverNotes}
                     onChange={(e) => setPopoverNotes(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
