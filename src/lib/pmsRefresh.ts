@@ -101,7 +101,11 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
       matchedRoomIds.add(room.id);
 
       const departureParsed = excelTimeToString(row.Departure);
-      const isCheckout = departureParsed !== null;
+      const isScheduledDeparture = departureParsed !== null;
+      // Reception-confirmed checkout from Previo (statusId === 5).
+      // Only this should flip `is_checkout_room`; a scheduled departure
+      // alone does not mean the guest has actually left the hotel.
+      const isCheckedOut = row.CheckedOut === true;
 
       const nightTotal = parseNightTotal(row["Night / Total"]);
       let guestNightsStayed = 0;
@@ -138,6 +142,14 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
+      // Mirror reception-confirmed checkout flag from the PMS. We only
+      // SET this to true when Previo reports the reservation as checked
+      // out; we never clear it here (clearing is handled by the
+      // previo-poll-checkouts stale-cleanup pass).
+      if (isCheckedOut) {
+        updateData.is_checkout_room = true;
+        updateData.checkout_time = new Date().toISOString();
+      }
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
       if (row.Note) updateData.notes = String(row.Note);
@@ -150,7 +162,7 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
         errors.push(`Room ${rawRoomName}: ${updErr.message}`);
       } else {
         updated++;
-        if (isCheckout) checkouts++;
+        if (isCheckedOut) checkouts++;
       }
     } catch (e: any) {
       errors.push(`Row error: ${e?.message || String(e)}`);
@@ -158,6 +170,19 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
   }
 
   const status: PmsSyncStatus = errors.length ? "partial" : "success";
+
+  // For the Previo test hotel, also run the checkouts poll so any newly
+  // reception-confirmed checkouts (statusId=5) flip is_checkout_room in
+  // real time alongside the manual refresh. Non-fatal.
+  if (hotelId === "previo-test") {
+    try {
+      await supabase.functions.invoke("previo-poll-checkouts", {
+        body: { hotelId },
+      });
+    } catch (e) {
+      console.warn("[pmsRefresh] poll-checkouts warning:", e);
+    }
+  }
 
   // Log sync history (non-fatal).
   try {
