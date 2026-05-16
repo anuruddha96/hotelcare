@@ -1081,7 +1081,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   aria-label="Refresh"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 sm:mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-                  <span className="hidden sm:inline">{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+                  <span className="hidden sm:inline">{refreshing ? t('team.refreshing') : t('team.refresh')}</span>
                 </Button>
               </HelpTooltip>
             </div>
