@@ -96,26 +96,32 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   };
 
   return (
-    <div className={cn('flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors', statusMeta.wrapClass)}>
-      <div className="flex items-center gap-2 min-w-0">
+    <div
+      className={cn(
+        'flex w-full flex-col gap-2 rounded-lg border px-3 py-2 transition-colors',
+        'sm:w-auto sm:flex-row sm:items-center sm:gap-3',
+        statusMeta.wrapClass,
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <span className="relative flex h-2.5 w-2.5 shrink-0">
           <span className={cn('absolute inline-flex h-full w-full rounded-full opacity-60', busy ? 'animate-ping' : '', statusMeta.dotClass)} />
           <span className={cn('relative inline-flex h-2.5 w-2.5 rounded-full', statusMeta.dotClass)} />
         </span>
-        <div className="flex flex-col leading-tight min-w-0">
-          <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 flex-col leading-tight">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
             <StatusIcon className={cn('h-3.5 w-3.5 shrink-0', statusMeta.iconClass)} />
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">PMS Sync</span>
             <Badge variant="outline" className="h-4 px-1.5 text-[10px] font-medium">{statusMeta.label}</Badge>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 truncate">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{relTime}</span>
             {t.lastAt && total > 0 && (
               <>
                 <span className="opacity-40">·</span>
                 <span>
                   <span className="font-medium text-foreground">{updated}</span>
-                  <span className="hidden sm:inline">/{total}</span> rooms
+                  <span>/{total}</span> rooms
                 </span>
                 {checkouts > 0 && (
                   <>
@@ -143,7 +149,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         variant="outline"
         onClick={handleClick}
         disabled={busy}
-        className="h-8 shrink-0 gap-1.5 bg-background/60 backdrop-blur"
+        className="h-8 w-full shrink-0 gap-1.5 bg-background/60 backdrop-blur sm:w-auto sm:self-center"
       >
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
         <span>{busy ? 'Refreshing' : 'PMS Refresh'}</span>

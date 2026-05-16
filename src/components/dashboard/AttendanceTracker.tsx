@@ -356,12 +356,15 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const performCheckOut = async () => {
     if (!currentRecord || !location) return;
 
-    // "Early sign-out" = signing out before the typical end-of-shift (18:00 / 6 PM).
-    // Anything between 04:00 and 18:00 is treated as an early sign-out that requires
-    // supervisor approval. Late-evening sign-outs (after 20:00) are also treated as
-    // early so a request lands in the manager's pending approvals queue.
-    const currentHour = new Date().getHours();
-    const isEarlySignout = currentHour < 18 && currentHour >= 4;
+    // "Early sign-out" = signing out before the typical end-of-shift.
+    // Housekeeping shifts in our hotels (incl. Hotel Ottofiori) typically wrap by
+    // ~17:00. Anything before 17:00 requires supervisor approval; sign-outs from
+    // 17:00 onwards are considered on-time and check out immediately.
+    // (Previously the cutoff was 18:00, which incorrectly flagged ~17:30 sign-outs
+    //  at Hotel Ottofiori as "early".)
+    const now = new Date();
+    const minutesOfDay = now.getHours() * 60 + now.getMinutes();
+    const isEarlySignout = minutesOfDay < 17 * 60 && now.getHours() >= 4;
 
     if (isEarlySignout) {
       // Create an early sign-out request instead of checking out immediately
