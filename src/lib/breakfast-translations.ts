@@ -211,7 +211,8 @@ const mn: Bundle = {
   restaurant_main: "Өглөөний цай",
 };
 
-const az: Bundle = { ...en }; // fallback to English for Azerbaijani
+const az: Bundle = {
+};
 
 const BUNDLES: Record<BBLang, Bundle> = { en, hu, es, vi, mn, az };
 

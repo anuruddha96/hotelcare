@@ -13,6 +13,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { SwipeAction } from '@/components/ui/swipe-action';
 import { useTranslation } from '@/hooks/useTranslation';
+import { LanguageSwitcher } from '@/components/dashboard/LanguageSwitcher';
 import hotelcareLogoAuth from '@/assets/hotelcare-logo-auth.png';
 
 export default function Auth() {
@@ -206,7 +207,10 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
+    <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
+      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10">
+        <LanguageSwitcher />
+      </div>
       <Card className="w-full max-w-sm sm:max-w-lg shadow-2xl border-0">
         <CardHeader className="text-center space-y-1 pb-3 sm:pb-4">
           <div className="mx-auto flex flex-col items-center justify-center">
