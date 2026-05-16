@@ -466,12 +466,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     setLoading(true);
     try {
       const updateData: any = { status: newStatus };
-      
-      // If starting work, track the start time
-      if (newStatus === 'in_progress') {
+
+      // Only set started_at the FIRST time the assignment goes in_progress.
+      // Overwriting on resume after completion produced negative durations.
+      if (newStatus === 'in_progress' && !assignment.started_at) {
         updateData.started_at = new Date().toISOString();
       }
-      
+
       // If completing, set completed_at but don't update room status (requires supervisor approval)
       if (newStatus === 'completed') {
         updateData.completed_at = new Date().toISOString();
