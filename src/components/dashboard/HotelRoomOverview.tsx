@@ -901,7 +901,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     openSettingsDialog(room);
                   }}
                 >
-                  <Settings className="h-3 w-3" /> Room Settings...
+                  <Settings className="h-3 w-3" /> {t('roomOverview.roomSettings')}
                 </button>
               )}
             </div>
