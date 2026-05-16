@@ -282,6 +282,10 @@ serve(async (req) => {
         // cares whether departure is non-empty, not the exact time.
         Departure: isDeparture ? "12:00" : null,
         Arrival: isArrival ? "15:00" : null,
+        // Real, reception-confirmed checkout (PMS statusId=5). Consumers
+        // should prefer this over Departure for is_checkout_room.
+        CheckedOut: isCheckedOut,
+        ReservationStatusId: res?.statusId ?? null,
         People: res?.guestsCount ?? (isOccupied || isDeparture ? r.capacity : 0),
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
         Note: res?.note ?? null,
@@ -292,8 +296,9 @@ serve(async (req) => {
     });
 
     const departureCount = rows.filter((r) => r.Departure).length;
+    const checkedOutCount = rows.filter((r) => r.CheckedOut).length;
     const arrivalCount = rows.filter((r) => r.Arrival).length;
-    console.log(`[previo-pms-sync] emitted ${rows.length} rows (${departureCount} departures, ${arrivalCount} arrivals today)`);
+    console.log(`[previo-pms-sync] emitted ${rows.length} rows (${departureCount} scheduled departures, ${checkedOutCount} checked-out, ${arrivalCount} arrivals today)`);
 
     return new Response(
       JSON.stringify({
@@ -301,6 +306,7 @@ serve(async (req) => {
         hotel_id: targetHotel,
         rowCount: rows.length,
         departuresToday: departureCount,
+        checkedOutToday: checkedOutCount,
         arrivalsToday: arrivalCount,
         reservationsAvailable: reservationsByRoomName.size,
         reservationFetchError,
