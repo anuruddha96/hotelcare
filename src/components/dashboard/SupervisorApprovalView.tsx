@@ -1147,7 +1147,7 @@ export function SupervisorApprovalView() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <AlertTriangle className={`h-4 w-4 ${summaryStats.flaggedCount > 0 ? 'text-orange-600' : 'text-muted-foreground'}`} />
-                      <span className="text-xs font-medium text-muted-foreground">Flagged</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('approvals.flagged')}</span>
                     </div>
                     <p className="text-2xl font-bold text-foreground">{summaryStats.flaggedCount}</p>
                   </CardContent>
