@@ -13,15 +13,17 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  let roomIdForLog: string | null = null;
+  let hotelForLog: string = 'unknown';
+
   try {
     const { roomId, status } = await req.json();
-    
-    console.log('Updating Previo room status via REST API:', { roomId, status });
+    roomIdForLog = roomId;
 
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('Updating Previo room status via REST API:', { roomId, status });
 
     // Get room information from HotelCare
     const { data: room, error: roomError } = await supabase
@@ -33,6 +35,7 @@ serve(async (req) => {
     if (roomError || !room) {
       throw new Error(`Room not found: ${roomId}`);
     }
+    hotelForLog = room.hotel;
 
     // Get PMS configuration for this hotel
     const { data: pmsConfig, error: configError } = await supabase
@@ -105,18 +108,21 @@ serve(async (req) => {
     const responseData = await previoResponse.json();
     console.log('Previo room status updated successfully:', responseData);
 
-    // Log success to sync history
+    // Log success to sync history (schema: hotel_id, sync_type, sync_status, data jsonb, error_message)
     await supabase
       .from('pms_sync_history')
       .insert({
         hotel_id: room.hotel,
         sync_type: 'room_status_update',
-        room_id: roomId,
-        room_number: room.room_number,
-        status: 'success',
-        request_payload: { roomNumber: room.room_number, status: previoStatus },
-        response_payload: responseData,
-        synced_by: null // System sync
+        direction: 'push',
+        sync_status: 'success',
+        data: {
+          room_id: roomId,
+          room_number: room.room_number,
+          status: previoStatus,
+          previo_room_id: previoRoomId,
+          response: responseData,
+        },
       });
 
     return new Response(
@@ -132,28 +138,19 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('Previo update error:', error);
     
-    // Log failure to sync history
+    // Log failure to sync history. Note: the request body was already consumed
+    // above, so we can't re-read roomId here. Best-effort log without it.
     try {
-      const { roomId } = await req.json();
-      const { data: room } = await supabase
-        .from('rooms')
-        .select('hotel, room_number')
-        .eq('id', roomId)
-        .single();
-      
-      if (room) {
-        await supabase
-          .from('pms_sync_history')
-          .insert({
-            hotel_id: room.hotel,
-            sync_type: 'room_status_update',
-            room_id: roomId,
-            room_number: room.room_number,
-            status: 'failed',
-            error_message: error.message,
-            synced_by: null
-          });
-      }
+      await supabase
+        .from('pms_sync_history')
+        .insert({
+          hotel_id: hotelForLog,
+          sync_type: 'room_status_update',
+          direction: 'push',
+          sync_status: 'failed',
+          error_message: error.message,
+          data: { room_id: roomIdForLog },
+        });
     } catch (logError) {
       console.error('Failed to log sync error:', logError);
     }

@@ -550,53 +550,49 @@ export function SupervisorApprovalView() {
 
       if (error) throw error;
 
-      // Push status to Previo only for specific hotels with PMS integration
-      if (assignment?.room_id && assignment?.rooms?.hotel) {
-        const hotelValue = assignment.rooms.hotel;
-        
-        const { data: hotelConfigs } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_id, hotel_name');
-        
-        const matchingConfig = hotelConfigs?.find(
-          config => config.hotel_id === hotelValue || config.hotel_name === hotelValue
-        );
-        
-        if (matchingConfig) {
-          const { data: pmsConfig } = await supabase
-            .from('pms_configurations')
-            .select('is_active, pms_type, hotel_id')
-            .eq('hotel_id', matchingConfig.hotel_id)
-            .eq('pms_type', 'previo')
-            .eq('is_active', true)
-            .maybeSingle();
-          
-          if (pmsConfig) {
-            try {
-              const { data: result, error: previoError } = await supabase.functions.invoke('previo-update-room-status', {
-                body: { 
-                  roomId: assignment.room_id,
-                  status: 'clean'
-                }
-              });
-              
-              if (previoError) {
-                console.error('❌ Previo update error:', previoError);
-              }
-            } catch (previoError) {
-              console.error('Failed to update Previo:', previoError);
-            }
-          }
-        }
-      }
+      // Push status to Previo (gated to test hotels inside the edge function)
+      const pmsResult = assignment?.room_id
+        ? await pushCleanStatusToPrevio(assignment.room_id)
+        : { status: 'skipped' as const };
 
       toast.success('Assignment approved successfully');
+      if (pmsResult.status === 'success') {
+        showNotification('✓ Synced to PMS (Previo)', 'success');
+      } else if (pmsResult.status === 'failed') {
+        showNotification(`PMS sync failed: ${pmsResult.error ?? 'unknown error'}`, 'warning');
+      }
       showNotification(t('supervisor.roomMarkedClean'), 'success');
       fetchPendingAssignments();
     } catch (error) {
       console.error('Error updating assignment approval:', error);
       toast.error('Failed to update approval status');
       setPendingAssignments(previousAssignments);
+    }
+  };
+
+  /**
+   * Push a room's clean status to Previo via the edge function.
+   * The edge function is currently gated to the `previo-test` hotel only —
+   * for every other hotel it returns `{ skipped: true }` and is a no-op.
+   * Returns a normalized result for UI feedback.
+   */
+  const pushCleanStatusToPrevio = async (
+    roomId: string,
+  ): Promise<{ status: 'success' | 'skipped' | 'failed'; error?: string }> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('previo-update-room-status', {
+        body: { roomId, status: 'clean' },
+      });
+      if (error) {
+        console.error('❌ Previo update error:', error);
+        return { status: 'failed', error: error.message };
+      }
+      if (data?.skipped) return { status: 'skipped' };
+      if (data?.success) return { status: 'success' };
+      return { status: 'failed', error: data?.error || 'unknown response' };
+    } catch (e: any) {
+      console.error('Failed to update Previo:', e);
+      return { status: 'failed', error: e?.message || 'invoke failed' };
     }
   };
 
@@ -609,6 +605,9 @@ export function SupervisorApprovalView() {
 
     const userId = (await supabase.auth.getUser()).data.user?.id;
     let approved = 0;
+    let pmsSynced = 0;
+    let pmsFailed = 0;
+    let pmsSkipped = 0;
 
     for (const assignment of assignments) {
       try {
@@ -621,7 +620,17 @@ export function SupervisorApprovalView() {
           })
           .eq('id', assignment.id);
 
-        if (!error) approved++;
+        if (!error) {
+          approved++;
+          // Push to Previo (gated to test hotel inside the edge function).
+          // Fire per-row so one failure doesn't break the batch.
+          if (assignment.room_id) {
+            const pms = await pushCleanStatusToPrevio(assignment.room_id);
+            if (pms.status === 'success') pmsSynced++;
+            else if (pms.status === 'failed') pmsFailed++;
+            else pmsSkipped++;
+          }
+        }
       } catch (e) {
         console.error('Bulk approve error for', assignment.id, e);
       }
@@ -630,7 +639,13 @@ export function SupervisorApprovalView() {
 
     setBulkApproving(null);
     setBulkProgress(0);
-    toast.success(`${approved} rooms approved for ${hotelName}`);
+    const pmsSummary =
+      pmsSynced > 0 || pmsFailed > 0
+        ? ` · PMS: ${pmsSynced} synced${pmsFailed ? `, ${pmsFailed} failed` : ''}${pmsSkipped ? `, ${pmsSkipped} skipped` : ''}`
+        : pmsSkipped > 0
+        ? ` · PMS: ${pmsSkipped} skipped (non-test hotel)`
+        : '';
+    toast.success(`${approved} rooms approved for ${hotelName}${pmsSummary}`);
     fetchPendingAssignments();
   };
 

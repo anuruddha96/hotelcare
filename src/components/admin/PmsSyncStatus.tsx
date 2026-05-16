@@ -58,6 +58,7 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
   const [mappingCount, setMappingCount] = useState(0);
   const [lastSync, setLastSync] = useState<SyncRow | null>(null);
   const [lastNightly, setLastNightly] = useState<SyncRow | null>(null);
+  const [recentPushes, setRecentPushes] = useState<SyncRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
 
@@ -100,6 +101,15 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
       .limit(1)
       .maybeSingle();
     setLastNightly(nightly as SyncRow | null);
+
+    const { data: pushes } = await supabase
+      .from('pms_sync_history')
+      .select('id, changed_at, sync_status, error_message, data')
+      .eq('hotel_id', hotelId)
+      .eq('sync_type', 'room_status_update')
+      .order('changed_at', { ascending: false })
+      .limit(5);
+    setRecentPushes((pushes as SyncRow[]) ?? []);
     setLoading(false);
   }, [hotelId]);
 
@@ -277,6 +287,45 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
           </pre>
         </div>
       )}
+
+      <div className="space-y-1.5">
+        <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+          <RefreshCw className="h-3.5 w-3.5" /> Recent clean-status pushes (Previo)
+        </div>
+        {recentPushes.length === 0 ? (
+          <div className="text-xs text-muted-foreground italic">
+            No clean-status pushes yet. Approve a cleaned room in Pending Approvals to test.
+          </div>
+        ) : (
+          <ul className="space-y-1 text-xs">
+            {recentPushes.map((row) => {
+              const roomNumber = row.data?.room_number ?? row.data?.room_id ?? '—';
+              const ok = row.sync_status === 'success';
+              return (
+                <li
+                  key={row.id}
+                  className="flex items-center justify-between gap-2 rounded border border-border bg-muted/30 px-2 py-1"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {ok ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                    ) : (
+                      <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                    )}
+                    <span className="font-medium truncate">Room {roomNumber}</span>
+                    {row.error_message && (
+                      <span className="text-destructive truncate">· {row.error_message}</span>
+                    )}
+                  </div>
+                  <span className="text-muted-foreground shrink-0">
+                    {formatDistanceToNow(new Date(row.changed_at))} ago
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </Card>
   );
 }
