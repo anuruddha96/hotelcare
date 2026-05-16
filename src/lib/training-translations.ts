@@ -199,6 +199,163 @@ export const trainingTranslations: AllTrainingTranslations = {
       },
     },
   },
+  az: {
+    ui: {
+      nextButton: 'Növbəti',
+      prevButton: 'Geri',
+      skipButton: 'Ötür',
+      finishButton: 'Bitir',
+      exitButton: 'Təlimdən çıx',
+      stepOf: '{total} addımdan {current}-cisi',
+      trainingComplete: 'Təlim tamamlandı!',
+      congratulations: 'Təbrik edirik! Təlimi tamamladınız.',
+      startTraining: 'Təlimə başla',
+      continueTraining: 'Təlimə davam et',
+      assignTraining: 'Təlim təyin et',
+      trainingAssigned: 'Təlim uğurla təyin edildi',
+      noTrainingAssigned: 'Heç bir təlim təyin edilməyib',
+      selectGuide: 'Təlim bələdçisi seçin',
+      trainingProgress: 'Təlimin gedişatı',
+      completed: 'Tamamlandı',
+      inProgress: 'Davam edir',
+      notStarted: 'Başlanmayıb',
+      helpButton: 'Yardım və Təlim',
+    },
+    guides: {
+      'getting-started': {
+        name: 'Başlanğıc',
+        description: 'Tətbiqdən istifadənin əsaslarını öyrənin',
+      },
+      'working-with-rooms': {
+        name: 'Otaqlarla işləmək',
+        description: 'Təyin olunmuş otaqları necə təmizləmək və idarə etmək olar',
+      },
+      'breaks-and-signout': {
+        name: 'Fasilələr və Çıxış',
+        description: 'Fasilələrinizi idarə etmək və növbənizi bitirmək',
+      },
+      'special-situations': {
+        name: 'Xüsusi hallar',
+        description: 'DND otaqları, texniki xidmət problemləri və itirilmiş əşyaların idarə edilməsi',
+      },
+    },
+    steps: {
+      // Getting Started
+      welcome: {
+        title: 'HotelCare-ə xoş gəlmisiniz!',
+        content: 'Bu təlim sizi tətbiqin əsas xüsusiyyətləri ilə tanış edəcək. Başlayaq!',
+        actionHint: 'Davam etmək üçün Növbəti düyməsini basın',
+      },
+      check_in: {
+        title: 'İşə giriş',
+        content: 'İşə giriş edərək gününüzə başlayın. Bu düymə sizin iştirakınızı qeyd edir və təyin olunmuş otaqlarınızı açır.',
+        actionHint: 'İşə gəldikdə bu düyməyə toxunun',
+      },
+      view_rooms: {
+        title: 'Otaqlarınıza baxın',
+        content: 'Otaqlar sekmesi bu gün sizə təyin olunmuş bütün otaqları göstərir. Hər kart otaq haqqında vacib məlumatları əks etdirir.',
+        actionHint: 'Təyin olunmuş otaqlarınıza baxmaq üçün toxunun',
+      },
+      room_card_info: {
+        title: 'Otaq kartlarını anlamaq',
+        content: 'Hər otaq kartı göstərir: otaq nömrəsi, təmizləmə növü (çıxış/gündəlik), prioritet səviyyəsi və cari status. Yaşıl təmizləməyə hazır deməkdir!',
+        actionHint: 'Fərqli nişanlara və rənglərə baxın',
+      },
+      navigation: {
+        title: 'Tətbiq Naviqasiyası',
+        content: 'Fərqli bölmələr arasında keçid etmək üçün bu tablardan istifadə edin: otaqlarınız, DND otaqları, tamamlanmış tapşırıqlar və s.',
+        actionHint: 'Fərqli tablara toxunmağa cəhd edin',
+      },
+      // Working with Rooms
+      start_room: {
+        title: 'Otağı Təmizləməyə Başlayın',
+        content: 'Təmizləməyə başlamaq üçün bu düyməni 2 saniyə basıb saxlayın. Bu, taymeri işə salır və nəzarətçilərə bildiriş göndərir.',
+        actionHint: 'Başlamaq üçün basıb saxlayın',
+      },
+      capture_photos: {
+        title: 'Otaq Şəkillərini Çəkin',
+        content: 'Təmizləmədən əvvəl və sonra otağın şəkillərini çəkin. Bu, keyfiyyət təminatı üçün tələb olunur.',
+        actionHint: 'Kameranı açmaq üçün toxunun',
+      },
+      dirty_linen: {
+        title: 'Çirkli Kətanları Qeyd Edin',
+        content: 'Bu otaqdan topladığınız çirkli kətanları sayın və qeyd edin. Bu, camaşırxana izləməsinə kömək edir.',
+        actionHint: 'Kətan saylarını əlavə etmək üçün toxunun',
+      },
+      mark_dnd: {
+        title: 'Otağı DND olaraq İşarələyin',
+        content: 'Əgər qonaqların Narahat Etməyin (DND) işarəsi varsa, işarənin şəklini çəkin və otağı DND olaraq işarələyin.',
+        actionHint: 'DND işarəsini gördükdə istifadə edin',
+      },
+      maintenance: {
+        title: 'Təmir Problemlərini Bildirin',
+        content: 'Sınmış bir şey tapdınız? Buradan təsvir və fotoşəkillə birlikdə bildirin. Təmir qrupuna bildiriş göndəriləcək.',
+        actionHint: 'Tapdığınız hər hansı bir problemi bildirin',
+      },
+      lost_found: {
+        title: 'İtirilmiş və Tapılmış Əşyaları Qeyd Edin',
+        content: 'Əgər qonaqlar tərəfindən qoyulmuş hər hansı bir əşya tapsanız, onları fotoşəkil və təsvirlə birlikdə buraya qeyd edin.',
+        actionHint: 'Tapılmış əşyaları qeyd edin',
+      },
+      add_notes: {
+        title: 'Qeydlər Əlavə Edin',
+        content: 'Nəzarətçilərin və ya növbəti növbənin bilməli olduğu otaq haqqında hər hansı xüsusi qeydləri əlavə edin.',
+        actionHint: 'Vacib müşahidələri yazın',
+      },
+      complete_room: {
+        title: 'Otağı Tamamlayın',
+        content: 'Təmizləməni bitirdikdə, otağı tamamlanmış olaraq işarələmək üçün basıb saxlayın. Bütün tələb olunan şəkilləri çəkdiyinizə əmin olun!',
+        actionHint: 'Tamamlamaq üçün basıb saxlayın',
+      },
+      // Breaks & Sign-out
+      request_break: {
+        title: 'Fasilə Edin',
+        content: 'Fasiləyə ehtiyacınız var? Birini tələb etmək üçün bu düyməyə toxunun. Nəzarətçiniz onu təsdiqləməli ola bilər.',
+        actionHint: 'Fasilənizi buradan tələb edin',
+      },
+      select_break_type: {
+        title: 'Fasilə Növünü Seçin',
+        content: 'Fasilə növünü seçin: nahar fasiləsi, qısa fasilə və ya digər. Hər birinin fərqli müddəti var.',
+        actionHint: 'Müvafiq fasilə növünü seçin',
+      },
+      end_break: {
+        title: 'Fasilənizi Bitirin',
+        content: 'Fasiləniz bitdikdə, onu bitirmək və işə qayıtmaq üçün bu düyməni sürüşdürün.',
+        actionHint: 'Fasiləni bitirmək üçün sürüşdürün',
+      },
+      sign_out: {
+        title: 'Çıxış Edin',
+        content: 'Növbənizin sonunda çıxış etmək üçün buraya toxunun. Əvvəlcə bütün otaqlarınızın tamamlandığından əmin olun!',
+        actionHint: 'Növbəniz bitdikdə çıxış edin',
+      },
+      // Special Situations
+      retrieve_dnd: {
+        title: 'DND Otaqlar Siyahısı',
+        content: 'Bu tab Narahat Etməyin (DND) olaraq işarələnmiş bütün otaqları göstərir. Qonaqlar işarəni çıxardıqda, otağı geri ala və təmizləyə bilərsiniz.',
+        actionHint: 'Təmizlənməyə hazır otaqları yoxlayın',
+      },
+      priority_rooms: {
+        title: 'Prioritet Otaqlar',
+        content: 'Yüksək prioritet nişanı olan otaqlar birinci təmizlənməlidir. Bunlar VİP qonaqlar və ya erkən qeydiyyatdan keçənlər ola bilər.',
+        actionHint: 'Prioritet otaqları birinci təmizləyin',
+      },
+      checkout_daily: {
+        title: 'Çıxış vs Gündəlik Təmizlik',
+        content: 'Çıxış otaqları kətan dəyişdirməklə tam təmizlənməlidir. Gündəlik təmizlik otaqları daha yüngül təmizləmə ilə məşğul otaqlar üçündür.',
+        actionHint: 'Otaq növü nişanını yoxlayın',
+      },
+      completed_tasks: {
+        title: 'Tamamlanmış İşə Baxın',
+        content: 'Bu gün tamamladığınız bütün otaqlara baxın. Təfərrüatları və fotoları nəzərdən keçirə bilərsiniz.',
+        actionHint: 'Tamamlanmış işinizi nəzərdən keçirin',
+      },
+      contact_supervisor: {
+        title: 'Kömək Alın',
+        content: 'Köməyə ehtiyacınız var? Təlim bələdçilərinə daxil olmaq və ya rəhbərinizlə əlaqə saxlamaq üçün kömək düyməsindən istifadə edin.',
+        actionHint: 'Köməyə ehtiyacınız olduqda toxunun',
+      },
+    },
+    },
   cs: {
     ui: {
       nextButton: 'Další',
