@@ -1,0 +1,1 @@
+UPDATE room_assignments SET started_at = NULL WHERE started_at IS NOT NULL AND completed_at IS NOT NULL AND started_at > completed_at;
