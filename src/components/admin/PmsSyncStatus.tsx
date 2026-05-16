@@ -90,6 +90,16 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
       .limit(1)
       .maybeSingle();
     setLastSync(hist as SyncRow | null);
+
+    const { data: nightly } = await supabase
+      .from('pms_sync_history')
+      .select('id, changed_at, sync_status, error_message, data')
+      .eq('hotel_id', hotelId)
+      .eq('sync_type', 'nightly_auto')
+      .order('changed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setLastNightly(nightly as SyncRow | null);
     setLoading(false);
   }, [hotelId]);
 
