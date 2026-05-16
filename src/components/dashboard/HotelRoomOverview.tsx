@@ -267,7 +267,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     } catch (error) {
       console.error('Error fetching room overview:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
