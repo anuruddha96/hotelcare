@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 
-export type TaskName = "pms" | "revenue";
+export type TaskName = "pms" | "revenue" | "checkouts";
 
 export interface TaskState {
   status: PmsSyncStatus | "syncing";
