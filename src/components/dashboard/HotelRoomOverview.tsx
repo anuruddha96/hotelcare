@@ -159,6 +159,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverNotes, setPopoverNotes] = useState<string>('');
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | null>(null);
+  const justDraggedRef = useRef<number>(0);
   const [managerMessage, setManagerMessage] = useState('');
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
@@ -235,6 +236,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const handleRoomClick = (room: RoomData) => {
     if (!canInteractWithRooms) return;
+    // Ignore the synthetic click that some browsers fire right after a drag.
+    if (Date.now() - justDraggedRef.current < 600) return;
     // On mobile, open the dialog directly. On desktop, popover handles it.
     if (isMobile) {
       setSelectedRoom(room);
@@ -256,6 +259,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const handleHoverEnter = useCallback((roomId: string, room: RoomData) => {
     if (isMobile || !canInteractWithRooms) return;
+    // Suppress hover popover briefly after a drag so the dragged chip
+    // doesn't auto-open its advanced detail menu.
+    if (Date.now() - justDraggedRef.current < 600) return;
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
       setHoveredRoomId(roomId);
@@ -389,10 +395,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           e.dataTransfer.setData('sourceType', isCheckout ? 'checkout' : 'daily');
           e.dataTransfer.effectAllowed = 'move';
           (e.currentTarget as HTMLElement).style.opacity = '0.5';
+          justDraggedRef.current = Date.now();
+          setHoveredRoomId(null);
+          if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         } : undefined}
         onDragEnd={isManagerOrAdmin ? (e) => {
           (e.currentTarget as HTMLElement).style.opacity = '1';
           setDragOverSection(null);
+          justDraggedRef.current = Date.now();
+          setHoveredRoomId(null);
         } : undefined}
         onClick={() => handleRoomClick(room)}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
@@ -411,6 +422,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           `}
         >
           {room.room_number}
+          {room.pms_metadata?.manual_checkout === true && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
+              title="Manually moved by a manager (not from PMS)"
+            >M</span>
+          )}
           {room.pms_metadata?.roomId && room.created_at && (Date.now() - new Date(room.created_at).getTime() < 3 * 24 * 3600 * 1000) && (
             <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-emerald-600 text-white" title="Newly imported from Previo">NEW</span>
           )}
@@ -862,6 +879,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily') => {
     e.preventDefault();
     setDragOverSection(null);
+    justDraggedRef.current = Date.now();
+    setHoveredRoomId(null);
     const roomId = e.dataTransfer.getData('roomId');
     const roomNumber = e.dataTransfer.getData('roomNumber');
     const sourceType = e.dataTransfer.getData('sourceType');
@@ -870,12 +889,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const newIsCheckout = targetType === 'checkout';
     const newAssignmentType = newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning';
     const assignment = assignmentMap.get(roomId);
+    const movedRoom = rooms.find(r => r.id === roomId);
+    const newMeta = {
+      ...(movedRoom?.pms_metadata || {}),
+      manual_checkout: newIsCheckout,
+      manual_moved_at: new Date().toISOString(),
+      manual_moved_by: profile?.id || null,
+    };
 
     // Optimistic update
-    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout } : r));
+    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout, pms_metadata: newMeta } : r));
 
     try {
-      const roomUpdate = supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId);
+      const roomUpdate = supabase.from('rooms').update({ is_checkout_room: newIsCheckout, pms_metadata: newMeta } as any).eq('id', roomId);
       const promises: any[] = [roomUpdate];
       if (assignment) {
         const assignmentUpdate: any = { assignment_type: newAssignmentType };
@@ -889,7 +915,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         );
       }
       await Promise.all(promises);
-      toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+      toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'} (manual)`);
       await fetchData();
     } catch {
       toast.error('Failed to switch room type');
@@ -920,12 +946,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             <span className="text-sm font-semibold">{title}</span>
             <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
             {sectionType === 'checkout' && roomList.length > 0 && (() => {
-              const pmsCount = roomList.filter(r => r.is_checkout_room).length;
-              const manualCount = roomList.length - pmsCount;
+              const manualCount = roomList.filter(r => r.pms_metadata?.manual_checkout === true).length;
+              const pmsCount = roomList.filter(r => r.is_checkout_room && !r.pms_metadata?.manual_checkout).length;
               if (pmsCount === 0 && manualCount === 0) return null;
               return (
-                <span className="text-[10px] text-muted-foreground">
-                  {pmsCount} PMS · {manualCount} manual
+                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <span>{pmsCount} PMS</span>
+                  <span className="opacity-40">·</span>
+                  <span className={manualCount > 0 ? 'font-semibold text-amber-700 dark:text-amber-500' : ''}>
+                    {manualCount} manual
+                  </span>
                 </span>
               );
             })()}
