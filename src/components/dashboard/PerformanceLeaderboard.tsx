@@ -527,7 +527,7 @@ export function PerformanceLeaderboard() {
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Trophy className="h-4 w-4 text-yellow-500" />
-                  <span className="text-xs font-semibold text-green-700 dark:text-green-400 uppercase">Top Performer</span>
+                  <span className="text-xs font-semibold text-green-700 dark:text-green-400 uppercase">{t('performance.topPerformer')}</span>
                 </div>
                 <div className="font-bold text-lg truncate">{topPerformer.full_name}</div>
                 <div className="flex items-center gap-3 mt-1 text-sm text-green-700 dark:text-green-400">
