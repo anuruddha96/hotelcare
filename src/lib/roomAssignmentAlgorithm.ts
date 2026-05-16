@@ -18,10 +18,7 @@ export interface RoomForAssignment {
   room_size_sqm: number | null;
   room_capacity: number | null;
   is_checkout_room: boolean;
-  pms_metadata?: {
-    scheduledDepartureToday?: boolean;
-    [key: string]: any;
-  } | null;
+  pms_metadata?: any;
   status: string;
   towel_change_required?: boolean;
   linen_change_required?: boolean;

@@ -24,10 +24,7 @@ interface Room {
   is_checkout_room: boolean;
   checkout_time?: string;
   guest_count?: number;
-  pms_metadata?: {
-    scheduledDepartureToday?: boolean;
-    [key: string]: any;
-  } | null;
+  pms_metadata?: any;
   assignment?: {
     id: string;
     assigned_to_name: string;

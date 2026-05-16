@@ -40,12 +40,7 @@ interface RoomData {
   towel_change_required: boolean | null;
   linen_change_required: boolean | null;
   created_at?: string | null;
-  pms_metadata?: {
-    scheduledDepartureToday?: boolean;
-    departureTime?: string | null;
-    checkedOutToday?: boolean;
-    [key: string]: any;
-  } | null;
+  pms_metadata?: any;
 }
 
 interface AssignmentData {
