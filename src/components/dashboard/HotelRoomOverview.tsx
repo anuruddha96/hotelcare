@@ -575,7 +575,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
               {/* Services Section */}
               <div className="space-y-1">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Services</p>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('roomOverview.services')}</p>
                 <button
                   className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
                     room.towel_change_required 
