@@ -123,17 +123,41 @@ serve(async (req) => {
       return departed || previoDirty;
     });
 
-    const results = { checked: rooms.length, marked: 0, skipped: 0, errors: [] as string[] };
+    const results = { checked: rooms.length, marked: 0, skipped: 0, errors: [] as string[], unmatched: [] as string[] };
+
+    const extractRoomNumber = (raw: string): string => {
+      const m = String(raw).match(/\d+/);
+      return m ? m[0] : String(raw).trim();
+    };
 
     for (const r of candidates) {
       try {
-        const { data: localRoom } = await service
-          .from("rooms")
-          .select("id, status")
-          .eq("hotel", targetHotel)
-          .eq("room_number", r.name)
-          .maybeSingle();
-        if (!localRoom) { results.skipped++; continue; }
+        const rawName = String(r.name ?? "").trim();
+        const numToken = extractRoomNumber(rawName);
+        const previoRoomId = r.roomId != null ? String(r.roomId) : "";
+
+        // Robust lookup: exact name, then ilike, then numeric token, then pms_metadata->>roomId
+        let localRoom: { id: string; status: string } | null = null;
+
+        const tryQ = async (mut: (q: any) => any) => {
+          const { data } = await mut(
+            service.from("rooms").select("id, status").eq("hotel", targetHotel),
+          ).maybeSingle();
+          return (data as any) || null;
+        };
+
+        localRoom = await tryQ((q) => q.eq("room_number", rawName));
+        if (!localRoom && rawName) localRoom = await tryQ((q) => q.ilike("room_number", rawName));
+        if (!localRoom && numToken && numToken !== rawName) localRoom = await tryQ((q) => q.eq("room_number", numToken));
+        if (!localRoom && previoRoomId) {
+          localRoom = await tryQ((q) => q.filter("pms_metadata->>roomId", "eq", previoRoomId));
+        }
+
+        if (!localRoom) {
+          results.skipped++;
+          results.unmatched.push(rawName || previoRoomId);
+          continue;
+        }
 
         if (localRoom.status !== "dirty") {
           const { error: updErr } = await service

@@ -246,7 +246,13 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       const assignments = selectedRooms.map(roomId => {
         const room = rooms.find(r => r.id === roomId);
         const assignmentType: 'checkout_cleaning' | 'daily_cleaning' = room?.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning';
-        
+        // Daily rooms are always ready. Checkout rooms are ready immediately
+        // when the room is already dirty (guest has actually left, per PMS);
+        // otherwise they stay blocked until checkout polling releases them.
+        const readyToClean =
+          assignmentType !== 'checkout_cleaning' ||
+          room?.status === 'dirty';
+
         return {
           room_id: roomId,
           assigned_to: selectedStaff,
@@ -256,8 +262,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           priority: 2,
           estimated_duration: estimatedDuration,
           notes: notes.trim() || null,
-          // Daily rooms are ready immediately, checkout rooms need manager approval
-          ready_to_clean: assignmentType !== 'checkout_cleaning',
+          ready_to_clean: readyToClean,
           organization_slug: profileData.organization_slug
         };
       });
