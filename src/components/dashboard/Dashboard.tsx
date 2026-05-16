@@ -436,7 +436,7 @@ export function Dashboard() {
                 {hotelDisplayName || t('dashboard.title')}
               </h1>
               <p className="text-sm sm:text-base text-muted-foreground">
-                {hotelDisplayName ? `${hotelDisplayName} Management System` : t('dashboard.subtitle')}
+                {hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}
               </p>
           </div>
           
