@@ -182,14 +182,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Account Settings</DialogTitle>
+          <DialogTitle>{t('settings.title')}</DialogTitle>
         </DialogHeader>
         
         <Tabs defaultValue="account" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="account">Account</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="security">Security</TabsTrigger>
+            <TabsTrigger value="account">{t('settings.tabAccount')}</TabsTrigger>
+            <TabsTrigger value="notifications">{t('settings.tabNotifications')}</TabsTrigger>
+            <TabsTrigger value="security">{t('settings.tabSecurity')}</TabsTrigger>
           </TabsList>
           
           <TabsContent value="account" className="space-y-4">
@@ -197,30 +197,30 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <User className="h-5 w-5" />
-                  Account Information
+                  {t('settings.accountInformation')}
                 </CardTitle>
                 <CardDescription>
-                  View your account details and permissions
+                  {t('settings.accountInformationDesc')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">Full Name</Label>
+                    <Label className="text-sm font-medium">{t('settings.fullName')}</Label>
                     <p className="text-sm text-muted-foreground p-2 bg-muted rounded-md">
-                      {profile?.full_name || 'Not set'}
+                      {profile?.full_name || t('settings.notSet')}
                     </p>
                   </div>
                   
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">Nickname</Label>
+                    <Label className="text-sm font-medium">{t('settings.nickname')}</Label>
                     <p className="text-sm text-muted-foreground p-2 bg-muted rounded-md">
-                      {profile?.nickname || 'Not set'}
+                      {profile?.nickname || t('settings.notSet')}
                     </p>
                   </div>
                   
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">Email</Label>
+                    <Label className="text-sm font-medium">{t('settings.email')}</Label>
                     <p className="text-sm text-muted-foreground p-2 bg-muted rounded-md flex items-center gap-2">
                       <Mail className="h-4 w-4" />
                       {profile?.email}
@@ -228,7 +228,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
                   
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">Role</Label>
+                    <Label className="text-sm font-medium">{t('settings.role')}</Label>
                     <div className="p-2">
                       <Badge 
                         className={`${getRoleColor(profile?.role || '')} text-white`}
@@ -240,7 +240,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   
                   {profile?.assigned_hotel && (
                     <div className="space-y-2 sm:col-span-2">
-                      <Label className="text-sm font-medium">Assigned Hotel</Label>
+                      <Label className="text-sm font-medium">{t('settings.assignedHotel')}</Label>
                       <p className="text-sm text-muted-foreground p-2 bg-muted rounded-md">
                         {profile.assigned_hotel}
                       </p>
@@ -250,7 +250,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 
                 <div className="pt-4 border-t">
                   <p className="text-xs text-muted-foreground">
-                    Last login: {profile?.last_login ? new Date(profile.last_login).toLocaleString() : 'Never'}
+                    {t('settings.lastLogin')}: {profile?.last_login ? new Date(profile.last_login).toLocaleString() : t('settings.never')}
                   </p>
                 </div>
               </CardContent>
@@ -326,16 +326,16 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Lock className="h-5 w-5" />
-                  Change Password
+                  {t('settings.changePassword')}
                 </CardTitle>
                 <CardDescription>
-                  Update your account password
+                  {t('settings.changePasswordDesc')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="new_password">New Password</Label>
+                    <Label htmlFor="new_password">{t('settings.newPassword')}</Label>
                     <Input
                       id="new_password"
                       type="password"
@@ -344,12 +344,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         ...prev,
                         newPassword: e.target.value
                       }))}
-                      placeholder="Enter new password"
+                      placeholder={t('settings.enterNewPassword')}
                     />
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="confirm_password">Confirm New Password</Label>
+                    <Label htmlFor="confirm_password">{t('settings.confirmNewPassword')}</Label>
                     <Input
                       id="confirm_password"
                       type="password"
@@ -358,7 +358,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         ...prev,
                         confirmPassword: e.target.value
                       }))}
-                      placeholder="Confirm new password"
+                      placeholder={t('settings.confirmNewPasswordPlaceholder')}
                     />
                   </div>
                   
@@ -368,15 +368,15 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     className="w-full"
                   >
                     <Lock className="h-4 w-4 mr-2" />
-                    {isLoading ? 'Updating...' : 'Update Password'}
+                    {isLoading ? t('settings.updating') : t('settings.updatePassword')}
                   </Button>
                 </div>
                 
                 <div className="border-t pt-4">
                   <div className="space-y-3">
-                    <Label className="text-sm font-medium">Alternative: Reset via Email</Label>
+                    <Label className="text-sm font-medium">{t('settings.alternativeResetEmail')}</Label>
                     <p className="text-xs text-muted-foreground">
-                      Send a password reset link to your email address
+                      {t('settings.alternativeResetEmailDesc')}
                     </p>
                     <Button
                       variant="outline"
@@ -385,7 +385,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       className="w-full"
                     >
                       <Mail className="h-4 w-4 mr-2" />
-                      Send Reset Email
+                      {t('settings.sendResetEmail')}
                     </Button>
                   </div>
                 </div>
@@ -396,19 +396,19 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Shield className="h-5 w-5" />
-                  Security Information
+                  {t('settings.securityInformation')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">
-                    • Your password should be at least 6 characters long
+                    • {t('settings.securityTip1')}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    • Use a mix of letters, numbers, and symbols for better security
+                    • {t('settings.securityTip2')}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    • Avoid using personal information in passwords
+                    • {t('settings.securityTip3')}
                   </p>
                 </div>
               </CardContent>
@@ -418,7 +418,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         
         <div className="flex justify-end pt-4 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            {t('settings.close')}
           </Button>
         </div>
       </DialogContent>
