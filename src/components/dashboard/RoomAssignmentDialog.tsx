@@ -246,12 +246,16 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       const assignments = selectedRooms.map(roomId => {
         const room = rooms.find(r => r.id === roomId);
         const assignmentType: 'checkout_cleaning' | 'daily_cleaning' = room?.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning';
-        // Daily rooms are always ready. Checkout rooms are ready immediately
-        // when the room is already dirty (guest has actually left, per PMS);
-        // otherwise they stay blocked until checkout polling releases them.
+        // Daily rooms are always ready. Checkout rooms stay BLOCKED until
+        // the guest has truly departed per PMS — i.e. room.is_checkout_room
+        // is true (set only by the checkout poll on real departures) — or
+        // until a supervisor releases them manually. We deliberately do NOT
+        // release based on room.status === 'dirty', because a room can be
+        // dirty for unrelated reasons (mid-stay, previous day) while the
+        // guest is still checked in.
         const readyToClean =
           assignmentType !== 'checkout_cleaning' ||
-          room?.status === 'dirty';
+          room?.is_checkout_room === true;
 
         return {
           room_id: roomId,
