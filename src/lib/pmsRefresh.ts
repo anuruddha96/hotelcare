@@ -171,6 +171,19 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
 
   const status: PmsSyncStatus = errors.length ? "partial" : "success";
 
+  // For the Previo test hotel, also run the checkouts poll so any newly
+  // reception-confirmed checkouts (statusId=5) flip is_checkout_room in
+  // real time alongside the manual refresh. Non-fatal.
+  if (hotelId === "previo-test") {
+    try {
+      await supabase.functions.invoke("previo-poll-checkouts", {
+        body: { hotelId },
+      });
+    } catch (e) {
+      console.warn("[pmsRefresh] poll-checkouts warning:", e);
+    }
+  }
+
   // Log sync history (non-fatal).
   try {
     await supabase.from("pms_sync_history").insert({
