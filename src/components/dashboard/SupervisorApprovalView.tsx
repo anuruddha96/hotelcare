@@ -1121,7 +1121,7 @@ export function SupervisorApprovalView() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <CheckCircle className="h-4 w-4 text-green-600" />
-                      <span className="text-xs font-medium text-muted-foreground">Rooms</span>
+                      <span className="text-xs font-medium text-muted-foreground">{t('approvals.rooms')}</span>
                     </div>
                     <p className="text-2xl font-bold text-foreground">{summaryStats.roomCount}</p>
                   </CardContent>
