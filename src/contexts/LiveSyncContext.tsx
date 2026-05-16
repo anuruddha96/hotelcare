@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 
-export type TaskName = "pms" | "revenue";
+export type TaskName = "pms" | "revenue" | "checkouts";
 
 export interface TaskState {
   status: PmsSyncStatus | "syncing";
@@ -35,13 +35,14 @@ const ELIGIBLE_ROLES = new Set([
 ]);
 
 const THROTTLE_MS = 2 * 60 * 1000; // 2 min
+const CHECKOUTS_INTERVAL_MS = 10 * 60 * 1000; // 10 min
 
 const initialTask: TaskState = { status: "idle", lastAt: null };
 
 const LiveSyncContext = createContext<LiveSyncContextValue>({
   enabled: false,
   hotelId: null,
-  tasks: { pms: initialTask, revenue: initialTask },
+  tasks: { pms: initialTask, revenue: initialTask, checkouts: initialTask },
   refresh: async () => {},
 });
 
@@ -52,8 +53,9 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   const [tasks, setTasks] = useState<Record<TaskName, TaskState>>({
     pms: initialTask,
     revenue: initialTask,
+    checkouts: initialTask,
   });
-  const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0 });
+  const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0, checkouts: 0 });
 
   const enabled = !!user && !!profile?.role && ELIGIBLE_ROLES.has(profile.role) && hasPrevio;
 
@@ -177,13 +179,50 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     }
   }, [enabled, hotelId]);
 
+  const runCheckouts = useCallback(async (force = false) => {
+    if (!enabled || !hotelId) return;
+    // Test-hotel-only during API testing phase. Edge function also enforces this.
+    if (hotelId !== "previo-test") return;
+    const now = Date.now();
+    if (!force && now - lastRunRef.current.checkouts < CHECKOUTS_INTERVAL_MS) return;
+    lastRunRef.current.checkouts = now;
+    setTasks((p) => ({ ...p, checkouts: { ...p.checkouts, status: "syncing" } }));
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-poll-checkouts", {
+        body: { hotelId },
+      });
+      if (error) throw new Error(error.message || "Checkout poll failed");
+      const payload = (data || {}) as any;
+      if (payload.ok === false) throw new Error(payload.error || "Checkout poll failed");
+      const marked = Number(payload.marked || 0);
+      setTasks((p) => ({
+        ...p,
+        checkouts: {
+          status: payload.errors?.length ? "partial" : "success",
+          lastAt: new Date(),
+          meta: payload,
+        },
+      }));
+      if (marked > 0) {
+        const { toast } = await import("sonner");
+        toast.success(`${marked} checkout room${marked === 1 ? "" : "s"} auto-released — ready to clean.`);
+      }
+    } catch (e: any) {
+      setTasks((p) => ({
+        ...p,
+        checkouts: { status: "error", lastAt: new Date(), message: e?.message || "Checkout poll failed" },
+      }));
+    }
+  }, [enabled, hotelId]);
+
   const refresh = useCallback(
     async (task?: TaskName) => {
       if (task === "pms") await runPms(true);
       else if (task === "revenue") await runRevenue(true);
-      else await Promise.all([runPms(true), runRevenue(true)]);
+      else if (task === "checkouts") await runCheckouts(true);
+      else await Promise.all([runPms(true), runRevenue(true), runCheckouts(true)]);
     },
-    [runPms, runRevenue],
+    [runPms, runRevenue, runCheckouts],
   );
 
   // Auto-run on login + when tab regains focus after long idle.
@@ -191,13 +230,19 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     if (!enabled) return;
     void runPms();
     void runRevenue();
+    void runCheckouts();
     const onFocus = () => {
       void runPms();
       void runRevenue();
+      void runCheckouts();
     };
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [enabled, runPms, runRevenue]);
+    const checkoutsTimer = setInterval(() => void runCheckouts(), CHECKOUTS_INTERVAL_MS);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(checkoutsTimer);
+    };
+  }, [enabled, runPms, runRevenue, runCheckouts]);
 
   return (
     <LiveSyncContext.Provider value={{ enabled, hotelId, tasks, refresh }}>

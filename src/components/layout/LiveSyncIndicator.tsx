@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const TASK_LABELS: Record<TaskName, string> = {
   pms: "PMS rooms",
   revenue: "Revenue rates",
+  checkouts: "Auto-release checkouts",
 };
 
 export function LiveSyncIndicator() {
@@ -146,6 +147,11 @@ export function LiveSyncIndicator() {
                   {t.key === "pms" && t.meta?.checkouts != null && (
                     <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
                       {t.meta.checkouts} checkouts
+                    </Badge>
+                  )}
+                  {t.key === "checkouts" && t.meta?.marked != null && (
+                    <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                      {t.meta.marked} released
                     </Badge>
                   )}
                   {!isUnsupported && (

@@ -36,19 +36,27 @@ serve(async (req) => {
     const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const authHeader = req.headers.get("Authorization") || "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const anon = createClient(SUPABASE_URL, ANON);
-    const { data: userRes } = await anon.auth.getUser(authHeader.replace("Bearer ", ""));
-    if (!userRes?.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const cronSecret = req.headers.get("x-cron-secret") || "";
+    const expectedCronSecret = Deno.env.get("CRON_SECRET") || "";
+    const isCronCall = !!expectedCronSecret && cronSecret === expectedCronSecret;
+
+    let userId: string | null = null;
+    if (!isCronCall) {
+      if (!authHeader.startsWith("Bearer ")) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const anon = createClient(SUPABASE_URL, ANON);
+      const { data: userRes } = await anon.auth.getUser(authHeader.replace("Bearer ", ""));
+      if (!userRes?.user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = userRes.user.id;
     }
 
     const service = createClient(SUPABASE_URL, SERVICE);
@@ -62,17 +70,19 @@ serve(async (req) => {
       );
     }
 
-    const { data: profile } = await service
-      .from("profiles")
-      .select("role, assigned_hotel")
-      .eq("id", userRes.user.id)
-      .maybeSingle();
-    const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
-    if (!isAdmin && profile?.assigned_hotel !== targetHotel) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!isCronCall && userId) {
+      const { data: profile } = await service
+        .from("profiles")
+        .select("role, assigned_hotel")
+        .eq("id", userId)
+        .maybeSingle();
+      const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+      if (!isAdmin && profile?.assigned_hotel !== targetHotel) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const { data: cfg } = await service
@@ -108,7 +118,7 @@ serve(async (req) => {
     const candidates = rooms.filter((r) => {
       const res = r.reservation;
       const departed = res && res.departureDate <= today &&
-        /(checked.?out|departed|left|finished|done)/i.test(res.status || "");
+        /^(checked.?out|no.?show|cancelled|canceled|departed|left|finished|done)$/i.test((res.status || "").trim());
       const previoDirty = r.roomCleanStatusId !== 1; // 1 = clean in Previo
       return departed || previoDirty;
     });
@@ -147,7 +157,7 @@ serve(async (req) => {
       direction: "from_previo",
       hotel_id: targetHotel,
       data: results,
-      changed_by: userRes.user.id,
+      changed_by: userId,
       sync_status: results.errors.length ? "partial" : "success",
       error_message: results.errors.length ? results.errors.join("; ") : null,
     });
