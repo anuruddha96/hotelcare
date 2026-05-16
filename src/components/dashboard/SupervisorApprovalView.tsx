@@ -798,7 +798,7 @@ export function SupervisorApprovalView() {
                 size="sm"
               >
                 <CheckCircle className="h-3.5 w-3.5 mr-1" />
-                Approve
+                {t('approvals.approve')}
               </Button>
               <Button
                 variant="outline"
