@@ -24,6 +24,10 @@ interface Room {
   is_checkout_room: boolean;
   checkout_time?: string;
   guest_count?: number;
+  pms_metadata?: {
+    scheduledDepartureToday?: boolean;
+    [key: string]: any;
+  } | null;
   assignment?: {
     id: string;
     assigned_to_name: string;
@@ -72,7 +76,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       // Query rooms filtered by organization and hotel
       let roomsQuery = supabase
         .from('rooms')
-        .select('id, room_number, hotel, status, room_name, floor_number, is_checkout_room, checkout_time, guest_count, organization_slug')
+        .select('id, room_number, hotel, status, room_name, floor_number, is_checkout_room, checkout_time, guest_count, pms_metadata, organization_slug')
         .eq('status', 'dirty')
         .eq('organization_slug', profileData.organization_slug);
 
@@ -245,7 +249,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       // Determine assignment type based on room type automatically
       const assignments = selectedRooms.map(roomId => {
         const room = rooms.find(r => r.id === roomId);
-        const assignmentType: 'checkout_cleaning' | 'daily_cleaning' = room?.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning';
+        const assignmentType: 'checkout_cleaning' | 'daily_cleaning' = room?.is_checkout_room || room?.pms_metadata?.scheduledDepartureToday ? 'checkout_cleaning' : 'daily_cleaning';
         // Daily rooms are ready immediately. Checkout rooms must always start
         // blocked and can only be released manually by eligible staff, or by
         // the dedicated Previo checkout poll for the test hotel.
@@ -353,7 +357,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
     if (!groups[room.hotel]) {
       groups[room.hotel] = { checkout: [], daily: [] };
     }
-    if (room.is_checkout_room) {
+    if (room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday) {
       groups[room.hotel].checkout.push(room);
     } else {
       groups[room.hotel].daily.push(room);

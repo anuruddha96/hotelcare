@@ -107,6 +107,8 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
       // alone does not mean the guest has actually left the hotel.
       const isCheckedOut = row.CheckedOut === true;
 
+      const existingMetadata = row.pms_metadata && typeof row.pms_metadata === "object" ? row.pms_metadata : undefined;
+
       const nightTotal = parseNightTotal(row["Night / Total"]);
       let guestNightsStayed = 0;
       let towel = false;
@@ -135,6 +137,12 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
         towel_change_required: towel,
         linen_change_required: linen,
         updated_at: new Date().toISOString(),
+        pms_metadata: {
+          ...(existingMetadata ?? {}),
+          scheduledDepartureToday: isScheduledDeparture,
+          departureTime: departureParsed,
+          checkedOutToday: isCheckedOut,
+        },
       };
       if (mappedStatus) {
         updateData.status = mappedStatus;

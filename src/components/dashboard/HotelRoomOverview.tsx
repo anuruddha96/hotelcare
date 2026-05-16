@@ -40,7 +40,12 @@ interface RoomData {
   towel_change_required: boolean | null;
   linen_change_required: boolean | null;
   created_at?: string | null;
-  pms_metadata?: any;
+  pms_metadata?: {
+    scheduledDepartureToday?: boolean;
+    departureTime?: string | null;
+    checkedOutToday?: boolean;
+    [key: string]: any;
+  } | null;
 }
 
 interface AssignmentData {
@@ -358,13 +363,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const assignmentMap = new Map<string, AssignmentData>();
   assignments.forEach(a => assignmentMap.set(a.room_id, a));
 
+  const isScheduledCheckoutRoom = (room: RoomData) => room.pms_metadata?.scheduledDepartureToday === true;
+
   const checkoutRooms = rooms.filter(r => {
     const assignment = assignmentMap.get(r.id);
-    return r.is_checkout_room || assignment?.assignment_type === 'checkout_cleaning';
+    return r.is_checkout_room || isScheduledCheckoutRoom(r) || assignment?.assignment_type === 'checkout_cleaning';
   });
   const dailyRooms = rooms.filter(r => {
     const assignment = assignmentMap.get(r.id);
-    return !r.is_checkout_room && assignment?.assignment_type !== 'checkout_cleaning';
+    return !r.is_checkout_room && !isScheduledCheckoutRoom(r) && assignment?.assignment_type !== 'checkout_cleaning';
   });
 
   const isNoShow = (room: RoomData) => {
@@ -422,7 +429,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
-    const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+    const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || room.is_checkout_room || isScheduledCheckoutRoom(room);
     const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms;
 
     const chipContent = (
@@ -1246,7 +1253,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {/* Room Status */}
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
-              const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room;
+              const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room || isScheduledCheckoutRoom(selectedRoom);
               const roomStatus = selectedRoom.status;
               return (
                 <>

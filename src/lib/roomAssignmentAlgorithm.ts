@@ -18,6 +18,10 @@ export interface RoomForAssignment {
   room_size_sqm: number | null;
   room_capacity: number | null;
   is_checkout_room: boolean;
+  pms_metadata?: {
+    scheduledDepartureToday?: boolean;
+    [key: string]: any;
+  } | null;
   status: string;
   towel_change_required?: boolean;
   linen_change_required?: boolean;
@@ -88,13 +92,14 @@ export function applyMemoriesZones(rooms: RoomForAssignment[]): RoomForAssignmen
 
 // Calculate estimated time for a room in minutes
 export function calculateRoomTime(room: RoomForAssignment): number {
-  if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
+  const isCheckout = room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true;
+  if (room.towel_change_required && !isCheckout && !room.linen_change_required) {
     return TOWEL_CHANGE_MINUTES;
   }
-  if (room.linen_change_required && !room.is_checkout_room) {
+  if (room.linen_change_required && !isCheckout) {
     return LINEN_CHANGE_MINUTES;
   }
-  if (!room.is_checkout_room) {
+  if (!isCheckout) {
     return DAILY_MINUTES;
   }
   const capacity = room.room_capacity || 2;
@@ -131,11 +136,12 @@ export function calculateRoomWeight(room: RoomForAssignment): number {
   if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
     return 0.4;
   }
-  let weight = room.is_checkout_room ? 1.5 : 1.0;
-  if (room.linen_change_required && !room.is_checkout_room) {
+  const isCheckout = room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true;
+  let weight = isCheckout ? 1.5 : 1.0;
+  if (room.linen_change_required && !isCheckout) {
     weight += 0.5;
   }
-  if (room.towel_change_required && !room.is_checkout_room) {
+  if (room.towel_change_required && !isCheckout) {
     weight += 0.2;
   }
   const capacity = room.room_capacity || 2;
@@ -274,8 +280,10 @@ function getAffinityBonus(
 
 function sortRoomsOptimally(rooms: RoomForAssignment[]): RoomForAssignment[] {
   return [...rooms].sort((a, b) => {
-    if (a.is_checkout_room && !b.is_checkout_room) return -1;
-    if (!a.is_checkout_room && b.is_checkout_room) return 1;
+    const aIsCheckout = a.is_checkout_room || a.pms_metadata?.scheduledDepartureToday === true;
+    const bIsCheckout = b.is_checkout_room || b.pms_metadata?.scheduledDepartureToday === true;
+    if (aIsCheckout && !bIsCheckout) return -1;
+    if (!aIsCheckout && bIsCheckout) return 1;
     const floorA = getFloor(a);
     const floorB = getFloor(b);
     if (floorA !== floorB) return floorA - floorB;
@@ -362,8 +370,8 @@ export function autoAssignRooms(
   });
 
   // ─── CATEGORIZE ROOMS ───
-  const checkoutRooms = allRooms.filter(r => r.is_checkout_room);
-  const dailyRooms = allRooms.filter(r => !r.is_checkout_room);
+  const checkoutRooms = allRooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true);
+  const dailyRooms = allRooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true));
   const dailyCleanRooms = dailyRooms.filter(r => r.linen_change_required);
   const dailyNormalRooms = dailyRooms.filter(r => !r.linen_change_required);
 
@@ -383,8 +391,8 @@ export function autoAssignRooms(
   // Helper: get staff's current counts
   function getStaffCounts(staffId: string) {
     const rooms = assignments.get(staffId)!;
-    const checkouts = rooms.filter(r => r.is_checkout_room).length;
-    const daily = rooms.filter(r => !r.is_checkout_room).length;
+    const checkouts = rooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true).length;
+    const daily = rooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true)).length;
     const minutes = staffMinutes.get(staffId)!;
     return { checkouts, daily, total: rooms.length, minutes };
   }
@@ -617,8 +625,8 @@ export function autoAssignRooms(
     const movable = mostRooms
       .map(room => ({
         room,
-        isCheckout: room.is_checkout_room,
-        score: (room.is_checkout_room ? 100 : 0) + zoneFitScore(room, leastRooms) + roomProximityScore(room, leastRooms) * 0.3
+        isCheckout: room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true,
+        score: ((room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? 100 : 0) + zoneFitScore(room, leastRooms) + roomProximityScore(room, leastRooms) * 0.3
       }))
       .sort((a, b) => a.score - b.score);
 
@@ -627,8 +635,8 @@ export function autoAssignRooms(
     // Check that moving a checkout wouldn't break checkout balance
     const candidate = movable[0];
     if (candidate.isCheckout) {
-      const mostCO = mostRooms.filter(r => r.is_checkout_room).length;
-      const leastCO = leastRooms.filter(r => r.is_checkout_room).length;
+      const mostCO = mostRooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true).length;
+      const leastCO = leastRooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true).length;
       if (leastCO + 1 - (mostCO - 1) > 1) {
         // Moving this checkout would break CO balance; try next non-checkout
         const dailyCandidate = movable.find(m => !m.isCheckout);
@@ -660,10 +668,10 @@ export function autoAssignRooms(
     let bestSwap: { heavyRoom: RoomForAssignment; lightRoom: RoomForAssignment; newSpread: number } | null = null;
     
     for (const hRoom of heavyRooms) {
-      if (hRoom.is_checkout_room) continue;
+      if (hRoom.is_checkout_room || hRoom.pms_metadata?.scheduledDepartureToday === true) continue;
       const hTime = calculateRoomTime(hRoom);
       for (const lRoom of lightRooms) {
-        if (lRoom.is_checkout_room) continue;
+        if (lRoom.is_checkout_room || lRoom.pms_metadata?.scheduledDepartureToday === true) continue;
         const lTime = calculateRoomTime(lRoom);
         if (hTime <= lTime) continue; // swap must reduce heavy's time
         
@@ -681,7 +689,7 @@ export function autoAssignRooms(
 
     if (!bestSwap) {
       // Fallback: try simple move of a daily room from heavy to light
-      const movable = heavyRooms.filter(r => !r.is_checkout_room);
+      const movable = heavyRooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true));
       if (movable.length === 0) break;
       // Find room whose time would best reduce spread
       const best = movable.map(room => {
@@ -693,8 +701,8 @@ export function autoAssignRooms(
       if (best.newSpread >= heavy.minutes - light.minutes) break;
       
       // Check it doesn't break daily/total balance
-      const heavyDaily = heavyRooms.filter(r => !r.is_checkout_room).length;
-      const lightDaily = lightRooms.filter(r => !r.is_checkout_room).length;
+      const heavyDaily = heavyRooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true)).length;
+      const lightDaily = lightRooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true)).length;
       if (heavyDaily - 1 < lightDaily + 1 - 2) break; // would create daily imbalance
       
       moveRoomInternal(best.room, heavy.id, light.id);
@@ -715,8 +723,8 @@ export function autoAssignRooms(
       staffName: s.full_name,
       rooms: staffRooms,
       totalWeight: staffRooms.reduce((sum, r) => sum + calculateRoomWeight(r), 0),
-      checkoutCount: staffRooms.filter(r => r.is_checkout_room).length,
-      dailyCount: staffRooms.filter(r => !r.is_checkout_room).length,
+      checkoutCount: staffRooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true).length,
+      dailyCount: staffRooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true)).length,
       ...timeEstimate
     };
   });
@@ -742,12 +750,12 @@ export function moveRoom(
 
   fromPreview.rooms.splice(roomIndex, 1);
   fromPreview.totalWeight -= roomWeight;
-  if (room.is_checkout_room) fromPreview.checkoutCount--;
+  if (room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) fromPreview.checkoutCount--;
   else fromPreview.dailyCount--;
 
   toPreview.rooms.push(room);
   toPreview.totalWeight += roomWeight;
-  if (room.is_checkout_room) toPreview.checkoutCount++;
+  if (room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) toPreview.checkoutCount++;
   else toPreview.dailyCount++;
 
   toPreview.rooms = sortRoomsOptimally(toPreview.rooms);
