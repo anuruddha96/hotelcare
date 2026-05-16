@@ -135,28 +135,18 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('Previo update error:', error);
     
-    // Log failure to sync history
+    // Log failure to sync history. Note: the request body was already consumed
+    // above, so we can't re-read roomId here. Best-effort log without it.
     try {
-      const { roomId } = await req.json();
-      const { data: room } = await supabase
-        .from('rooms')
-        .select('hotel, room_number')
-        .eq('id', roomId)
-        .single();
-      
-      if (room) {
-        await supabase
-          .from('pms_sync_history')
-          .insert({
-            hotel_id: room.hotel,
-            sync_type: 'room_status_update',
-            room_id: roomId,
-            room_number: room.room_number,
-            status: 'failed',
-            error_message: error.message,
-            synced_by: null
-          });
-      }
+      await supabase
+        .from('pms_sync_history')
+        .insert({
+          hotel_id: 'unknown',
+          sync_type: 'room_status_update',
+          direction: 'push',
+          sync_status: 'failed',
+          error_message: error.message,
+        });
     } catch (logError) {
       console.error('Failed to log sync error:', logError);
     }
