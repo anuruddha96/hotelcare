@@ -201,6 +201,26 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
         </ul>
       )}
 
+      {lastNightly && (
+        <div className="flex items-center gap-2 text-xs rounded-md border border-border bg-muted/30 px-3 py-2">
+          <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-muted-foreground">Last nightly auto-sync:</span>
+          <span className="font-medium">{formatDistanceToNow(new Date(lastNightly.changed_at))} ago</span>
+          <Badge
+            variant={lastNightly.sync_status === 'success' ? 'default' : lastNightly.sync_status === 'partial' ? 'secondary' : 'destructive'}
+            className="ml-1"
+          >
+            {lastNightly.sync_status}
+          </Badge>
+          {lastNightly.data?.rooms_updated != null && (
+            <span className="text-muted-foreground ml-2">· {lastNightly.data.rooms_updated} updated</span>
+          )}
+          {lastNightly.data?.rooms_created ? (
+            <span className="text-emerald-700 ml-2">· {lastNightly.data.rooms_created} new</span>
+          ) : null}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
         <div>
           <div className="text-xs text-muted-foreground">Last sync</div>
