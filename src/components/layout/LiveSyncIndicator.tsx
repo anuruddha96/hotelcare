@@ -149,6 +149,11 @@ export function LiveSyncIndicator() {
                       {t.meta.checkouts} checkouts
                     </Badge>
                   )}
+                  {t.key === "checkouts" && t.meta?.marked != null && (
+                    <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                      {t.meta.marked} released
+                    </Badge>
+                  )}
                   {!isUnsupported && (
                     <Button
                       size="sm"
