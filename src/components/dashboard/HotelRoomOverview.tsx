@@ -1090,22 +1090,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {/* Row 2: Compact stat grid */}
           <div className="grid grid-cols-4 gap-2">
             <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center">
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Total</div>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.total')}</div>
               <div className="text-sm font-semibold leading-tight">{rooms.length}</div>
             </div>
             <div className={`rounded-lg border px-2 py-1.5 text-center ${earlyCheckoutRooms.length > 0 ? 'bg-orange-50 border-orange-200 dark:bg-orange-900/20 dark:border-orange-700' : 'bg-muted/40'}`}>
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">Early C/O</div>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.earlyCheckout')}</div>
               <div className={`text-sm font-semibold leading-tight ${earlyCheckoutRooms.length > 0 ? 'text-orange-700 dark:text-orange-300' : ''}`}>{earlyCheckoutRooms.length}</div>
             </div>
             <div className={`rounded-lg border px-2 py-1.5 text-center ${noShowRooms.length > 0 ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700' : 'bg-muted/40'}`}>
-              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">No-Show</div>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.noShow')}</div>
               <div className={`text-sm font-semibold leading-tight ${noShowRooms.length > 0 ? 'text-red-700 dark:text-red-300' : ''}`}>{noShowRooms.length}</div>
             </div>
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center cursor-help">
-                    <div className="text-[9px] uppercase tracking-wide text-muted-foreground">ACT</div>
+                    <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.act')}</div>
                     <div className="text-sm font-semibold leading-tight">{averageCleanTime !== null ? `${averageCleanTime}m` : '--'}</div>
                   </div>
                 </TooltipTrigger>
