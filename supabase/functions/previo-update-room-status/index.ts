@@ -144,11 +144,12 @@ serve(async (req) => {
       await supabase
         .from('pms_sync_history')
         .insert({
-          hotel_id: 'unknown',
+          hotel_id: hotelForLog,
           sync_type: 'room_status_update',
           direction: 'push',
           sync_status: 'failed',
           error_message: error.message,
+          data: { room_id: roomIdForLog },
         });
     } catch (logError) {
       console.error('Failed to log sync error:', logError);
