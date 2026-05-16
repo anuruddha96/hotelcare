@@ -626,8 +626,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🛏️ Clean Room (C)</span>
-                  <span className="text-[10px]">{room.linen_change_required ? '✓ Required' : 'Off'}</span>
+                  <span>🛏️ {t('roomOverview.cleanRoomC')}</span>
+                  <span className="text-[10px]">{room.linen_change_required ? `✓ ${t('roomOverview.required')}` : t('roomOverview.off')}</span>
                 </button>
                 <button
                   className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
