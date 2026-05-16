@@ -1,0 +1,1 @@
+UPDATE room_assignments SET ready_to_clean = true, updated_at = now() WHERE room_id = '5a0d7eb8-bac9-4d80-b611-315d870fd70e' AND assignment_date = '2026-05-16' AND status IN ('assigned','in_progress') AND ready_to_clean = false;
