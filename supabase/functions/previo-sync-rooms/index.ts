@@ -153,6 +153,7 @@ serve(async (req) => {
         try {
           const roomNumber = r.name;
           const roomType = r.roomKindName || '';
+          const roomCategory = r.roomKindName || null;
           const capacity = (r.capacity ?? 0) + (r.extraCapacity ?? 0);
           const pmsMetadata = {
             roomId: r.roomId,
@@ -165,18 +166,30 @@ serve(async (req) => {
             order: r.order,
           };
 
-          const { data: existing } = await supabase
+          // Match by Previo numeric roomId first (handles "Onity 101" / "Salto 101" / "101" collisions).
+          // Fallback to (hotel, room_number) for legacy rows imported before pms_metadata.roomId was set.
+          let { data: existing } = await supabase
             .from('rooms')
             .select('id')
             .eq('hotel', hotelCareHotelId)
-            .eq('room_number', roomNumber)
+            .filter('pms_metadata->>roomId', 'eq', String(r.roomId))
             .maybeSingle();
+          if (!existing) {
+            ({ data: existing } = await supabase
+              .from('rooms')
+              .select('id')
+              .eq('hotel', hotelCareHotelId)
+              .eq('room_number', roomNumber)
+              .maybeSingle());
+          }
 
           if (existing) {
             const { error } = await supabase
               .from('rooms')
               .update({
+                room_number: roomNumber,
                 room_type: roomType,
+                room_category: roomCategory,
                 room_capacity: capacity || null,
                 pms_metadata: pmsMetadata,
                 updated_at: new Date().toISOString(),
@@ -190,6 +203,7 @@ serve(async (req) => {
                 hotel: hotelCareHotelId,
                 room_number: roomNumber,
                 room_type: roomType,
+                room_category: roomCategory,
                 room_capacity: capacity || null,
                 status: 'clean',
                 organization_slug: orgSlug,
