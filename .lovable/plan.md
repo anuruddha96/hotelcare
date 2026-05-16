@@ -1,55 +1,44 @@
-# Fix: Missing translations + clipped Hotel Switcher button
+# Add Azerbaijani Language + Home Page Language Switcher
 
-## 1. Hotel Switcher button UI fix (header, mobile)
+## What's already done
 
-**Problem:** In the mobile header, the Hotel Switcher button appears clipped — the Building2 icon is half-cut (looks like a partial "b" between the logo and language flag). Cause: `Header.tsx` puts everything in an `overflow-x-auto` row, but the logo block consumes `flex-1` and squeezes the right-side icons; the HotelSwitcher button (`size="sm"` + icon only on mobile) ends up overlapping/clipped against the logo area.
+Good news — partial groundwork already exists:
+- `az` is registered in `supportedLanguages` in `src/hooks/useTranslation.tsx`.
+- Browser language auto-detection is already implemented (line 2244-2251): on first visit, it reads `navigator.language` and picks a supported match, falling back to English. Once a user picks a language it's stored in `localStorage`.
+- `az` translations exist in `useTranslation.tsx` (core), `highlighted-translations.ts`, and `notification-translations.ts`.
+- `LanguageSwitcher` component already lists Azerbaijani 🇦🇿.
 
-**Fix in `src/components/layout/HotelSwitcher.tsx`:**
-- Add `shrink-0` to the trigger Button so it never collapses
-- Add `aria-label` + proper min-width on mobile so the icon is never clipped
-- Keep the hotel name hidden on mobile (current behavior), but make sure the button itself is a clean 36px icon button
+## What's missing
 
-**Fix in `src/components/layout/Header.tsx`:**
-- Logo wrapper: change `flex-1 sm:flex-initial` → `shrink min-w-0` (don't grab all space on mobile) and tighten max-widths so the right-side icons get breathing room
-- Right section: already has `overflow-x-auto`, but add `pl-2` and ensure inner `shrink-0` works (it does)
+### 1. Azerbaijani translations missing in 6 bundles
+The following bundles still only ship 3–5 languages (no `az`), so large parts of the app fall back to English when a user picks Azerbaijani:
 
-Result: HotelSwitcher renders as a clean icon button on mobile, no clipping, fully tappable.
+| File | Current langs | Action |
+|---|---|---|
+| `src/lib/expanded-translations.ts` | en, hu, es, vi, mn | Add `az` |
+| `src/lib/comprehensive-translations.ts` | en, hu, es, vi, mn | Add `az` |
+| `src/lib/pms-translations.ts` | en, hu, es, vi, mn | Add `az` |
+| `src/lib/maintenance-translations.ts` | en, hu, es, vi, mn | Add `az` |
+| `src/lib/guest-minibar-translations.ts` | partial (3) | Add `az` (+ fill missing langs while there) |
+| `src/lib/training-translations.ts` | partial (3) | Add `az` |
+| `src/lib/breakfast-translations.ts` | sparse | Add `az` |
 
-## 2. Missing translations
+Translations will be professional Azerbaijani (Latin script) matching the tone of the existing Hungarian/Spanish bundles — hospitality / housekeeping / maintenance vocabulary.
 
-The screenshots highlight untranslated English strings on these screens (visible while UI language = Hungarian):
+### 2. Language switcher on the Auth (home) page
+`src/pages/Auth.tsx` currently has no language control. Add the existing `<LanguageSwitcher />` in the top-right corner of the page (absolute-positioned, mobile-safe) so unauthenticated visitors can change language before signing in. No new component needed — reuse `src/components/dashboard/LanguageSwitcher.tsx`.
 
-| Screen | Untranslated strings |
-|---|---|
-| SupervisorApprovalView | "Room Completion Approvals", "Approve All", "Approve", "Details", "Started: X · Completed: Y" |
-| Dashboard (Housekeeping > Approval) | "Hotel Ottofiori Management System" subtitle, "Late Minibar Additions", "Pending Approvals" date row, "Rooms / Maintenance / Flagged / Oldest" stat tiles, "May 16th, 2026" date label |
-| HotelRoomOverview (Team tab) | "Hotel Room Overview", "TOTAL / EARLY C/O / NO-SHOW / ACT" labels, "Checkout Rooms", "11 PM · 0 manual" |
-| PerformanceLeaderboard | "TOP PERFORMER", "TEAM AVERAGE", "X ranked", "X% on-time", "FIGYELMET IGÉNYEL" (this one is already HU but mixed casing) |
-| LostAndFoundManagement | "Lost & Found Management", "Add Item", "Search by room number…", "Shoes / Room / Hotel / Found / By" labels, "View", "Claim", "pending" badge |
-| DNDPhotosManagement | "Do Not Disturb (DND) Photos Management", "Today" filter, "All Hotels", "No DND photos found for the selected period" |
-| AttendanceTracker (HR / Break Types) | "Duration (minutes)", "Existing Break Types", "Lunch Break" (default seeded name OK to leave), Icon label "Coffee" stays English |
-| RoomManagement (mobile) | "Search by room number or hotel…", "All Hotels", "All Status", "All Types", "Out of Order / Nem elérhető" mixed |
+The `saveLanguagePreference` call inside the switcher writes to the DB only when a user is logged in; for guests it'll just update local state + `localStorage` (already handled by `useLanguagePreference`).
 
-### Approach
+### 3. Browser-language detection on home page
+Already working via `TranslationProvider`'s initial state. No change required — confirming this in the plan so we don't rebuild it. The Auth page will automatically render in the browser's language on first visit (if supported), or fall back to English.
 
-1. Add the missing keys to `src/hooks/useTranslation.tsx` (the canonical i18n dictionary) under appropriate namespaces (`approvals.*`, `dashboard.*`, `team.*`, `performance.*`, `lostFound.*`, `dnd.*`, `attendance.*`, `rooms.*`), with full translations for the 5 supported languages: en, hu, es, vi, mn.
-2. Replace the hardcoded English strings in the corresponding components with `t('namespace.key')` calls. Files to edit:
-   - `src/components/dashboard/SupervisorApprovalView.tsx`
-   - `src/components/dashboard/Dashboard.tsx` (subtitle line and stat-tile labels)
-   - `src/components/dashboard/HotelRoomOverview.tsx`
-   - `src/components/dashboard/PerformanceLeaderboard.tsx`
-   - `src/components/dashboard/LostAndFoundManagement.tsx`
-   - `src/components/dashboard/DNDPhotosManagement.tsx`
-   - `src/components/dashboard/AttendanceTracker.tsx` (Break Types card)
-   - `src/components/dashboard/RoomManagement.tsx` (filters)
-3. For date labels ("May 16th, 2026") use the existing locale-aware formatter or `toLocaleDateString(language)` so the date itself follows the UI language.
+## Out of scope
+- No backend / schema changes.
+- No changes to DB-stored content (hotel names, room types, seeded break types, location slugs).
+- No changes to Previo polling, auth flow, or any business logic.
+- Other minor untranslated strings flagged in earlier sessions are not re-touched here.
 
-### Scope guard
-
-- No backend, no schema, no logic changes — purely UI strings + one small flex/shrink CSS adjustment in the header.
-- No changes to the Previo auto-poll / push-to-Previo work; Ottofiori and live hotels remain untouched.
-
-### Out of scope (won't change unless you confirm)
-
-- Seeded data values like the "Lunch Break" name and icon name "Coffee" — those live in the DB, not in code. Tell me if you want those translated at render time too.
-- "ottofiori" location pill on Room Management — that's a hotel slug from the DB, not a translatable string.
+## Technical notes
+- Each translation bundle file exports an object keyed by language code; adding `az: { ... }` is additive and type-safe (the `Language` union already includes `'az'`).
+- Auth page switcher placement: `<div className="absolute top-4 right-4 z-10"><LanguageSwitcher /></div>` inside the existing page wrapper. Mobile (440px viewport) verified — switcher collapses to flag-only via its existing `hidden sm:inline` rule.
