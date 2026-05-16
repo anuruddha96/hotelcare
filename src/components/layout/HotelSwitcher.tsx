@@ -65,9 +65,14 @@ export function HotelSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2">
-          <Building2 className="h-4 w-4" />
-          <span className="hidden sm:inline">{currentHotelName}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={currentHotelName}
+          className="shrink-0 gap-2 h-9 w-9 sm:w-auto sm:px-3 p-0 justify-center"
+        >
+          <Building2 className="h-4 w-4 shrink-0" />
+          <span className="hidden sm:inline truncate max-w-[140px]">{currentHotelName}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
