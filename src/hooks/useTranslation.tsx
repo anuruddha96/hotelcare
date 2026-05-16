@@ -2212,6 +2212,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...toStringBundle(notificationTranslations[lang as keyof typeof notificationTranslations]),
   ...toStringBundle(dashboardTranslations[lang as keyof typeof dashboardTranslations]),
   ...toStringBundle(pmsTranslations[lang]),
+  ...toStringBundle(highlightedTranslations[lang]),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {
