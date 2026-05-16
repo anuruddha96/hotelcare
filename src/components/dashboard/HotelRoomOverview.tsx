@@ -873,6 +873,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily') => {
     e.preventDefault();
     setDragOverSection(null);
+    justDraggedRef.current = Date.now();
+    setHoveredRoomId(null);
     const roomId = e.dataTransfer.getData('roomId');
     const roomNumber = e.dataTransfer.getData('roomNumber');
     const sourceType = e.dataTransfer.getData('sourceType');
@@ -881,12 +883,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const newIsCheckout = targetType === 'checkout';
     const newAssignmentType = newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning';
     const assignment = assignmentMap.get(roomId);
+    const movedRoom = rooms.find(r => r.id === roomId);
+    const newMeta = {
+      ...(movedRoom?.pms_metadata || {}),
+      manual_checkout: newIsCheckout,
+      manual_moved_at: new Date().toISOString(),
+      manual_moved_by: profile?.id || null,
+    };
 
     // Optimistic update
-    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout } : r));
+    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout, pms_metadata: newMeta } : r));
 
     try {
-      const roomUpdate = supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', roomId);
+      const roomUpdate = supabase.from('rooms').update({ is_checkout_room: newIsCheckout, pms_metadata: newMeta } as any).eq('id', roomId);
       const promises: any[] = [roomUpdate];
       if (assignment) {
         const assignmentUpdate: any = { assignment_type: newAssignmentType };
@@ -900,7 +909,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         );
       }
       await Promise.all(promises);
-      toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+      toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'} (manual)`);
       await fetchData();
     } catch {
       toast.error('Failed to switch room type');
