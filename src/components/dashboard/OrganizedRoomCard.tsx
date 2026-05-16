@@ -99,14 +99,20 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
         {/* Header */}
         <div className="flex items-start justify-between mb-2">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-lg font-bold text-foreground">{room.room_number}</span>
+              {room.pms_metadata?.roomId && room.created_at && (Date.now() - new Date(room.created_at).getTime() < 3 * 24 * 3600 * 1000) && (
+                <Badge className="bg-emerald-600 text-white text-[10px] px-1 py-0 h-4" title="Newly imported from Previo">NEW</Badge>
+              )}
               {room.floor_number !== undefined && room.floor_number !== null && (
                 <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
                   F{room.floor_number}
                 </span>
               )}
             </div>
+            {room.room_category && (
+              <p className="text-[10px] text-muted-foreground/70 truncate max-w-32">{room.room_category}</p>
+            )}
             {room.room_name && (
               <p className="text-xs text-muted-foreground truncate max-w-20">{room.room_name}</p>
             )}
