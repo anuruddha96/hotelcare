@@ -258,6 +258,9 @@ serve(async (req) => {
       const isOccupied = !!res && res.arrivalDate <= today && res.departureDate > today;
       const isDeparture = !!res && res.departureDate === today;
       const isArrival = !!res && res.arrivalDate === today;
+      // Previo statusId 5 = Departed/Checked-out. Reception flips this in the
+      // PMS when the guest actually leaves the hotel.
+      const isCheckedOut = !!res && res.statusId === 5 && isDeparture;
       const totalNights = res ? diffDays(res.arrivalDate, res.departureDate) : 0;
       const currentNight = res
         ? Math.min(totalNights, Math.max(1, diffDays(res.arrivalDate, today) + (isDeparture ? 0 : 1)))
