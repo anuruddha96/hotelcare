@@ -1056,7 +1056,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-sm sm:text-base font-semibold flex items-center gap-1.5 min-w-0">
               <Hotel className="h-4 w-4 text-primary shrink-0" />
-              <span className="truncate">Hotel Room Overview</span>
+              <span className="truncate">{t('team.hotelRoomOverview')}</span>
             </CardTitle>
             <div className="flex items-center gap-1 shrink-0">
               {canViewFullOverview && (
