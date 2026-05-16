@@ -257,6 +257,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const handleHoverEnter = useCallback((roomId: string, room: RoomData) => {
     if (isMobile || !canInteractWithRooms) return;
+    // Suppress hover popover briefly after a drag so the dragged chip
+    // doesn't auto-open its advanced detail menu.
+    if (Date.now() - justDraggedRef.current < 600) return;
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
       setHoveredRoomId(roomId);
