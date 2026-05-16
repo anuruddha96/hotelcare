@@ -263,8 +263,11 @@ serve(async (req) => {
         ? Math.min(totalNights, Math.max(1, diffDays(res.arrivalDate, today) + (isDeparture ? 0 : 1)))
         : 0;
 
-      // roomCleanStatusId: 1 = clean, 2 = dirty/untidy in Previo (best-effort mapping)
-      const statusLabel = r.roomCleanStatusId === 1 ? "Clean" : "Untidy";
+      // Previo roomCleanStatusId mapping (matches previo-sync-rooms):
+      //   1 = Untidy/Dirty, 2 = Clean, 3 = Inspected (clean),
+      //   4 = Out of order, 5 = Out of service. Unknown → null (skip update).
+      const cleanMap: Record<number, string> = { 1: "Untidy", 2: "Clean", 3: "Clean", 4: "Untidy", 5: "Untidy" };
+      const statusLabel = cleanMap[r.roomCleanStatusId] ?? "";
 
       return {
         Room: r.name,

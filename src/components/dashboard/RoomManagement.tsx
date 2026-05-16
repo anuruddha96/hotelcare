@@ -94,6 +94,8 @@ interface Room {
   notes?: string;
   created_at: string;
   updated_at: string;
+  room_category?: string | null;
+  pms_metadata?: any;
 }
 
 interface RoomWithTickets extends Room {

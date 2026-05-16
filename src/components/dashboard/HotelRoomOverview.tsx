@@ -39,6 +39,8 @@ interface RoomData {
   guest_nights_stayed: number | null;
   towel_change_required: boolean | null;
   linen_change_required: boolean | null;
+  created_at?: string | null;
+  pms_metadata?: any;
 }
 
 interface AssignmentData {
@@ -182,7 +184,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required')
+          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, pms_metadata')
           .in('hotel', keys)
           .order('room_number'),
         supabase
@@ -409,6 +411,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           `}
         >
           {room.room_number}
+          {room.pms_metadata?.roomId && room.created_at && (Date.now() - new Date(room.created_at).getTime() < 3 * 24 * 3600 * 1000) && (
+            <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-emerald-600 text-white" title="Newly imported from Previo">NEW</span>
+          )}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}

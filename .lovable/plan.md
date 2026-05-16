@@ -1,112 +1,73 @@
+## Goal
 
-## Scope
-
-Four connected improvements to the Revenue module on `RevenueHotelDetail.tsx`. UI-first work plus one edge-function wiring. No schema rewrites — only one small additive table for Previo rate-plan mapping.
-
----
-
-## 1. "Run autopilot now" — fully working flow
-
-Today `AnalystPanel` already invokes `revenue-autopilot-tick` and reloads its own decision/velocity lists, but the parent page's `recs`, `rates`, and `abnormalDates` stay stale.
-
-Changes:
-- Promote the autopilot trigger so it also refreshes the parent grid.
-  - Add `onAfterRun?: () => void` prop to `AnalystPanel`. After a successful invoke, call `onAfterRun()` so `RevenueHotelDetail` re-runs `load()`.
-  - Add a small "Run Autopilot" button in the header bar of `RevenueHotelDetail` (next to "Pull from Previo") that calls the same handler — gives one-click access without switching tabs.
-- Show live state during the run:
-  - Disabled button + spinner on both the header button and the Analyst panel button.
-  - Sonner toast: "Autopilot running…" → success summary `N decisions · M surges · K recs created`.
-- Surface results immediately:
-  - After invoke, refetch `rate_recommendations`, `pickup_snapshots`, `revenue_alerts`, `autopilot_decisions`, `booking_velocity_events` for this hotel.
-  - Newly created pending recs render as orange chips on the calendar without a manual reload.
-- Failure handling: show edge-function error message verbatim and keep the prior state.
+Three connected fixes for the Previo integration, all hard-gated to `hotel_id = 'previo-test'` so OttoFiori and other hotels are untouched.
 
 ---
 
-## 2. Strategy Calendar with per-day rate, pickup, occupancy
+### 1. Fix: Checkout rooms staying dirty after Previo says "Clean"
 
-`CalendarYearView` already exists but only colors cells by rate-delta. Upgrade it into the requested calendar view.
+**Root cause.** Two edge functions disagree on Previo's `roomCleanStatusId` mapping:
 
-Changes (in `src/components/revenue/CalendarYearView.tsx` plus a new `StrategyCalendar.tsx` wrapper):
-- New `StrategyCalendar` component that renders 1, 3, or 12 months in a responsive grid and reuses `rowsByDate` from the page.
-- Each day cell shows three stacked micro-rows when the cell is large enough (month/quarter view):
-  ```
-  €145              ← rate (or suggested in italics)
-  ▮▮▮▮▯ 78%       ← occupancy bar (5-segment)
-  +3 ↑ / surge     ← pickup chip + autopilot icon if a decision exists
-  ```
-  In year view (small cells) keep the current heatmap and add a small bottom dot for pickup (green/red) and ring for events.
-- Hover tooltip lists: rate, suggested rate (with delta), occupancy %, pickup delta, last autopilot decision reason if any.
-- Clicking a cell opens the existing day-detail Sheet (already wired via `selectedDate`).
-- New "Strategy" tab in `RevenueHotelDetail` (between Pickup and Analyst) that mounts `StrategyCalendar` with view selector (Month / Quarter / Year). Existing month grid in the Prices tab stays unchanged.
+- `previo-pms-sync` (line 267): `r.roomCleanStatusId === 1 ? "Clean" : "Untidy"`
+- `previo-sync-rooms` (line 285): `1 → dirty, 2 → clean, 3 → clean (inspected), 4/5 → dirty`
+
+Per Previo's REST docs the second mapping is correct (`1 = Untidy/Dirty`, `2 = Clean`, `3 = Inspected`). The `previo-pms-sync` row producer is emitting the inverse `Status` label, then `pmsRefresh.ts` writes that wrong value to `rooms.status`. That is why Onity 101 and 105 show dirty in Hotel Care after a sync where Previo had them clean.
+
+**Fix.**
+- Correct the mapping in `previo-pms-sync/index.ts` to: `1 → "Untidy"`, `2 → "Clean"`, `3 → "Clean"`, `4 → "Untidy"`, `5 → "Untidy"`, unknown → `null` (skip update instead of forcing dirty).
+- In `src/lib/pmsRefresh.ts` keep the current rule "Previo is source of truth" — already implemented; this fix just makes the upstream label correct so checkout rooms become `clean` when Previo says so, and stay `dirty` when Previo says dirty.
+- The local Check-Out dialog will keep setting status to `dirty` at checkout time (that's the expected initial state); the next PMS sync overrides it with Previo's truth.
 
 ---
 
-## 3. Strategy tab connected to live decay/surge data
+### 2. Multi-category room support (Onity 101 / Salto 101 / 101 etc.)
 
-The same Strategy tab also acts as the "rules vs recommendations" review surface.
+Previo can return several rooms with overlapping numeric names but different `roomKindName` (categories shown in the sidebar of the screenshot: KouzelneChaloupky, Pokoje pokus, Zakwaterowanie). Today the import keys rooms by `room_number` alone, which collapses them or causes wrong matches.
 
-Changes:
-- A header strip above the calendar shows live engine config from `hotel_revenue_settings`:
-  - Floor price, max daily change, weekday/weekend decay, surge thresholds, autopilot enabled flag.
-- A right-rail panel (collapsible) lists the next 90 days of pending `rate_recommendations` joined with `autopilot_decisions`:
-  - Date · current → recommended · delta · driver chip (Decay / Surge / Manual / Event) · reason.
-  - Approve / Reject buttons per row (reuse existing `approve`/reject mutations).
-  - "Approve all decay ≤ €X" and "Approve all surges" bulk actions.
-- Driver chip is computed from `decision_type` (autopilot rows) or fallback heuristics on the rec's `reason` text.
-- All data already comes from the existing `load()` Promise.all — no extra queries beyond joining `autopilot_decisions` by `(hotel_id, stay_date)` in memory.
+**Backend (previo-test only).**
+- Import step (`previo-sync-rooms`, importLocal branch): store the full Previo `name` as `room_number` *as-is* (so "Onity 101", "Salto 101", "101" stay distinct) AND always set `pms_metadata.roomId` + `pms_metadata.roomKindName`. Use `pms_metadata->>roomId` as the unique upsert key instead of `(hotel, room_number)`.
+- Add a `room_category` column on `rooms` (text, nullable) populated from `roomKindName` so the UI can group. Existing rows for non-`previo-test` hotels remain `NULL` and unaffected.
+- Matching in `pmsRefresh.ts` already falls back to `pms_metadata->>roomId` — no change needed there once the upsert key is unique.
 
----
-
-## 4. Push to Previo / PMS — rate-plan mapping + wiring
-
-Today `previo-push-rates` is a 501 stub. Add the mapping layer so it can be turned on per hotel without further schema work.
-
-Database (one small additive migration):
-- New table `previo_rate_plan_mapping`:
-  - `hotel_id` (text), `organization_slug` (text)
-  - `room_type_id` (uuid → `room_types.id`)
-  - `previo_rate_plan_id` (text), `previo_room_type_id` (text)
-  - `is_default` (bool), unique on (`hotel_id`, `room_type_id`)
-- RLS: admin/top_management of the hotel's org can read/write; restricted by `organization_slug` and `assigned_hotel` (matches existing patterns).
-
-Admin UI:
-- New "Previo mapping" sub-section inside `RoomsSetupTab` for admins: list room types, allow entering `previo_rate_plan_id` + `previo_room_type_id`, mark default. Stored via supabase client.
-
-Edge function `previo-push-rates`:
-- Inputs: `{ hotel_id, stay_dates?: string[] }` (defaults to all `approved` recs in next 90 days).
-- Steps:
-  1. Auth via existing `_shared/previoAuth.ts`.
-  2. Load mapping rows for `hotel_id`. If none → return 412 with a clear "configure mapping" message (UI shows toast linking to settings).
-  3. Load approved recs not yet pushed (use new column `pushed_at timestamptz null` on `rate_recommendations` — added by the same migration).
-  4. For each rec × mapping row, call Previo's rate update endpoint (`setPrice` / `updateRate` — exact path read from `PREVIO_RATE_UPDATE_PATH` env var so we can flip without a redeploy when Previo confirms it).
-  5. On success: set `pushed_at = now()`, write `rate_history` row with `source = 'previo_push'`. On failure: keep status, log to `pms_sync_history` with `error_message`.
-- Return summary `{ pushed, failed, skipped }`.
-
-Frontend wiring:
-- The existing "Push to Previo" button in `RevenueHotelDetail` header calls the function; on 412 (no mapping) toast offers a link to the Rooms Setup tab.
-- Show last push timestamp pulled from `pms_sync_history` with `sync_type = 'rate_push'` next to the button.
-
-Note: Previo's exact endpoint and payload schema still need confirmation. The mapping table, `pushed_at` column, RLS, and UI are independent of that and ship now. The function reads the endpoint from a secret/env var, so when Previo's docs are confirmed only the URL and request body shape change — no redeploy of UI needed.
+**Frontend (Rooms section + Housekeeping › Team View › Hotel Room Overview).**
+- Group room cards/lists by `room_category` when the hotel has more than one distinct category. Category header shows `name (n rooms)`. Hotels with a single category (the normal case, including OttoFiori) render exactly as today — no visual change.
+- Filter chips at the top: `All` + one chip per category, with counts.
+- Search & sort already work on `room_number`; no change.
 
 ---
 
-## Files touched
+### 3. Nightly auto-sync + "new room" tag
 
-New
-- `src/components/revenue/StrategyCalendar.tsx`
-- `src/components/revenue/StrategyRecommendationsPanel.tsx`
-- `src/components/revenue/PrevioRatePlanMapping.tsx` (used inside `RoomsSetupTab`)
-- `supabase/migrations/<ts>_previo_rate_plan_mapping.sql`
+**Cron.**
+- Add a Postgres cron job (via `pg_cron` / `supabase_functions.http_request`) that runs daily at `00:15 UTC` and invokes `previo-sync-rooms` (importLocal=true) followed by `previo-pms-sync`, **only for `hotel_id = 'previo-test'`**. The job logs to `pms_sync_history` with `sync_type = 'nightly_auto'`.
+- Hard guard inside both functions already rejects non-`previo-test`; cron will hit those guards if misconfigured, so OttoFiori stays safe.
 
-Edited
-- `src/pages/RevenueHotelDetail.tsx` — Run Autopilot header button, new Strategy tab, refresh wiring, push-status indicator
-- `src/components/revenue/AnalystPanel.tsx` — `onAfterRun` callback
-- `src/components/revenue/CalendarYearView.tsx` — richer cell rendering for large views
-- `src/components/revenue/settings/RoomsSetupTab.tsx` — mount mapping editor
-- `supabase/functions/previo-push-rates/index.ts` — full implementation
+**Eligible-user surface.**
+- In Admin → PMS Configuration (and as a small badge in Rooms page header for admins/managers of `previo-test`), show `Last auto-sync: <timestamp> · <status>` sourced from the latest `pms_sync_history` row where `sync_type='nightly_auto'`. Reuses the existing `PmsSyncStatus` component pattern.
 
-## Out of scope
-- Changing the autopilot decay/surge algorithm (already shipped).
-- New schema beyond the mapping table + `pushed_at` column.
-- Migrating other hotels — Previo push stays opt-in per hotel via `is_engine_enabled` + presence of mapping rows.
+**"New" tag for 3 days.**
+- On import, when a `rooms` row is INSERTED (not updated), stamp `created_at` (already exists) — no schema change needed; just render a small `NEW` badge in the Rooms list and Hotel Room Overview when `now() - created_at < 3 days` AND the row's `pms_metadata.roomId` is present (so it was Previo-imported, not manually created).
+- Badge is rendered only for `previo-test`; OttoFiori is untouched.
+
+---
+
+### Files to change
+
+```text
+supabase/functions/previo-pms-sync/index.ts        # fix status mapping
+supabase/functions/previo-sync-rooms/index.ts      # upsert by pms_metadata.roomId, set room_category
+supabase/migrations/<new>.sql                      # add rooms.room_category; pg_cron job
+src/lib/pmsRefresh.ts                              # no logic change; confirm fallback still wins
+src/components/dashboard/HotelRoomOverview.tsx     # group + category chips + NEW badge
+src/components/dashboard/RoomManagement.tsx        # same grouping + NEW badge in Rooms section
+src/components/admin/PmsSyncStatus.tsx             # show last nightly auto-sync timestamp
+```
+
+### Out of scope / guarantees
+
+- OttoFiori and every non-`previo-test` hotel: zero behavior change. All new logic is gated either by the existing `ALLOWED_HOTEL_ID` guard, by `pms_metadata.roomId IS NOT NULL`, or by the per-hotel chip rendering only when >1 category exists.
+- No changes to assignments, attendance, or housekeeping workflows.
+
+---
+
+Ready to implement on approval.
