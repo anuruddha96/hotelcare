@@ -113,17 +113,23 @@ serve(async (req) => {
     const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
     const today = todayUtc();
 
-    // Find rooms whose guest has checked out (departureDate <= today and status indicates departed)
-    // OR whose Previo clean status is "dirty/untidy" while the local row still says clean.
-    const candidates = rooms.filter((r) => {
+    // Classify rooms:
+    //  - departed: guest actually checked out today (real checkout — set is_checkout_room=true)
+    //  - previoDirty: Previo says dirty/untidy but no departure (sync status only — DO NOT flag as checkout)
+    const classify = (r: PrevioRoom) => {
       const res = r.reservation;
-      const departed = res && res.departureDate <= today &&
-        /^(checked.?out|no.?show|cancelled|canceled|departed|left|finished|done)$/i.test((res.status || "").trim());
+      const departed = !!(res && res.departureDate <= today &&
+        /^(checked.?out|no.?show|cancelled|canceled|departed|left|finished|done)$/i.test((res.status || "").trim()));
       const previoDirty = r.roomCleanStatusId !== 1; // 1 = clean in Previo
+      return { departed, previoDirty };
+    };
+    const candidates = rooms.filter((r) => {
+      const { departed, previoDirty } = classify(r);
       return departed || previoDirty;
     });
 
-    const results = { checked: rooms.length, marked: 0, skipped: 0, errors: [] as string[], unmatched: [] as string[] };
+    const results = { checked: rooms.length, marked: 0, skipped: 0, cleared: 0, errors: [] as string[], unmatched: [] as string[] };
+    const trueCheckoutRoomIds = new Set<string>();
 
     const extractRoomNumber = (raw: string): string => {
       const m = String(raw).match(/\d+/);
