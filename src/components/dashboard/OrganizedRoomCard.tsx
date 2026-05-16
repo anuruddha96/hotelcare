@@ -39,6 +39,9 @@ interface Room {
   checkout_time?: string;
   guest_count?: number;
   notes?: string;
+  room_category?: string | null;
+  pms_metadata?: any;
+  created_at?: string;
 }
 
 interface OrganizedRoomCardProps {
