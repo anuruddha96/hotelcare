@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Camera, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface ProfileDialogProps {
   open: boolean;
@@ -16,6 +17,7 @@ interface ProfileDialogProps {
 
 export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [profileData, setProfileData] = useState({
     full_name: profile?.full_name || '',
@@ -119,7 +121,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md mx-auto">
         <DialogHeader>
-          <DialogTitle>Edit Profile</DialogTitle>
+          <DialogTitle>{t('profile.title')}</DialogTitle>
         </DialogHeader>
         
         <div className="space-y-6 py-4">
@@ -153,7 +155,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
                 className="text-destructive hover:text-destructive/90"
               >
                 <X className="h-4 w-4 mr-2" />
-                Remove Photo
+                {t('profile.removePhoto')}
               </Button>
             )}
           </div>
@@ -161,7 +163,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
           {/* Form Fields */}
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="full_name">Full Name</Label>
+              <Label htmlFor="full_name">{t('profile.fullName')}</Label>
               <Input
                 id="full_name"
                 value={profileData.full_name}
@@ -169,12 +171,12 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
                   ...prev,
                   full_name: e.target.value
                 }))}
-                placeholder="Enter your full name"
+                placeholder={t('profile.enterFullName')}
               />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="nickname">Nickname</Label>
+              <Label htmlFor="nickname">{t('profile.nickname')}</Label>
               <Input
                 id="nickname"
                 value={profileData.nickname}
@@ -182,12 +184,12 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
                   ...prev,
                   nickname: e.target.value
                 }))}
-                placeholder="Enter a nickname (optional)"
+                placeholder={t('profile.enterNickname')}
               />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t('profile.email')}</Label>
               <Input
                 id="email"
                 value={profile?.email || ''}
@@ -195,7 +197,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
                 className="bg-muted"
               />
               <p className="text-xs text-muted-foreground">
-                Email cannot be changed from here
+                {t('profile.emailCannotChange')}
               </p>
             </div>
           </div>
@@ -208,7 +210,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
               disabled={isLoading}
               className="flex-1"
             >
-              Cancel
+              {t('profile.cancel')}
             </Button>
             <Button
               onClick={handleSave}
@@ -216,7 +218,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
               className="flex-1"
             >
               <Save className="h-4 w-4 mr-2" />
-              {isLoading ? 'Saving...' : 'Save Changes'}
+              {isLoading ? t('profile.saving') : t('profile.saveChanges')}
             </Button>
           </div>
         </div>
