@@ -1376,12 +1376,12 @@ export function SupervisorApprovalView() {
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogCancel>{t('approvals.cancel')}</AlertDialogCancel>
                               <AlertDialogAction 
                                 onClick={() => handleBulkApprove(hotel)}
                                 className="bg-green-600 hover:bg-green-700"
                               >
-                                Approve All
+                                {t('approvals.approveAll')}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
