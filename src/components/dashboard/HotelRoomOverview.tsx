@@ -778,7 +778,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       finally { setActionLoading(null); }
                     }}
                   >
-                    <CheckCircle className="h-3 w-3" /> Mark as Clean
+                    <CheckCircle className="h-3 w-3" /> {t('roomOverview.markAsClean')}
                   </button>
                 )}
               </div>
