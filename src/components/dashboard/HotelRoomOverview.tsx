@@ -236,6 +236,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const handleRoomClick = (room: RoomData) => {
     if (!canInteractWithRooms) return;
+    // Ignore the synthetic click that some browsers fire right after a drag.
+    if (Date.now() - justDraggedRef.current < 600) return;
     // On mobile, open the dialog directly. On desktop, popover handles it.
     if (isMobile) {
       setSelectedRoom(room);
