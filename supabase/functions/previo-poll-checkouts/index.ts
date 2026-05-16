@@ -36,19 +36,27 @@ serve(async (req) => {
     const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const authHeader = req.headers.get("Authorization") || "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const anon = createClient(SUPABASE_URL, ANON);
-    const { data: userRes } = await anon.auth.getUser(authHeader.replace("Bearer ", ""));
-    if (!userRes?.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const cronSecret = req.headers.get("x-cron-secret") || "";
+    const expectedCronSecret = Deno.env.get("CRON_SECRET") || "";
+    const isCronCall = !!expectedCronSecret && cronSecret === expectedCronSecret;
+
+    let userId: string | null = null;
+    if (!isCronCall) {
+      if (!authHeader.startsWith("Bearer ")) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const anon = createClient(SUPABASE_URL, ANON);
+      const { data: userRes } = await anon.auth.getUser(authHeader.replace("Bearer ", ""));
+      if (!userRes?.user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = userRes.user.id;
     }
 
     const service = createClient(SUPABASE_URL, SERVICE);
