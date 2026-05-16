@@ -605,6 +605,9 @@ export function SupervisorApprovalView() {
 
     const userId = (await supabase.auth.getUser()).data.user?.id;
     let approved = 0;
+    let pmsSynced = 0;
+    let pmsFailed = 0;
+    let pmsSkipped = 0;
 
     for (const assignment of assignments) {
       try {
@@ -617,7 +620,17 @@ export function SupervisorApprovalView() {
           })
           .eq('id', assignment.id);
 
-        if (!error) approved++;
+        if (!error) {
+          approved++;
+          // Push to Previo (gated to test hotel inside the edge function).
+          // Fire per-row so one failure doesn't break the batch.
+          if (assignment.room_id) {
+            const pms = await pushCleanStatusToPrevio(assignment.room_id);
+            if (pms.status === 'success') pmsSynced++;
+            else if (pms.status === 'failed') pmsFailed++;
+            else pmsSkipped++;
+          }
+        }
       } catch (e) {
         console.error('Bulk approve error for', assignment.id, e);
       }
@@ -626,7 +639,13 @@ export function SupervisorApprovalView() {
 
     setBulkApproving(null);
     setBulkProgress(0);
-    toast.success(`${approved} rooms approved for ${hotelName}`);
+    const pmsSummary =
+      pmsSynced > 0 || pmsFailed > 0
+        ? ` · PMS: ${pmsSynced} synced${pmsFailed ? `, ${pmsFailed} failed` : ''}${pmsSkipped ? `, ${pmsSkipped} skipped` : ''}`
+        : pmsSkipped > 0
+        ? ` · PMS: ${pmsSkipped} skipped (non-test hotel)`
+        : '';
+    toast.success(`${approved} rooms approved for ${hotelName}${pmsSummary}`);
     fetchPendingAssignments();
   };
 
