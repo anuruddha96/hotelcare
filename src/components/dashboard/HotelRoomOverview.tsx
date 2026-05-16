@@ -940,12 +940,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             <span className="text-sm font-semibold">{title}</span>
             <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
             {sectionType === 'checkout' && roomList.length > 0 && (() => {
-              const pmsCount = roomList.filter(r => r.is_checkout_room).length;
-              const manualCount = roomList.length - pmsCount;
+              const manualCount = roomList.filter(r => r.pms_metadata?.manual_checkout === true).length;
+              const pmsCount = roomList.filter(r => r.is_checkout_room && !r.pms_metadata?.manual_checkout).length;
               if (pmsCount === 0 && manualCount === 0) return null;
               return (
-                <span className="text-[10px] text-muted-foreground">
-                  {pmsCount} PMS · {manualCount} manual
+                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <span>{pmsCount} PMS</span>
+                  <span className="opacity-40">·</span>
+                  <span className={manualCount > 0 ? 'font-semibold text-amber-700 dark:text-amber-500' : ''}>
+                    {manualCount} manual
+                  </span>
                 </span>
               );
             })()}
