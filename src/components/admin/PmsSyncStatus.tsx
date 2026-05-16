@@ -58,6 +58,7 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
   const [mappingCount, setMappingCount] = useState(0);
   const [lastSync, setLastSync] = useState<SyncRow | null>(null);
   const [lastNightly, setLastNightly] = useState<SyncRow | null>(null);
+  const [recentPushes, setRecentPushes] = useState<SyncRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
 
