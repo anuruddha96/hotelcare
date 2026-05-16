@@ -134,19 +134,39 @@ serve(async (req) => {
           .eq("room_number", r.name)
           .maybeSingle();
         if (!localRoom) { results.skipped++; continue; }
-        if (localRoom.status === "dirty") { results.skipped++; continue; }
 
-        const { error: updErr } = await service
-          .from("rooms")
-          .update({
-            status: "dirty",
-            is_checkout_room: true,
-            checkout_time: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", localRoom.id);
-        if (updErr) throw updErr;
-        results.marked++;
+        if (localRoom.status !== "dirty") {
+          const { error: updErr } = await service
+            .from("rooms")
+            .update({
+              status: "dirty",
+              is_checkout_room: true,
+              checkout_time: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", localRoom.id);
+          if (updErr) throw updErr;
+          results.marked++;
+        } else {
+          // Make sure checkout flag is set even if room was already dirty.
+          await service
+            .from("rooms")
+            .update({ is_checkout_room: true, checkout_time: localRoom.status === "dirty" ? new Date().toISOString() : new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq("id", localRoom.id)
+            .eq("is_checkout_room", false);
+        }
+
+        // Flip ready_to_clean on any open checkout_cleaning assignment so
+        // housekeepers can start immediately.
+        const today = new Date().toISOString().slice(0, 10);
+        const { error: asgErr } = await service
+          .from("room_assignments")
+          .update({ ready_to_clean: true, updated_at: new Date().toISOString() })
+          .eq("room_id", localRoom.id)
+          .eq("assignment_date", today)
+          .in("status", ["assigned", "in_progress"])
+          .eq("ready_to_clean", false);
+        if (asgErr) results.errors.push(`${r.name} assignment: ${asgErr.message}`);
       } catch (e: any) {
         results.errors.push(`${r.name}: ${e?.message || e}`);
       }
