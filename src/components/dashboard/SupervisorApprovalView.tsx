@@ -1313,7 +1313,7 @@ export function SupervisorApprovalView() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                       <CheckCircle className="h-5 w-5 text-green-600" />
-                      Room Completion Approvals
+                      {t('approvals.roomCompletion')}
                       <Badge className="bg-green-100 text-green-800 border-green-300">{pendingAssignments.length}</Badge>
                     </h3>
                   </div>
