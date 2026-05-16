@@ -543,11 +543,11 @@ export function PerformanceLeaderboard() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs font-semibold text-muted-foreground uppercase">Team Average</span>
+                <span className="text-xs font-semibold text-muted-foreground uppercase">{t('performance.teamAverage')}</span>
               </div>
               <div className="font-bold text-lg">{teamAvgScore}/100</div>
               <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                <span>{overviewStats.totalHousekeepers} ranked</span>
+                <span>{overviewStats.totalHousekeepers} {t('performance.ranked')}</span>
                 <span>•</span>
                 <span>{teamAvgRPH} r/h avg</span>
               </div>
