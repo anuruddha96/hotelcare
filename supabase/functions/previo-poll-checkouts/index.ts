@@ -118,7 +118,7 @@ serve(async (req) => {
     const candidates = rooms.filter((r) => {
       const res = r.reservation;
       const departed = res && res.departureDate <= today &&
-        /(checked.?out|departed|left|finished|done)/i.test(res.status || "");
+        /^(checked.?out|no.?show|cancelled|canceled|departed|left|finished|done)$/i.test((res.status || "").trim());
       const previoDirty = r.roomCleanStatusId !== 1; // 1 = clean in Previo
       return departed || previoDirty;
     });
