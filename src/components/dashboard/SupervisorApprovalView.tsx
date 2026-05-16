@@ -1059,21 +1059,30 @@ export function SupervisorApprovalView() {
       </div>
 
       <Tabs defaultValue="pending" className="space-y-6">
-        <TabsList className="grid w-full max-w-2xl grid-cols-3">
-          <TabsTrigger value="pending" className="flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            {t('supervisor.pendingApprovals')}
+        <TabsList className="grid w-full max-w-2xl grid-cols-3 h-auto gap-1 p-1">
+          <TabsTrigger
+            value="pending"
+            className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-3 py-2 h-auto text-[11px] sm:text-sm leading-tight whitespace-normal text-center min-w-0"
+          >
+            <Clock className="h-4 w-4 shrink-0" />
+            <span className="break-words">{t('supervisor.pendingApprovals')}</span>
             {summaryStats.totalCount > 0 && (
-              <Badge className="ml-1 h-5 px-1.5 text-xs">{summaryStats.totalCount}</Badge>
+              <Badge className="h-5 px-1.5 text-xs">{summaryStats.totalCount}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="late-minibar" className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4" />
-            {t('minibar.lateAdditions')}
+          <TabsTrigger
+            value="late-minibar"
+            className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-3 py-2 h-auto text-[11px] sm:text-sm leading-tight whitespace-normal text-center min-w-0"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="break-words">{t('minibar.lateAdditions')}</span>
           </TabsTrigger>
-          <TabsTrigger value="history" className="flex items-center gap-2">
-            <History className="h-4 w-4" />
-            {t('supervisor.approvalHistory')}
+          <TabsTrigger
+            value="history"
+            className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-3 py-2 h-auto text-[11px] sm:text-sm leading-tight whitespace-normal text-center min-w-0"
+          >
+            <History className="h-4 w-4 shrink-0" />
+            <span className="break-words">{t('supervisor.approvalHistory')}</span>
           </TabsTrigger>
         </TabsList>
 
