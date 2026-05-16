@@ -543,7 +543,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   statusKey === 'pending_approval' ? 'bg-violet-100 text-violet-700 border-violet-300' :
                   'bg-amber-100 text-amber-700 border-amber-300'
                 }`}>
-                  {statusKey === 'pending_approval' ? 'Pending' : statusKey.replace(/_/g, ' ')}
+                  {statusKey === 'pending_approval' ? t('roomOverview.statusPending') : statusKey === 'clean' ? t('roomOverview.statusClean') : statusKey === 'dirty' ? t('roomOverview.statusDirty') : statusKey === 'in_progress' ? t('roomOverview.statusInProgress') : statusKey.replace(/_/g, ' ')}
                 </Badge>
               </div>
 
