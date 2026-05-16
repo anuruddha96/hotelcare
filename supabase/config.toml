@@ -152,3 +152,7 @@ verify_jwt = true
 
 [functions.revenue-autopilot-tick]
 verify_jwt = false
+
+[functions.previo-nightly-sync]
+verify_jwt = false
+
