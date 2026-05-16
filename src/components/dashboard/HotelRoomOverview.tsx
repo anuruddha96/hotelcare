@@ -217,8 +217,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     };
   }, [selectedDate, hotelName]);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (silent: boolean = false) => {
+    if (!silent) setLoading(true);
     try {
       const hotelKeys = await resolveHotelKeys(hotelName);
       const keys = hotelKeys.length ? hotelKeys : [hotelName];
