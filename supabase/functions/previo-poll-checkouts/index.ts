@@ -70,17 +70,19 @@ serve(async (req) => {
       );
     }
 
-    const { data: profile } = await service
-      .from("profiles")
-      .select("role, assigned_hotel")
-      .eq("id", userRes.user.id)
-      .maybeSingle();
-    const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
-    if (!isAdmin && profile?.assigned_hotel !== targetHotel) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!isCronCall && userId) {
+      const { data: profile } = await service
+        .from("profiles")
+        .select("role, assigned_hotel")
+        .eq("id", userId)
+        .maybeSingle();
+      const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+      if (!isAdmin && profile?.assigned_hotel !== targetHotel) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const { data: cfg } = await service
