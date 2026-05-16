@@ -741,7 +741,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <ArrowLeftRight className="h-3 w-3" /> Switch to {isCheckout ? 'Daily' : 'Checkout'}
+                  <ArrowLeftRight className="h-3 w-3" /> {isCheckout ? t('roomOverview.switchToDaily') : t('roomOverview.switchToCheckout')}
                 </button>
 
                 {/* Status change - hidden for checkout rooms not yet ready */}
