@@ -65,7 +65,6 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
   const errors: string[] = [];
   const today = new Date().toISOString().split("T")[0];
   const matchedRoomIds = new Set<string>();
-  const checkoutRoomIds = new Set<string>();
 
   for (const row of rows) {
     try {
@@ -103,7 +102,6 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
 
       const departureParsed = excelTimeToString(row.Departure);
       const isCheckout = departureParsed !== null;
-      if (isCheckout) checkoutRoomIds.add(room.id);
 
       const nightTotal = parseNightTotal(row["Night / Total"]);
       let guestNightsStayed = 0;
@@ -128,8 +126,6 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
         : "dirty";
 
       const updateData: Record<string, any> = {
-        is_checkout_room: isCheckout,
-        checkout_time: isCheckout ? new Date().toISOString() : null,
         guest_count: row.People ?? 0,
         guest_nights_stayed: guestNightsStayed,
         towel_change_required: towel,
@@ -159,28 +155,6 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
     } catch (e: any) {
       errors.push(`Row error: ${e?.message || String(e)}`);
     }
-  }
-
-  // Clear stale checkout flags: any room currently flagged as checkout that
-  // is NOT in today's PMS departure set should be reset, otherwise yesterday's
-  // checkouts linger in the overview.
-  try {
-    const { data: stale } = await supabase
-      .from("rooms")
-      .select("id")
-      .in("hotel", hotelKeys)
-      .eq("is_checkout_room", true);
-    const staleIds = (stale ?? [])
-      .map((r: any) => r.id as string)
-      .filter((id) => !checkoutRoomIds.has(id));
-    if (staleIds.length > 0) {
-      await supabase
-        .from("rooms")
-        .update({ is_checkout_room: false, checkout_time: null, updated_at: new Date().toISOString() })
-        .in("id", staleIds);
-    }
-  } catch (e) {
-    console.warn("[pmsRefresh] stale checkout cleanup failed:", e);
   }
 
   const status: PmsSyncStatus = errors.length ? "partial" : "success";
