@@ -576,7 +576,7 @@ export function AutoRoomAssignment({
         const todayAssignments = assignmentPreviews.map(p => ({
           staffName: p.staffName,
           staffId: p.staffId,
-          rooms: p.rooms.map(r => ({ room_number: r.room_number, wing: r.wing, floor: r.floor_number, is_checkout: r.is_checkout_room })),
+          rooms: p.rooms.map(r => ({ room_number: r.room_number, wing: r.wing, floor: r.floor_number, is_checkout: r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true })),
         }));
         
         const { data: patternData } = await supabase
@@ -766,8 +766,8 @@ export function AutoRoomAssignment({
   @media print { body { padding: 0; } }
 </style></head><body>
 ${activePreviews.map(preview => {
-  const checkouts = preview.rooms.filter(r => r.is_checkout_room);
-  const daily = preview.rooms.filter(r => !r.is_checkout_room);
+  const checkouts = preview.rooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true);
+  const daily = preview.rooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true));
   const sortByRoom = (rooms: RoomForAssignment[]) => 
     [...rooms].sort((a, b) => {
       const fa = getFloorFromRoomNumber(a.room_number);
@@ -786,10 +786,10 @@ ${activePreviews.map(preview => {
         if (room.towel_change_required) specials.push('🧺 Towel');
         if (room.linen_change_required) specials.push('🛏️ Clean Room (C)');
         if (room.bed_configuration) specials.push(`Bed: ${room.bed_configuration}`);
-        return `<tr class="${room.is_checkout_room ? 'type-co' : 'type-daily'}">
+        return `<tr class="${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? 'type-co' : 'type-daily'}">
           <td>${i + 1}</td>
           <td><strong>${room.room_number}</strong></td>
-          <td>${room.is_checkout_room ? t('autoAssign.checkout') : t('autoAssign.daily')}</td>
+          <td>${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? t('autoAssign.checkout') : t('autoAssign.daily')}</td>
           <td>F${getFloorFromRoomNumber(room.room_number)}</td>
           <td>${room.room_category || '—'}</td>
           <td class="${specials.length > 0 ? 'special' : ''}">${specials.join(', ') || '—'}</td>
@@ -808,7 +808,7 @@ ${activePreviews.map(preview => {
 
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const isSelected = selectedRoomForMove?.roomId === room.id;
-    const chipColor = room.is_checkout_room
+    const chipColor = (room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true)
       ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
       : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
 
@@ -823,7 +823,7 @@ ${activePreviews.map(preview => {
           setDraggingRoomId(room.id);
           const ghost = document.createElement('div');
           ghost.textContent = room.room_number;
-          ghost.style.cssText = `position:fixed;top:-100px;left:-100px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;background:${room.is_checkout_room ? '#fef3c7' : '#dbeafe'};color:${room.is_checkout_room ? '#92400e' : '#1e40af'};border:2px solid ${room.is_checkout_room ? '#f59e0b' : '#3b82f6'};`;
+          ghost.style.cssText = `position:fixed;top:-100px;left:-100px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;background:${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? '#fef3c7' : '#dbeafe'};color:${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? '#92400e' : '#1e40af'};border:2px solid ${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? '#f59e0b' : '#3b82f6'};`;
           document.body.appendChild(ghost);
           e.dataTransfer.setDragImage(ghost, 20, 15);
           requestAnimationFrame(() => document.body.removeChild(ghost));
