@@ -246,10 +246,14 @@ export function ApprovalHistoryView() {
     const end = new Date(endTime);
     const diffMs = end.getTime() - start.getTime();
     const diffMins = Math.round(diffMs / (1000 * 60));
-    
+
+    // Defensive: a negative result means the timestamps were corrupted
+    // (e.g. started_at was overwritten on resume). Show N/A instead of "-4m".
+    if (diffMins < 0) return 'N/A';
+
     const hours = Math.floor(diffMins / 60);
     const minutes = diffMins % 60;
-    
+
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
     }
