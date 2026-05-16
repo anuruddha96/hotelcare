@@ -74,7 +74,7 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
       const previoRoomId = row.RoomId != null ? String(row.RoomId) : "";
 
       const lookup = async (matcher: (q: any) => any) => {
-        const q = supabase.from("rooms").select("id, room_number").in("hotel", hotelKeys);
+        const q = supabase.from("rooms").select("id, room_number, pms_metadata").in("hotel", hotelKeys);
         return await matcher(q);
       };
 
@@ -107,7 +107,9 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
       // alone does not mean the guest has actually left the hotel.
       const isCheckedOut = row.CheckedOut === true;
 
-      const existingMetadata = row.pms_metadata && typeof row.pms_metadata === "object" ? row.pms_metadata : undefined;
+      const existingMetadata = room.pms_metadata && typeof room.pms_metadata === "object"
+        ? room.pms_metadata
+        : undefined;
 
       const nightTotal = parseNightTotal(row["Night / Total"]);
       let guestNightsStayed = 0;
