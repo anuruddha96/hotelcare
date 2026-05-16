@@ -35,6 +35,7 @@ serve(async (req) => {
     if (roomError || !room) {
       throw new Error(`Room not found: ${roomId}`);
     }
+    hotelForLog = room.hotel;
 
     // Get PMS configuration for this hotel
     const { data: pmsConfig, error: configError } = await supabase
