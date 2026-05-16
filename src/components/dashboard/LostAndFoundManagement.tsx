@@ -254,7 +254,7 @@ export function LostAndFoundManagement() {
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by room number..."
+                placeholder={t('lostFound.searchByRoom')}
                 value={searchRoom}
                 onChange={(e) => setSearchRoom(e.target.value)}
                 className="w-[200px]"
