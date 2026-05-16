@@ -5,6 +5,7 @@ import { notificationTranslations, dashboardTranslations } from '@/lib/notificat
 import { pmsTranslations } from '@/lib/pms-translations';
 import { highlightedTranslations } from '@/lib/highlighted-translations';
 import { screenTranslations } from '@/lib/screen-translations';
+import { roomOverviewTranslations } from '@/lib/room-overview-translations';
 
 const translations = {
   en: {
