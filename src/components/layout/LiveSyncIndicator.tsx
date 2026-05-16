@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const TASK_LABELS: Record<TaskName, string> = {
   pms: "PMS rooms",
   revenue: "Revenue rates",
+  checkouts: "Auto-release checkouts",
 };
 
 export function LiveSyncIndicator() {
