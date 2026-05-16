@@ -275,7 +275,7 @@ export function AutoRoomAssignment({
       const keys = hotelKeys.length ? hotelKeys : [hotelName];
       const { data: roomsData } = await supabase
         .from('rooms')
-        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration')
+        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration')
         .in('hotel', keys)
         .eq('status', 'dirty');
 
@@ -493,7 +493,7 @@ export function AutoRoomAssignment({
         // Priority 1: Checkout rooms (guest departed, needs deep clean ASAP for next guest)
         // Priority 2: Daily cleaning rooms (occupied, routine service)
         const getRoomPriority = (room: RoomForAssignment): number => {
-          if (room.is_checkout_room) return 1;
+          if (room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) return 1;
           return 2;
         };
 
@@ -513,11 +513,11 @@ export function AutoRoomAssignment({
           assigned_to: preview.staffId,
           assigned_by: user.id,
           assignment_date: selectedDate,
-          assignment_type: (room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
+          assignment_type: ((room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
           status: 'assigned' as const,
           priority: getRoomPriority(room),
           organization_slug: profile?.organization_slug,
-          ready_to_clean: true
+          ready_to_clean: !(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true)
         }));
       });
 
