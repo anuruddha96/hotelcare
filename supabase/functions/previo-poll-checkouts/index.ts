@@ -165,25 +165,25 @@ serve(async (req) => {
           continue;
         }
 
-        if (localRoom.status !== "dirty") {
+        const { departed, previoDirty } = classify(r);
+        if (departed) trueCheckoutRoomIds.add(localRoom.id);
+
+        // Build update — only flag is_checkout_room when guest actually departed.
+        const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
+        if (localRoom.status !== "dirty" && (departed || previoDirty)) {
+          updateData.status = "dirty";
+        }
+        if (departed) {
+          updateData.is_checkout_room = true;
+          updateData.checkout_time = new Date().toISOString();
+        }
+        if (Object.keys(updateData).length > 1) {
           const { error: updErr } = await service
             .from("rooms")
-            .update({
-              status: "dirty",
-              is_checkout_room: true,
-              checkout_time: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
+            .update(updateData)
             .eq("id", localRoom.id);
           if (updErr) throw updErr;
-          results.marked++;
-        } else {
-          // Make sure checkout flag is set even if room was already dirty.
-          await service
-            .from("rooms")
-            .update({ is_checkout_room: true, checkout_time: localRoom.status === "dirty" ? new Date().toISOString() : new Date().toISOString(), updated_at: new Date().toISOString() })
-            .eq("id", localRoom.id)
-            .eq("is_checkout_room", false);
+          if (updateData.status === "dirty") results.marked++;
         }
 
         // Flip ready_to_clean on any open checkout_cleaning assignment so
