@@ -827,11 +827,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {/* Send Message to Housekeeper */}
               {isManagerOrAdmin && assignment && (
                 <div className="border-t border-border pt-1.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">💬 Message Housekeeper</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">💬 {t('roomOverview.messageHousekeeper')}</p>
                   <div className="flex gap-1">
                     <input
                       className="flex-1 text-xs p-1.5 rounded border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                      placeholder="Type message..."
+                      placeholder={t('roomOverview.typeMessage')}
                       value={managerMessage}
                       onChange={(e) => setManagerMessage(e.target.value)}
                       onClick={(e) => e.stopPropagation()}
