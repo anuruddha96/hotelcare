@@ -559,7 +559,7 @@ export function SupervisorApprovalView() {
       if (pmsResult.status === 'success') {
         showNotification('✓ Synced to PMS (Previo)', 'success');
       } else if (pmsResult.status === 'failed') {
-        showNotification(`PMS sync failed: ${pmsResult.error ?? 'unknown error'}`, 'error');
+        showNotification(`PMS sync failed: ${pmsResult.error ?? 'unknown error'}`, 'warning');
       }
       showNotification(t('supervisor.roomMarkedClean'), 'success');
       fetchPendingAssignments();
