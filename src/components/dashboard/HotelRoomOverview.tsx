@@ -185,7 +185,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
     const safeFetch = () => {
       if (cancelled || document.hidden) return;
-      fetchData();
+      fetchData(true); // silent: no loading skeleton, no blink
     };
 
     // Realtime: any change to rooms or today's assignments triggers a refetch (debounced)
