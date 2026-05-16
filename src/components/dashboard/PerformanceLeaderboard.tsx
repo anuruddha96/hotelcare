@@ -565,7 +565,7 @@ export function PerformanceLeaderboard() {
                 <div className="flex items-center gap-3 mt-1 text-sm text-red-700 dark:text-red-400">
                   <span className="font-semibold">{needsAttention.performance_score}/100</span>
                   <span>•</span>
-                  <span>{Math.round(needsAttention.punctuality_rate)}% on-time</span>
+                  <span>{Math.round(needsAttention.punctuality_rate)}% {t('performance.onTime')}</span>
                 </div>
               </CardContent>
             </Card>
