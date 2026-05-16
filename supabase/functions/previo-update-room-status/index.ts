@@ -105,18 +105,21 @@ serve(async (req) => {
     const responseData = await previoResponse.json();
     console.log('Previo room status updated successfully:', responseData);
 
-    // Log success to sync history
+    // Log success to sync history (schema: hotel_id, sync_type, sync_status, data jsonb, error_message)
     await supabase
       .from('pms_sync_history')
       .insert({
         hotel_id: room.hotel,
         sync_type: 'room_status_update',
-        room_id: roomId,
-        room_number: room.room_number,
-        status: 'success',
-        request_payload: { roomNumber: room.room_number, status: previoStatus },
-        response_payload: responseData,
-        synced_by: null // System sync
+        direction: 'push',
+        sync_status: 'success',
+        data: {
+          room_id: roomId,
+          room_number: room.room_number,
+          status: previoStatus,
+          previo_room_id: previoRoomId,
+          response: responseData,
+        },
       });
 
     return new Response(
