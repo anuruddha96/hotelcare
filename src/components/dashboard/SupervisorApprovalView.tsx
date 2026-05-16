@@ -936,9 +936,9 @@ export function SupervisorApprovalView() {
 
                   {/* Start/Complete times */}
                   <div className="text-xs text-muted-foreground">
-                    Started: {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    {t('approvals.started')}: {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                     {' · '}
-                    Completed: {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {t('approvals.completed')}: {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
 
                   {/* Photos */}
