@@ -1,73 +1,43 @@
-## Goal
-
-Three connected fixes for the Previo integration, all hard-gated to `hotel_id = 'previo-test'` so OttoFiori and other hotels are untouched.
-
----
-
-### 1. Fix: Checkout rooms staying dirty after Previo says "Clean"
-
-**Root cause.** Two edge functions disagree on Previo's `roomCleanStatusId` mapping:
-
-- `previo-pms-sync` (line 267): `r.roomCleanStatusId === 1 ? "Clean" : "Untidy"`
-- `previo-sync-rooms` (line 285): `1 → dirty, 2 → clean, 3 → clean (inspected), 4/5 → dirty`
-
-Per Previo's REST docs the second mapping is correct (`1 = Untidy/Dirty`, `2 = Clean`, `3 = Inspected`). The `previo-pms-sync` row producer is emitting the inverse `Status` label, then `pmsRefresh.ts` writes that wrong value to `rooms.status`. That is why Onity 101 and 105 show dirty in Hotel Care after a sync where Previo had them clean.
-
-**Fix.**
-- Correct the mapping in `previo-pms-sync/index.ts` to: `1 → "Untidy"`, `2 → "Clean"`, `3 → "Clean"`, `4 → "Untidy"`, `5 → "Untidy"`, unknown → `null` (skip update instead of forcing dirty).
-- In `src/lib/pmsRefresh.ts` keep the current rule "Previo is source of truth" — already implemented; this fix just makes the upstream label correct so checkout rooms become `clean` when Previo says so, and stay `dirty` when Previo says dirty.
-- The local Check-Out dialog will keep setting status to `dirty` at checkout time (that's the expected initial state); the next PMS sync overrides it with Previo's truth.
+## Scope clarification
+All work stays gated to the **test hotel only** (`previo-test`, Previo hotel ID `730099`). Ottofiori and every other live hotel remain untouched — the existing `if (pmsConfig.hotel_id !== 'previo-test') skip` guard in `previo-update-room-status/index.ts` stays in place exactly as it is.
 
 ---
 
-### 2. Multi-category room support (Onity 101 / Salto 101 / 101 etc.)
+## What's already wired (test hotel)
+In `SupervisorApprovalView.tsx` (`handleApproval`), single-room approval already calls `previo-update-room-status` with `{ roomId, status: 'clean' }`. For `previo-test` rooms it pushes through to `PUT /rest/rooms/{previoRoomId}/clean-status` and logs to `pms_sync_history`. For every other hotel the function returns `{ skipped: true }` and does nothing — that's the safety we want to keep.
 
-Previo can return several rooms with overlapping numeric names but different `roomKindName` (categories shown in the sidebar of the screenshot: KouzelneChaloupky, Pokoje pokus, Zakwaterowanie). Today the import keys rooms by `room_number` alone, which collapses them or causes wrong matches.
+## What's missing
 
-**Backend (previo-test only).**
-- Import step (`previo-sync-rooms`, importLocal branch): store the full Previo `name` as `room_number` *as-is* (so "Onity 101", "Salto 101", "101" stay distinct) AND always set `pms_metadata.roomId` + `pms_metadata.roomKindName`. Use `pms_metadata->>roomId` as the unique upsert key instead of `(hotel, room_number)`.
-- Add a `room_category` column on `rooms` (text, nullable) populated from `roomKindName` so the UI can group. Existing rows for non-`previo-test` hotels remain `NULL` and unaffected.
-- Matching in `pmsRefresh.ts` already falls back to `pms_metadata->>roomId` — no change needed there once the upsert key is unique.
-
-**Frontend (Rooms section + Housekeeping › Team View › Hotel Room Overview).**
-- Group room cards/lists by `room_category` when the hotel has more than one distinct category. Category header shows `name (n rooms)`. Hotels with a single category (the normal case, including OttoFiori) render exactly as today — no visual change.
-- Filter chips at the top: `All` + one chip per category, with counts.
-- Search & sort already work on `room_number`; no change.
+1. **Bulk approve doesn't push to Previo.** `handleBulkApprove` only updates `room_assignments` — no `previo-update-room-status` call inside the loop. For a test-hotel bulk approve, the rooms get marked clean in our DB but Previo never hears about it.
+2. **No visual feedback** on whether the PMS push succeeded for a given approval.
+3. **No easy way to verify** end-to-end in the test hotel without checking edge logs.
 
 ---
 
-### 3. Nightly auto-sync + "new room" tag
+## Plan (test hotel only — no live hotel side effects)
 
-**Cron.**
-- Add a Postgres cron job (via `pg_cron` / `supabase_functions.http_request`) that runs daily at `00:15 UTC` and invokes `previo-sync-rooms` (importLocal=true) followed by `previo-pms-sync`, **only for `hotel_id = 'previo-test'`**. The job logs to `pms_sync_history` with `sync_type = 'nightly_auto'`.
-- Hard guard inside both functions already rejects non-`previo-test`; cron will hit those guards if misconfigured, so OttoFiori stays safe.
+### 1. Add Previo push to bulk approve
+In `SupervisorApprovalView.handleBulkApprove`, after each successful `room_assignments` update call `supabase.functions.invoke('previo-update-room-status', { body: { roomId, status: 'clean' } })` inside the per-assignment try/catch. Fire-and-forget on error so one Previo failure can't break the batch. The edge function's existing hotel gate guarantees only `previo-test` rooms actually hit Previo — Ottofiori bulk approvals will silently skip.
 
-**Eligible-user surface.**
-- In Admin → PMS Configuration (and as a small badge in Rooms page header for admins/managers of `previo-test`), show `Last auto-sync: <timestamp> · <status>` sourced from the latest `pms_sync_history` row where `sync_type='nightly_auto'`. Reuses the existing `PmsSyncStatus` component pattern.
+### 2. Visual confirmation pill on approved rows
+Add a small inline status next to the approved row:
+- "✓ Synced to PMS" (green) when the invoke returns `success: true` without `skipped`
+- "PMS sync skipped" (muted) when `skipped: true` — expected for non-test hotels
+- "PMS sync failed" (amber, with tooltip showing the error) when the invoke errors
 
-**"New" tag for 3 days.**
-- On import, when a `rooms` row is INSERTED (not updated), stamp `created_at` (already exists) — no schema change needed; just render a small `NEW` badge in the Rooms list and Hotel Room Overview when `now() - created_at < 3 days` AND the row's `pms_metadata.roomId` is present (so it was Previo-imported, not manually created).
-- Badge is rendered only for `previo-test`; OttoFiori is untouched.
+This makes it obvious that production hotels are intentionally skipped while the test hotel is actually pushing.
 
----
+### 3. Surface recent PMS pushes in `PmsSyncStatus.tsx`
+Add a small "Last clean-status push" row that reads the most recent `room_status_update` entries from `pms_sync_history` for the active hotel: timestamp, room number, success/fail. Lets you watch test-hotel pushes happen in real time without leaving the app.
 
-### Files to change
-
-```text
-supabase/functions/previo-pms-sync/index.ts        # fix status mapping
-supabase/functions/previo-sync-rooms/index.ts      # upsert by pms_metadata.roomId, set room_category
-supabase/migrations/<new>.sql                      # add rooms.room_category; pg_cron job
-src/lib/pmsRefresh.ts                              # no logic change; confirm fallback still wins
-src/components/dashboard/HotelRoomOverview.tsx     # group + category chips + NEW badge
-src/components/dashboard/RoomManagement.tsx        # same grouping + NEW badge in Rooms section
-src/components/admin/PmsSyncStatus.tsx             # show last nightly auto-sync timestamp
-```
-
-### Out of scope / guarantees
-
-- OttoFiori and every non-`previo-test` hotel: zero behavior change. All new logic is gated either by the existing `ALLOWED_HOTEL_ID` guard, by `pms_metadata.roomId IS NOT NULL`, or by the per-hotel chip rendering only when >1 category exists.
-- No changes to assignments, attendance, or housekeeping workflows.
+### 4. No edge function changes
+`previo-update-room-status/index.ts` is left exactly as-is. The `previo-test` gate stays. When you're ready to go live for Ottofiori or other hotels later, the only change needed is widening that gate (and adding the relevant `pms_configurations` + room mappings) — not before.
 
 ---
 
-Ready to implement on approval.
+## How to test (after implementation)
+1. In the test hotel, assign a room to a housekeeper and let them mark it cleaned.
+2. As manager, open Pending Approvals → approve the single room → expect "✓ Synced to PMS" pill and a new row in `pms_sync_history` with `status: 'success'`.
+3. Cross-check the Previo dashboard for the test hotel — the room's clean status should flip to clean.
+4. Repeat with a bulk approve covering 3–5 test-hotel rooms; all should push.
+5. As a safety check, approve a room in Ottofiori or another live hotel → expect "PMS sync skipped" pill and no `pms_sync_history` row (or a `skipped` log row only). Confirms live hotels are untouched.
