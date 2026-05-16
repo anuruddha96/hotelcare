@@ -1,5 +1,5 @@
-// Polls Previo /rest/rooms and auto-marks rooms as ready-to-clean (dirty)
-// once the guest has departed. HARD-GATED to hotel_id = 'previo-test'.
+// Polls Previo for reception-confirmed departures and auto-releases only
+// true checkout rooms. HARD-GATED to hotel_id = 'previo-test'.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
@@ -184,15 +184,10 @@ serve(async (req) => {
       reservationFetchError = "Could not parse Previo XML credentials";
     }
 
-    const classify = (r: PrevioRoom) => {
-      const departed = checkedOutByObjId.has(r.roomId) || checkedOutByName.has(r.name);
-      const previoDirty = r.roomCleanStatusId !== 1; // 1 = clean in Previo
-      return { departed, previoDirty };
-    };
-    const candidates = rooms.filter((r) => {
-      const { departed, previoDirty } = classify(r);
-      return departed || previoDirty;
+    const classify = (r: PrevioRoom) => ({
+      departed: checkedOutByObjId.has(r.roomId) || checkedOutByName.has(r.name),
     });
+    const candidates = rooms.filter((r) => classify(r).departed);
 
     const results = { checked: rooms.length, marked: 0, skipped: 0, cleared: 0, errors: [] as string[], unmatched: [] as string[], reservationFetchError };
     const trueCheckoutRoomIds = new Set<string>();
@@ -229,11 +224,11 @@ serve(async (req) => {
           continue;
         }
 
-        const { departed, previoDirty } = classify(r);
+        const { departed } = classify(r);
         if (departed) trueCheckoutRoomIds.add(localRoom.id);
 
         const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
-        if (localRoom.status !== "dirty" && (departed || previoDirty)) {
+        if (localRoom.status !== "dirty" && departed) {
           updateData.status = "dirty";
         }
         if (departed) {
@@ -246,20 +241,21 @@ serve(async (req) => {
             .update(updateData)
             .eq("id", localRoom.id);
           if (updErr) throw updErr;
-          if (updateData.status === "dirty") results.marked++;
         }
 
         if (departed) {
           const today = new Date().toISOString().slice(0, 10);
-          const { error: asgErr } = await service
+          const { data: releasedAssignments, error: asgErr } = await service
             .from("room_assignments")
             .update({ ready_to_clean: true, updated_at: new Date().toISOString() })
+            .select("id")
             .eq("room_id", localRoom.id)
             .eq("assignment_date", today)
             .eq("assignment_type", "checkout_cleaning")
             .in("status", ["assigned", "in_progress"])
             .eq("ready_to_clean", false);
           if (asgErr) results.errors.push(`${r.name} assignment: ${asgErr.message}`);
+          else results.marked += releasedAssignments?.length ?? 0;
         }
       } catch (e: any) {
         results.errors.push(`${r.name}: ${e?.message || e}`);
