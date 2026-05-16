@@ -574,8 +574,8 @@ export function Dashboard() {
                     className="text-xs sm:text-sm"
                   >
                     <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                    <span className="hidden sm:inline">Manage Users</span>
-                    <span className="sm:hidden">Users</span>
+                    <span className="hidden sm:inline">{t('dashboard.manageUsers')}</span>
+                    <span className="sm:hidden">{t('dashboard.manageUsersShort')}</span>
                   </Button>
                 )}
                 {canManageUsers && (
@@ -757,7 +757,7 @@ export function Dashboard() {
           <TabsContent value="attendance" className="space-y-6">
             {(profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) && (
               <div className="space-y-6">
-                <h2 className="text-2xl font-bold">Work Status & Attendance</h2>
+                <h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>
                 <AttendanceTracker />
                 <AttendanceReports />
               </div>
