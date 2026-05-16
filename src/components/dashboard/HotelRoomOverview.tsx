@@ -760,7 +760,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       finally { setActionLoading(null); }
                     }}
                   >
-                    Mark as Dirty
+                    {t('roomOverview.markAsDirty')}
                   </button>
                 )}
                 {(room.status === 'dirty' || room.status === 'in_progress') && !(isCheckout && !assignment?.ready_to_clean) && (
