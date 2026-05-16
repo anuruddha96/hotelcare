@@ -146,8 +146,6 @@ serve(async (req) => {
 
         // Update room with reservation data
         const roomUpdate: any = {
-          is_checkout_room: isCheckoutToday,
-          checkout_time: isCheckoutToday ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
         };
 

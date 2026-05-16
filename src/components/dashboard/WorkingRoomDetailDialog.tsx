@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAuth } from '@/hooks/useAuth';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,8 +39,10 @@ export function WorkingRoomDetailDialog({
   selectedDate,
 }: WorkingRoomDetailDialogProps) {
   const { t } = useTranslation();
+  const { profile } = useAuth();
   const [assignments, setAssignments] = useState<WorkingAssignment[]>([]);
   const [loading, setLoading] = useState(false);
+  const canReleaseCheckout = !!profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
 
   useEffect(() => {
     if (open && staffId) {
@@ -219,7 +222,7 @@ export function WorkingRoomDetailDialog({
                           <p className="text-xs text-yellow-700 mt-1">
                             {t('manager.markReadyWhenGuestLeaves')}
                           </p>
-                          <Button
+                          {canReleaseCheckout && <Button
                             size="sm"
                             variant="outline"
                             className="mt-2 border-yellow-300 hover:bg-yellow-100"
@@ -227,7 +230,7 @@ export function WorkingRoomDetailDialog({
                           >
                             <CheckCircle className="h-4 w-4 mr-2" />
                             {t('manager.markReady')}
-                          </Button>
+                          </Button>}
                         </div>
                       </div>
                     </div>

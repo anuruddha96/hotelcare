@@ -87,10 +87,7 @@ serve(async (req) => {
           : previoStatusRaw.startsWith("clean") ? "clean"
           : "dirty";
 
-        const isCheckout = row.Departure != null && row.Departure !== "";
         const updateData: Record<string, any> = {
-          is_checkout_room: !!isCheckout,
-          checkout_time: isCheckout ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
         };
         if (mappedStatus) {

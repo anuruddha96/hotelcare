@@ -1,47 +1,38 @@
-## Goal
-Make assigned checkout rooms switch to ready-to-clean reliably and immediately after Previo marks them checked out, without depending on an admin browser tab being open.
+## Plan
 
-## What I’ll implement
+1. Remove the remaining automatic release from `previo-poll-checkouts`
+   - Change the edge function so it only sets `ready_to_clean = true` when Previo confirms a real departure for that room.
+   - Do not auto-release on Previo dirty/untidy status alone.
+   - Keep the function hard-scoped to `hotelId = 'previo-test'`.
 
-### 1) Replace browser-only polling with backend polling
-- Add a real Supabase cron schedule for `previo-poll-checkouts` every 10 minutes.
-- Send the required `x-cron-secret` header so the function can run server-side without a user session.
-- Keep the existing manual/admin trigger in the UI, but treat backend cron as the source of truth.
+2. Tighten the global database trigger so live hotels are not affected
+   - Update `handle_room_status_change()` so status changes on `rooms` do not automatically mark checkout assignments as ready unless the room is truly eligible.
+   - Make the rule explicit: for normal/live hotels like Ottofiori, checkout assignments stay blocked until an eligible staff member manually marks them ready.
+   - Preserve the test-hotel exception by relying on the API-driven poll, not generic room-status transitions.
 
-### 2) Fix room matching inside `previo-poll-checkouts`
-- Update the function so it matches local rooms using the same robust fallbacks already used in PMS sync:
-  - exact `room_number`
-  - normalized numeric room token from the Previo room name
-  - `rooms.pms_metadata->>roomId`
-- This will prevent assigned rooms from being skipped when Previo uses a different display name than the app.
+3. Align all frontend/manual readiness entry points with the same rule
+   - Review the manager/supervisor ready actions in `HotelRoomOverview`, `PendingRoomsDialog`, and `WorkingRoomDetailDialog` so only manual eligible-staff actions can release rooms outside the test-hotel API flow.
+   - Ensure assigning a room never flips it to RTA by itself.
 
-### 3) Fix assignment creation for already-checked-out rooms
-- Update checkout assignment creation so `ready_to_clean` is set correctly at insert time:
-  - if the room is already dirty / already flagged as checkout-ready from PMS, create the assignment as ready immediately
-  - only keep it blocked when the guest has truly not checked out yet
-- This removes the current bug where newly assigned checkout rooms start blocked even when PMS already marked them dirty.
-
-### 4) Improve audit visibility
-- Ensure every backend checkout poll writes a `pms_sync_history` row with counts for checked, marked, skipped, and errors.
-- Surface enough detail to verify whether a room was released, skipped due to no match, or failed due to Previo/API issues.
-
-### 5) Validate against today’s failing case
-- Re-test the `previo-test` hotel flow against today’s assigned checkout rooms.
-- Confirm that rooms like 201/203/301 transition correctly and that the housekeeper card stops showing the waiting state when appropriate.
-
-## Why this should fix your issue
-I verified two concrete problems:
-- there is currently no backend cron record for `previo-poll-checkouts`, so the “every 10 minutes” behavior is effectively browser/session-dependent
-- today’s checkout assignments were inserted with `ready_to_clean = false`, even though the rooms were already dirty/checkout rooms in local data
+4. Clean up already-misreleased assignments and verify behavior
+   - Add a corrective migration/query to re-block any currently open checkout assignments that were auto-released without a real checkout signal.
+   - Verify these scenarios:
+     - Ottofiori: assignment alone does not make room RTA.
+     - Ottofiori: manual eligible-staff release still works.
+     - `previo-test`: room becomes RTA only after the 10-minute API poll confirms departure.
 
 ## Technical details
+
+- Likely root cause found during review: `supabase/functions/previo-poll-checkouts/index.ts` still updates `room_assignments.ready_to_clean = true` for every candidate room, including Previo-dirty rooms that are not real departures.
+- Additional shared risk: the database function `public.handle_room_status_change()` is global, so if it keys off generic room status changes, it can affect hotels beyond `previo-test`, including Ottofiori.
 - Files likely involved:
   - `supabase/functions/previo-poll-checkouts/index.ts`
-  - `src/components/dashboard/RoomAssignmentDialog.tsx`
-  - new Supabase migration for the cron schedule
-- I will not change broader housekeeping workflows; this fix will stay focused on checkout auto-release reliability.
+  - new Supabase migration replacing the global trigger logic
+  - possibly small guard updates in:
+    - `src/components/dashboard/HotelRoomOverview.tsx`
+    - `src/components/dashboard/PendingRoomsDialog.tsx`
+    - `src/components/dashboard/WorkingRoomDetailDialog.tsx`
 
-## Expected result
-- Assigned checkout rooms auto-release even if no admin has the app open
-- Newly assigned already-checked-out rooms are immediately actionable for the housekeeper
-- Sync history/logs clearly show whether the poll ran and what it changed
+## Outcome
+
+After this change, room assignment will never auto-mark rooms as RTA by itself. Ottofiori will require manual eligible-staff release, while `previo-test` will release only from the API-confirmed 10-minute checkout poll.

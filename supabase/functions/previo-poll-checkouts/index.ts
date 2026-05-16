@@ -186,17 +186,21 @@ serve(async (req) => {
           if (updateData.status === "dirty") results.marked++;
         }
 
-        // Flip ready_to_clean on any open checkout_cleaning assignment so
-        // housekeepers can start immediately.
-        const today = new Date().toISOString().slice(0, 10);
-        const { error: asgErr } = await service
-          .from("room_assignments")
-          .update({ ready_to_clean: true, updated_at: new Date().toISOString() })
-          .eq("room_id", localRoom.id)
-          .eq("assignment_date", today)
-          .in("status", ["assigned", "in_progress"])
-          .eq("ready_to_clean", false);
-        if (asgErr) results.errors.push(`${r.name} assignment: ${asgErr.message}`);
+        // Release checkout assignments only when Previo confirms a REAL
+        // departure. Previo-dirty alone must never unblock the work, because
+        // the guest may still be in-house.
+        if (departed) {
+          const today = new Date().toISOString().slice(0, 10);
+          const { error: asgErr } = await service
+            .from("room_assignments")
+            .update({ ready_to_clean: true, updated_at: new Date().toISOString() })
+            .eq("room_id", localRoom.id)
+            .eq("assignment_date", today)
+            .eq("assignment_type", "checkout_cleaning")
+            .in("status", ["assigned", "in_progress"])
+            .eq("ready_to_clean", false);
+          if (asgErr) results.errors.push(`${r.name} assignment: ${asgErr.message}`);
+        }
       } catch (e: any) {
         results.errors.push(`${r.name}: ${e?.message || e}`);
       }

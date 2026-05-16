@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Clock, MapPin, CheckCircle, AlertCircle, Calendar, Star, X, ArrowLeftRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
 
 interface PendingRoomsDialogProps {
   open: boolean;
@@ -36,8 +37,10 @@ export function PendingRoomsDialog({
   selectedDate,
 }: PendingRoomsDialogProps) {
   const { t } = useTranslation();
+  const { profile } = useAuth();
   const [assignments, setAssignments] = useState<PendingAssignment[]>([]);
   const [loading, setLoading] = useState(false);
+  const canReleaseCheckout = !!profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
 
   useEffect(() => {
     if (open && staffId) {
@@ -302,7 +305,7 @@ export function PendingRoomsDialog({
                       )}
                     </div>
                     
-                    {!assignment.ready_to_clean && (
+                    {!assignment.ready_to_clean && canReleaseCheckout && (
                       <Button
                         size="sm"
                         variant="default"

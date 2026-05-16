@@ -139,7 +139,9 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
         priority: type === 'checkout_cleaning' ? 2 : 1,
         estimated_duration: type === 'checkout_cleaning' ? 45 : 30,
         notes: `Quick assignment - ${type.replace('_', ' ')}`,
-        // Daily rooms are ready immediately, checkout rooms need manager approval
+        // Daily rooms are ready immediately. Checkout rooms stay blocked until
+        // manually released by eligible staff or by the dedicated test-hotel
+        // checkout poll after a confirmed departure.
         ready_to_clean: type !== 'checkout_cleaning',
         organization_slug: profileData.organization_slug
       }));

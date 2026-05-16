@@ -546,7 +546,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </div>
 
               {/* Ready to Clean - PROMINENT for checkout rooms */}
-              {isCheckout && assignment && !assignment.ready_to_clean && (
+              {isCheckout && assignment && !assignment.ready_to_clean && isManagerOrAdmin && (
                 <button
                   className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
                   disabled={actionLoading === `ready-${room.id}`}
@@ -554,7 +554,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     e.stopPropagation();
                     setActionLoading(`ready-${room.id}`);
                     try {
-                      const { error } = await supabase.from('room_assignments').update({ ready_to_clean: true } as any).eq('room_id', room.id).eq('assignment_date', selectedDate);
+                      const { error } = await supabase.from('room_assignments').update({ ready_to_clean: true } as any).eq('room_id', room.id).eq('assignment_date', selectedDate).eq('assignment_type', 'checkout_cleaning');
                       if (error) throw error;
                       setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
                       toast.success(`Room ${room.room_number} ready to clean`);
@@ -1458,7 +1458,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   <div className="space-y-2 pb-3 border-b">
                     <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">⚡ Quick Actions</label>
                     {/* Mark Ready to Clean */}
-                    {isCheckout && (
+                    {isCheckout && isManagerOrAdmin && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1472,7 +1472,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                                 .from('room_assignments')
                                 .update({ ready_to_clean: true } as any)
                                 .eq('room_id', selectedRoom.id)
-                                .eq('assignment_date', selectedDate);
+                                .eq('assignment_date', selectedDate)
+                                .eq('assignment_type', 'checkout_cleaning');
                               if (error) throw error;
                             } else {
                               const { error } = await supabase
