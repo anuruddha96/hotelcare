@@ -680,8 +680,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     finally { setActionLoading(null); }
                   }}
                 >
-                  <span>🧺 Collect Extra Towels</span>
-                  <span className="text-[10px]">{roomFlags.collectExtraTowels ? '✓ Yes' : 'Off'}</span>
+                  <span>🧺 {t('roomOverview.collectExtraTowels')}</span>
+                  <span className="text-[10px]">{roomFlags.collectExtraTowels ? `✓ ${t('roomOverview.yes')}` : t('roomOverview.off')}</span>
                 </button>
               </div>
 
