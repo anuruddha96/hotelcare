@@ -157,7 +157,7 @@ serve(async (req) => {
       direction: "from_previo",
       hotel_id: targetHotel,
       data: results,
-      changed_by: userRes.user.id,
+      changed_by: userId,
       sync_status: results.errors.length ? "partial" : "success",
       error_message: results.errors.length ? results.errors.join("; ") : null,
     });
