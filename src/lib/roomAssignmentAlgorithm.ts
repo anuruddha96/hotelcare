@@ -130,10 +130,10 @@ export function formatMinutesToTime(minutes: number): string {
 }
 
 export function calculateRoomWeight(room: RoomForAssignment): number {
-  if (room.towel_change_required && !room.is_checkout_room && !room.linen_change_required) {
+  const isCheckout = room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true;
+  if (room.towel_change_required && !isCheckout && !room.linen_change_required) {
     return 0.4;
   }
-  const isCheckout = room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true;
   let weight = isCheckout ? 1.5 : 1.0;
   if (room.linen_change_required && !isCheckout) {
     weight += 0.5;
@@ -555,7 +555,7 @@ export function autoAssignRooms(
   for (let iter = 0; iter < 30; iter++) {
     const coCounts = staff.map(s => ({
       id: s.id,
-      checkouts: assignments.get(s.id)!.filter(r => r.is_checkout_room).length
+      checkouts: assignments.get(s.id)!.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true).length
     })).sort((a, b) => b.checkouts - a.checkouts);
     
     const most = coCounts[0];
@@ -564,7 +564,7 @@ export function autoAssignRooms(
 
     const mostRooms = assignments.get(most.id)!;
     const leastRooms = assignments.get(least.id)!;
-    const movableCheckouts = mostRooms.filter(r => r.is_checkout_room);
+    const movableCheckouts = mostRooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true);
     
     // Pick best-fit checkout to move (zone is secondary, fairness is primary)
     const scored = movableCheckouts.map(room => {
@@ -581,7 +581,7 @@ export function autoAssignRooms(
   for (let iter = 0; iter < 30; iter++) {
     const dailyCounts = staff.map(s => ({
       id: s.id,
-      daily: assignments.get(s.id)!.filter(r => !r.is_checkout_room).length
+      daily: assignments.get(s.id)!.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true)).length
     })).sort((a, b) => b.daily - a.daily);
     
     const most = dailyCounts[0];
@@ -593,7 +593,7 @@ export function autoAssignRooms(
     
     // Move a daily room - allow cross-zone if needed for fairness
     const movable = mostRooms
-      .filter(r => !r.is_checkout_room)
+      .filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true))
       .map(room => ({
         room,
         score: zoneFitScore(room, leastRooms) + roomProximityScore(room, leastRooms) * 0.3
