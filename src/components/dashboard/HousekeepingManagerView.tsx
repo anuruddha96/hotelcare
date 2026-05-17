@@ -25,6 +25,7 @@ import { PmsRefreshButton } from './PmsRefreshButton';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 
 // Real-time Break Timer Display Component for Managers
 function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; startedAt: string }) {
@@ -207,7 +208,6 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const fetchHousekeepingStaff = async () => {
     try {
-      // Get current user's profile to check hotel and organization assignment
       const { data: profileData } = await supabase
         .from('profiles')
         .select('assigned_hotel, organization_slug')
@@ -220,49 +220,23 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         return;
       }
 
-      // Get all possible hotel name variations for matching
-      let hotelNames: string[] = [];
-      if (profileData?.assigned_hotel) {
-        // Get hotel name from hotel_id and also include variations
-        const { data: hotelConfig } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_name, hotel_id')
-          .or(`hotel_id.eq.${profileData.assigned_hotel},hotel_name.ilike.%${profileData.assigned_hotel}%`)
-          .limit(1)
-          .single();
+      const hotelKeys = await resolveHotelKeys(profileData.assigned_hotel);
 
-        if (hotelConfig) {
-          hotelNames = [hotelConfig.hotel_name, hotelConfig.hotel_id, profileData.assigned_hotel];
-        } else {
-          hotelNames = [profileData.assigned_hotel];
-        }
-      }
-
-      // Filter housekeeping staff by organization, then filter by hotel in JS for case-insensitive matching
-      const { data: allStaff, error } = await supabase
+      let query = supabase
         .from('profiles')
         .select('id, full_name, nickname, email, assigned_hotel, organization_slug')
         .eq('role', 'housekeeping')
         .eq('organization_slug', profileData.organization_slug)
         .order('full_name');
 
-      if (error) throw error;
-
-      // Filter by hotel using case-insensitive matching
-      let filteredStaff = allStaff || [];
-      if (hotelNames.length > 0) {
-        filteredStaff = filteredStaff.filter(staff => {
-          if (!staff.assigned_hotel) return false;
-          const staffHotel = staff.assigned_hotel.toLowerCase();
-          return hotelNames.some(h => 
-            staffHotel === h.toLowerCase() || 
-            staffHotel.includes(h.toLowerCase()) || 
-            h.toLowerCase().includes(staffHotel)
-          );
-        });
+      if (hotelKeys.length > 0) {
+        query = query.in('assigned_hotel', hotelKeys);
       }
 
-      setHousekeepingStaff(filteredStaff);
+      const { data: filteredStaff, error } = await query;
+      if (error) throw error;
+
+      setHousekeepingStaff(filteredStaff || []);
     } catch (error) {
       console.error('Error fetching housekeeping staff:', error);
       toast.error('Failed to load housekeeping staff');
@@ -273,31 +247,14 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const fetchTeamAssignments = async () => {
     try {
-      // Get current user's assigned hotel and organization
       const { data: profileData } = await supabase
         .from('profiles')
         .select('assigned_hotel, organization_slug')
         .eq('id', user?.id)
         .single();
 
-      // Get hotel name variations for matching
-      let hotelNames: string[] = [];
-      if (profileData?.assigned_hotel) {
-        const { data: hotelConfig } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_name, hotel_id')
-          .or(`hotel_id.eq.${profileData.assigned_hotel},hotel_name.ilike.%${profileData.assigned_hotel}%`)
-          .limit(1)
-          .maybeSingle();
+      const hotelKeys = await resolveHotelKeys(profileData?.assigned_hotel);
 
-        if (hotelConfig) {
-          hotelNames = [hotelConfig.hotel_name, hotelConfig.hotel_id, profileData.assigned_hotel];
-        } else {
-          hotelNames = [profileData.assigned_hotel];
-        }
-      }
-
-      // Fetch assignments for selected date
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
         .select('assigned_to, status, room_id')
@@ -305,37 +262,20 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
       if (assignmentsError) throw assignmentsError;
 
-      // Get room details separately to avoid FK/RLS issues with inner join
       const roomIds = Array.from(new Set((assignmentsData || []).map(a => a.room_id).filter(Boolean)));
       let roomMap = new Map<string, any>();
-      
+
       if (roomIds.length > 0) {
-        const { data: roomsData } = await supabase
-          .from('rooms')
-          .select('id, hotel')
-          .in('id', roomIds);
-        
-        if (roomsData) {
-          roomsData.forEach(room => roomMap.set(room.id, room));
-        }
+        let roomsQuery = supabase.from('rooms').select('id, hotel').in('id', roomIds);
+        if (hotelKeys.length > 0) roomsQuery = roomsQuery.in('hotel', hotelKeys);
+        const { data: roomsData } = await roomsQuery;
+        if (roomsData) roomsData.forEach(room => roomMap.set(room.id, room));
       }
 
-      // Filter assignments by hotel using case-insensitive matching
-      let filteredData = assignmentsData || [];
-      if (hotelNames.length > 0) {
-        filteredData = filteredData.filter((assignment: any) => {
-          const room = roomMap.get(assignment.room_id);
-          if (!room || !room.hotel) return false;
-          const roomHotel = room.hotel.toLowerCase();
-          return hotelNames.some(h => 
-            roomHotel === h.toLowerCase() || 
-            roomHotel.includes(h.toLowerCase()) || 
-            h.toLowerCase().includes(roomHotel)
-          );
-        });
-      }
-
-      const data = filteredData;
+      // Only keep assignments whose room is in this hotel (when filter active)
+      const filteredData = hotelKeys.length > 0
+        ? (assignmentsData || []).filter((a: any) => roomMap.has(a.room_id))
+        : (assignmentsData || []);
 
       const summaryMap = new Map<string, TeamAssignment>();
 
@@ -351,8 +291,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         });
       });
 
-      // Apply counts
-      (data || []).forEach((row: any) => {
+      filteredData.forEach((row: any) => {
         const staffId = row.assigned_to as string;
         let summary = summaryMap.get(staffId);
         if (!summary) {
@@ -382,31 +321,14 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const fetchRoomAssignments = async () => {
     try {
-      // Get current user's assigned hotel
       const { data: profileData } = await supabase
         .from('profiles')
         .select('assigned_hotel')
         .eq('id', user?.id)
         .single();
 
-      // Get hotel name variations for matching
-      let hotelNames: string[] = [];
-      if (profileData?.assigned_hotel) {
-        const { data: hotelConfig } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_name, hotel_id')
-          .or(`hotel_id.eq.${profileData.assigned_hotel},hotel_name.ilike.%${profileData.assigned_hotel}%`)
-          .limit(1)
-          .maybeSingle();
+      const hotelKeys = await resolveHotelKeys(profileData?.assigned_hotel);
 
-        if (hotelConfig) {
-          hotelNames = [hotelConfig.hotel_name, hotelConfig.hotel_id, profileData.assigned_hotel];
-        } else {
-          hotelNames = [profileData.assigned_hotel];
-        }
-      }
-
-      // Fetch all room assignments for the date
       const { data, error } = await supabase
         .from('room_assignments')
         .select(`
@@ -420,19 +342,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
       if (error) throw error;
 
-      // Filter by hotel using case-insensitive matching
-      let filteredData = data || [];
-      if (hotelNames.length > 0) {
-        filteredData = filteredData.filter((item: any) => {
-          if (!item.rooms?.hotel) return false;
-          const roomHotel = item.rooms.hotel.toLowerCase();
-          return hotelNames.some(h => 
-            roomHotel === h.toLowerCase() || 
-            roomHotel.includes(h.toLowerCase()) || 
-            h.toLowerCase().includes(roomHotel)
-          );
-        });
-      }
+      const filteredData = hotelKeys.length > 0
+        ? (data || []).filter((item: any) => item.rooms?.hotel && hotelKeys.includes(item.rooms.hotel))
+        : (data || []);
 
       const assignments = filteredData.map((item: any) => ({
         id: item.id,
