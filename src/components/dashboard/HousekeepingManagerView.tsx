@@ -208,7 +208,6 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const fetchHousekeepingStaff = async () => {
     try {
-      // Get current user's profile to check hotel and organization assignment
       const { data: profileData } = await supabase
         .from('profiles')
         .select('assigned_hotel, organization_slug')
@@ -221,49 +220,23 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         return;
       }
 
-      // Get all possible hotel name variations for matching
-      let hotelNames: string[] = [];
-      if (profileData?.assigned_hotel) {
-        // Get hotel name from hotel_id and also include variations
-        const { data: hotelConfig } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_name, hotel_id')
-          .or(`hotel_id.eq.${profileData.assigned_hotel},hotel_name.ilike.%${profileData.assigned_hotel}%`)
-          .limit(1)
-          .single();
+      const hotelKeys = await resolveHotelKeys(profileData.assigned_hotel);
 
-        if (hotelConfig) {
-          hotelNames = [hotelConfig.hotel_name, hotelConfig.hotel_id, profileData.assigned_hotel];
-        } else {
-          hotelNames = [profileData.assigned_hotel];
-        }
-      }
-
-      // Filter housekeeping staff by organization, then filter by hotel in JS for case-insensitive matching
-      const { data: allStaff, error } = await supabase
+      let query = supabase
         .from('profiles')
         .select('id, full_name, nickname, email, assigned_hotel, organization_slug')
         .eq('role', 'housekeeping')
         .eq('organization_slug', profileData.organization_slug)
         .order('full_name');
 
-      if (error) throw error;
-
-      // Filter by hotel using case-insensitive matching
-      let filteredStaff = allStaff || [];
-      if (hotelNames.length > 0) {
-        filteredStaff = filteredStaff.filter(staff => {
-          if (!staff.assigned_hotel) return false;
-          const staffHotel = staff.assigned_hotel.toLowerCase();
-          return hotelNames.some(h => 
-            staffHotel === h.toLowerCase() || 
-            staffHotel.includes(h.toLowerCase()) || 
-            h.toLowerCase().includes(staffHotel)
-          );
-        });
+      if (hotelKeys.length > 0) {
+        query = query.in('assigned_hotel', hotelKeys);
       }
 
-      setHousekeepingStaff(filteredStaff);
+      const { data: filteredStaff, error } = await query;
+      if (error) throw error;
+
+      setHousekeepingStaff(filteredStaff || []);
     } catch (error) {
       console.error('Error fetching housekeeping staff:', error);
       toast.error('Failed to load housekeeping staff');
