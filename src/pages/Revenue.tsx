@@ -33,6 +33,8 @@ interface HotelStat {
   occAvg7: number;
   occAvg30: number;
   lastOccAt: string | null;
+  isPrevio: boolean;
+  lastSyncAt: string | null;
 }
 
 interface UploadJob {
@@ -62,18 +64,23 @@ export default function Revenue() {
       return;
     }
     void load();
-  }, [loading, profile?.role]);
+    // Re-load when URL org changes (admin switching tenants)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, profile?.role, organizationSlug]);
 
   async function load() {
     setBusy(true);
 
-    // Resolve org id from profile.organization_slug to scope hotels
+    // Prefer the org slug from the URL so admins who just switched tenants
+    // see the correct hotels even if profile.organization_slug is still
+    // catching up. Fall back to profile.
+    const effectiveSlug = organizationSlug || profile?.organization_slug;
     let orgId: string | null = null;
-    if (profile?.organization_slug) {
+    if (effectiveSlug) {
       const { data: org } = await supabase
         .from("organizations")
         .select("id")
-        .eq("slug", profile.organization_slug)
+        .eq("slug", effectiveSlug)
         .maybeSingle();
       orgId = org?.id ?? null;
     }
@@ -84,6 +91,23 @@ export default function Revenue() {
       .eq("is_active", true);
     if (orgId) hq = hq.eq("organization_id", orgId);
     const { data: hotelRows } = await hq;
+
+    // Which of these hotels are wired up to Previo? Drives the "Sync" button.
+    const hotelIds = (hotelRows ?? []).map((h) => h.hotel_id);
+    const previoIds = new Set<string>();
+    const lastSyncByHotel = new Map<string, string>();
+    if (hotelIds.length > 0) {
+      const { data: pmsRows } = await supabase
+        .from("pms_configurations")
+        .select("hotel_id, pms_type, last_sync_at, is_active")
+        .in("hotel_id", hotelIds)
+        .eq("pms_type", "previo")
+        .eq("is_active", true);
+      for (const p of pmsRows ?? []) {
+        previoIds.add(p.hotel_id);
+        if (p.last_sync_at) lastSyncByHotel.set(p.hotel_id, p.last_sync_at);
+      }
+    }
 
     const today = new Date().toISOString().slice(0, 10);
     const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
@@ -156,6 +180,8 @@ export default function Revenue() {
         occAvg7,
         occAvg30,
         lastOccAt,
+        isPrevio: previoIds.has(h.hotel_id),
+        lastSyncAt: lastSyncByHotel.get(h.hotel_id) ?? null,
       });
     }
     setHotels(stats);
@@ -167,6 +193,22 @@ export default function Revenue() {
     const { error } = await supabase.functions.invoke("revenue-engine-tick", { body: {} });
     setBusy(false);
     if (error) toast.error(error.message); else toast.success("Engine ran");
+    void load();
+  }
+
+  async function syncFromPrevio(hotelId: string, hotelName: string) {
+    toast.info(`Syncing ${hotelName} from Previo…`);
+    const { data, error } = await supabase.functions.invoke("previo-pull-revenue", {
+      body: { hotelId },
+    });
+    if (error || (data && data.ok === false)) {
+      toast.error((data as any)?.error || error?.message || "Sync failed");
+      return;
+    }
+    const d = data as any;
+    toast.success(
+      `Synced ${hotelName} · ${d?.occInserted ?? 0} occ · ${d?.dailyRatesPms ?? 0} PMS rates · ${d?.dailyRatesRealized ?? 0} ADR`,
+    );
     void load();
   }
 
@@ -338,15 +380,28 @@ export default function Revenue() {
                   Pickup upload: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
                 </div>
                 <div>Occupancy upload: {h.lastOccAt ? new Date(h.lastOccAt).toLocaleString() : "never"}</div>
+                {h.isPrevio && (
+                  <div className="flex items-center gap-1">
+                    <Radio className="h-3 w-3 text-primary" />
+                    Previo sync: {h.lastSyncAt ? new Date(h.lastSyncAt).toLocaleString() : "never"}
+                  </div>
+                )}
                 <div>Pending recs: <b className="text-foreground">{h.pending_recs}</b></div>
               </div>
 
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="flex-1"
+              <div className="flex gap-2 flex-wrap">
+                <Button size="sm" variant="outline" className="flex-1 min-w-[80px]"
                   onClick={() => navigate(`/${organizationSlug}/revenue/${h.hotel_id}`)}>
                   Open
                 </Button>
-                <Button size="sm" variant="default" className="flex-1"
+                {h.isPrevio && (
+                  <Button size="sm" variant="secondary" className="flex-1 min-w-[80px]"
+                    onClick={() => void syncFromPrevio(h.hotel_id, h.hotel_name)}
+                    title="Pull pickup, occupancy and PMS rates from Previo API">
+                    <RefreshCw className="h-3 w-3 mr-1" /> Sync
+                  </Button>
+                )}
+                <Button size="sm" variant="default" className="flex-1 min-w-[80px]"
                   onClick={() => { setHotelDialog({ id: h.hotel_id, name: h.hotel_name }); setDialogJobs([]); }}>
                   <Upload className="h-3 w-3 mr-1" /> Upload
                 </Button>
