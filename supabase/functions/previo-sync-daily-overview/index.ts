@@ -272,15 +272,6 @@ serve(async (req) => {
       }
     }
 
-    await service.from("revenue_sync_history").insert({
-      hotel_id: hotelId,
-      organization_slug: orgSlug,
-      source: "previo-daily-overview",
-      status: lastErr ? "partial" : "ok",
-      rows_processed: rows.length,
-      error_message: lastErr,
-      changed_by: userRes.user.id,
-    }).then(() => {}, () => {});
 
     return new Response(JSON.stringify({
       ok: true,
