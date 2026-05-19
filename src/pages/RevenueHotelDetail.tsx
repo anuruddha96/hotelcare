@@ -459,17 +459,37 @@ export default function RevenueHotelDetail() {
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="analyst"><Bot className="h-4 w-4 mr-1" />Analyst</TabsTrigger>
           <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
+          <TabsTrigger value="syncs"><History className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
         </TabsList>
 
         <TabsContent value="prices">
+          <div className="mb-2 flex items-center justify-end gap-2 text-xs">
+            <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5"
+                checked={showYoyMom}
+                onChange={(e) => {
+                  setShowYoyMom(e.target.checked);
+                  try { localStorage.setItem("revenue.showYoyMom", e.target.checked ? "1" : "0"); } catch {}
+                }}
+              />
+              Show YoY / MoM chips
+            </label>
+          </div>
           {view === "year" ? (
             <CalendarYearView monthsAhead={12} startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
           ) : view === "quarter" ? (
             <CalendarQuarterView startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
           ) : (
-            <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices" onSelect={setSelectedDate} />
+            <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices" onSelect={setSelectedDate} showYoyMom={showYoyMom} />
           )}
         </TabsContent>
+
+        <TabsContent value="syncs">
+          <RevenueSyncHistory hotelId={hotelId!} limit={30} />
+        </TabsContent>
+
 
         <TabsContent value="events">
           <EventsTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} events={events} onChange={load} />
