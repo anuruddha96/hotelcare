@@ -198,19 +198,27 @@ export default function Revenue() {
 
   async function syncFromPrevio(hotelId: string, hotelName: string) {
     toast.info(`Syncing ${hotelName} from Previo…`);
-    const { data, error } = await supabase.functions.invoke("previo-pull-revenue", {
-      body: { hotelId },
-    });
-    if (error || (data && data.ok === false)) {
-      toast.error((data as any)?.error || error?.message || "Sync failed");
+    const [revRes, overviewRes] = await Promise.all([
+      supabase.functions.invoke("previo-pull-revenue", { body: { hotelId } }),
+      supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } }),
+    ]);
+    if (revRes.error || (revRes.data && (revRes.data as any).ok === false)) {
+      toast.error((revRes.data as any)?.error || revRes.error?.message || "Revenue sync failed");
       return;
     }
-    const d = data as any;
+    const d = revRes.data as any;
+    const ov = overviewRes.data as any;
+    const ovPart = overviewRes.error
+      ? ` · overview failed`
+      : ov?.supported === false
+        ? ""
+        : ` · ${ov?.rowsInserted ?? 0} overview rows`;
     toast.success(
-      `Synced ${hotelName} · ${d?.occInserted ?? 0} occ · ${d?.dailyRatesPms ?? 0} PMS rates · ${d?.dailyRatesRealized ?? 0} ADR`,
+      `Synced ${hotelName} · ${d?.occInserted ?? 0} occ · ${d?.dailyRatesPms ?? 0} PMS rates · ${d?.dailyRatesRealized ?? 0} ADR${ovPart}`,
     );
     void load();
   }
+
 
   async function exportAll(format: "csv" | "xlsx") {
     const { data, error } = await supabase.functions.invoke("revenue-export", {
