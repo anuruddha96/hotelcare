@@ -291,6 +291,22 @@ serve(async (req) => {
     }
 
 
+    try {
+      await service.from("pms_sync_history").insert({
+        hotel_id: hotelId,
+        sync_type: "daily_overview_live",
+        direction: "from_previo",
+        sync_status: lastErr ? "partial" : "success",
+        changed_by: userId,
+        error_message: lastErr,
+        data: {
+          window: { from: fromDate, to: toDate, days },
+          reservations: reservations.length,
+          rowsInserted: inserted,
+        },
+      } as any);
+    } catch { /* non-fatal */ }
+
     return new Response(JSON.stringify({
       ok: true,
       supported: true,
@@ -302,6 +318,22 @@ serve(async (req) => {
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     console.error("previo-sync-daily-overview fatal:", e);
+    // Best-effort failure log so admins can see why a sync went missing.
+    try {
+      const service2 = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const body = await req.clone().json().catch(() => ({} as any));
+      await service2.from("pms_sync_history").insert({
+        hotel_id: body.hotelId || null,
+        sync_type: "daily_overview_live",
+        direction: "from_previo",
+        sync_status: "error",
+        error_message: e?.message || String(e),
+        data: {},
+      } as any);
+    } catch { /* ignore */ }
     return new Response(JSON.stringify({ ok: false, error: e?.message || String(e) }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

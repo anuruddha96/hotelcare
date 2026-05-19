@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Upload, TrendingUp, TrendingDown,
   AlertTriangle, Loader2, Check, Edit3, X, Calendar as CalIcon, BarChart3,
-  Settings2, Sparkles, Plus, RefreshCw, Bot,
+  Settings2, Sparkles, Plus, RefreshCw, Bot, History as HistoryIcon,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
@@ -26,6 +26,7 @@ import PricingDriverChips from "@/components/revenue/PricingDriverChips";
 import AnalystPanel from "@/components/revenue/AnalystPanel";
 import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
+import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
@@ -79,6 +80,9 @@ export default function RevenueHotelDetail() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [showYoyMom, setShowYoyMom] = useState(() => {
+    try { return localStorage.getItem("revenue.showYoyMom") !== "0"; } catch { return true; }
+  });
   const [multipliers, setMultipliers] = useState<PricingMultipliers>({
     dowPercent: {}, monthlyPercent: {}, leadTimePercent: {},
   });
@@ -459,17 +463,37 @@ export default function RevenueHotelDetail() {
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="analyst"><Bot className="h-4 w-4 mr-1" />Analyst</TabsTrigger>
           <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
+          <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
         </TabsList>
 
         <TabsContent value="prices">
+          <div className="mb-2 flex items-center justify-end gap-2 text-xs">
+            <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5"
+                checked={showYoyMom}
+                onChange={(e) => {
+                  setShowYoyMom(e.target.checked);
+                  try { localStorage.setItem("revenue.showYoyMom", e.target.checked ? "1" : "0"); } catch {}
+                }}
+              />
+              Show YoY / MoM chips
+            </label>
+          </div>
           {view === "year" ? (
             <CalendarYearView monthsAhead={12} startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
           ) : view === "quarter" ? (
             <CalendarQuarterView startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
           ) : (
-            <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices" onSelect={setSelectedDate} />
+            <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices" onSelect={setSelectedDate} showYoyMom={showYoyMom} />
           )}
         </TabsContent>
+
+        <TabsContent value="syncs">
+          <RevenueSyncHistory hotelId={hotelId!} limit={30} />
+        </TabsContent>
+
 
         <TabsContent value="events">
           <EventsTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} events={events} onChange={load} />
@@ -651,9 +675,9 @@ export default function RevenueHotelDetail() {
 }
 
 // --- Unified calendar grid: rate + occupancy + pickup + min stay + events ---
-function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
+function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect, showYoyMom = true }: {
   days: Date[]; rowsByDate: Map<string, any>; inMonth: (d: Date) => boolean;
-  variant: "prices"|"occupancy"|"minstay"; onSelect: (d: string) => void;
+  variant: "prices"|"occupancy"|"minstay"; onSelect: (d: string) => void; showYoyMom?: boolean;
 }) {
   return (
     <Card>
@@ -747,37 +771,56 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
                   Pickup {r?.pickupDelta > 0 ? "+" : ""}{r?.pickupDelta ?? 0}
                 </div>
 
-                {/* YoY / MoM comparison chips (only when historical data exists) */}
-                {(r?.yoyRate != null || r?.yoyOcc != null || r?.momRate != null || r?.momOcc != null) && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {(r?.yoyRate != null || r?.yoyOcc != null) && (() => {
-                      const dRate = r.rate != null && r.yoyRate != null ? r.rate - r.yoyRate : null;
-                      const dOcc = r.occupancy != null && r.yoyOcc != null ? r.occupancy - r.yoyOcc : null;
-                      const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
-                      return (
-                        <span
-                          className={`text-[9px] px-1 rounded border ${positive ? "border-emerald-300 text-emerald-700" : "border-amber-300 text-amber-700"}`}
-                          title={`Same day last year: €${r.yoyRate ?? "—"} · ${r.yoyOcc != null ? Math.round(r.yoyOcc) + "%" : "—"}`}>
-                          YoY {dRate != null ? `${dRate >= 0 ? "+" : ""}€${Math.round(dRate)}` : "—"}
-                          {dOcc != null ? ` / ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}
-                        </span>
-                      );
-                    })()}
-                    {(r?.momRate != null || r?.momOcc != null) && (() => {
-                      const dRate = r.rate != null && r.momRate != null ? r.rate - r.momRate : null;
-                      const dOcc = r.occupancy != null && r.momOcc != null ? r.occupancy - r.momOcc : null;
-                      const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
-                      return (
-                        <span
-                          className={`text-[9px] px-1 rounded border ${positive ? "border-sky-300 text-sky-700" : "border-slate-300 text-slate-600"}`}
-                          title={`30 days ago: €${r.momRate ?? "—"} · ${r.momOcc != null ? Math.round(r.momOcc) + "%" : "—"}`}>
-                          MoM {dRate != null ? `${dRate >= 0 ? "+" : ""}€${Math.round(dRate)}` : "—"}
-                          {dOcc != null ? ` / ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                )}
+                {/* YoY / MoM comparison chips (only when historical data exists, and toggle is on) */}
+                {showYoyMom && (r?.yoyRate != null || r?.yoyOcc != null || r?.momRate != null || r?.momOcc != null) && (() => {
+                  const cellDate = new Date(date + "T00:00:00Z");
+                  const yoyDate = new Date(cellDate); yoyDate.setUTCDate(yoyDate.getUTCDate() - 365);
+                  const momDate = new Date(cellDate); momDate.setUTCDate(momDate.getUTCDate() - 30);
+                  const yoyIso = yoyDate.toISOString().slice(0, 10);
+                  const momIso = momDate.toISOString().slice(0, 10);
+                  const fmtDelta = (n: number | null) => n == null ? "—" : `${n >= 0 ? "+" : ""}€${Math.round(n)}`;
+                  const fmtPp = (n: number | null) => n == null ? "" : ` / ${n >= 0 ? "+" : ""}${Math.round(n)}pp`;
+                  return (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {(r.yoyRate != null || r.yoyOcc != null) && (() => {
+                        const dRate = r.rate != null && r.yoyRate != null ? r.rate - r.yoyRate : null;
+                        const dOcc = r.occupancy != null && r.yoyOcc != null ? r.occupancy - r.yoyOcc : null;
+                        const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
+                        const tip = [
+                          `Year-over-year vs ${yoyIso}`,
+                          `This day: €${r.rate ?? "—"} · ${r.occupancy != null ? Math.round(r.occupancy) + "%" : "—"} occ`,
+                          `Last year: €${r.yoyRate ?? "—"} · ${r.yoyOcc != null ? Math.round(r.yoyOcc) + "%" : "—"} occ`,
+                          `Δ rate ${fmtDelta(dRate)}${dOcc != null ? `, Δ occ ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}`,
+                        ].join("\n");
+                        return (
+                          <span
+                            className={`text-[9px] px-1 rounded border ${positive ? "border-emerald-300 text-emerald-700" : "border-amber-300 text-amber-700"}`}
+                            title={tip}>
+                            YoY {fmtDelta(dRate)}{fmtPp(dOcc)}
+                          </span>
+                        );
+                      })()}
+                      {(r.momRate != null || r.momOcc != null) && (() => {
+                        const dRate = r.rate != null && r.momRate != null ? r.rate - r.momRate : null;
+                        const dOcc = r.occupancy != null && r.momOcc != null ? r.occupancy - r.momOcc : null;
+                        const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
+                        const tip = [
+                          `Month-over-month vs ${momIso}`,
+                          `This day: €${r.rate ?? "—"} · ${r.occupancy != null ? Math.round(r.occupancy) + "%" : "—"} occ`,
+                          `30 days ago: €${r.momRate ?? "—"} · ${r.momOcc != null ? Math.round(r.momOcc) + "%" : "—"} occ`,
+                          `Δ rate ${fmtDelta(dRate)}${dOcc != null ? `, Δ occ ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}`,
+                        ].join("\n");
+                        return (
+                          <span
+                            className={`text-[9px] px-1 rounded border ${positive ? "border-sky-300 text-sky-700" : "border-slate-300 text-slate-600"}`}
+                            title={tip}>
+                            MoM {fmtDelta(dRate)}{fmtPp(dOcc)}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
               </button>
             );
           })}
