@@ -81,7 +81,7 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      userId = userId;
+      userId = userRes.user.id;
       const { data: p } = await service
         .from("profiles")
         .select("role, assigned_hotel, organization_slug")
