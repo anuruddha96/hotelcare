@@ -80,6 +80,9 @@ export default function RevenueHotelDetail() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [showYoyMom, setShowYoyMom] = useState(() => {
+    try { return localStorage.getItem("revenue.showYoyMom") !== "0"; } catch { return true; }
+  });
   const [multipliers, setMultipliers] = useState<PricingMultipliers>({
     dowPercent: {}, monthlyPercent: {}, leadTimePercent: {},
   });
