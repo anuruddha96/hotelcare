@@ -675,9 +675,9 @@ export default function RevenueHotelDetail() {
 }
 
 // --- Unified calendar grid: rate + occupancy + pickup + min stay + events ---
-function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
+function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect, showYoyMom = true }: {
   days: Date[]; rowsByDate: Map<string, any>; inMonth: (d: Date) => boolean;
-  variant: "prices"|"occupancy"|"minstay"; onSelect: (d: string) => void;
+  variant: "prices"|"occupancy"|"minstay"; onSelect: (d: string) => void; showYoyMom?: boolean;
 }) {
   return (
     <Card>
