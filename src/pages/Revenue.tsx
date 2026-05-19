@@ -64,18 +64,23 @@ export default function Revenue() {
       return;
     }
     void load();
-  }, [loading, profile?.role]);
+    // Re-load when URL org changes (admin switching tenants)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, profile?.role, organizationSlug]);
 
   async function load() {
     setBusy(true);
 
-    // Resolve org id from profile.organization_slug to scope hotels
+    // Prefer the org slug from the URL so admins who just switched tenants
+    // see the correct hotels even if profile.organization_slug is still
+    // catching up. Fall back to profile.
+    const effectiveSlug = organizationSlug || profile?.organization_slug;
     let orgId: string | null = null;
-    if (profile?.organization_slug) {
+    if (effectiveSlug) {
       const { data: org } = await supabase
         .from("organizations")
         .select("id")
-        .eq("slug", profile.organization_slug)
+        .eq("slug", effectiveSlug)
         .maybeSingle();
       orgId = org?.id ?? null;
     }
@@ -86,6 +91,23 @@ export default function Revenue() {
       .eq("is_active", true);
     if (orgId) hq = hq.eq("organization_id", orgId);
     const { data: hotelRows } = await hq;
+
+    // Which of these hotels are wired up to Previo? Drives the "Sync" button.
+    const hotelIds = (hotelRows ?? []).map((h) => h.hotel_id);
+    const previoIds = new Set<string>();
+    const lastSyncByHotel = new Map<string, string>();
+    if (hotelIds.length > 0) {
+      const { data: pmsRows } = await supabase
+        .from("pms_configurations")
+        .select("hotel_id, pms_type, last_sync_at, is_active")
+        .in("hotel_id", hotelIds)
+        .eq("pms_type", "previo")
+        .eq("is_active", true);
+      for (const p of pmsRows ?? []) {
+        previoIds.add(p.hotel_id);
+        if (p.last_sync_at) lastSyncByHotel.set(p.hotel_id, p.last_sync_at);
+      }
+    }
 
     const today = new Date().toISOString().slice(0, 10);
     const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
