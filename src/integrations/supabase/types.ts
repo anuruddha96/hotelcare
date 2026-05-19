@@ -4516,6 +4516,7 @@ export type Database = {
         Args: { org_slug: string }
         Returns: boolean
       }
+      purge_old_daily_overview_snapshots: { Args: never; Returns: number }
       update_assignment_type: {
         Args: {
           assignment_id: string
