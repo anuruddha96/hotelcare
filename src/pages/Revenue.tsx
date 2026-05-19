@@ -380,15 +380,28 @@ export default function Revenue() {
                   Pickup upload: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
                 </div>
                 <div>Occupancy upload: {h.lastOccAt ? new Date(h.lastOccAt).toLocaleString() : "never"}</div>
+                {h.isPrevio && (
+                  <div className="flex items-center gap-1">
+                    <Radio className="h-3 w-3 text-primary" />
+                    Previo sync: {h.lastSyncAt ? new Date(h.lastSyncAt).toLocaleString() : "never"}
+                  </div>
+                )}
                 <div>Pending recs: <b className="text-foreground">{h.pending_recs}</b></div>
               </div>
 
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="flex-1"
+              <div className="flex gap-2 flex-wrap">
+                <Button size="sm" variant="outline" className="flex-1 min-w-[80px]"
                   onClick={() => navigate(`/${organizationSlug}/revenue/${h.hotel_id}`)}>
                   Open
                 </Button>
-                <Button size="sm" variant="default" className="flex-1"
+                {h.isPrevio && (
+                  <Button size="sm" variant="secondary" className="flex-1 min-w-[80px]"
+                    onClick={() => void syncFromPrevio(h.hotel_id, h.hotel_name)}
+                    title="Pull pickup, occupancy and PMS rates from Previo API">
+                    <RefreshCw className="h-3 w-3 mr-1" /> Sync
+                  </Button>
+                )}
+                <Button size="sm" variant="default" className="flex-1 min-w-[80px]"
                   onClick={() => { setHotelDialog({ id: h.hotel_id, name: h.hotel_name }); setDialogJobs([]); }}>
                   <Upload className="h-3 w-3 mr-1" /> Upload
                 </Button>
