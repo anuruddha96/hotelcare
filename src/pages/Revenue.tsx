@@ -33,6 +33,8 @@ interface HotelStat {
   occAvg7: number;
   occAvg30: number;
   lastOccAt: string | null;
+  isPrevio: boolean;
+  lastSyncAt: string | null;
 }
 
 interface UploadJob {
