@@ -71,14 +71,27 @@ serve(async (req) => {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const anon = createClient(SUPABASE_URL, ANON);
-    const { data: userRes } = await anon.auth.getUser(authHeader.replace("Bearer ", ""));
-    if (!userRes?.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const token = authHeader.replace("Bearer ", "");
     const service = createClient(SUPABASE_URL, SERVICE);
+    const isServiceCall = token === SERVICE;
+    let userId: string | null = null;
+    let profile: any = null;
+    if (!isServiceCall) {
+      const anon = createClient(SUPABASE_URL, ANON);
+      const { data: userRes } = await anon.auth.getUser(token);
+      if (!userRes?.user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = userRes.user.id;
+      const { data: p } = await service
+        .from("profiles")
+        .select("role, assigned_hotel, organization_slug")
+        .eq("id", userId)
+        .maybeSingle();
+      profile = p;
+    }
 
     const body = await req.json().catch(() => ({} as any));
     const hotelId: string = body.hotelId || "";
@@ -91,19 +104,24 @@ serve(async (req) => {
       });
     }
 
-    // Profile & access check
-    const { data: profile } = await service
-      .from("profiles")
-      .select("role, assigned_hotel, organization_slug")
-      .eq("id", userRes.user.id)
-      .maybeSingle();
-    const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
-    if (!isAdmin && profile?.assigned_hotel !== hotelId) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!isServiceCall) {
+      const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+      if (!isAdmin && profile?.assigned_hotel !== hotelId) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
-    const orgSlug = profile?.organization_slug || "rdhotels";
+    let orgSlug = profile?.organization_slug || null;
+    if (!orgSlug) {
+      const { data: hc } = await service
+        .from("hotel_configurations")
+        .select("organization_slug")
+        .eq("hotel_id", hotelId)
+        .maybeSingle();
+      orgSlug = (hc as any)?.organization_slug || "rdhotels";
+    }
+    void userId;
 
     // Hard gate: must have an active Previo config
     const { data: cfg } = await service
