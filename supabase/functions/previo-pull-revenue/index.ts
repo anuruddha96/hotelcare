@@ -114,10 +114,10 @@ serve(async (req) => {
       .eq("pms_type", "previo")
       .maybeSingle();
     if (!cfg || !cfg.is_active) {
-      return new Response(JSON.stringify({ ok: false, error: `No active Previo config for ${hotelId}` }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({
+        ok: true, supported: false,
+        message: `Live Previo revenue sync is only available for hotels with an active Previo PMS config — use XLSX upload for ${hotelId}.`,
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ---- 1. Total room inventory (denominator for occupancy) ----
