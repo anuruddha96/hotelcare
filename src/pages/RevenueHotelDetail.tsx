@@ -474,22 +474,6 @@ export default function RevenueHotelDetail() {
         <TabsContent value="events">
           <EventsTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} events={events} onChange={load} />
         </TabsContent>
-          {view === "year" ? (
-            <CalendarYearView monthsAhead={12} startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
-          ) : view === "quarter" ? (
-            <CalendarQuarterView startMonth={cursor} rowsByDate={rowsByDate} onSelect={setSelectedDate} />
-          ) : (
-            <CalendarGrid days={gridDays} rowsByDate={rowsByDate} inMonth={inMonth} variant="prices" onSelect={setSelectedDate} />
-          )}
-        </TabsContent>
-
-        <TabsContent value="events">
-          <EventsTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} events={events} onChange={load} />
-        </TabsContent>
-
-        <TabsContent value="pickup">
-          <PickupTab data={pickupChartData} top={topPickupDates} onSelect={setSelectedDate} />
-        </TabsContent>
 
         <TabsContent value="analyst">
           <AnalystPanel hotelId={hotelId!} onAfterRun={load} />
