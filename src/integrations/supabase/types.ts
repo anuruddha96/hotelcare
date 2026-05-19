@@ -636,6 +636,7 @@ export type Database = {
           room_number: string | null
           room_suffix: string | null
           room_type_code: string | null
+          source: string
           source_filename: string | null
           status: string | null
           uploaded_by: string | null
@@ -660,6 +661,7 @@ export type Database = {
           room_number?: string | null
           room_suffix?: string | null
           room_type_code?: string | null
+          source?: string
           source_filename?: string | null
           status?: string | null
           uploaded_by?: string | null
@@ -684,6 +686,7 @@ export type Database = {
           room_number?: string | null
           room_suffix?: string | null
           room_type_code?: string | null
+          source?: string
           source_filename?: string | null
           status?: string | null
           uploaded_by?: string | null
