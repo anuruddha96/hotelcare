@@ -191,7 +191,8 @@ export default function RevenueHotelDetail() {
 
     const today = new Date(); today.setUTCHours(0,0,0,0);
     const map = new Map<string, Row>();
-    for (let i = 0; i < 365; i++) {
+    // Span ±395d so YoY (-365) and MoM (-30) chips can be filled in.
+    for (let i = -395; i < 395; i++) {
       const d = addDays(today, i);
       const date = iso(d);
       const dow = (d.getUTCDay() + 6) % 7; // mon=0
@@ -206,11 +207,11 @@ export default function RevenueHotelDetail() {
       const roomsSold = occSnap?.rooms_sold ?? null;
       const rec = recByDate.get(date) ?? null;
 
-      // Rule-engine suggestion (when no pending rec) using full RPG multiplier stack
+      // Rule-engine suggestion (only for present / future dates).
       let suggestedRate: number | null = null;
       let suggestedDelta: number | null = null;
       let pricingResult: any = null;
-      if (settings) {
+      if (settings && i >= 0) {
         const engineSettings: EngineSettings = {
           floor_price_eur: settings.floor_price_eur,
           max_daily_change_eur: settings.max_daily_change_eur,
@@ -240,7 +241,21 @@ export default function RevenueHotelDetail() {
         events: evByDate.get(date) ?? [],
         pricingResult,
         hasEvent: (evByDate.get(date) ?? []).length > 0,
+        isPast: i < 0,
       } as any);
+    }
+    // Second pass: attach YoY (-365d) and MoM (-30d) chips by reading the
+    // already-built map so we don't refetch anything.
+    for (const [date, row] of map) {
+      const d = new Date(date + "T00:00:00Z");
+      const yoyKey = iso(addDays(d, -365));
+      const momKey = iso(addDays(d, -30));
+      const yoy = map.get(yoyKey);
+      const mom = map.get(momKey);
+      (row as any).yoyRate = yoy?.rate ?? null;
+      (row as any).yoyOcc = yoy?.occupancy ?? null;
+      (row as any).momRate = mom?.rate ?? null;
+      (row as any).momOcc = mom?.occupancy ?? null;
     }
     return map;
   }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers, occByDate]);
