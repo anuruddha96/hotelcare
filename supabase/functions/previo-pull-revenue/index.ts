@@ -624,6 +624,21 @@ serve(async (req) => {
     );
   } catch (e: any) {
     console.error("previo-pull-revenue error:", e);
+    try {
+      const service2 = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const body = await req.clone().json().catch(() => ({} as any));
+      await service2.from("pms_sync_history").insert({
+        hotel_id: body.hotelId || null,
+        sync_type: "revenue_live",
+        direction: "from_previo",
+        sync_status: "error",
+        error_message: e?.message || String(e),
+        data: {},
+      } as any);
+    } catch { /* ignore */ }
     return new Response(JSON.stringify({ ok: false, error: e?.message || "Unknown error" }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
