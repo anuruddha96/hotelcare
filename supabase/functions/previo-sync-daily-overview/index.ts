@@ -144,11 +144,6 @@ serve(async (req) => {
     if (!xmlResp.ok || /<error>/i.test(xmlText)) {
       const errMatch = xmlText.match(/<message>([^<]*)<\/message>/i);
       const errMsg = `Previo XML ${xmlResp.status}: ${errMatch?.[1] || xmlText.slice(0, 200)}`;
-      await service.from("revenue_sync_history").insert({
-        hotel_id: hotelId, organization_slug: orgSlug,
-        source: "previo-daily-overview", status: "error",
-        error_message: errMsg, changed_by: userRes.user.id,
-      });
       return new Response(JSON.stringify({ ok: false, error: errMsg }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
