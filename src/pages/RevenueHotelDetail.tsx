@@ -771,37 +771,56 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect, showYoyMom
                   Pickup {r?.pickupDelta > 0 ? "+" : ""}{r?.pickupDelta ?? 0}
                 </div>
 
-                {/* YoY / MoM comparison chips (only when historical data exists) */}
-                {(r?.yoyRate != null || r?.yoyOcc != null || r?.momRate != null || r?.momOcc != null) && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {(r?.yoyRate != null || r?.yoyOcc != null) && (() => {
-                      const dRate = r.rate != null && r.yoyRate != null ? r.rate - r.yoyRate : null;
-                      const dOcc = r.occupancy != null && r.yoyOcc != null ? r.occupancy - r.yoyOcc : null;
-                      const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
-                      return (
-                        <span
-                          className={`text-[9px] px-1 rounded border ${positive ? "border-emerald-300 text-emerald-700" : "border-amber-300 text-amber-700"}`}
-                          title={`Same day last year: €${r.yoyRate ?? "—"} · ${r.yoyOcc != null ? Math.round(r.yoyOcc) + "%" : "—"}`}>
-                          YoY {dRate != null ? `${dRate >= 0 ? "+" : ""}€${Math.round(dRate)}` : "—"}
-                          {dOcc != null ? ` / ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}
-                        </span>
-                      );
-                    })()}
-                    {(r?.momRate != null || r?.momOcc != null) && (() => {
-                      const dRate = r.rate != null && r.momRate != null ? r.rate - r.momRate : null;
-                      const dOcc = r.occupancy != null && r.momOcc != null ? r.occupancy - r.momOcc : null;
-                      const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
-                      return (
-                        <span
-                          className={`text-[9px] px-1 rounded border ${positive ? "border-sky-300 text-sky-700" : "border-slate-300 text-slate-600"}`}
-                          title={`30 days ago: €${r.momRate ?? "—"} · ${r.momOcc != null ? Math.round(r.momOcc) + "%" : "—"}`}>
-                          MoM {dRate != null ? `${dRate >= 0 ? "+" : ""}€${Math.round(dRate)}` : "—"}
-                          {dOcc != null ? ` / ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                )}
+                {/* YoY / MoM comparison chips (only when historical data exists, and toggle is on) */}
+                {showYoyMom && (r?.yoyRate != null || r?.yoyOcc != null || r?.momRate != null || r?.momOcc != null) && (() => {
+                  const cellDate = new Date(date + "T00:00:00Z");
+                  const yoyDate = new Date(cellDate); yoyDate.setUTCDate(yoyDate.getUTCDate() - 365);
+                  const momDate = new Date(cellDate); momDate.setUTCDate(momDate.getUTCDate() - 30);
+                  const yoyIso = yoyDate.toISOString().slice(0, 10);
+                  const momIso = momDate.toISOString().slice(0, 10);
+                  const fmtDelta = (n: number | null) => n == null ? "—" : `${n >= 0 ? "+" : ""}€${Math.round(n)}`;
+                  const fmtPp = (n: number | null) => n == null ? "" : ` / ${n >= 0 ? "+" : ""}${Math.round(n)}pp`;
+                  return (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {(r.yoyRate != null || r.yoyOcc != null) && (() => {
+                        const dRate = r.rate != null && r.yoyRate != null ? r.rate - r.yoyRate : null;
+                        const dOcc = r.occupancy != null && r.yoyOcc != null ? r.occupancy - r.yoyOcc : null;
+                        const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
+                        const tip = [
+                          `Year-over-year vs ${yoyIso}`,
+                          `This day: €${r.rate ?? "—"} · ${r.occupancy != null ? Math.round(r.occupancy) + "%" : "—"} occ`,
+                          `Last year: €${r.yoyRate ?? "—"} · ${r.yoyOcc != null ? Math.round(r.yoyOcc) + "%" : "—"} occ`,
+                          `Δ rate ${fmtDelta(dRate)}${dOcc != null ? `, Δ occ ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}`,
+                        ].join("\n");
+                        return (
+                          <span
+                            className={`text-[9px] px-1 rounded border ${positive ? "border-emerald-300 text-emerald-700" : "border-amber-300 text-amber-700"}`}
+                            title={tip}>
+                            YoY {fmtDelta(dRate)}{fmtPp(dOcc)}
+                          </span>
+                        );
+                      })()}
+                      {(r.momRate != null || r.momOcc != null) && (() => {
+                        const dRate = r.rate != null && r.momRate != null ? r.rate - r.momRate : null;
+                        const dOcc = r.occupancy != null && r.momOcc != null ? r.occupancy - r.momOcc : null;
+                        const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
+                        const tip = [
+                          `Month-over-month vs ${momIso}`,
+                          `This day: €${r.rate ?? "—"} · ${r.occupancy != null ? Math.round(r.occupancy) + "%" : "—"} occ`,
+                          `30 days ago: €${r.momRate ?? "—"} · ${r.momOcc != null ? Math.round(r.momOcc) + "%" : "—"} occ`,
+                          `Δ rate ${fmtDelta(dRate)}${dOcc != null ? `, Δ occ ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}`,
+                        ].join("\n");
+                        return (
+                          <span
+                            className={`text-[9px] px-1 rounded border ${positive ? "border-sky-300 text-sky-700" : "border-slate-300 text-slate-600"}`}
+                            title={tip}>
+                            MoM {fmtDelta(dRate)}{fmtPp(dOcc)}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
               </button>
             );
           })}
