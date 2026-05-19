@@ -180,6 +180,8 @@ export default function Revenue() {
         occAvg7,
         occAvg30,
         lastOccAt,
+        isPrevio: previoIds.has(h.hotel_id),
+        lastSyncAt: lastSyncByHotel.get(h.hotel_id) ?? null,
       });
     }
     setHotels(stats);
