@@ -81,7 +81,7 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      userId = userRes.user.id;
+      userId = userId;
       const { data: p } = await service
         .from("profiles")
         .select("role, assigned_hotel, organization_slug")
@@ -371,7 +371,7 @@ serve(async (req) => {
         rooms_sold: agg.rooms_sold,
         captured_at: capturedAt,
         snapshot_label: SNAPSHOT_LABEL,
-        uploaded_by: userRes.user.id,
+        uploaded_by: userId,
         source: "previo",
       });
       pickupRows.push({
@@ -382,7 +382,7 @@ serve(async (req) => {
         bookings_last_year: null,
         delta: null,
         captured_at: capturedAt,
-        uploaded_by: userRes.user.id,
+        uploaded_by: userId,
         source: "previo",
         snapshot_label: SNAPSHOT_LABEL,
       });
@@ -425,7 +425,7 @@ serve(async (req) => {
           dinner_count: 0,
           all_inclusive_count: 0,
           source_notes: res.note,
-          uploaded_by: userRes.user.id,
+          uploaded_by: userId,
           uploaded_at: capturedAt,
         });
       }
@@ -590,7 +590,7 @@ serve(async (req) => {
         sync_type: "revenue_live",
         direction: "from_previo",
         sync_status: "success",
-        changed_by: userRes.user.id,
+        changed_by: userId,
         data: {
           days, totalRooms, reservations: reservations.length,
           occInserted, pickupInserted, breakfastUpserted,
