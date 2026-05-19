@@ -196,6 +196,22 @@ export default function Revenue() {
     void load();
   }
 
+  async function syncFromPrevio(hotelId: string, hotelName: string) {
+    toast.info(`Syncing ${hotelName} from Previo…`);
+    const { data, error } = await supabase.functions.invoke("previo-pull-revenue", {
+      body: { hotelId },
+    });
+    if (error || (data && data.ok === false)) {
+      toast.error((data as any)?.error || error?.message || "Sync failed");
+      return;
+    }
+    const d = data as any;
+    toast.success(
+      `Synced ${hotelName} · ${d?.occInserted ?? 0} occ · ${d?.dailyRatesPms ?? 0} PMS rates · ${d?.dailyRatesRealized ?? 0} ADR`,
+    );
+    void load();
+  }
+
   async function exportAll(format: "csv" | "xlsx") {
     const { data, error } = await supabase.functions.invoke("revenue-export", {
       body: { format, kind: "recommendations" },
