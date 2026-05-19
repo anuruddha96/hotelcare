@@ -459,7 +459,7 @@ export default function RevenueHotelDetail() {
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="analyst"><Bot className="h-4 w-4 mr-1" />Analyst</TabsTrigger>
           <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
-          <TabsTrigger value="syncs"><History className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
+          <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
         </TabsList>
 
         <TabsContent value="prices">
