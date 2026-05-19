@@ -88,19 +88,10 @@ serve(async (req) => {
       });
     }
 
-    // Hard gate: only previo-test gets live revenue. Other hotels gracefully
-    // degrade so the UI shows "live not available, use XLSX upload".
-    if (hotelId !== ALLOWED_HOTEL_ID) {
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          supported: false,
-          message:
-            "Live Previo revenue sync is enabled only for the Previo Test hotel — use XLSX upload for this hotel.",
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    // Soft gate: any hotel with an active Previo PMS config gets live sync.
+    // We re-confirm via pms_configurations below; the previous hard hotelId
+    // allowlist is no longer needed now that the function is hardened.
+    void ALLOWED_HOTEL_ID;
 
     const { data: profile } = await service
       .from("profiles")
