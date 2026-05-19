@@ -67,15 +67,28 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const anon = createClient(SUPABASE_URL, ANON);
-    const { data: userRes } = await anon.auth.getUser(authHeader.replace("Bearer ", ""));
-    if (!userRes?.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const token = authHeader.replace("Bearer ", "");
     const service = createClient(SUPABASE_URL, SERVICE);
+    const isServiceCall = token === SERVICE;
+    let userId: string | null = null;
+    let profile: any = null;
+    if (!isServiceCall) {
+      const anon = createClient(SUPABASE_URL, ANON);
+      const { data: userRes } = await anon.auth.getUser(token);
+      if (!userRes?.user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = userRes.user.id;
+      const { data: p } = await service
+        .from("profiles")
+        .select("role, assigned_hotel, organization_slug")
+        .eq("id", userId)
+        .maybeSingle();
+      profile = p;
+    }
 
     const body = await req.json().catch(() => ({}));
     const hotelId: string = body.hotelId || "";
@@ -88,33 +101,26 @@ serve(async (req) => {
       });
     }
 
-    // Hard gate: only previo-test gets live revenue. Other hotels gracefully
-    // degrade so the UI shows "live not available, use XLSX upload".
-    if (hotelId !== ALLOWED_HOTEL_ID) {
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          supported: false,
-          message:
-            "Live Previo revenue sync is enabled only for the Previo Test hotel — use XLSX upload for this hotel.",
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    void ALLOWED_HOTEL_ID; // legacy hard-gate removed
 
-    const { data: profile } = await service
-      .from("profiles")
-      .select("role, assigned_hotel, organization_slug")
-      .eq("id", userRes.user.id)
-      .maybeSingle();
-    const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
-    if (!isAdmin && profile?.assigned_hotel !== hotelId) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!isServiceCall) {
+      const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+      if (!isAdmin && profile?.assigned_hotel !== hotelId) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
-    const orgSlug = profile?.organization_slug || "rdhotels";
+    let orgSlug = profile?.organization_slug || null;
+    if (!orgSlug) {
+      const { data: hc } = await service
+        .from("hotel_configurations")
+        .select("organization_slug")
+        .eq("hotel_id", hotelId)
+        .maybeSingle();
+      orgSlug = (hc as any)?.organization_slug || "rdhotels";
+    }
 
     const { data: cfg } = await service
       .from("pms_configurations")
@@ -123,10 +129,10 @@ serve(async (req) => {
       .eq("pms_type", "previo")
       .maybeSingle();
     if (!cfg || !cfg.is_active) {
-      return new Response(JSON.stringify({ ok: false, error: `No active Previo config for ${hotelId}` }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({
+        ok: true, supported: false,
+        message: `Live Previo revenue sync is only available for hotels with an active Previo PMS config — use XLSX upload for ${hotelId}.`,
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ---- 1. Total room inventory (denominator for occupancy) ----
@@ -365,7 +371,7 @@ serve(async (req) => {
         rooms_sold: agg.rooms_sold,
         captured_at: capturedAt,
         snapshot_label: SNAPSHOT_LABEL,
-        uploaded_by: userRes.user.id,
+        uploaded_by: userId,
         source: "previo",
       });
       pickupRows.push({
@@ -376,7 +382,7 @@ serve(async (req) => {
         bookings_last_year: null,
         delta: null,
         captured_at: capturedAt,
-        uploaded_by: userRes.user.id,
+        uploaded_by: userId,
         source: "previo",
         snapshot_label: SNAPSHOT_LABEL,
       });
@@ -419,7 +425,7 @@ serve(async (req) => {
           dinner_count: 0,
           all_inclusive_count: 0,
           source_notes: res.note,
-          uploaded_by: userRes.user.id,
+          uploaded_by: userId,
           uploaded_at: capturedAt,
         });
       }
@@ -584,7 +590,7 @@ serve(async (req) => {
         sync_type: "revenue_live",
         direction: "from_previo",
         sync_status: "success",
-        changed_by: userRes.user.id,
+        changed_by: userId,
         data: {
           days, totalRooms, reservations: reservations.length,
           occInserted, pickupInserted, breakfastUpserted,

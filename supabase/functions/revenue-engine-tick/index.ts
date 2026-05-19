@@ -155,8 +155,55 @@ serve(async (req) => {
     // Expire stale (errors swallowed; non-critical)
     try { await supabase.rpc("expire_stale_recommendations"); } catch (_) { /* ignore */ }
 
+    // Fan-out: sync every active Previo hotel (revenue + daily overview).
+    // Failures per hotel are logged but never block the tick.
+    let previoSynced = 0;
+    let previoErrors = 0;
+    try {
+      const { data: previoHotels } = await supabase
+        .from("pms_configurations")
+        .select("hotel_id")
+        .eq("pms_type", "previo")
+        .eq("is_active", true);
+      const targets = (previoHotels ?? [])
+        .map((p: any) => p.hotel_id)
+        .filter((h: string) => !onlyHotel || h === onlyHotel);
+      const SUPA_URL = Deno.env.get("SUPABASE_URL")!;
+      const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const invokeFn = async (name: string, body: any) => {
+        const r = await fetch(`${SUPA_URL}/functions/v1/${name}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${SERVICE}`,
+            "apikey": SERVICE,
+          },
+          body: JSON.stringify(body),
+        });
+        return r.ok;
+      };
+      for (const hotelId of targets) {
+        const [ok1, ok2] = await Promise.all([
+          invokeFn("previo-pull-revenue", { hotelId, days: 365 }).catch(() => false),
+          invokeFn("previo-sync-daily-overview", { hotelId, days: 90 }).catch(() => false),
+        ]);
+        if (ok1 && ok2) previoSynced++; else previoErrors++;
+      }
+    } catch (e) {
+      console.error("previo fan-out failed", e);
+    }
+
+    // Retention: purge old Previo daily-overview rows (>540d).
+    let purged: number | null = null;
+    try {
+      const { data } = await supabase.rpc("purge_old_daily_overview_snapshots");
+      purged = (data as number) ?? null;
+    } catch (e) {
+      console.error("purge_old_daily_overview_snapshots failed", e);
+    }
+
     return new Response(
-      JSON.stringify({ ok: true, recsCreated, alertsCreated, trigger }),
+      JSON.stringify({ ok: true, recsCreated, alertsCreated, trigger, previoSynced, previoErrors, purged }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e: any) {

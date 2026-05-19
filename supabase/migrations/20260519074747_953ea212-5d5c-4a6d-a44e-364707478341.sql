@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.purge_old_daily_overview_snapshots() FROM PUBLIC, anon, authenticated;

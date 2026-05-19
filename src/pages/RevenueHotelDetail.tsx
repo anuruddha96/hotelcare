@@ -746,6 +746,38 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect }: {
                     : r?.pickupDelta < 0 ? <TrendingDown className="h-2.5 w-2.5"/> : null}
                   Pickup {r?.pickupDelta > 0 ? "+" : ""}{r?.pickupDelta ?? 0}
                 </div>
+
+                {/* YoY / MoM comparison chips (only when historical data exists) */}
+                {(r?.yoyRate != null || r?.yoyOcc != null || r?.momRate != null || r?.momOcc != null) && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {(r?.yoyRate != null || r?.yoyOcc != null) && (() => {
+                      const dRate = r.rate != null && r.yoyRate != null ? r.rate - r.yoyRate : null;
+                      const dOcc = r.occupancy != null && r.yoyOcc != null ? r.occupancy - r.yoyOcc : null;
+                      const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
+                      return (
+                        <span
+                          className={`text-[9px] px-1 rounded border ${positive ? "border-emerald-300 text-emerald-700" : "border-amber-300 text-amber-700"}`}
+                          title={`Same day last year: €${r.yoyRate ?? "—"} · ${r.yoyOcc != null ? Math.round(r.yoyOcc) + "%" : "—"}`}>
+                          YoY {dRate != null ? `${dRate >= 0 ? "+" : ""}€${Math.round(dRate)}` : "—"}
+                          {dOcc != null ? ` / ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}
+                        </span>
+                      );
+                    })()}
+                    {(r?.momRate != null || r?.momOcc != null) && (() => {
+                      const dRate = r.rate != null && r.momRate != null ? r.rate - r.momRate : null;
+                      const dOcc = r.occupancy != null && r.momOcc != null ? r.occupancy - r.momOcc : null;
+                      const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
+                      return (
+                        <span
+                          className={`text-[9px] px-1 rounded border ${positive ? "border-sky-300 text-sky-700" : "border-slate-300 text-slate-600"}`}
+                          title={`30 days ago: €${r.momRate ?? "—"} · ${r.momOcc != null ? Math.round(r.momOcc) + "%" : "—"}`}>
+                          MoM {dRate != null ? `${dRate >= 0 ? "+" : ""}€${Math.round(dRate)}` : "—"}
+                          {dOcc != null ? ` / ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
               </button>
             );
           })}
