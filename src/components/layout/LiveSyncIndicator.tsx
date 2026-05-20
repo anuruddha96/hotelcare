@@ -15,7 +15,7 @@ const TASK_LABELS: Record<TaskName, string> = {
 };
 
 export function LiveSyncIndicator() {
-  const { enabled, tasks, refresh } = useLiveSync();
+  const { enabled, tasks, refresh, openChangesDrawer } = useLiveSync();
   const [, setTick] = useState(0);
 
   useEffect(() => {
