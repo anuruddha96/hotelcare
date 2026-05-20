@@ -331,6 +331,41 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({} as any));
     const hotelIdInput: string = body?.hotelId || "";
+    const isCronTrigger = body?.trigger === "cron";
+
+    const authHeader = req.headers.get("Authorization") || "";
+    const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const service = createClient(SUPABASE_URL, SERVICE);
+
+    let isServiceCall = false;
+    let userId: string | null = null;
+    let profile: any = null;
+
+    if (authHeader.startsWith("Bearer ")) {
+      const token = authHeader.replace("Bearer ", "");
+      if (token === SERVICE) {
+        isServiceCall = true;
+      } else if (token && token !== ANON) {
+        const anon = createClient(SUPABASE_URL, ANON);
+        const { data: userRes } = await anon.auth.getUser(token);
+        if (userRes?.user) {
+          userId = userRes.user.id;
+          const { data: p } = await service
+            .from("profiles").select("role, assigned_hotel")
+            .eq("id", userId).maybeSingle();
+          profile = p;
+        }
+      }
+    }
+
+    // Cron fan-out: anonymous trigger allowed when no hotelId targeted.
+    if (!isServiceCall && !userId && !isCronTrigger) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Resolve which hotels to poll.
     let targets: { hotel_id: string; pms_hotel_id: any; credentials_secret_name: string }[] = [];
