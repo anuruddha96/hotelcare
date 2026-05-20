@@ -11,6 +11,7 @@ const TASK_LABELS: Record<TaskName, string> = {
   pms: "PMS rooms",
   revenue: "Revenue rates",
   checkouts: "Auto-release checkouts",
+  pms_changes: "PMS changes",
 };
 
 export function LiveSyncIndicator() {
