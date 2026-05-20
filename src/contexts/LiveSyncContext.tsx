@@ -56,8 +56,10 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     pms: initialTask,
     revenue: initialTask,
     checkouts: initialTask,
+    pms_changes: initialTask,
   });
-  const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0, checkouts: 0 });
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0, checkouts: 0, pms_changes: 0 });
 
   const enabled = !!user && !!profile?.role && ELIGIBLE_ROLES.has(profile.role) && hasPrevio;
 
