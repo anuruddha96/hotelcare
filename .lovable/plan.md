@@ -1,51 +1,110 @@
+# PMS Change Sync & Conflict Awareness
+
+## Problem (what's broken today)
+
+1. **Checkouts don't update reliably.** `previo-poll-checkouts` is **hard-gated to `hotel_id = 'previo-test'`** (lines 13, 66–71) and **never scheduled in pg_cron** — it only runs from the browser via `LiveSyncContext` every 10 min, *and only while a manager has the tab focused*. So for real hotels and overnight/idle periods, reception's checkout in Previo is invisible to the app.
+2. **PMS changes are silent.** `pmsRefresh` overwrites room fields without diffing or notifying anyone. If reception changes a guest's room/status in Previo *after* the manager has assigned that room to a housekeeper, the local row is mutated with no signal — assignments may suddenly point at the wrong guest, wrong checkout, or a freshly-occupied room.
+3. **No audit of "what the PMS just changed".** We log sync runs in `pms_sync_history`, but not per-room field changes, so managers can't see what flipped.
+
 ## Goal
-Populate `daily_overview_snapshots` from Previo so the per-room daily breakdown (arrival, departure, guest name, pax, meals, HK stay/dep) is available for Previo hotels — not just XLSX uploads.
 
-## Current state
-- Table `daily_overview_snapshots` already exists with the XLSX shape (room_label, room_number, room_type_code, business_date, arrival_date, departure_date, status, guest_names, pax, breakfast, lunch, dinner, all_inclusive, housekeeping_stay, housekeeping_dep, source_filename, uploaded_by, captured_at, hotel_id, organization_slug).
-- Only an admin/top_management SELECT policy exists. No INSERT policy → writes must come from a service-role edge function (which bypasses RLS).
-- No `source` column and no uniqueness constraint, so re-syncs would duplicate rows.
-- Manual flow: `revenue-overview-upload` parses XLSX and inserts.
-- No Previo equivalent exists yet.
+Make Previo the source of truth on a fixed cadence, server-side, for *every* Previo hotel — and whenever an incoming change collides with an existing assignment or with an in-progress housekeeping task, surface it clearly to eligible users and offer a one-click resolution.
 
-## Changes
+## Plan
 
-### 1. Migration
-- Add `source text not null default 'manual'` to `daily_overview_snapshots`.
-- Add `unique (hotel_id, business_date, room_label, source)` so Previo upserts replace prior snapshots for the same room/day cleanly while leaving manual rows untouched.
-- Add `idx_daily_overview_hotel_date` on `(hotel_id, business_date)` for calendar lookups.
-- Keep existing SELECT policy. No new write policy — service role only.
+### 1. Server-side checkout polling for all Previo hotels
 
-### 2. New edge function: `previo-sync-daily-overview`
-- Verify JWT in code, hard-gate by checking `pms_configurations.pms_type = 'previo'` for the requested `hotelId`. Refuse otherwise. Mirrors the gating used by `previo-pull-revenue`.
-- Inputs: `{ hotelId, organizationSlug, fromDate?, toDate? }`. Defaults: today → today+90.
-- Calls (Previo XML, allowed methods only):
-  - `Hotel.searchReservations` over the window to get reservation IDs that intersect each night.
-  - `Hotel.reservation` (batched) to pull guest name, pax, arrival, departure, room assignment, status.
-  - `Hotel.getStayPackages` / `Hotel.getMeals` to derive per-day breakfast/lunch/dinner/all-inclusive counts.
-- Expands each reservation into one row per occupied business_date in `[arrival, departure)`.
-- Maps room → `room_label`, `room_number`, `room_type_code`, `room_suffix` via existing `parseRoomCode` shared helper.
-- Upserts into `daily_overview_snapshots` with `source='previo'`, `source_filename=null`, `uploaded_by=null`, `captured_at=now()`.
-- For each business_date touched, deletes any stale `source='previo'` rows in that hotel+date range not present in this run (so cancellations disappear).
-- Logs a row in `revenue_sync_history` with `source='previo-daily-overview'`, counts, and any error.
+- **Remove the `previo-test` hard-gate** from `previo-poll-checkouts` (keep an opt-out flag in `pms_configurations.settings` for safety).
+- Add a **fan-out** mode: when called without `hotelId`, iterate every active Previo config and poll each (same pattern as `revenue-engine-tick`).
+- Add a **pg_cron job** `previo-poll-checkouts-tick` running **every 5 minutes** that POSTs to the function with the `x-cron-secret` header (cron path already supported, lines 39–41). This guarantees checkouts flip without depending on any browser being open.
+- Keep client-side `LiveSync` 10-min poll as a *nice-to-have* for instant feedback when a manager is active, but the cron is the authoritative loop.
 
-### 3. Wire into Revenue UI
-- In `src/pages/Revenue.tsx`, extend the existing per-hotel **Sync** handler so for Previo hotels it invokes both `previo-pull-revenue` and `previo-sync-daily-overview` in parallel, then toasts a combined result.
-- No new tab — daily overview rows are already consumed by the Calendar (no changes there needed for storage; rendering improvements are tracked separately).
+### 2. Use the existing 2-min PMS sync as a second checkout signal
 
-### 4. Nightly job
-- Extend `revenue-engine-tick` (already cron-driven) to iterate Previo hotels and call `previo-sync-daily-overview` for each, so historical rows accumulate for YoY/MoM.
+`previo-pms-sync` already returns `CheckedOut` per room and `pmsRefresh` writes `is_checkout_room` from it. Today this is only triggered from the browser. We will:
 
-## Files
-- `supabase/migrations/<new>.sql` — add `source` col, unique index, lookup index.
-- `supabase/functions/previo-sync-daily-overview/index.ts` — new.
-- `supabase/functions/revenue-engine-tick/index.ts` — add fan-out call.
-- `src/pages/Revenue.tsx` — extend Sync handler.
+- Have the new cron tick also invoke `previo-pms-sync` per hotel (every 5–10 min), so room status, departures, guest count, and checkouts converge even with no user logged in.
+- Continue updating only PMS-derived fields; never touch assignment fields.
 
-## Out of scope
-- Calendar UI changes to render the new daily overview fields (separate slice).
-- Retention/cleanup cron (separate slice).
-- Backfill of historical Previo data beyond the sync window (can be triggered manually by passing `fromDate`).
+### 3. Detect & record PMS changes (new `pms_change_events` table)
 
-## Non-Previo hotels
-Ottofiori, Memories, Mika, Gozsdu remain on XLSX upload — the function refuses any hotel without a `pms_configurations` row of type `previo`.
+New table `pms_change_events`:
+- `hotel_id`, `room_id`, `event_type` (`checkout_confirmed` | `guest_changed` | `room_swapped` | `status_changed` | `dates_changed` | `occupancy_changed`)
+- `before` JSONB, `after` JSONB, `previo_reservation_id`, `detected_at`, `source` (`poll_checkouts` | `pms_sync`)
+- `acknowledged_at`, `acknowledged_by`, `resolution` (`auto_released` | `reassigned` | `dismissed` | `pending`)
+- `conflicts_with_assignment_id` (nullable FK to `room_assignments`)
+
+Both `previo-poll-checkouts` and `previo-pms-sync` will, before writing a room update, **compare the new values against the current row** and emit a row into `pms_change_events` for every meaningful diff.
+
+### 4. Conflict detection on assignment-touching changes
+
+When the sync detects a change to a room that already has a same-day assignment (`room_assignments` with `assignment_date = today` and `status in ('assigned','in_progress')`), classify the conflict:
+
+| Detected change                          | Action                                                                                   |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Guest checked out                        | Set `is_checkout_room=true`, set `ready_to_clean=true`, emit `checkout_confirmed` event  |
+| Room newly occupied (was vacant)         | Block the existing cleaning assignment, emit `room_swapped` event flagged as **conflict** |
+| Guest swapped (different reservation id) | Keep assignment, emit `guest_changed` event flagged as **conflict**                       |
+| Departure date pushed (extended stay)    | Convert `checkout_cleaning` → `stayover` assignment, emit `dates_changed` event           |
+| Status flipped clean↔dirty by reception  | Mirror status, emit `status_changed` event (informational, no conflict)                   |
+
+The function never silently overrides an in-progress cleaning; it pauses the assignment (new `room_assignments.pms_hold = true` flag, migration in step 5) and waits for manager acknowledgement.
+
+### 5. Migrations
+
+- `pms_change_events` table + RLS (managers/admins of the hotel can SELECT; service role inserts).
+- `room_assignments.pms_hold boolean default false` + index.
+- `pms_configurations.settings jsonb` opt-out: `{ "disable_checkout_poll": true }`.
+- `pg_cron` job for `previo-poll-checkouts-tick` (separate from migrations, inserted via the insert tool since it embeds the function URL + anon key).
+
+### 6. UI — make PMS changes visible
+
+**a. LiveSync indicator** (header pill, already exists):
+- Add a new task `pms_changes` showing count of unacknowledged `pms_change_events` for the hotel. Red dot + count badge when conflicts exist.
+
+**b. Per-room visual signals** on every room card (`EnhancedRoomCardV2`, `CompactRoomCard`, `HotelFloorMap`, `AssignedRoomCard`):
+- Small pulsing amber `PMS update` chip when the room has an unacknowledged non-conflict event.
+- Red `PMS conflict` chip when there is a conflict; clicking opens the resolution dialog.
+
+**c. Toast on detection** for eligible roles (`admin`, `top_management`, `manager`, `housekeeping_manager`, `front_office`) via Sonner — *one toast per batch*, matching the existing single-notification rule:
+`"3 rooms updated by reception · 1 conflicts with current assignment"` with a "Review" action.
+
+**d. New `PmsChangesDrawer`** (opened from the LiveSync popover and from the toast):
+- Lists today's `pms_change_events` grouped by status (Conflicts / Updates / Resolved).
+- Each row shows room, event type, before → after diff, time, source.
+- Conflict rows expose actions: **Release assignment**, **Reassign to another housekeeper**, **Keep as stayover**, **Dismiss**. Each writes to `room_assignments` (clearing `pms_hold`) and stamps `acknowledged_at`/`resolution` on the event.
+
+**e. Assignment screens** (`AutoRoomAssignment`, `RoomAssignmentDialog`, `RoomAssignmentChangeDialog`):
+- Before saving an assignment, check `pms_change_events` with unresolved conflicts on the selected rooms and warn inline.
+- Show a "Held by PMS change" badge on assignments where `pms_hold = true`, with the inline resolve actions.
+
+### 7. Telemetry / audit
+
+Every event row is the audit trail. Add a "PMS change history" tab to the hotel detail page (admin-only) backed by `pms_change_events` with date range filters, so messes can be reconstructed after the fact.
+
+## Technical notes
+
+- All XML/REST parsing reuses helpers already in `previo-poll-checkouts` and `previo-pms-sync`.
+- The cron fan-out function (`previo-poll-checkouts` without `hotelId`) uses `service_role` and the `x-cron-secret` path already in place.
+- Diff detection is done in the edge functions — UI just reads `pms_change_events`.
+- `pms_hold` is a soft signal; it never changes `room_assignments.status`, so existing flows keep working. Cleaners simply see a banner that the room is on hold pending manager confirmation.
+- Realtime: subscribe the LiveSync context to `pms_change_events` inserts (Supabase realtime channel) so the badge and toast appear within seconds — no polling needed in the UI.
+
+## Files touched
+
+- `supabase/functions/previo-poll-checkouts/index.ts` — remove gate, add fan-out, emit events, conflict classification.
+- `supabase/functions/previo-pms-sync/index.ts` — diff before update, emit events.
+- `supabase/migrations/...` — `pms_change_events`, `pms_hold`, settings column, RLS.
+- pg_cron job for the 5-min tick (insert tool, not migration).
+- `src/contexts/LiveSyncContext.tsx` — new `pms_changes` task + realtime subscription.
+- `src/components/layout/LiveSyncIndicator.tsx` — badge + entry to drawer.
+- `src/components/pms/PmsChangesDrawer.tsx` (new) — review/resolve UI.
+- Room card components (5 files) — chip rendering.
+- Assignment dialogs (3 files) — conflict warnings + hold badge.
+- `src/pages/RevenueHotelDetail.tsx` (or hotel admin page) — "PMS change history" tab.
+
+## Open questions
+
+1. **Cadence**: 5 min for checkouts cron OK, or do you want 2–3 min? More frequent = more Previo API load.
+2. **Conflict default**: when reception swaps a guest into an already-assigned room, should the app **auto-release** the old assignment, or **always wait** for the manager to choose? My recommendation: hold + notify, never auto-release on guest swaps.
+3. **Scope of events**: should `status_changed` (clean↔dirty mirrored from Previo) generate a chip too, or only log silently? It can be noisy.
