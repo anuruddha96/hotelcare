@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 
-export type TaskName = "pms" | "revenue" | "checkouts";
+export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
 export interface TaskState {
   status: PmsSyncStatus | "syncing";
@@ -24,6 +24,7 @@ interface LiveSyncContextValue {
   hotelId: string | null;
   tasks: Record<TaskName, TaskState>;
   refresh: (task?: TaskName) => Promise<void>;
+  openChangesDrawer: () => void;
 }
 
 const ELIGIBLE_ROLES = new Set([
@@ -42,8 +43,9 @@ const initialTask: TaskState = { status: "idle", lastAt: null };
 const LiveSyncContext = createContext<LiveSyncContextValue>({
   enabled: false,
   hotelId: null,
-  tasks: { pms: initialTask, revenue: initialTask, checkouts: initialTask },
+  tasks: { pms: initialTask, revenue: initialTask, checkouts: initialTask, pms_changes: initialTask },
   refresh: async () => {},
+  openChangesDrawer: () => {},
 });
 
 export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
