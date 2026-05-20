@@ -1,5 +1,19 @@
-// Polls Previo for reception-confirmed departures and auto-releases only
-// true checkout rooms. HARD-GATED to hotel_id = 'previo-test'.
+// Polls Previo every few minutes for reception-confirmed departures and
+// room state changes, emits a row into `pms_change_events` for every
+// meaningful diff, places a `pms_hold` on assignments that conflict with
+// an incoming change, and auto-releases checkout rooms for cleaning.
+//
+// Auth modes
+// ----------
+//  - Bearer = SUPABASE_SERVICE_ROLE_KEY  -> server-to-server (used by pg_cron)
+//  - Bearer = user JWT                   -> authenticated user (managers / admins)
+//
+// Hotel scope
+// -----------
+//  - body.hotelId provided  -> only that hotel
+//  - body.hotelId omitted   -> fan-out across every active Previo config
+//                              whose pms_configurations.settings does NOT
+//                              contain { disable_checkout_poll: true }
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
@@ -10,21 +24,274 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const ALLOWED_HOTEL_ID = "previo-test";
-
 interface PrevioRoom {
   roomId: number;
   name: string;
-  roomCleanStatusId: number;
-  reservation?: {
-    arrivalDate: string;
-    departureDate: string;
-    status: string;
-  };
+  roomCleanStatusId?: number;
 }
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
+const todayUtc = () => new Date().toISOString().slice(0, 10);
+const nowIso = () => new Date().toISOString();
+const extractNum = (raw: string) => {
+  const m = String(raw ?? "").match(/\d+/);
+  return m ? m[0] : String(raw ?? "").trim();
+};
+
+function parsePrevioCreds(rawSecret: string) {
+  const stripQuotes = (s: string) =>
+    (s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))
+      ? s.slice(1, -1).trim() : s;
+  const cleaned = stripQuotes(String(rawSecret || "").trim());
+  let user = "", pass = "";
+  try {
+    const j = JSON.parse(cleaned);
+    if (j && typeof j === "object") {
+      user = stripQuotes(String(j.username ?? j.user ?? j.login ?? j.email ?? ""));
+      pass = stripQuotes(String(j.password ?? j.pass ?? j.secret ?? ""));
+    }
+  } catch { /* not json */ }
+  if (!user || !pass) {
+    const m = cleaned.match(/^([^:\s]+):(.+)$/);
+    if (m) { user = stripQuotes(m[1]); pass = stripQuotes(m[2]); }
+  }
+  return { user, pass };
+}
+
+interface PollResult {
+  hotel_id: string;
+  checked: number;
+  marked: number;
+  cleared: number;
+  events: number;
+  conflicts: number;
+  errors: string[];
+  unmatched: string[];
+  reservationFetchError: string | null;
+}
+
+async function pollOneHotel(
+  service: any,
+  hotelId: string,
+  cfg: { credentials_secret_name: string; pms_hotel_id: any },
+): Promise<PollResult> {
+  const result: PollResult = {
+    hotel_id: hotelId,
+    checked: 0, marked: 0, cleared: 0, events: 0, conflicts: 0,
+    errors: [], unmatched: [], reservationFetchError: null,
+  };
+
+  // 1. Fetch /rest/rooms snapshot
+  const { response: resp } = await fetchPrevioWithAuth({
+    credentialsSecretName: cfg.credentials_secret_name,
+    path: "/rest/rooms",
+    pmsHotelId: String(cfg.pms_hotel_id || ""),
+  });
+  if (!resp.ok) {
+    const t = await resp.text();
+    result.errors.push(`Previo ${resp.status}: ${t.slice(0, 200)}`);
+    return result;
+  }
+  const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
+  result.checked = rooms.length;
+
+  // 2. Pull today's reservations via XML to find statusId=5 (departed)
+  const today = todayUtc();
+  const { user: xmlUser, pass: xmlPass } = parsePrevioCreds(
+    Deno.env.get(cfg.credentials_secret_name || "") || "",
+  );
+  const checkedOutByName = new Map<string, string>(); // name -> reservationId
+  const checkedOutByObjId = new Map<number, string>();
+  if (xmlUser && xmlPass) {
+    try {
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const xmlBody = `<?xml version="1.0"?>
+<request>
+<login>${xmlUser}</login>
+<password>${xmlPass}</password>
+<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
+<term><from>${today}</from><to>${tomorrow}</to></term>
+</request>`;
+      const xmlResp = await fetch("https://api.previo.cz/x1/hotel/searchReservations/", {
+        method: "POST",
+        headers: { "Content-Type": "text/xml; charset=UTF-8" },
+        body: xmlBody,
+      });
+      const xmlText = await xmlResp.text();
+      if (!xmlResp.ok || /<error>/i.test(xmlText)) {
+        const errMatch = xmlText.match(/<message>([^<]*)<\/message>/i);
+        result.reservationFetchError = `XML API ${xmlResp.status}: ${errMatch?.[1] || xmlText.slice(0, 200)}`;
+      } else {
+        const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
+        const grab = (s: string, tag: string) => {
+          const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+          return m ? m[1].trim() : "";
+        };
+        for (const block of blocks) {
+          const statusId = parseInt(grab(block, "statusId") || "0", 10);
+          if (statusId !== 5) continue;
+          const toStr = grab(block, "to");
+          if (!toStr || toStr.slice(0, 10) !== today) continue;
+          const resId = grab(block, "id") || grab(block, "resId") || "";
+          const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
+          if (!objMatch) continue;
+          const objId = parseInt(objMatch[1], 10);
+          const roomName = objMatch[2].trim();
+          if (roomName) checkedOutByName.set(roomName, resId);
+          if (!isNaN(objId)) checkedOutByObjId.set(objId, resId);
+        }
+      }
+    } catch (e: any) {
+      result.reservationFetchError = e?.message || String(e);
+    }
+  } else {
+    result.reservationFetchError = "Could not parse Previo XML credentials";
+  }
+
+  const trueCheckoutRoomIds = new Set<string>();
+  const departedRooms = rooms.filter((r) =>
+    checkedOutByObjId.has(r.roomId) || checkedOutByName.has(r.name),
+  );
+
+  // 3. Process each departed room
+  for (const r of departedRooms) {
+    try {
+      const rawName = String(r.name ?? "").trim();
+      const numToken = extractNum(rawName);
+      const previoRoomId = r.roomId != null ? String(r.roomId) : "";
+      const reservationId =
+        checkedOutByObjId.get(r.roomId) || checkedOutByName.get(rawName) || "";
+
+      const tryQ = async (mut: (q: any) => any) => {
+        const { data } = await mut(
+          service
+            .from("rooms")
+            .select("id, status, is_checkout_room, room_number, pms_metadata")
+            .eq("hotel", hotelId),
+        ).maybeSingle();
+        return (data as any) || null;
+      };
+      let localRoom = await tryQ((q: any) => q.eq("room_number", rawName));
+      if (!localRoom && rawName) localRoom = await tryQ((q: any) => q.ilike("room_number", rawName));
+      if (!localRoom && numToken && numToken !== rawName)
+        localRoom = await tryQ((q: any) => q.eq("room_number", numToken));
+      if (!localRoom && previoRoomId)
+        localRoom = await tryQ((q: any) => q.filter("pms_metadata->>roomId", "eq", previoRoomId));
+
+      if (!localRoom) {
+        result.unmatched.push(rawName || previoRoomId);
+        continue;
+      }
+      trueCheckoutRoomIds.add(localRoom.id);
+
+      const wasCheckout = !!localRoom.is_checkout_room;
+      const updateData: Record<string, any> = {
+        is_checkout_room: true,
+        checkout_time: nowIso(),
+        updated_at: nowIso(),
+      };
+      if (localRoom.status !== "dirty") updateData.status = "dirty";
+
+      const { error: updErr } = await service
+        .from("rooms")
+        .update(updateData)
+        .eq("id", localRoom.id);
+      if (updErr) throw updErr;
+
+      // Find conflicting assignments for today and emit a change event.
+      const { data: existingAsg } = await service
+        .from("room_assignments")
+        .select("id, status, assignment_type, assigned_to, pms_hold")
+        .eq("room_id", localRoom.id)
+        .eq("assignment_date", today)
+        .in("status", ["assigned", "in_progress"]);
+
+      // Only emit when this is a *new* signal (status flipped to checkout).
+      if (!wasCheckout) {
+        const conflicts = (existingAsg ?? []).filter(
+          (a: any) => a.assignment_type !== "checkout_cleaning",
+        );
+        const isConflict = conflicts.length > 0;
+        const { data: evt } = await service
+          .from("pms_change_events")
+          .insert({
+            hotel_id: hotelId,
+            room_id: localRoom.id,
+            room_label: localRoom.room_number || rawName,
+            event_type: "checkout_confirmed",
+            source: "poll_checkouts",
+            previo_reservation_id: reservationId || null,
+            before: { is_checkout_room: false, status: localRoom.status },
+            after: { is_checkout_room: true, status: "dirty" },
+            is_conflict: isConflict,
+            conflicts_with_assignment_id: conflicts[0]?.id ?? null,
+          })
+          .select("id")
+          .single();
+        result.events++;
+        if (isConflict) {
+          result.conflicts++;
+          await service
+            .from("room_assignments")
+            .update({
+              pms_hold: true,
+              pms_hold_reason: "Guest checked out — assignment type may need to change",
+              pms_hold_event_id: evt?.id ?? null,
+              updated_at: nowIso(),
+            })
+            .in("id", conflicts.map((c: any) => c.id));
+        }
+      }
+
+      // Auto-release checkout-cleaning assignments (they're now safe to start).
+      const { data: released } = await service
+        .from("room_assignments")
+        .update({ ready_to_clean: true, updated_at: nowIso() })
+        .select("id")
+        .eq("room_id", localRoom.id)
+        .eq("assignment_date", today)
+        .eq("assignment_type", "checkout_cleaning")
+        .in("status", ["assigned", "in_progress"])
+        .eq("ready_to_clean", false);
+      result.marked += released?.length ?? 0;
+    } catch (e: any) {
+      result.errors.push(`${r.name}: ${e?.message || e}`);
+    }
+  }
+
+  // 4. Clear stale checkout flags (guest now back, or earlier false positive).
+  try {
+    const { data: stale } = await service
+      .from("rooms")
+      .select("id, room_number")
+      .eq("hotel", hotelId)
+      .eq("is_checkout_room", true);
+    const staleRows = (stale ?? []).filter((r: any) => !trueCheckoutRoomIds.has(r.id));
+    if (staleRows.length > 0) {
+      const ids = staleRows.map((r: any) => r.id);
+      await service
+        .from("rooms")
+        .update({ is_checkout_room: false, checkout_time: null, updated_at: nowIso() })
+        .in("id", ids);
+      result.cleared = ids.length;
+      // Emit informational events
+      const evtRows = staleRows.map((r: any) => ({
+        hotel_id: hotelId,
+        room_id: r.id,
+        room_label: r.room_number,
+        event_type: "checkout_cleared",
+        source: "poll_checkouts",
+        before: { is_checkout_room: true },
+        after: { is_checkout_room: false },
+        is_conflict: false,
+      }));
+      if (evtRows.length) await service.from("pms_change_events").insert(evtRows);
+      result.events += evtRows.length;
+    }
+  } catch (e: any) {
+    result.errors.push(`stale cleanup: ${e?.message || e}`);
+  }
+
+  return result;
 }
 
 serve(async (req) => {
@@ -36,273 +303,119 @@ serve(async (req) => {
     const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const authHeader = req.headers.get("Authorization") || "";
-    const cronSecret = req.headers.get("x-cron-secret") || "";
-    const expectedCronSecret = Deno.env.get("CRON_SECRET") || "";
-    const isCronCall = !!expectedCronSecret && cronSecret === expectedCronSecret;
-
+    if (!authHeader.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const token = authHeader.replace("Bearer ", "");
+    const service = createClient(SUPABASE_URL, SERVICE);
+    const isServiceCall = token === SERVICE;
     let userId: string | null = null;
-    if (!isCronCall) {
-      if (!authHeader.startsWith("Bearer ")) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+    let profile: any = null;
+    if (!isServiceCall) {
       const anon = createClient(SUPABASE_URL, ANON);
-      const { data: userRes } = await anon.auth.getUser(authHeader.replace("Bearer ", ""));
+      const { data: userRes } = await anon.auth.getUser(token);
       if (!userRes?.user) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       userId = userRes.user.id;
-    }
-
-    const service = createClient(SUPABASE_URL, SERVICE);
-    const { hotelId } = await req.json().catch(() => ({}));
-    const targetHotel = hotelId || ALLOWED_HOTEL_ID;
-
-    if (targetHotel !== ALLOWED_HOTEL_ID) {
-      return new Response(
-        JSON.stringify({ skipped: true, reason: `Restricted to ${ALLOWED_HOTEL_ID}` }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    if (!isCronCall && userId) {
-      const { data: profile } = await service
+      const { data: p } = await service
         .from("profiles")
         .select("role, assigned_hotel")
-        .eq("id", userId)
+        .eq("id", userId).maybeSingle();
+      profile = p;
+    }
+
+    const body = await req.json().catch(() => ({} as any));
+    const hotelIdInput: string = body?.hotelId || "";
+
+    // Resolve which hotels to poll.
+    let targets: { hotel_id: string; pms_hotel_id: any; credentials_secret_name: string }[] = [];
+    if (hotelIdInput) {
+      if (!isServiceCall) {
+        const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+        if (!isAdmin && profile?.assigned_hotel !== hotelIdInput) {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+      const { data: cfg } = await service
+        .from("pms_configurations")
+        .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
+        .eq("hotel_id", hotelIdInput)
+        .eq("pms_type", "previo")
+        .eq("is_active", true)
         .maybeSingle();
-      const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
-      if (!isAdmin && profile?.assigned_hotel !== targetHotel) {
-        return new Response(JSON.stringify({ error: "Forbidden" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+      if (!cfg) {
+        return new Response(JSON.stringify({ error: `No active Previo config for ${hotelIdInput}` }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-    }
-
-    const { data: cfg } = await service
-      .from("pms_configurations")
-      .select("pms_hotel_id, credentials_secret_name")
-      .eq("hotel_id", targetHotel)
-      .eq("pms_type", "previo")
-      .maybeSingle();
-    if (!cfg) {
-      return new Response(JSON.stringify({ error: `No Previo config for ${targetHotel}` }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { response: resp } = await fetchPrevioWithAuth({
-      credentialsSecretName: cfg.credentials_secret_name,
-      path: "/rest/rooms",
-      pmsHotelId: String(cfg.pms_hotel_id || ""),
-    });
-    if (!resp.ok) {
-      const t = await resp.text();
-      return new Response(JSON.stringify({ error: `Previo ${resp.status}: ${t.slice(0, 300)}` }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
-    const today = todayUtc();
-
-    // Pull today's reservations via the XML searchReservations API so we
-    // can read the reception-confirmed status. Previo statusId 5 = Departed
-    // (reception checked the guest out in the PMS). The /rest/rooms response
-    // for this hotel does not embed reservation data, so the XML feed is
-    // the only reliable signal.
-    const rawSecret = String(Deno.env.get(cfg.credentials_secret_name || "") || "").trim();
-    const stripQuotes = (s: string) =>
-      (s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))
-        ? s.slice(1, -1).trim() : s;
-    let xmlUser = ""; let xmlPass = "";
-    const cleaned = stripQuotes(rawSecret);
-    try {
-      const j = JSON.parse(cleaned);
-      if (j && typeof j === "object") {
-        xmlUser = stripQuotes(String(j.username ?? j.user ?? j.login ?? j.email ?? ""));
-        xmlPass = stripQuotes(String(j.password ?? j.pass ?? j.secret ?? ""));
-      }
-    } catch {}
-    if (!xmlUser || !xmlPass) {
-      const m = cleaned.match(/^([^:\s]+):(.+)$/);
-      if (m) { xmlUser = stripQuotes(m[1]); xmlPass = stripQuotes(m[2]); }
-    }
-
-    const checkedOutByName = new Map<string, true>();
-    const checkedOutByObjId = new Map<number, true>();
-    let reservationFetchError: string | null = null;
-    if (xmlUser && xmlPass) {
-      try {
-        const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-        const xmlBody = `<?xml version="1.0"?>
-<request>
-<login>${xmlUser}</login>
-<password>${xmlPass}</password>
-<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
-<term><from>${today}</from><to>${tomorrow}</to></term>
-</request>`;
-        const xmlResp = await fetch("https://api.previo.cz/x1/hotel/searchReservations/", {
-          method: "POST",
-          headers: { "Content-Type": "text/xml; charset=UTF-8" },
-          body: xmlBody,
+      if ((cfg as any).settings?.disable_checkout_poll) {
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: "disabled in settings" }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-        const xmlText = await xmlResp.text();
-        if (!xmlResp.ok || /<error>/i.test(xmlText)) {
-          const errMatch = xmlText.match(/<message>([^<]*)<\/message>/i);
-          reservationFetchError = `XML API ${xmlResp.status}: ${errMatch?.[1] || xmlText.slice(0, 200)}`;
-        } else {
-          const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
-          const grab = (s: string, tag: string) => {
-            const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
-            return m ? m[1].trim() : "";
-          };
-          for (const block of blocks) {
-            const statusId = parseInt(grab(block, "statusId") || "0", 10);
-            if (statusId !== 5) continue; // only reception-confirmed checkouts
-            const toStr = grab(block, "to");
-            if (!toStr || toStr.slice(0, 10) !== today) continue;
-            const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
-            if (!objMatch) continue;
-            const objId = parseInt(objMatch[1], 10);
-            const roomName = objMatch[2].trim();
-            if (roomName) checkedOutByName.set(roomName, true);
-            if (!isNaN(objId)) checkedOutByObjId.set(objId, true);
-          }
-        }
-      } catch (e: any) {
-        reservationFetchError = e?.message || String(e);
       }
+      targets.push(cfg as any);
     } else {
-      reservationFetchError = "Could not parse Previo XML credentials";
+      // Fan-out: only service-role calls allowed.
+      if (!isServiceCall) {
+        return new Response(JSON.stringify({ error: "hotelId required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: cfgs } = await service
+        .from("pms_configurations")
+        .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
+        .eq("pms_type", "previo")
+        .eq("is_active", true);
+      targets = (cfgs ?? []).filter((c: any) => !c.settings?.disable_checkout_poll) as any;
     }
 
-    const classify = (r: PrevioRoom) => ({
-      departed: checkedOutByObjId.has(r.roomId) || checkedOutByName.has(r.name),
-    });
-    const candidates = rooms.filter((r) => classify(r).departed);
-
-    const results = { checked: rooms.length, marked: 0, skipped: 0, cleared: 0, errors: [] as string[], unmatched: [] as string[], reservationFetchError };
-    const trueCheckoutRoomIds = new Set<string>();
-
-    const extractRoomNumber = (raw: string): string => {
-      const m = String(raw).match(/\d+/);
-      return m ? m[0] : String(raw).trim();
-    };
-
-    for (const r of candidates) {
+    const perHotel: PollResult[] = [];
+    for (const t of targets) {
       try {
-        const rawName = String(r.name ?? "").trim();
-        const numToken = extractRoomNumber(rawName);
-        const previoRoomId = r.roomId != null ? String(r.roomId) : "";
-
-        let localRoom: { id: string; status: string } | null = null;
-        const tryQ = async (mut: (q: any) => any) => {
-          const { data } = await mut(
-            service.from("rooms").select("id, status").eq("hotel", targetHotel),
-          ).maybeSingle();
-          return (data as any) || null;
-        };
-
-        localRoom = await tryQ((q) => q.eq("room_number", rawName));
-        if (!localRoom && rawName) localRoom = await tryQ((q) => q.ilike("room_number", rawName));
-        if (!localRoom && numToken && numToken !== rawName) localRoom = await tryQ((q) => q.eq("room_number", numToken));
-        if (!localRoom && previoRoomId) {
-          localRoom = await tryQ((q) => q.filter("pms_metadata->>roomId", "eq", previoRoomId));
-        }
-
-        if (!localRoom) {
-          results.skipped++;
-          results.unmatched.push(rawName || previoRoomId);
-          continue;
-        }
-
-        const { departed } = classify(r);
-        if (departed) trueCheckoutRoomIds.add(localRoom.id);
-
-        const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
-        if (localRoom.status !== "dirty" && departed) {
-          updateData.status = "dirty";
-        }
-        if (departed) {
-          updateData.is_checkout_room = true;
-          updateData.checkout_time = new Date().toISOString();
-        }
-        if (Object.keys(updateData).length > 1) {
-          const { error: updErr } = await service
-            .from("rooms")
-            .update(updateData)
-            .eq("id", localRoom.id);
-          if (updErr) throw updErr;
-        }
-
-        if (departed) {
-          const today = new Date().toISOString().slice(0, 10);
-          const { data: releasedAssignments, error: asgErr } = await service
-            .from("room_assignments")
-            .update({ ready_to_clean: true, updated_at: new Date().toISOString() })
-            .select("id")
-            .eq("room_id", localRoom.id)
-            .eq("assignment_date", today)
-            .eq("assignment_type", "checkout_cleaning")
-            .in("status", ["assigned", "in_progress"])
-            .eq("ready_to_clean", false);
-          if (asgErr) results.errors.push(`${r.name} assignment: ${asgErr.message}`);
-          else results.marked += releasedAssignments?.length ?? 0;
-        }
+        const r = await pollOneHotel(service, t.hotel_id, t);
+        perHotel.push(r);
+        await service.from("pms_sync_history").insert({
+          sync_type: "checkouts_poll",
+          direction: "from_previo",
+          hotel_id: t.hotel_id,
+          data: r,
+          changed_by: userId,
+          sync_status: r.errors.length ? "partial" : "success",
+          error_message: r.errors.length ? r.errors.slice(0, 5).join(" | ") : null,
+        });
       } catch (e: any) {
-        results.errors.push(`${r.name}: ${e?.message || e}`);
+        perHotel.push({
+          hotel_id: t.hotel_id, checked: 0, marked: 0, cleared: 0,
+          events: 0, conflicts: 0, errors: [e?.message || String(e)],
+          unmatched: [], reservationFetchError: null,
+        });
       }
     }
 
-    // Clear stale checkout flags: any room currently flagged is_checkout_room
-    // that is NOT in today's true-departure set must be reset, so leftover
-    // flags from earlier polls / manual tests can't linger in the UI.
-    try {
-      const { data: stale } = await service
-        .from("rooms")
-        .select("id")
-        .eq("hotel", targetHotel)
-        .eq("is_checkout_room", true);
-      const staleIds = (stale ?? [])
-        .map((r: any) => r.id as string)
-        .filter((id) => !trueCheckoutRoomIds.has(id));
-      if (staleIds.length > 0) {
-        await service
-          .from("rooms")
-          .update({ is_checkout_room: false, checkout_time: null, updated_at: new Date().toISOString() })
-          .in("id", staleIds);
-        results.cleared = staleIds.length;
-      }
-    } catch (e: any) {
-      results.errors.push(`stale cleanup: ${e?.message || e}`);
-    }
+    const totals = perHotel.reduce(
+      (acc, r) => ({
+        marked: acc.marked + r.marked,
+        cleared: acc.cleared + r.cleared,
+        events: acc.events + r.events,
+        conflicts: acc.conflicts + r.conflicts,
+        errors: acc.errors + r.errors.length,
+      }),
+      { marked: 0, cleared: 0, events: 0, conflicts: 0, errors: 0 },
+    );
 
-    await service.from("pms_sync_history").insert({
-      sync_type: "checkouts_poll",
-      direction: "from_previo",
-      hotel_id: targetHotel,
-      data: results,
-      changed_by: userId,
-      sync_status: results.errors.length ? "partial" : "success",
-      error_message: results.errors.length ? results.errors.join("; ") : null,
-    });
-
-    return new Response(JSON.stringify({ ok: true, ...results }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return new Response(JSON.stringify({ ok: true, hotels: perHotel.length, ...totals, perHotel }), {
+      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: e?.message || "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
