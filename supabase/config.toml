@@ -117,6 +117,9 @@ verify_jwt = true
 [functions.revenue-engine-tick]
 verify_jwt = false
 
+[functions.previo-poll-checkouts]
+verify_jwt = false
+
 [functions.breakfast-roster-upload]
 verify_jwt = true
 

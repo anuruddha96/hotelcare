@@ -2488,6 +2488,71 @@ export type Database = {
           },
         ]
       }
+      pms_change_events: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          after: Json | null
+          before: Json | null
+          conflicts_with_assignment_id: string | null
+          detected_at: string
+          event_type: string
+          hotel_id: string
+          id: string
+          is_conflict: boolean
+          notes: string | null
+          previo_reservation_id: string | null
+          resolution: string | null
+          room_id: string | null
+          room_label: string | null
+          source: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          after?: Json | null
+          before?: Json | null
+          conflicts_with_assignment_id?: string | null
+          detected_at?: string
+          event_type: string
+          hotel_id: string
+          id?: string
+          is_conflict?: boolean
+          notes?: string | null
+          previo_reservation_id?: string | null
+          resolution?: string | null
+          room_id?: string | null
+          room_label?: string | null
+          source?: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          after?: Json | null
+          before?: Json | null
+          conflicts_with_assignment_id?: string | null
+          detected_at?: string
+          event_type?: string
+          hotel_id?: string
+          id?: string
+          is_conflict?: boolean
+          notes?: string | null
+          previo_reservation_id?: string | null
+          resolution?: string | null
+          room_id?: string | null
+          room_label?: string | null
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_change_events_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pms_configurations: {
         Row: {
           auto_sync_enabled: boolean
@@ -3436,6 +3501,9 @@ export type Database = {
           is_dnd: boolean | null
           notes: string | null
           organization_slug: string | null
+          pms_hold: boolean
+          pms_hold_event_id: string | null
+          pms_hold_reason: string | null
           priority: number
           ready_to_clean: boolean
           room_id: string
@@ -3463,6 +3531,9 @@ export type Database = {
           is_dnd?: boolean | null
           notes?: string | null
           organization_slug?: string | null
+          pms_hold?: boolean
+          pms_hold_event_id?: string | null
+          pms_hold_reason?: string | null
           priority?: number
           ready_to_clean?: boolean
           room_id: string
@@ -3490,6 +3561,9 @@ export type Database = {
           is_dnd?: boolean | null
           notes?: string | null
           organization_slug?: string | null
+          pms_hold?: boolean
+          pms_hold_event_id?: string | null
+          pms_hold_reason?: string | null
           priority?: number
           ready_to_clean?: boolean
           room_id?: string

@@ -11,10 +11,11 @@ const TASK_LABELS: Record<TaskName, string> = {
   pms: "PMS rooms",
   revenue: "Revenue rates",
   checkouts: "Auto-release checkouts",
+  pms_changes: "PMS changes",
 };
 
 export function LiveSyncIndicator() {
-  const { enabled, tasks, refresh } = useLiveSync();
+  const { enabled, tasks, refresh, openChangesDrawer } = useLiveSync();
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -125,7 +126,11 @@ export function LiveSyncIndicator() {
             return (
               <div
                 key={t.key}
-                className="flex items-center justify-between gap-2 rounded-md border bg-background/40 px-2 py-1.5"
+                className={cn(
+                  "flex items-center justify-between gap-2 rounded-md border bg-background/40 px-2 py-1.5",
+                  t.key === "pms_changes" && "cursor-pointer hover:bg-muted/40",
+                )}
+                onClick={t.key === "pms_changes" ? () => openChangesDrawer() : undefined}
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <TaskIcon className={cn("h-3.5 w-3.5 shrink-0", colorClass, isSync ? "animate-spin" : "")} />

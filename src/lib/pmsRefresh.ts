@@ -124,9 +124,6 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
         }
       }
 
-      // Mirror Previo's room cleanliness state. Previo is treated as the
-      // source of truth: "Clean" -> clean, anything else (Untidy/Dirty) -> dirty.
-      // Only set when the row provided a status; never blank it out.
       const previoStatusRaw = row.Status ? String(row.Status).trim().toLowerCase() : "";
       const mappedStatus =
         previoStatusRaw === "" ? null
@@ -152,10 +149,6 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
-      // Mirror reception-confirmed checkout flag from the PMS. We only
-      // SET this to true when Previo reports the reservation as checked
-      // out; we never clear it here (clearing is handled by the
-      // previo-poll-checkouts stale-cleanup pass).
       if (isCheckedOut) {
         updateData.is_checkout_room = true;
         updateData.checkout_time = new Date().toISOString();
@@ -164,15 +157,81 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
       if (linen) updateData.last_linen_change = today;
       if (row.Note) updateData.notes = String(row.Note);
 
+      // ---- Diff vs previous state and emit pms_change_events ---------------
+      const prevMeta = (room as any).pms_metadata && typeof (room as any).pms_metadata === "object"
+        ? (room as any).pms_metadata : {};
+      const prevStatus = (room as any).status as string | undefined;
+      const prevGuestCount = (room as any).guest_count as number | undefined;
+      const prevCheckout = !!(room as any).is_checkout_room;
+      const eventInserts: any[] = [];
+      const pushEvent = (event_type: string, before: any, after: any, is_conflict = false) => {
+        eventInserts.push({
+          hotel_id: hotelId,
+          room_id: room.id,
+          room_label: (room as any).room_number || rawRoomName,
+          event_type,
+          source: "pms_sync",
+          before, after, is_conflict,
+        });
+      };
+      if (mappedStatus && prevStatus && mappedStatus !== prevStatus) {
+        pushEvent("status_changed", { status: prevStatus }, { status: mappedStatus }, false);
+      }
+      if (isCheckedOut && !prevCheckout) {
+        pushEvent("checkout_confirmed", { is_checkout_room: false }, { is_checkout_room: true }, false);
+      }
+      const nextGuestCount = Number(row.People ?? 0);
+      if (typeof prevGuestCount === "number" && prevGuestCount !== nextGuestCount) {
+        const wasVacant = prevGuestCount === 0;
+        const nowOccupied = nextGuestCount > 0;
+        const isConflict = wasVacant && nowOccupied; // newly-occupied room may collide with cleaning
+        pushEvent(
+          isConflict ? "room_newly_occupied" : "occupancy_changed",
+          { guest_count: prevGuestCount },
+          { guest_count: nextGuestCount },
+          isConflict,
+        );
+      }
+
       const { error: updErr } = await supabase
         .from("rooms")
         .update(updateData)
         .eq("id", room.id);
       if (updErr) {
         errors.push(`Room ${rawRoomName}: ${updErr.message}`);
-      } else {
-        updated++;
-        if (isCheckedOut) checkouts++;
+        continue;
+      }
+      updated++;
+      if (isCheckedOut) checkouts++;
+
+      // Persist diff events + apply pms_hold on conflicting assignments.
+      if (eventInserts.length > 0) {
+        const insertRes: any = await supabase
+          .from("pms_change_events" as any)
+          .insert(eventInserts)
+          .select("id, is_conflict");
+        const inserted: any[] = insertRes?.data ?? [];
+        const conflictEvtId = inserted.find((e: any) => e.is_conflict)?.id;
+        if (conflictEvtId) {
+          const { data: existingAsg } = await supabase
+            .from("room_assignments")
+            .select("id, assignment_type")
+            .eq("room_id", room.id)
+            .eq("assignment_date", today)
+            .in("status", ["assigned", "in_progress"]);
+          const collide = (existingAsg ?? []).filter((a: any) => a.assignment_type !== "checkout_cleaning");
+          if (collide.length > 0) {
+            await supabase
+              .from("room_assignments")
+              .update({
+                pms_hold: true,
+                pms_hold_reason: "PMS reports room state change — review needed",
+                pms_hold_event_id: conflictEvtId,
+                updated_at: new Date().toISOString(),
+              } as any)
+              .in("id", collide.map((c: any) => c.id));
+          }
+        }
       }
     } catch (e: any) {
       errors.push(`Row error: ${e?.message || String(e)}`);
