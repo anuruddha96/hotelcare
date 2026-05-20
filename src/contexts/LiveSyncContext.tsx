@@ -248,9 +248,71 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     };
   }, [enabled, runPms, runRevenue, runCheckouts]);
 
+  // ---- PMS change events: realtime + count ---------------------------------
+  const refreshPmsChanges = useCallback(async () => {
+    if (!enabled || !hotelId) return;
+    const { count } = await (supabase as any)
+      .from("pms_change_events")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId)
+      .is("acknowledged_at", null);
+    const { count: conflictCount } = await (supabase as any)
+      .from("pms_change_events")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId)
+      .eq("is_conflict", true)
+      .is("acknowledged_at", null);
+    setTasks((p) => ({
+      ...p,
+      pms_changes: {
+        status: (conflictCount ?? 0) > 0 ? "error" : (count ?? 0) > 0 ? "partial" : "success",
+        lastAt: new Date(),
+        meta: { unacked: count ?? 0, conflicts: conflictCount ?? 0 },
+      },
+    }));
+  }, [enabled, hotelId]);
+
+  useEffect(() => {
+    if (!enabled || !hotelId) return;
+    void refreshPmsChanges();
+    const channel = supabase
+      .channel(`pms_change_events:${hotelId}`)
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "pms_change_events", filter: `hotel_id=eq.${hotelId}` },
+        (payload: any) => {
+          void refreshPmsChanges();
+          if (payload.eventType === "INSERT") {
+            const row = payload.new || {};
+            const msg = row.is_conflict
+              ? `PMS conflict on room ${row.room_label || "?"}`
+              : `PMS update on room ${row.room_label || "?"}`;
+            import("sonner").then(({ toast }) => {
+              if (row.is_conflict) {
+                toast.error(msg, { action: { label: "Review", onClick: () => setDrawerOpen(true) } });
+              } else {
+                toast.message(msg, { action: { label: "Review", onClick: () => setDrawerOpen(true) } });
+              }
+            });
+          }
+        },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [enabled, hotelId, refreshPmsChanges]);
+
+  const openChangesDrawer = useCallback(() => setDrawerOpen(true), []);
+
   return (
-    <LiveSyncContext.Provider value={{ enabled, hotelId, tasks, refresh }}>
+    <LiveSyncContext.Provider value={{ enabled, hotelId, tasks, refresh, openChangesDrawer }}>
       {children}
+      {enabled && hotelId && (
+        <PmsChangesDrawer
+          hotelId={hotelId}
+          open={drawerOpen}
+          onOpenChange={(v) => { setDrawerOpen(v); if (!v) void refreshPmsChanges(); }}
+        />
+      )}
     </LiveSyncContext.Provider>
   );
 }
