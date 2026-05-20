@@ -206,11 +206,12 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
 
       // Persist diff events + apply pms_hold on conflicting assignments.
       if (eventInserts.length > 0) {
-        const { data: inserted } = await supabase
+        const insertRes: any = await supabase
           .from("pms_change_events" as any)
           .insert(eventInserts)
           .select("id, is_conflict");
-        const conflictEvtId = (inserted ?? []).find((e: any) => e.is_conflict)?.id;
+        const inserted: any[] = insertRes?.data ?? [];
+        const conflictEvtId = inserted.find((e: any) => e.is_conflict)?.id;
         if (conflictEvtId) {
           const { data: existingAsg } = await supabase
             .from("room_assignments")
