@@ -9,6 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
+import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 
 export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
