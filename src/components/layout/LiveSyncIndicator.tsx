@@ -126,7 +126,11 @@ export function LiveSyncIndicator() {
             return (
               <div
                 key={t.key}
-                className="flex items-center justify-between gap-2 rounded-md border bg-background/40 px-2 py-1.5"
+                className={cn(
+                  "flex items-center justify-between gap-2 rounded-md border bg-background/40 px-2 py-1.5",
+                  t.key === "pms_changes" && "cursor-pointer hover:bg-muted/40",
+                )}
+                onClick={t.key === "pms_changes" ? () => openChangesDrawer() : undefined}
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <TaskIcon className={cn("h-3.5 w-3.5 shrink-0", colorClass, isSync ? "animate-spin" : "")} />
