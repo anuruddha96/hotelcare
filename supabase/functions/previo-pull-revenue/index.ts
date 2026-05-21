@@ -666,7 +666,7 @@ serve(async (req) => {
       JSON.stringify({
         ok: true, supported: true, days, totalRooms,
         reservations: reservations.length,
-        pricelist: { method: pricelistMethodUsed, entries: pricelistEntries.length, error: pricelistError },
+        pricelist: { id: resolvedPricelistId, method: pricelistMethodUsed, entries: pricelistEntries.length, error: pricelistError, available: availablePricelists },
         upserts: {
           occupancy: occInserted, pickup: pickupInserted,
           breakfast: breakfastUpserted,
