@@ -162,31 +162,6 @@ export default function Breakfast() {
     setResult(null);
   }
 
-  function chooseHotel(h: HotelDef) {
-    if (h.restaurants.length === 1) {
-      const r = h.restaurants[0];
-      const sel: Selection = { hotel_id: h.hotel_id, hotel_label: h.label, location_key: r.key, location_label: tt(r.labelKey) };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
-      setSelection(sel);
-      setPickHotel(null);
-    } else {
-      setPickHotel(h);
-    }
-  }
-
-  function chooseRestaurant(h: HotelDef, key: string, label: string) {
-    const sel: Selection = { hotel_id: h.hotel_id, hotel_label: h.label, location_key: key, location_label: label };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
-    setSelection(sel);
-    setPickHotel(null);
-  }
-
-  function changeSelection() {
-    localStorage.removeItem(STORAGE_KEY);
-    setSelection(null);
-    setPickHotel(null);
-    setResult(null);
-  }
 
   async function lookup() {
     setBusy(true);
