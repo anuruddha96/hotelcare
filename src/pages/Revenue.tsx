@@ -487,11 +487,11 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
 
   return (
     <Dialog open={!!hotel} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="text-base sm:text-lg pr-8 break-words">Upload for {hotel?.name}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           <div className="flex gap-2 text-sm flex-wrap">
             {(["pickup", "occupancy", "overview"] as UploadKind[]).map((k) => (
               <button key={k} type="button" onClick={() => setKind(k)}
@@ -522,21 +522,21 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
           {jobs.length > 0 && (
             <div className="border rounded divide-y max-h-60 overflow-y-auto">
               {jobs.map((j, i) => (
-                <div key={i} className="flex items-start justify-between p-2 text-sm gap-2">
+                <div key={i} className="flex items-start justify-between p-2 text-sm gap-2 min-w-0">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {j.status === "ok" && <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />}
                     {j.status === "err" && <XCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />}
                     {j.status === "uploading" && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
                     {j.status === "queued" && <span className="h-4 w-4 rounded-full border shrink-0" />}
-                    <span className="truncate">{j.file.name}</span>
+                    <span className="truncate min-w-0 flex-1" title={j.file.name}>{j.file.name}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs max-w-[40ch] text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`}>
+                  <div className="flex items-center gap-2 shrink-0 max-w-[50%]">
+                    <span className={`text-xs truncate text-right ${j.status === "err" ? "text-red-600" : "text-muted-foreground"}`} title={j.status === "err" ? j.message : undefined}>
                       {j.status === "ok" && `✓ ${j.rows} rows`}
                       {j.status === "err" && j.message}
                     </span>
                     {j.status !== "uploading" && (
-                      <button onClick={() => removeJob(i)} className="text-muted-foreground hover:text-foreground">
+                      <button onClick={() => removeJob(i)} className="text-muted-foreground hover:text-foreground shrink-0">
                         <XCircle className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -545,9 +545,9 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
               ))}
             </div>
           )}
-          <div className="flex gap-2 justify-end">
-            <Button variant="ghost" onClick={onClose}>Close</Button>
-            <Button onClick={doUpload} disabled={busy || jobs.length === 0}>
+          <div className="flex flex-wrap gap-2 justify-end items-center pt-2">
+            <Button variant="ghost" onClick={onClose} className="shrink-0">Close</Button>
+            <Button onClick={doUpload} disabled={busy || jobs.length === 0} className="shrink-0">
               {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
               Upload {jobs.length > 0 ? `(${jobs.length})` : ""}
             </Button>
