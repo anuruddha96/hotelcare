@@ -1253,6 +1253,8 @@ export type Database = {
       }
       hotel_configurations: {
         Row: {
+          breakfast_enabled: boolean
+          breakfast_restaurants: Json
           created_at: string | null
           custom_app_name: string | null
           custom_branding_enabled: boolean | null
@@ -1274,6 +1276,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          breakfast_enabled?: boolean
+          breakfast_restaurants?: Json
           created_at?: string | null
           custom_app_name?: string | null
           custom_branding_enabled?: boolean | null
@@ -1295,6 +1299,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          breakfast_enabled?: boolean
+          breakfast_restaurants?: Json
           created_at?: string | null
           custom_app_name?: string | null
           custom_branding_enabled?: boolean | null
@@ -4548,6 +4554,19 @@ export type Database = {
       get_next_housekeeper_sequence: {
         Args: { p_org_slug: string }
         Returns: number
+      }
+      get_public_breakfast_hotels: {
+        Args: { _org_slug: string }
+        Returns: {
+          breakfast_restaurants: Json
+          custom_app_name: string
+          custom_logo_url: string
+          custom_primary_color: string
+          hotel_id: string
+          hotel_name: string
+          organization_name: string
+          organization_slug: string
+        }[]
       }
       get_user_access_config: {
         Args: { user_role: Database["public"]["Enums"]["user_role"] }
