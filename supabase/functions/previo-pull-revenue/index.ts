@@ -644,9 +644,13 @@ serve(async (req) => {
         data: {
           days, totalRooms, reservations: reservations.length,
           occInserted, pickupInserted, breakfastUpserted,
-          roomTypesSeeded, dailyRatesSeeded, dailyRatesPms, dailyRatesRealized,
+          roomTypesSeeded, dailyRatesSeeded, dailyRatesPms, dailyRatesRealized, realizedClamped,
           minStaySynced,
-          pricelist: { method: pricelistMethodUsed, entries: pricelistEntries.length, error: pricelistError },
+          pricelist: {
+            id: resolvedPricelistId, configured: !!configuredPricelistId,
+            method: pricelistMethodUsed, entries: pricelistEntries.length,
+            available: availablePricelists, error: pricelistError,
+          },
         },
       } as any);
     } catch { /* non-fatal */ }
