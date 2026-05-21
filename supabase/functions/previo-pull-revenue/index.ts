@@ -124,7 +124,7 @@ serve(async (req) => {
 
     const { data: cfg } = await service
       .from("pms_configurations")
-      .select("id, hotel_id, pms_hotel_id, credentials_secret_name, is_active")
+      .select("id, hotel_id, pms_hotel_id, credentials_secret_name, is_active, settings")
       .eq("hotel_id", hotelId)
       .eq("pms_type", "previo")
       .maybeSingle();
@@ -134,6 +134,11 @@ serve(async (req) => {
         message: `Live Previo revenue sync is only available for hotels with an active Previo PMS config — use XLSX upload for ${hotelId}.`,
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    const configuredPricelistId: string | null = (() => {
+      const s: any = (cfg as any).settings || {};
+      const v = s.previo_pricelist_id ?? s.previoPricelistId ?? null;
+      return v != null && String(v).trim() !== "" ? String(v).trim() : null;
+    })();
 
     // ---- 1. Total room inventory (denominator for occupancy) ----
     const { response: roomsResp } = await fetchPrevioWithAuth({
