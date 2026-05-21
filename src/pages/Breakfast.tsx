@@ -267,16 +267,32 @@ export default function Breakfast() {
             <CardTitle className="flex items-center gap-2 text-xl">
               <Coffee className="h-6 w-6" /> {tt("title")}
             </CardTitle>
+            {orgBranding && (
+              <div className="text-xs text-muted-foreground pt-1 flex items-center gap-2">
+                {orgBranding.logo_url && (
+                  <img src={orgBranding.logo_url} alt="" className="h-5 w-auto object-contain" />
+                )}
+                <span>{orgBranding.name}</span>
+              </div>
+            )}
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">{tt("selectHotel")}</p>
-            <div className="grid gap-2">
-              {HOTELS.map((h) => (
-                <Button key={h.hotel_id} variant="outline" className="h-16 text-base justify-start" onClick={() => chooseHotel(h)}>
-                  <Building2 className="h-5 w-5 mr-2" /> {h.label}
-                </Button>
-              ))}
-            </div>
+            {hotelsLoading ? (
+              <div className="text-sm text-muted-foreground text-center py-6">Loading…</div>
+            ) : hotels.length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-6">
+                No breakfast hotels configured for <code>{orgSlug}</code>.
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                {hotels.map((h) => (
+                  <Button key={h.hotel_id} variant="outline" className="h-16 text-base justify-start" onClick={() => chooseHotel(h)}>
+                    <Building2 className="h-5 w-5 mr-2" /> {h.label}
+                  </Button>
+                ))}
+              </div>
+            )}
             <div className="pt-2 border-t">
               <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => window.location.assign("/bb/auth")}>
                 Staff sign-in
@@ -288,7 +304,7 @@ export default function Breakfast() {
     );
   }
 
-  // ── Restaurant picker (Memories only) ──
+  // ── Restaurant picker ──
   if (!hotelCode && !selection && pickHotel) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -302,8 +318,8 @@ export default function Breakfast() {
             <p className="text-sm text-muted-foreground">{tt("selectRestaurant")}</p>
             <div className="grid gap-2">
               {pickHotel.restaurants.map((r) => (
-                <Button key={r.key} variant="outline" className="h-16 text-base justify-start" onClick={() => chooseRestaurant(pickHotel, r.key, tt(r.labelKey))}>
-                  <MapPin className="h-5 w-5 mr-2" /> {tt(r.labelKey)}
+                <Button key={r.key} variant="outline" className="h-16 text-base justify-start" onClick={() => chooseRestaurant(pickHotel, r.key, restaurantLabel(r))}>
+                  <MapPin className="h-5 w-5 mr-2" /> {restaurantLabel(r)}
                 </Button>
               ))}
               <Button variant="ghost" size="sm" onClick={() => setPickHotel(null)}>
