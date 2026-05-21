@@ -522,10 +522,12 @@ serve(async (req) => {
     for (const r of existingRates ?? []) existingByDate.set((r as any).stay_date, (r as any).source ?? "manual");
 
     const { data: refRoomRows } = await service
-      .from("room_types").select("name,base_price_eur,is_reference,num_rooms,pms_room_id")
+      .from("room_types").select("name,base_price_eur,min_price_eur,max_price_eur,is_reference,num_rooms,pms_room_id")
       .eq("hotel_id", hotelId);
     const refRoom: any = (refRoomRows ?? []).find((r: any) => r.is_reference) ?? (refRoomRows ?? [])[0];
     const seedRate = Number(refRoom?.base_price_eur) || 120;
+    const maxRate = Number(refRoom?.max_price_eur) || 350;
+    const minRate = Number(refRoom?.min_price_eur) || 40;
     const refObjIds = new Set<number>(
       String(refRoom?.pms_room_id || "").split(",").map((s: string) => parseInt(s.trim(), 10)).filter(Boolean),
     );
@@ -547,6 +549,7 @@ serve(async (req) => {
 
     let dailyRatesRealized = 0;
     let dailyRatesPms = 0;
+    let realizedClamped = 0;
     const seedRows: any[] = [];
     const realizedUpdates: { stay_date: string; rate_eur: number }[] = [];
     const pmsUpdates: { stay_date: string; rate_eur: number }[] = [];
@@ -554,14 +557,20 @@ serve(async (req) => {
     for (let i = 0; i < days; i++) {
       const stay_date = addDays(today, i);
       const agg = dayMap.get(stay_date);
-      const adr = agg && agg.adrCount > 0 ? Math.round(agg.adrSum / agg.adrCount) : null;
+      const rawAdr = agg && agg.adrCount > 0 ? Math.round(agg.adrSum / agg.adrCount) : null;
+      // Clamp realised ADR to the configured price band so a single high-priced
+      // multi-night reservation can't poison the calendar with €3021-style numbers.
+      const adr = rawAdr != null ? Math.max(minRate, Math.min(maxRate, rawAdr)) : null;
+      if (rawAdr != null && adr !== rawAdr) realizedClamped += 1;
       const pms = pricelistRefByDate.get(stay_date);
       const existingSrc = existingByDate.get(stay_date);
       const overridable = !existingSrc || existingSrc === "manual" || existingSrc === "previo_realized" || existingSrc === "previo_pms" || existingSrc === "engine";
+      // PMS pricelist always wins when present; only fall back to realised ADR
+      // for future dates when the PMS pricelist hasn't been published yet.
       if (pms && overridable) {
         pmsUpdates.push({ stay_date, rate_eur: pms.rate });
         if (pms.minStay && pms.minStay > 1) minStayUpserts.push({ stay_date, min_nights: pms.minStay });
-      } else if (adr != null && overridable) {
+      } else if (!pms && adr != null && overridable) {
         realizedUpdates.push({ stay_date, rate_eur: adr });
       } else if (!existingSrc) {
         seedRows.push({
