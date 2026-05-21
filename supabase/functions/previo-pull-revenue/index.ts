@@ -245,66 +245,102 @@ serve(async (req) => {
     }
 
     // ---- 2b. Pricelist XML (the prices visible in Previo's Pricelist screen) ----
-    // Tries several known method names; failures are logged but non-fatal so the
-    // rest of the sync still completes.
+    // Previo's working endpoint is `pricelist/getPriceList` and requires a
+    // <priceListId>. We auto-detect it via `pricelist/getList` (taking the default
+    // pricelist) unless one is pinned via pms_configurations.settings.previo_pricelist_id.
     interface PricelistEntry { date: string; objId: number | null; persons: number | null; amount: number; currency: string; minStay: number | null; maxStay: number | null; }
     const pricelistEntries: PricelistEntry[] = [];
     let pricelistMethodUsed: string | null = null;
     let pricelistError: string | null = null;
-    const pricelistMethods = ["getPricelist", "getPriceList", "pricelist", "getPrices", "getRates"];
-    for (const method of pricelistMethods) {
-      try {
-        const body = `<?xml version="1.0"?>
-<request>
-<login>${xmlUser}</login>
-<password>${xmlPass}</password>
-<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
-<term><from>${today}</from><to>${horizon}</to></term>
-</request>`;
-        const resp = await fetch(`https://api.previo.cz/x1/hotel/${method}/`, {
-          method: "POST",
-          headers: { "Content-Type": "text/xml; charset=UTF-8" },
-          body,
-        });
-        const text = await resp.text();
-        if (!resp.ok || /<error>/i.test(text) || /not\s*found/i.test(text)) {
-          pricelistError = `${method}: ${resp.status} ${text.slice(0, 120)}`;
-          continue;
-        }
-        // Parse <price> blocks (defensive — Previo XML uses different tag names across deployments).
-        const blocks = text.match(/<price[\s>][\s\S]*?<\/price>/gi) || text.match(/<priceItem[\s>][\s\S]*?<\/priceItem>/gi) || [];
-        if (blocks.length === 0) {
-          pricelistError = `${method}: no <price> blocks (snippet: ${text.replace(/\s+/g, " ").slice(0, 200)})`;
-          continue;
-        }
-        const grabAny = (s: string, tags: string[]) => {
-          for (const t of tags) {
-            const m = s.match(new RegExp(`<${t}>([^<]*)</${t}>`, "i"));
-            if (m) return m[1].trim();
+    let resolvedPricelistId: string | null = configuredPricelistId;
+    const availablePricelists: { id: string; name: string; isDefault: boolean }[] = [];
+
+    const grabAny = (s: string, tags: string[]) => {
+      for (const t of tags) {
+        const m = s.match(new RegExp(`<${t}>([^<]*)</${t}>`, "i"));
+        if (m) return m[1].trim();
+      }
+      return "";
+    };
+    const callPrevioXml = async (method: string, innerXml: string) => {
+      const body = `<?xml version="1.0"?>\n<request>\n<login>${xmlUser}</login>\n<password>${xmlPass}</password>\n<hotId>${String(cfg.pms_hotel_id || "")}</hotId>\n${innerXml}\n</request>`;
+      const resp = await fetch(`https://api.previo.cz/x1/${method}/`, {
+        method: "POST",
+        headers: { "Content-Type": "text/xml; charset=UTF-8" },
+        body,
+      });
+      const text = await resp.text();
+      return { ok: resp.ok && !/<error>/i.test(text), status: resp.status, text };
+    };
+
+    // 1) Resolve a pricelist id when not pre-configured.
+    if (!resolvedPricelistId) {
+      const listMethods = ["pricelist/getList", "hotel/getPriceLists", "hotel/pricelist"];
+      for (const m of listMethods) {
+        try {
+          const r = await callPrevioXml(m, "");
+          if (!r.ok) { pricelistError = `${m}: ${r.status} ${r.text.slice(0,120)}`; continue; }
+          const blocks = r.text.match(/<(?:priceList|pricelist)[\s>][\s\S]*?<\/(?:priceList|pricelist)>/gi) || [];
+          if (!blocks.length) { pricelistError = `${m}: no <priceList> blocks`; continue; }
+          for (const b of blocks) {
+            const id = grabAny(b, ["priceListId","pricelistId","id"]);
+            const name = grabAny(b, ["name","title"]) || `pricelist ${id}`;
+            const isDef = /<(?:isDefault|default)>(?:1|true)<\/(?:isDefault|default)>/i.test(b);
+            if (id) availablePricelists.push({ id, name, isDefault: isDef });
           }
-          return "";
-        };
-        for (const b of blocks) {
-          const date = grabAny(b, ["date", "day"]).slice(0, 10);
-          if (!date) continue;
-          const objId = parseInt(grabAny(b, ["objId", "roomId", "objectId", "objTypeId"]) || "0", 10) || null;
-          const persons = parseInt(grabAny(b, ["persons", "occupancy", "people", "pax"]) || "0", 10) || null;
-          const amountRaw = grabAny(b, ["amount", "price", "rate", "value"]);
-          const amount = parseFloat(amountRaw.replace(",", "."));
-          if (!Number.isFinite(amount) || amount <= 0) continue;
-          const currency = (grabAny(b, ["currency", "curr"]) || "EUR").toUpperCase();
-          const minStay = parseInt(grabAny(b, ["minStay", "minNights"]) || "0", 10) || null;
-          const maxStay = parseInt(grabAny(b, ["maxStay", "maxNights"]) || "0", 10) || null;
-          pricelistEntries.push({ date, objId, persons, amount, currency, minStay, maxStay });
+          if (availablePricelists.length) {
+            const def = availablePricelists.find(p => p.isDefault) || availablePricelists[0];
+            resolvedPricelistId = def.id;
+            pricelistError = null;
+            break;
+          }
+        } catch (e: any) {
+          pricelistError = `${m}: ${e?.message || e}`;
         }
-        pricelistMethodUsed = method;
-        pricelistError = null;
-        break;
-      } catch (e: any) {
-        pricelistError = `${method}: ${e?.message || e}`;
       }
     }
-    console.log(`Pricelist: method=${pricelistMethodUsed}, entries=${pricelistEntries.length}, lastError=${pricelistError ?? "none"}`);
+
+    // 2) Fetch the actual price grid for the resolved pricelist.
+    if (resolvedPricelistId) {
+      const fetchMethods = ["pricelist/getPriceList", "hotel/getPriceList", "hotel/getPricelist"];
+      for (const method of fetchMethods) {
+        try {
+          const inner = `<priceListId>${resolvedPricelistId}</priceListId>\n<term><from>${today}</from><to>${horizon}</to></term>`;
+          const r = await callPrevioXml(method, inner);
+          if (!r.ok) { pricelistError = `${method}: ${r.status} ${r.text.slice(0,120)}`; continue; }
+          // Each row is <price> with date, objTypeId/objId, persons, amount, currency, minStay
+          const blocks = r.text.match(/<price[\s>][\s\S]*?<\/price>/gi)
+            || r.text.match(/<priceItem[\s>][\s\S]*?<\/priceItem>/gi)
+            || r.text.match(/<row[\s>][\s\S]*?<\/row>/gi)
+            || [];
+          if (!blocks.length) {
+            pricelistError = `${method}: no <price> blocks (snippet: ${r.text.replace(/\s+/g, " ").slice(0, 200)})`;
+            continue;
+          }
+          for (const b of blocks) {
+            const date = grabAny(b, ["date", "day"]).slice(0, 10);
+            if (!date) continue;
+            const objId = parseInt(grabAny(b, ["objTypeId", "objId", "roomId", "objectId"]) || "0", 10) || null;
+            const persons = parseInt(grabAny(b, ["persons", "occupancy", "people", "pax"]) || "0", 10) || null;
+            const amountRaw = grabAny(b, ["amount", "price", "rate", "value"]);
+            const amount = parseFloat(amountRaw.replace(",", "."));
+            if (!Number.isFinite(amount) || amount <= 0) continue;
+            const currency = (grabAny(b, ["currency", "curr"]) || "EUR").toUpperCase();
+            const minStay = parseInt(grabAny(b, ["minStay", "minNights"]) || "0", 10) || null;
+            const maxStay = parseInt(grabAny(b, ["maxStay", "maxNights"]) || "0", 10) || null;
+            pricelistEntries.push({ date, objId, persons, amount, currency, minStay, maxStay });
+          }
+          pricelistMethodUsed = method;
+          pricelistError = null;
+          break;
+        } catch (e: any) {
+          pricelistError = `${method}: ${e?.message || e}`;
+        }
+      }
+    } else if (!pricelistError) {
+      pricelistError = "no pricelist id resolved (set pms_configurations.settings.previo_pricelist_id)";
+    }
+    console.log(`Pricelist: id=${resolvedPricelistId}, method=${pricelistMethodUsed}, entries=${pricelistEntries.length}, lastError=${pricelistError ?? "none"}`);
 
     // Aggregate per date: pick the reference price (capacity-matched, cheapest fallback).
     // We compute it after we know the reference room type below; for now group raw entries.
