@@ -12,26 +12,28 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
 import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
 
+interface RestaurantDef {
+  key: string;
+  labelKey?: string;
+  label?: string;
+}
+
 interface HotelDef {
   hotel_id: string;
   label: string;
-  restaurants: { key: string; labelKey: string }[];
+  restaurants: RestaurantDef[];
+  logo_url?: string | null;
+  primary_color?: string | null;
 }
 
-const HOTELS: HotelDef[] = [
-  {
-    hotel_id: "memories-budapest",
-    label: "Hotel Memories Budapest",
-    restaurants: [
-      { key: "levante", labelKey: "restaurant_levante" },
-      { key: "memories_basement", labelKey: "restaurant_memories_basement" },
-    ],
-  },
-  { hotel_id: "mika-downtown", label: "Hotel Mika Downtown", restaurants: [{ key: "main", labelKey: "restaurant_main" }] },
-  { hotel_id: "ottofiori", label: "Hotel Ottofiori", restaurants: [{ key: "main", labelKey: "restaurant_main" }] },
-  { hotel_id: "gozsdu-court", label: "Gozsdu Court Budapest", restaurants: [{ key: "main", labelKey: "restaurant_main" }] },
-];
+interface OrgBranding {
+  slug: string;
+  name: string;
+  logo_url: string | null;
+  primary_color: string | null;
+}
 
+const DEFAULT_ORG_SLUG = "rdhotels";
 const STORAGE_KEY = "bb_selection_v2";
 
 interface Selection {
@@ -39,21 +41,32 @@ interface Selection {
   hotel_label: string;
   location_key: string;
   location_label: string;
+  org_slug: string;
 }
 
-function loadSelection(): Selection | null {
+function loadSelection(orgSlug: string): Selection | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(`${STORAGE_KEY}_${orgSlug}`);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch { return null; }
 }
 
+function persistSelection(orgSlug: string, sel: Selection | null) {
+  const k = `${STORAGE_KEY}_${orgSlug}`;
+  if (sel) localStorage.setItem(k, JSON.stringify(sel));
+  else localStorage.removeItem(k);
+}
+
 export default function Breakfast() {
-  const { hotelCode } = useParams<{ hotelCode?: string }>();
+  const { hotelCode, orgSlug: orgSlugParam } = useParams<{ hotelCode?: string; orgSlug?: string }>();
+  const orgSlug = (orgSlugParam || DEFAULT_ORG_SLUG).toLowerCase();
   const { language } = useTranslation();
   const tt = (k: string, vars?: Record<string, string | number>) => bbT(language, k, vars);
-  const [selection, setSelection] = useState<Selection | null>(loadSelection);
+  const [hotels, setHotels] = useState<HotelDef[]>([]);
+  const [orgBranding, setOrgBranding] = useState<OrgBranding | null>(null);
+  const [hotelsLoading, setHotelsLoading] = useState(false);
+  const [selection, setSelection] = useState<Selection | null>(() => loadSelection(orgSlug));
   const [pickHotel, setPickHotel] = useState<HotelDef | null>(null);
   const [room, setRoom] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -64,7 +77,90 @@ export default function Breakfast() {
   const [rooms, setRooms] = useState<any[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
 
+  // Load this org's hotels (skipped on hotel-code direct lookup)
+  useEffect(() => {
+    if (hotelCode) return;
+    let cancelled = false;
+    setHotelsLoading(true);
+    (async () => {
+      const { data, error } = await (supabase as any)
+        .rpc("get_public_breakfast_hotels", { _org_slug: orgSlug });
+      if (cancelled) return;
+      setHotelsLoading(false);
+      if (error || !Array.isArray(data)) { setHotels([]); return; }
+      const mapped: HotelDef[] = data.map((h: any) => {
+        const restList = Array.isArray(h.breakfast_restaurants) && h.breakfast_restaurants.length
+          ? h.breakfast_restaurants
+          : [{ key: "main", label_key: "restaurant_main" }];
+        return {
+          hotel_id: h.hotel_id,
+          label: h.hotel_name,
+          restaurants: restList.map((r: any) => ({
+            key: r.key,
+            labelKey: r.label_key,
+            label: r.label,
+          })),
+          logo_url: h.custom_logo_url ?? null,
+          primary_color: h.custom_primary_color ?? null,
+        };
+      });
+      setHotels(mapped);
+      if (data[0]) {
+        setOrgBranding({
+          slug: data[0].organization_slug,
+          name: data[0].organization_name,
+          logo_url: data[0].custom_logo_url ?? null,
+          primary_color: data[0].custom_primary_color ?? null,
+        });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hotelCode, orgSlug]);
+
+  // Reset selection if it no longer belongs to this org's hotels
+  useEffect(() => {
+    if (hotelCode || hotelsLoading || !hotels.length || !selection) return;
+    if (!hotels.some(h => h.hotel_id === selection.hotel_id)) {
+      persistSelection(orgSlug, null);
+      setSelection(null);
+    }
+  }, [hotels, hotelsLoading, hotelCode, orgSlug, selection]);
+
   useEffect(() => { setResult(null); }, [selection, hotelCode]);
+
+  function restaurantLabel(r: RestaurantDef): string {
+    if (r.labelKey) {
+      const translated = tt(r.labelKey);
+      if (translated && translated !== r.labelKey) return translated;
+    }
+    return r.label || r.key;
+  }
+
+  function chooseHotel(h: HotelDef) {
+    if (h.restaurants.length === 1) {
+      const r = h.restaurants[0];
+      const sel: Selection = { hotel_id: h.hotel_id, hotel_label: h.label, location_key: r.key, location_label: restaurantLabel(r), org_slug: orgSlug };
+      persistSelection(orgSlug, sel);
+      setSelection(sel);
+      setPickHotel(null);
+    } else {
+      setPickHotel(h);
+    }
+  }
+
+  function chooseRestaurant(h: HotelDef, key: string, label: string) {
+    const sel: Selection = { hotel_id: h.hotel_id, hotel_label: h.label, location_key: key, location_label: label, org_slug: orgSlug };
+    persistSelection(orgSlug, sel);
+    setSelection(sel);
+    setPickHotel(null);
+  }
+
+  function changeSelection() {
+    persistSelection(orgSlug, null);
+    setSelection(null);
+    setPickHotel(null);
+    setResult(null);
+  }
 
   function chooseHotel(h: HotelDef) {
     if (h.restaurants.length === 1) {
