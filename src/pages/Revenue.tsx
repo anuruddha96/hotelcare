@@ -12,11 +12,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle, Radio, Info } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { LineChart, Line, ResponsiveContainer } from "recharts";
+import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, Legend } from "recharts";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 
 interface PickupDateRow { stay_date: string; delta: number }
 interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
+interface ComboPoint { d: string; date: string; occ: number | null; pickup: number; rate: number | null }
 
 interface HotelStat {
   hotel_id: string;
@@ -25,17 +26,23 @@ interface HotelStat {
   last_snapshot: string | null;
   pending_recs: number;
   abnormal: boolean;
-  spark: { d: string; v: number }[];
+  combo: ComboPoint[];
   hasFreshAI: boolean;
   last_label: string | null;
   topPickupDates: PickupDateRow[];
   occNext7: OccByDate[];
   occAvg7: number;
   occAvg30: number;
-  lastOccAt: string | null;
+  lastOccUpload: string | null;   // newest XLSX-source occupancy snapshot
+  lastOccLive: string | null;     // newest Previo-source occupancy snapshot
+  lastPickupUpload: string | null;
+  lastPickupLive: string | null;
   isPrevio: boolean;
   lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+  lastSyncError: string | null;
 }
+
 
 interface UploadJob {
   file: File;
