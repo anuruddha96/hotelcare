@@ -307,6 +307,17 @@ serve(async (req) => {
       } as any);
     } catch { /* non-fatal */ }
 
+    // Stamp pms_configurations so the UI's "Previo sync" label reflects this run.
+    try {
+      await service.from("pms_configurations")
+        .update({
+          last_sync_at: new Date().toISOString(),
+          last_sync_status: lastErr ? "warning" : "success",
+          last_sync_error: lastErr || null,
+        })
+        .eq("hotel_id", hotelId).eq("pms_type", "previo");
+    } catch { /* non-fatal */ }
+
     return new Response(JSON.stringify({
       ok: true,
       supported: true,
@@ -316,6 +327,7 @@ serve(async (req) => {
       rowsInserted: inserted,
       error: lastErr,
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   } catch (e: any) {
     console.error("previo-sync-daily-overview fatal:", e);
     // Best-effort failure log so admins can see why a sync went missing.
