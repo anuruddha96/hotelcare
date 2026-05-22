@@ -12,11 +12,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle, Radio, Info } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { LineChart, Line, ResponsiveContainer } from "recharts";
+import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 
 interface PickupDateRow { stay_date: string; delta: number }
 interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
+interface ComboPoint { d: string; date: string; occ: number | null; pickup: number; rate: number | null }
 
 interface HotelStat {
   hotel_id: string;
@@ -25,17 +26,23 @@ interface HotelStat {
   last_snapshot: string | null;
   pending_recs: number;
   abnormal: boolean;
-  spark: { d: string; v: number }[];
+  combo: ComboPoint[];
   hasFreshAI: boolean;
   last_label: string | null;
   topPickupDates: PickupDateRow[];
   occNext7: OccByDate[];
   occAvg7: number;
   occAvg30: number;
-  lastOccAt: string | null;
+  lastOccUpload: string | null;   // newest XLSX-source occupancy snapshot
+  lastOccLive: string | null;     // newest Previo-source occupancy snapshot
+  lastPickupUpload: string | null;
+  lastPickupLive: string | null;
   isPrevio: boolean;
   lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+  lastSyncError: string | null;
 }
+
 
 interface UploadJob {
   file: File;
@@ -96,20 +103,25 @@ export default function Revenue() {
     const hotelIds = (hotelRows ?? []).map((h) => h.hotel_id);
     const previoIds = new Set<string>();
     const lastSyncByHotel = new Map<string, string>();
+    const lastSyncStatusByHotel = new Map<string, string>();
+    const lastSyncErrorByHotel = new Map<string, string>();
     if (hotelIds.length > 0) {
       const { data: pmsRows } = await supabase
         .from("pms_configurations")
-        .select("hotel_id, pms_type, last_sync_at, is_active")
+        .select("hotel_id, pms_type, last_sync_at, last_sync_status, last_sync_error, is_active")
         .in("hotel_id", hotelIds)
         .eq("pms_type", "previo")
         .eq("is_active", true);
       for (const p of pmsRows ?? []) {
         previoIds.add(p.hotel_id);
-        if (p.last_sync_at) lastSyncByHotel.set(p.hotel_id, p.last_sync_at);
+        if ((p as any).last_sync_at) lastSyncByHotel.set(p.hotel_id, (p as any).last_sync_at);
+        if ((p as any).last_sync_status) lastSyncStatusByHotel.set(p.hotel_id, (p as any).last_sync_status);
+        if ((p as any).last_sync_error) lastSyncErrorByHotel.set(p.hotel_id, (p as any).last_sync_error);
       }
     }
 
     const today = new Date().toISOString().slice(0, 10);
+    const in14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
     const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 
     const stats: HotelStat[] = [];
@@ -121,17 +133,21 @@ export default function Revenue() {
         { data: lastAI },
         { data: lastPickupDates },
         { data: occRows },
+        { data: refPrices },
       ] = await Promise.all([
-        supabase.from("pickup_snapshots").select("delta, captured_at, snapshot_label")
-          .eq("hotel_id", h.hotel_id).order("captured_at", { ascending: false }).limit(50),
+        supabase.from("pickup_snapshots").select("delta, captured_at, snapshot_label, source, stay_date")
+          .eq("hotel_id", h.hotel_id).order("captured_at", { ascending: false }).limit(500),
         supabase.from("rate_recommendations").select("id").eq("hotel_id", h.hotel_id).eq("status", "pending"),
         supabase.from("revenue_alerts").select("id").eq("hotel_id", h.hotel_id).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
         supabase.from("revenue_ai_insights").select("created_at").eq("hotel_id", h.hotel_id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("pickup_snapshots").select("stay_date, delta, captured_at")
-          .eq("hotel_id", h.hotel_id).gte("stay_date", today).order("captured_at", { ascending: false }).limit(200),
-        supabase.from("occupancy_snapshots").select("stay_date, occupancy_pct, rooms_sold, captured_at")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today).order("captured_at", { ascending: false }).limit(500),
+        supabase.from("occupancy_snapshots").select("stay_date, occupancy_pct, rooms_sold, captured_at, source")
           .eq("hotel_id", h.hotel_id).gte("stay_date", today).lte("stay_date", in30)
-          .order("captured_at", { ascending: false }).limit(500),
+          .order("captured_at", { ascending: false }).limit(800),
+        (supabase as any).from("previo_reference_prices").select("stay_date, rate_eur")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today).lte("stay_date", in14)
+          .order("stay_date", { ascending: true }),
       ]);
 
       // Aggregate top pickup dates from most recent snapshot batch (last 24h)
@@ -161,9 +177,38 @@ export default function Revenue() {
       const occNext7 = occSorted.slice(0, 7);
       const occAvg7 = occNext7.length ? occNext7.reduce((a, r) => a + r.occupancy_pct, 0) / occNext7.length : 0;
       const occAvg30 = occSorted.length ? occSorted.reduce((a, r) => a + r.occupancy_pct, 0) / occSorted.length : 0;
-      const lastOccAt = (occRows ?? [])[0]?.captured_at ?? null;
 
-      const spark = occSorted.slice(0, 14).map((r, i) => ({ d: String(i), v: r.occupancy_pct }));
+      // Source-aware "last activity" timestamps so the card distinguishes
+      // XLSX uploads from live Previo syncs.
+      const lastOccUpload = (occRows ?? []).find((r: any) => (r.source ?? "").toLowerCase() !== "previo")?.captured_at ?? null;
+      const lastOccLive = (occRows ?? []).find((r: any) => (r.source ?? "").toLowerCase() === "previo")?.captured_at ?? null;
+      const lastPickupUpload = (snaps ?? []).find((r: any) => (r.source ?? "").toLowerCase() !== "previo" && r.snapshot_label !== "previo-live")?.captured_at ?? null;
+      const lastPickupLive = (snaps ?? []).find((r: any) => (r.source ?? "").toLowerCase() === "previo" || r.snapshot_label === "previo-live")?.captured_at ?? null;
+
+      // Build 14-day combo series: occupancy %, daily pickup delta, reference rate.
+      const refByDate = new Map<string, number>();
+      for (const r of (refPrices ?? []) as any[]) {
+        if (!refByDate.has(r.stay_date)) refByDate.set(r.stay_date, Number(r.rate_eur));
+      }
+      // Latest pickup per stay_date (snaps already ordered desc).
+      const pickupByDate = new Map<string, number>();
+      for (const r of (snaps ?? []) as any[]) {
+        if (!r.stay_date || r.stay_date < today || r.stay_date > in14) continue;
+        if (!pickupByDate.has(r.stay_date)) pickupByDate.set(r.stay_date, Number(r.delta ?? 0));
+      }
+      const combo: ComboPoint[] = [];
+      for (let i = 0; i < 14; i++) {
+        const dt = new Date(Date.now() + i * 86400000);
+        const iso = dt.toISOString().slice(0, 10);
+        const occ = occByDate.get(iso)?.occupancy_pct ?? null;
+        combo.push({
+          d: dt.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }),
+          date: iso,
+          occ: occ != null ? Math.round(occ) : null,
+          pickup: pickupByDate.get(iso) ?? 0,
+          rate: refByDate.get(iso) ?? null,
+        });
+      }
 
       stats.push({
         hotel_id: h.hotel_id,
@@ -173,20 +218,26 @@ export default function Revenue() {
         last_label: snaps?.[0]?.snapshot_label ?? null,
         pending_recs: recs?.length ?? 0,
         abnormal: (alerts?.length ?? 0) > 0,
-        spark,
+        combo,
         hasFreshAI: lastAI ? (Date.now() - new Date(lastAI.created_at).getTime()) < 12 * 3600 * 1000 : false,
         topPickupDates,
         occNext7,
         occAvg7,
         occAvg30,
-        lastOccAt,
+        lastOccUpload,
+        lastOccLive,
+        lastPickupUpload,
+        lastPickupLive,
         isPrevio: previoIds.has(h.hotel_id),
         lastSyncAt: lastSyncByHotel.get(h.hotel_id) ?? null,
+        lastSyncStatus: lastSyncStatusByHotel.get(h.hotel_id) ?? null,
+        lastSyncError: lastSyncErrorByHotel.get(h.hotel_id) ?? null,
       });
     }
     setHotels(stats);
     setBusy(false);
   }
+
 
   async function runEngine() {
     setBusy(true);
@@ -335,13 +386,36 @@ export default function Revenue() {
                 <KPI label="Pickup Δ" value={String(h.pickup_today)} accent={h.pickup_today >= 0 ? "up" : "down"} />
               </div>
 
-              {h.spark.length > 1 && (
-                <div className="h-14 -mx-1">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={h.spark}>
-                      <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
+              {h.combo.some(p => p.occ != null || p.rate != null || p.pickup !== 0) && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                    <span className="font-medium uppercase tracking-wide">Next 14 days</span>
+                    <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-1"><i className="h-1.5 w-2.5 rounded-sm bg-primary/60 inline-block" /> Occ</span>
+                      <span className="flex items-center gap-1"><i className="h-1.5 w-2.5 rounded-sm bg-amber-500 inline-block" /> Pickup</span>
+                      <span className="flex items-center gap-1"><i className="h-0.5 w-3 bg-emerald-600 inline-block" /> Rate €</span>
+                    </span>
+                  </div>
+                  <div className="h-32 -mx-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={h.combo} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                        <XAxis dataKey="d" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} interval={1} />
+                        <YAxis yAxisId="left" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} width={24} domain={[0, 100]} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} width={28} />
+                        <RTooltip
+                          contentStyle={{ fontSize: 11, padding: "4px 8px" }}
+                          formatter={(value: any, name: string) => {
+                            if (name === "Occ") return [`${value}%`, name];
+                            if (name === "Rate") return [`€${value}`, name];
+                            return [value, name];
+                          }}
+                        />
+                        <Area yAxisId="left" type="monotone" dataKey="occ" name="Occ" stroke="hsl(var(--primary))" fill="hsl(var(--primary) / 0.2)" strokeWidth={1.5} />
+                        <Bar yAxisId="left" dataKey="pickup" name="Pickup" fill="hsl(38 92% 50%)" radius={[2, 2, 0, 0]} maxBarSize={10} />
+                        <Line yAxisId="right" type="monotone" dataKey="rate" name="Rate" stroke="hsl(142 71% 35%)" strokeWidth={2} dot={false} connectNulls />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               )}
 
@@ -384,18 +458,34 @@ export default function Revenue() {
               )}
 
               <div className="text-muted-foreground text-xs space-y-0.5 pt-1 border-t">
-                <div className="truncate" title={h.last_label || ""}>
-                  Pickup upload: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
-                </div>
-                <div>Occupancy upload: {h.lastOccAt ? new Date(h.lastOccAt).toLocaleString() : "never"}</div>
-                {h.isPrevio && (
+                {h.isPrevio && h.lastPickupLive ? (
                   <div className="flex items-center gap-1">
                     <Radio className="h-3 w-3 text-primary" />
+                    Previo pickup: {new Date(h.lastPickupLive).toLocaleString()}
+                  </div>
+                ) : (
+                  <div className="truncate" title={h.last_label || ""}>
+                    Pickup upload: {h.lastPickupUpload ? new Date(h.lastPickupUpload).toLocaleString() : "never"}
+                  </div>
+                )}
+                {h.isPrevio && h.lastOccLive ? (
+                  <div className="flex items-center gap-1">
+                    <Radio className="h-3 w-3 text-primary" />
+                    Previo occupancy: {new Date(h.lastOccLive).toLocaleString()}
+                  </div>
+                ) : (
+                  <div>Occupancy upload: {h.lastOccUpload ? new Date(h.lastOccUpload).toLocaleString() : "never"}</div>
+                )}
+                {h.isPrevio && (
+                  <div className="flex items-center gap-1" title={h.lastSyncError || ""}>
+                    <Radio className={`h-3 w-3 ${h.lastSyncStatus === "error" ? "text-destructive" : h.lastSyncStatus === "warning" ? "text-amber-500" : "text-primary"}`} />
                     Previo sync: {h.lastSyncAt ? new Date(h.lastSyncAt).toLocaleString() : "never"}
+                    {h.lastSyncStatus === "error" && <span className="text-destructive">· failed</span>}
                   </div>
                 )}
                 <div>Pending recs: <b className="text-foreground">{h.pending_recs}</b></div>
               </div>
+
 
               <div className="flex gap-2 flex-wrap">
                 <Button size="sm" variant="outline" className="flex-1 min-w-[80px]"

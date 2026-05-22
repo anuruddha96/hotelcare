@@ -2569,6 +2569,8 @@ export type Database = {
           id: string
           is_active: boolean
           last_sync_at: string | null
+          last_sync_error: string | null
+          last_sync_status: string | null
           last_test_at: string | null
           last_test_error: string | null
           last_test_status: string | null
@@ -2587,6 +2589,8 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_sync_at?: string | null
+          last_sync_error?: string | null
+          last_sync_status?: string | null
           last_test_at?: string | null
           last_test_error?: string | null
           last_test_status?: string | null
@@ -2605,6 +2609,8 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_sync_at?: string | null
+          last_sync_error?: string | null
+          last_sync_status?: string | null
           last_test_at?: string | null
           last_test_error?: string | null
           last_test_status?: string | null
@@ -2891,6 +2897,39 @@ export type Database = {
           restrictions?: Json | null
           room_kind_id?: string
           source?: string
+          stay_date?: string
+        }
+        Relationships: []
+      }
+      previo_reference_prices: {
+        Row: {
+          captured_at: string
+          currency: string
+          hotel_id: string
+          organization_slug: string
+          persons: number | null
+          pricelist_id: string | null
+          rate_eur: number
+          stay_date: string
+        }
+        Insert: {
+          captured_at?: string
+          currency?: string
+          hotel_id: string
+          organization_slug: string
+          persons?: number | null
+          pricelist_id?: string | null
+          rate_eur: number
+          stay_date: string
+        }
+        Update: {
+          captured_at?: string
+          currency?: string
+          hotel_id?: string
+          organization_slug?: string
+          persons?: number | null
+          pricelist_id?: string | null
+          rate_eur?: number
           stay_date?: string
         }
         Relationships: []
