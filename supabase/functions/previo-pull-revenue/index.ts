@@ -649,7 +649,7 @@ serve(async (req) => {
         data: {
           days, totalRooms, reservations: reservations.length,
           occInserted, pickupInserted, breakfastUpserted,
-          roomTypesSeeded, dailyRatesSeeded, dailyRatesPms, dailyRatesRealized, realizedClamped,
+          roomTypesSeeded, dailyRatesSeeded, dailyRatesPms, refPricesUpserted,
           minStaySynced,
           pricelist: {
             id: resolvedPricelistId, configured: !!configuredPricelistId,
@@ -658,6 +658,18 @@ serve(async (req) => {
           },
         },
       } as any);
+    } catch { /* non-fatal */ }
+
+    // Stamp pms_configurations so the Revenue page's "Previo sync" line
+    // shows the real last-sync time instead of "never".
+    try {
+      await service.from("pms_configurations")
+        .update({
+          last_sync_at: new Date().toISOString(),
+          last_sync_status: pricelistError ? "warning" : "success",
+          last_sync_error: pricelistError || null,
+        })
+        .eq("hotel_id", hotelId).eq("pms_type", "previo");
     } catch { /* non-fatal */ }
 
     // ---- 7. Chain autopilot tick (best-effort, non-blocking error) ----
@@ -676,11 +688,12 @@ serve(async (req) => {
           occupancy: occInserted, pickup: pickupInserted,
           breakfast: breakfastUpserted,
           roomTypes: roomTypesSeeded, dailyRates: dailyRatesSeeded,
-          dailyRatesPms, dailyRatesRealized, minStaySynced,
+          dailyRatesPms, refPrices: refPricesUpserted, minStaySynced,
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
+
   } catch (e: any) {
     console.error("previo-pull-revenue error:", e);
     try {
