@@ -345,7 +345,17 @@ serve(async (req) => {
         error_message: e?.message || String(e),
         data: {},
       } as any);
+      if (body.hotelId) {
+        await service2.from("pms_configurations")
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_status: "error",
+            last_sync_error: e?.message || String(e),
+          })
+          .eq("hotel_id", body.hotelId).eq("pms_type", "previo");
+      }
     } catch { /* ignore */ }
+
     return new Response(JSON.stringify({ ok: false, error: e?.message || String(e) }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
