@@ -103,20 +103,25 @@ export default function Revenue() {
     const hotelIds = (hotelRows ?? []).map((h) => h.hotel_id);
     const previoIds = new Set<string>();
     const lastSyncByHotel = new Map<string, string>();
+    const lastSyncStatusByHotel = new Map<string, string>();
+    const lastSyncErrorByHotel = new Map<string, string>();
     if (hotelIds.length > 0) {
       const { data: pmsRows } = await supabase
         .from("pms_configurations")
-        .select("hotel_id, pms_type, last_sync_at, is_active")
+        .select("hotel_id, pms_type, last_sync_at, last_sync_status, last_sync_error, is_active")
         .in("hotel_id", hotelIds)
         .eq("pms_type", "previo")
         .eq("is_active", true);
       for (const p of pmsRows ?? []) {
         previoIds.add(p.hotel_id);
-        if (p.last_sync_at) lastSyncByHotel.set(p.hotel_id, p.last_sync_at);
+        if ((p as any).last_sync_at) lastSyncByHotel.set(p.hotel_id, (p as any).last_sync_at);
+        if ((p as any).last_sync_status) lastSyncStatusByHotel.set(p.hotel_id, (p as any).last_sync_status);
+        if ((p as any).last_sync_error) lastSyncErrorByHotel.set(p.hotel_id, (p as any).last_sync_error);
       }
     }
 
     const today = new Date().toISOString().slice(0, 10);
+    const in14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
     const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 
     const stats: HotelStat[] = [];
@@ -128,17 +133,21 @@ export default function Revenue() {
         { data: lastAI },
         { data: lastPickupDates },
         { data: occRows },
+        { data: refPrices },
       ] = await Promise.all([
-        supabase.from("pickup_snapshots").select("delta, captured_at, snapshot_label")
-          .eq("hotel_id", h.hotel_id).order("captured_at", { ascending: false }).limit(50),
+        supabase.from("pickup_snapshots").select("delta, captured_at, snapshot_label, source, stay_date")
+          .eq("hotel_id", h.hotel_id).order("captured_at", { ascending: false }).limit(500),
         supabase.from("rate_recommendations").select("id").eq("hotel_id", h.hotel_id).eq("status", "pending"),
         supabase.from("revenue_alerts").select("id").eq("hotel_id", h.hotel_id).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
         supabase.from("revenue_ai_insights").select("created_at").eq("hotel_id", h.hotel_id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("pickup_snapshots").select("stay_date, delta, captured_at")
-          .eq("hotel_id", h.hotel_id).gte("stay_date", today).order("captured_at", { ascending: false }).limit(200),
-        supabase.from("occupancy_snapshots").select("stay_date, occupancy_pct, rooms_sold, captured_at")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today).order("captured_at", { ascending: false }).limit(500),
+        supabase.from("occupancy_snapshots").select("stay_date, occupancy_pct, rooms_sold, captured_at, source")
           .eq("hotel_id", h.hotel_id).gte("stay_date", today).lte("stay_date", in30)
-          .order("captured_at", { ascending: false }).limit(500),
+          .order("captured_at", { ascending: false }).limit(800),
+        (supabase as any).from("previo_reference_prices").select("stay_date, rate_eur")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today).lte("stay_date", in14)
+          .order("stay_date", { ascending: true }),
       ]);
 
       // Aggregate top pickup dates from most recent snapshot batch (last 24h)
@@ -168,9 +177,38 @@ export default function Revenue() {
       const occNext7 = occSorted.slice(0, 7);
       const occAvg7 = occNext7.length ? occNext7.reduce((a, r) => a + r.occupancy_pct, 0) / occNext7.length : 0;
       const occAvg30 = occSorted.length ? occSorted.reduce((a, r) => a + r.occupancy_pct, 0) / occSorted.length : 0;
-      const lastOccAt = (occRows ?? [])[0]?.captured_at ?? null;
 
-      const spark = occSorted.slice(0, 14).map((r, i) => ({ d: String(i), v: r.occupancy_pct }));
+      // Source-aware "last activity" timestamps so the card distinguishes
+      // XLSX uploads from live Previo syncs.
+      const lastOccUpload = (occRows ?? []).find((r: any) => (r.source ?? "").toLowerCase() !== "previo")?.captured_at ?? null;
+      const lastOccLive = (occRows ?? []).find((r: any) => (r.source ?? "").toLowerCase() === "previo")?.captured_at ?? null;
+      const lastPickupUpload = (snaps ?? []).find((r: any) => (r.source ?? "").toLowerCase() !== "previo" && r.snapshot_label !== "previo-live")?.captured_at ?? null;
+      const lastPickupLive = (snaps ?? []).find((r: any) => (r.source ?? "").toLowerCase() === "previo" || r.snapshot_label === "previo-live")?.captured_at ?? null;
+
+      // Build 14-day combo series: occupancy %, daily pickup delta, reference rate.
+      const refByDate = new Map<string, number>();
+      for (const r of (refPrices ?? []) as any[]) {
+        if (!refByDate.has(r.stay_date)) refByDate.set(r.stay_date, Number(r.rate_eur));
+      }
+      // Latest pickup per stay_date (snaps already ordered desc).
+      const pickupByDate = new Map<string, number>();
+      for (const r of (snaps ?? []) as any[]) {
+        if (!r.stay_date || r.stay_date < today || r.stay_date > in14) continue;
+        if (!pickupByDate.has(r.stay_date)) pickupByDate.set(r.stay_date, Number(r.delta ?? 0));
+      }
+      const combo: ComboPoint[] = [];
+      for (let i = 0; i < 14; i++) {
+        const dt = new Date(Date.now() + i * 86400000);
+        const iso = dt.toISOString().slice(0, 10);
+        const occ = occByDate.get(iso)?.occupancy_pct ?? null;
+        combo.push({
+          d: dt.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }),
+          date: iso,
+          occ: occ != null ? Math.round(occ) : null,
+          pickup: pickupByDate.get(iso) ?? 0,
+          rate: refByDate.get(iso) ?? null,
+        });
+      }
 
       stats.push({
         hotel_id: h.hotel_id,
@@ -180,20 +218,26 @@ export default function Revenue() {
         last_label: snaps?.[0]?.snapshot_label ?? null,
         pending_recs: recs?.length ?? 0,
         abnormal: (alerts?.length ?? 0) > 0,
-        spark,
+        combo,
         hasFreshAI: lastAI ? (Date.now() - new Date(lastAI.created_at).getTime()) < 12 * 3600 * 1000 : false,
         topPickupDates,
         occNext7,
         occAvg7,
         occAvg30,
-        lastOccAt,
+        lastOccUpload,
+        lastOccLive,
+        lastPickupUpload,
+        lastPickupLive,
         isPrevio: previoIds.has(h.hotel_id),
         lastSyncAt: lastSyncByHotel.get(h.hotel_id) ?? null,
+        lastSyncStatus: lastSyncStatusByHotel.get(h.hotel_id) ?? null,
+        lastSyncError: lastSyncErrorByHotel.get(h.hotel_id) ?? null,
       });
     }
     setHotels(stats);
     setBusy(false);
   }
+
 
   async function runEngine() {
     setBusy(true);
