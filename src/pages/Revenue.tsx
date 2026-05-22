@@ -386,13 +386,36 @@ export default function Revenue() {
                 <KPI label="Pickup Δ" value={String(h.pickup_today)} accent={h.pickup_today >= 0 ? "up" : "down"} />
               </div>
 
-              {h.spark.length > 1 && (
-                <div className="h-14 -mx-1">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={h.spark}>
-                      <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
+              {h.combo.some(p => p.occ != null || p.rate != null || p.pickup !== 0) && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                    <span className="font-medium uppercase tracking-wide">Next 14 days</span>
+                    <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-1"><i className="h-1.5 w-2.5 rounded-sm bg-primary/60 inline-block" /> Occ</span>
+                      <span className="flex items-center gap-1"><i className="h-1.5 w-2.5 rounded-sm bg-amber-500 inline-block" /> Pickup</span>
+                      <span className="flex items-center gap-1"><i className="h-0.5 w-3 bg-emerald-600 inline-block" /> Rate €</span>
+                    </span>
+                  </div>
+                  <div className="h-32 -mx-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={h.combo} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                        <XAxis dataKey="d" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} interval={1} />
+                        <YAxis yAxisId="left" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} width={24} domain={[0, 100]} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} width={28} />
+                        <RTooltip
+                          contentStyle={{ fontSize: 11, padding: "4px 8px" }}
+                          formatter={(value: any, name: string) => {
+                            if (name === "Occ") return [`${value}%`, name];
+                            if (name === "Rate") return [`€${value}`, name];
+                            return [value, name];
+                          }}
+                        />
+                        <Area yAxisId="left" type="monotone" dataKey="occ" name="Occ" stroke="hsl(var(--primary))" fill="hsl(var(--primary) / 0.2)" strokeWidth={1.5} />
+                        <Bar yAxisId="left" dataKey="pickup" name="Pickup" fill="hsl(38 92% 50%)" radius={[2, 2, 0, 0]} maxBarSize={10} />
+                        <Line yAxisId="right" type="monotone" dataKey="rate" name="Rate" stroke="hsl(142 71% 35%)" strokeWidth={2} dot={false} connectNulls />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               )}
 
@@ -435,18 +458,34 @@ export default function Revenue() {
               )}
 
               <div className="text-muted-foreground text-xs space-y-0.5 pt-1 border-t">
-                <div className="truncate" title={h.last_label || ""}>
-                  Pickup upload: {h.last_snapshot ? new Date(h.last_snapshot).toLocaleString() : "never"}
-                </div>
-                <div>Occupancy upload: {h.lastOccAt ? new Date(h.lastOccAt).toLocaleString() : "never"}</div>
-                {h.isPrevio && (
+                {h.isPrevio && h.lastPickupLive ? (
                   <div className="flex items-center gap-1">
                     <Radio className="h-3 w-3 text-primary" />
+                    Previo pickup: {new Date(h.lastPickupLive).toLocaleString()}
+                  </div>
+                ) : (
+                  <div className="truncate" title={h.last_label || ""}>
+                    Pickup upload: {h.lastPickupUpload ? new Date(h.lastPickupUpload).toLocaleString() : "never"}
+                  </div>
+                )}
+                {h.isPrevio && h.lastOccLive ? (
+                  <div className="flex items-center gap-1">
+                    <Radio className="h-3 w-3 text-primary" />
+                    Previo occupancy: {new Date(h.lastOccLive).toLocaleString()}
+                  </div>
+                ) : (
+                  <div>Occupancy upload: {h.lastOccUpload ? new Date(h.lastOccUpload).toLocaleString() : "never"}</div>
+                )}
+                {h.isPrevio && (
+                  <div className="flex items-center gap-1" title={h.lastSyncError || ""}>
+                    <Radio className={`h-3 w-3 ${h.lastSyncStatus === "error" ? "text-destructive" : h.lastSyncStatus === "warning" ? "text-amber-500" : "text-primary"}`} />
                     Previo sync: {h.lastSyncAt ? new Date(h.lastSyncAt).toLocaleString() : "never"}
+                    {h.lastSyncStatus === "error" && <span className="text-destructive">· failed</span>}
                   </div>
                 )}
                 <div>Pending recs: <b className="text-foreground">{h.pending_recs}</b></div>
               </div>
+
 
               <div className="flex gap-2 flex-wrap">
                 <Button size="sm" variant="outline" className="flex-1 min-w-[80px]"
