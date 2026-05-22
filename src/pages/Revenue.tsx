@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader2, CheckCircle2, XCircle, Radio, Info } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, Legend } from "recharts";
+import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 
 interface PickupDateRow { stay_date: string; delta: number }
