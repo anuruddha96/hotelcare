@@ -159,3 +159,7 @@ verify_jwt = false
 [functions.previo-nightly-sync]
 verify_jwt = false
 
+[functions.process-purchase-invoice]
+verify_jwt = true
+
+
