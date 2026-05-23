@@ -1,120 +1,105 @@
+## Purchase Invoices Module for Hotel Care
 
-## Goal
-
-Three independent improvements to Revenue Management:
-
-1. Calendar must show the **exact reference-room price** from Previo's pricelist (not the realized ADR average).
-2. The per-hotel mini-chart on `/revenue` must show **occupancy + pickup + reference-room price** together, not just an occupancy spark.
-3. The hotel card labels "Previo sync: never" and "Pickup upload: never" must reflect reality when Previo is actively syncing.
+Port the proven invoice OCR system from the brownie/treats project, adapted to Hotel Care's multi-tenant (organization + hotel) architecture, Hungarian VAT rules, and existing role model. Add per-hotel isolation, a new `back_office` role, and a guided onboarding tour that also retro-fits the housekeeping panel.
 
 ---
 
-## 1. Reference-room price on the calendar (drop ADR fallback)
+### 1. Roles & Access
 
-Today the calendar shows `daily_rates.rate_eur` where `source` can be:
-- `previo_pms` — pricelist value (correct)
-- `previo_realized` — average of total reservation price / nights (this is the ADR the user does not want)
-- `manual` / `engine` — seeded or recommended
+Extend the `user_role` enum with a new `back_office` role.
 
-Change `previo-pull-revenue` so the calendar always reflects the **pricelist** value for the reference room type:
+| Role | Upload | Verify | View list | Analytics/Reports | Delete |
+|---|---|---|---|---|---|
+| admin | ✓ | ✓ | ✓ | ✓ | ✓ |
+| top_management | ✓ | ✓ | ✓ | ✓ | ✓ |
+| control_finance (controlling) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| back_office (new) | ✓ | ✓ (preview only) | ✓ (own hotel) | ✗ | ✗ |
+| reception / front_office | ✓ | preview own upload | own uploads only | ✗ | ✗ |
+| housekeeping*, maintenance, breakfast_staff | ✗ | ✗ | ✗ | ✗ | ✗ |
 
-- Pick exactly one Previo room as the reference. Resolution order:
-  1. `room_types.is_reference = true` with a parsable `pms_room_id`.
-  2. If none, the most populous capacity bucket (existing fallback) — already done — but persist that pick by flipping `is_reference`.
-- Pricelist fetch already exists (`pricelist/getPriceList`). Improvements:
-  - Match strictly on `objId ∈ refObjIds`. Within that, prefer `persons = standard_occupancy` (new optional column, default = ref capacity); never fall back to "cheapest entry across all room types" — that was distorting the calendar.
-  - Store the raw pick per date in a new table `previo_reference_prices(hotel_id, stay_date, rate_eur, persons, currency, captured_at)` so the UI can show the exact value with provenance and we can stop overloading `daily_rates`.
-- **Stop writing `previo_realized` rows.** Remove the realized-ADR upsert branch entirely. Only `previo_pms` rows are written to `daily_rates`. Keep a one-time backfill SQL that deletes existing `previo_realized` rows so the calendar repaints clean.
-- `RevenueHotelDetail.tsx` (`rate` column in `Row`) reads `previo_reference_prices` first, then falls back to `daily_rates` for non-Previo hotels. Display a small "PMS" badge on the cell so it is obvious the number is the pricelist value, not a recommendation.
-- Day-detail sheet shows: reference room name, persons used for the price, pricelist id, and last fetch time.
-
-If the pricelist endpoint returns nothing for the reference room (Previo plan limitation), surface the existing `pricelistError` in the day-detail and in `RevenueSyncHistory` instead of silently falling back to ADR.
+All data is filtered by `assigned_hotel` + `organization_slug` (Core memory rule). Reception sees only invoices they uploaded; back-office sees the hotel's queue; controlling/admin/top-management see all hotels in their org.
 
 ---
 
-## 2. Hotel-card mini chart: occupancy + pickup + reference price
+### 2. Database (new tables)
 
-Replace the single-series sparkline (lines 338–346 of `src/pages/Revenue.tsx`) with a richer combo chart. The data is already loaded for occupancy; add two more series:
+- `purchase_invoices` — one row per uploaded document. Columns: hotel_id, organization_slug, uploaded_by, image_url (storage path), status (`uploaded|processing|processed|failed|verified`), document_type, error_code, error_details (jsonb), confidence_score, needs_review, raw_text, extraction_notes, merchant_name, merchant_tax_id, merchant_address, invoice_number, invoice_date, due_date, performance_date, currency, total_amount, net_amount, total_vat_amount, expense_category, bottle_deposit_amount, payment_method, verified_by, verified_at, processing_notes.
+- `purchase_invoice_vat_lines` — Hungarian VAT broken out independently per rate: invoice_id, vat_rate (27, 18, 5, 0, AAM/exempt, KBA/reverse-charge, EU intra-community, export 0%), vat_base, vat_amount, country (for foreign VAT).
+- `purchase_invoice_items` — line items: invoice_id, name_original, name_english, quantity, unit_price, total_price, vat_rate, item_type, item_code.
+- `purchase_invoice_categories` — admin-managed expense categories (org-scoped) so the team can extend beyond defaults.
+- Storage bucket `purchase-invoices` (private) with per-org/per-hotel folder RLS.
 
-- Build `spark` for the next 14 days containing `{ d: 'Mon 25', occ: 62, pickup: 3, rate: 145 }` by joining:
-  - `occupancy_snapshots` (latest per stay_date) — already loaded.
-  - `pickup_snapshots.delta` summed per stay_date — fetch a second slice over the 14-day horizon (not just "last 24h").
-  - `previo_reference_prices` (or `daily_rates` source=`previo_pms`) for the rate line.
-- Render with Recharts `ComposedChart`:
-  - Left Y axis: occupancy % (area), pickup (bars).
-  - Right Y axis: rate € (line, accent color).
-  - Compact tooltip showing all three values + date.
-- Below the chart keep the existing 7-day occupancy bar row; add a tiny legend (Occ / Pickup / Rate) so the chart is self-explanatory.
-- Card grows ~80px taller; keep responsive — single column on mobile already handled.
+RLS: `has_role(auth.uid(), …)` security definer helper checks role + hotel + org.
 
 ---
 
-## 3. Fix "Previo sync: never" and "Pickup upload: never"
+### 3. OCR & extraction (no separate AI vendor)
 
-Two root causes:
+Single edge function `process-purchase-invoice` using **Lovable AI Gateway** (`google/gemini-2.5-flash` — vision-capable, included in free tier, no extra setup). Reasoning: pure OCR libraries (Tesseract) handle clean printed receipts but fail on Hungarian fiscal receipts, multi-VAT tables, and rotated phone photos — the gateway model handles all of these reliably and is already wired into the project. Falls back to a structured error code (ERR_BLURRY / ERR_DARK / ERR_PARTIAL / ERR_NOT_INVOICE / ERR_UNREADABLE / ERR_MISSING_DATA / ERR_PDF_TOO_LARGE) when quality is insufficient, with localized tips returned to the UI.
 
-**a. `pms_configurations.last_sync_at` is never updated** by `previo-pull-revenue` or `previo-sync-daily-overview`. The Revenue page reads it for the "Previo sync" line, so it always shows "never" even when syncs run on the cron.
-
-Fix: at the end of both edge functions, on success:
-```ts
-await service.from("pms_configurations")
-  .update({ last_sync_at: new Date().toISOString(), last_sync_status: "success", last_sync_error: null })
-  .eq("hotel_id", hotelId).eq("pms_type", "previo");
-```
-On error, write `last_sync_status: "error"` + `last_sync_error: message`. Add the two columns if missing.
-
-**b. "Pickup upload" label is misleading.** The current query reads any `pickup_snapshots` row regardless of source, but the label implies an XLSX upload. For Previo-connected hotels there is no XLSX upload — the data comes from the live sync.
-
-Fix in `src/pages/Revenue.tsx`:
-- Compute two values:
-  - `lastPickupUpload` = newest `pickup_snapshots` where `source <> 'previo'` (or `snapshot_label <> 'previo-live'`).
-  - `lastPickupLive`   = newest where `source = 'previo'`.
-- Render conditionally:
-  - If `isPrevio` and `lastPickupLive`: "Previo pickup: 2 min ago".
-  - Else: "Pickup upload: …" (existing behavior for XLSX-only hotels).
-- Same treatment for occupancy line ("Previo occupancy" vs "Occupancy upload").
-- The "Previo sync" line now uses `last_sync_at` updated in (a) and shows the latest of the two syncs (revenue + overview).
-
-Also add a small `RefreshCw` button on each Previo card that invokes `revenue-engine-tick` for that specific hotel so an admin can force a re-sync if the cron is lagging — gives a fast feedback loop for confirming the labels update.
+Server-side post-processing:
+- Date normalization (Hungarian `YYYY.MM.DD.`, EU, ISO, English long-form).
+- Hungarian merchant detection (Aldi, Lidl, Spar, Tesco, Penny, DM, Müller, Auchan, CBA, Coop, etc.).
+- VAT auto-fill for simplified receipts that print only `A/B/C` codes (A=5%, B=18%, C=27%) by deriving base+VAT from the gross.
+- Tax-ID validation (Hungarian `12345678-1-12` format).
+- Foreign VAT detection (EU invoices in EUR/USD, stored with `country`).
 
 ---
 
-## Technical details
+### 4. Hungarian VAT model
 
-**Files to edit**
-- `supabase/functions/previo-pull-revenue/index.ts` — drop realized-ADR upsert, persist reference price to new table, update `last_sync_at`.
-- `supabase/functions/previo-sync-daily-overview/index.ts` — update `last_sync_at` on success/error.
-- `src/pages/Revenue.tsx` — richer mini chart (ComposedChart), split pickup/occupancy labels by source, manual sync button, load `previo_reference_prices`.
-- `src/pages/RevenueHotelDetail.tsx` — read `previo_reference_prices` for the rate column, badge cells as "PMS", show reference-room details in day sheet.
-- `src/components/revenue/RevenueSyncHistory.tsx` — surface pricelist errors when present.
+Stored per VAT line so reports can split correctly:
+- **27%** — standard
+- **18%** — basic foods, hotel accommodation services
+- **5%** — books, medicines, district heating, new residential, certain meats
+- **0% / AAM** — exempt without deduction (small-business)
+- **KBA / reverse charge** — domestic reverse charge (construction, scrap)
+- **EU intra-community** — 0% with partner VAT number
+- **Export 0%**
+- **Foreign VAT** — kept as `foreign_vat_details` with country code, never mixed into HU totals
 
-**Migration**
-```sql
-create table public.previo_reference_prices (
-  hotel_id text not null,
-  organization_slug text not null,
-  stay_date date not null,
-  rate_eur numeric(10,2) not null,
-  persons int,
-  currency text default 'EUR',
-  pricelist_id text,
-  captured_at timestamptz not null default now(),
-  primary key (hotel_id, stay_date)
-);
-alter table public.previo_reference_prices enable row level security;
--- read policy: admin/top_management of the org; service role bypasses
-create policy "org admins read ref prices" on public.previo_reference_prices
-  for select using (has_role(auth.uid(),'admin') or has_role(auth.uid(),'top_management'));
+Reports sum bases and amounts per rate, per period, per hotel.
 
-alter table public.pms_configurations
-  add column if not exists last_sync_status text,
-  add column if not exists last_sync_error text;
+---
 
--- one-time cleanup so the calendar stops showing realized ADR
-delete from public.daily_rates where source = 'previo_realized';
-```
+### 5. UI
 
-**Out of scope**
-- No changes to the engine / autopilot logic.
-- No new permissions for non-admin roles.
-- Multi-room-type price display is deliberately not added — the user asked for one reference room only.
+New route `/:organizationSlug/purchase-invoices` and surfaced in `PMSNavigation` only for eligible roles. Single page with role-aware tabs:
+
+- **Upload** (all eligible roles) — camera + file + PDF. Live image-quality hints (blur/darkness) before submit. Per-step progress: uploaded → OCR → parsed → preview. Editable preview with all extracted fields + per-VAT lines + items, "Save & verify" or "Save as draft".
+- **Queue / All invoices** (back_office+) — list with filters (hotel, date range, merchant, VAT rate, status, needs-review), bulk verify, edit, delete (admin).
+- **Analytics** (controlling/top_management/admin only) — KPI cards (this month, last month, % change, unverified count, top merchant), Recharts: monthly spend bar, VAT breakdown donut, category split, merchant top-10, daily trend. Report period: day / week / month / quarter / year, with hotel filter.
+- **Export** (controlling+) — CSV/XLSX export, NAV-compatible VAT summary, ZIP of source images for a period.
+
+Mobile-first: cards stack, camera button is primary CTA, sticky bottom action bar.
+
+---
+
+### 6. Guided training (multilingual, animated)
+
+New reusable `GuidedTour` system (extends existing `TrainingGuideContext`):
+- Blurs background, spotlights one element at a time, fades+slides tooltip in (Framer Motion).
+- Steps defined as `{ targetSelector, titleKey, bodyKey, placement, action? }`.
+- Auto-runs on first visit per route (flag stored in `user_training_progress` table per user/route), with a persistent "?" help button in the page header to replay.
+- All copy translated via existing `useTranslation` into **hu, es, vi, mn, en**.
+- Tours shipped for: `/purchase-invoices` (upload → preview → verify → analytics) and the existing housekeeping panel (assignments → start cleaning → DND → complete) so the housekeeping side gets the same treatment.
+
+---
+
+### 7. Out of scope (explicit)
+
+- NAV Online Számla direct submission (only export-ready format for now).
+- Approval workflows / multi-step finance sign-off.
+- Supplier master / accounts-payable ledger.
+- Editing the housekeeping tour content beyond initial 4-step skeleton.
+
+---
+
+### Technical notes
+
+- Edge functions: `process-purchase-invoice` (OCR + parse), `purchase-invoice-export` (CSV/XLSX/ZIP). Both with `verify_jwt = true` via in-code JWT check + role check.
+- Storage bucket `purchase-invoices` private, signed URLs only.
+- Migration adds `back_office` to `user_role` enum, all tables, RLS policies via `has_role` definer, and an `expense_categories` seed.
+- Frontend: `src/pages/PurchaseInvoices.tsx`, `src/components/purchase-invoices/*` (Upload, Preview, Queue, Analytics, Export, Tour), `src/components/training/GuidedTour.tsx`, `src/lib/purchase-invoice-translations.ts`.
+- Charts: Recharts (already in project).
+- Image quality precheck: client-side Laplacian-variance blur check + brightness histogram before upload to save round-trips.

@@ -2988,6 +2988,268 @@ export type Database = {
         }
         Relationships: []
       }
+      purchase_invoice_categories: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          organization_slug: string
+          sort_order: number
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          organization_slug: string
+          sort_order?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          organization_slug?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      purchase_invoice_items: {
+        Row: {
+          created_at: string
+          id: string
+          invoice_id: string
+          item_code: string | null
+          item_type: string | null
+          name_english: string | null
+          name_original: string | null
+          position: number
+          quantity: number | null
+          total_price: number | null
+          unit_price: number | null
+          vat_rate: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          invoice_id: string
+          item_code?: string | null
+          item_type?: string | null
+          name_english?: string | null
+          name_original?: string | null
+          position?: number
+          quantity?: number | null
+          total_price?: number | null
+          unit_price?: number | null
+          vat_rate?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          invoice_id?: string
+          item_code?: string | null
+          item_type?: string | null
+          name_english?: string | null
+          name_original?: string | null
+          position?: number
+          quantity?: number | null
+          total_price?: number | null
+          unit_price?: number | null
+          vat_rate?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_invoice_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      purchase_invoice_vat_lines: {
+        Row: {
+          country: string | null
+          created_at: string
+          id: string
+          invoice_id: string
+          vat_amount: number
+          vat_base: number
+          vat_kind: string
+          vat_rate: number
+        }
+        Insert: {
+          country?: string | null
+          created_at?: string
+          id?: string
+          invoice_id: string
+          vat_amount?: number
+          vat_base?: number
+          vat_kind: string
+          vat_rate: number
+        }
+        Update: {
+          country?: string | null
+          created_at?: string
+          id?: string
+          invoice_id?: string
+          vat_amount?: number
+          vat_base?: number
+          vat_kind?: string
+          vat_rate?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_invoice_vat_lines_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      purchase_invoices: {
+        Row: {
+          bottle_deposit_amount: number | null
+          confidence_score: number | null
+          created_at: string
+          currency: string
+          document_type: string | null
+          due_date: string | null
+          error_code: string | null
+          error_details: Json | null
+          expense_category: string | null
+          extraction_notes: string | null
+          file_mime: string | null
+          file_path: string
+          file_size_bytes: number | null
+          hotel_id: string | null
+          id: string
+          invoice_date: string | null
+          invoice_number: string | null
+          is_verified: boolean
+          merchant_address: string | null
+          merchant_country: string | null
+          merchant_name: string | null
+          merchant_tax_id: string | null
+          needs_review: boolean
+          net_amount: number | null
+          notes: string | null
+          organization_slug: string
+          payment_method: string | null
+          performance_date: string | null
+          processing_notes: string | null
+          raw_text: string | null
+          status: string
+          total_amount: number | null
+          total_vat_amount: number | null
+          updated_at: string
+          uploaded_at: string
+          uploaded_by: string
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          bottle_deposit_amount?: number | null
+          confidence_score?: number | null
+          created_at?: string
+          currency?: string
+          document_type?: string | null
+          due_date?: string | null
+          error_code?: string | null
+          error_details?: Json | null
+          expense_category?: string | null
+          extraction_notes?: string | null
+          file_mime?: string | null
+          file_path: string
+          file_size_bytes?: number | null
+          hotel_id?: string | null
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_verified?: boolean
+          merchant_address?: string | null
+          merchant_country?: string | null
+          merchant_name?: string | null
+          merchant_tax_id?: string | null
+          needs_review?: boolean
+          net_amount?: number | null
+          notes?: string | null
+          organization_slug: string
+          payment_method?: string | null
+          performance_date?: string | null
+          processing_notes?: string | null
+          raw_text?: string | null
+          status?: string
+          total_amount?: number | null
+          total_vat_amount?: number | null
+          updated_at?: string
+          uploaded_at?: string
+          uploaded_by: string
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          bottle_deposit_amount?: number | null
+          confidence_score?: number | null
+          created_at?: string
+          currency?: string
+          document_type?: string | null
+          due_date?: string | null
+          error_code?: string | null
+          error_details?: Json | null
+          expense_category?: string | null
+          extraction_notes?: string | null
+          file_mime?: string | null
+          file_path?: string
+          file_size_bytes?: number | null
+          hotel_id?: string | null
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_verified?: boolean
+          merchant_address?: string | null
+          merchant_country?: string | null
+          merchant_name?: string | null
+          merchant_tax_id?: string | null
+          needs_review?: boolean
+          net_amount?: number | null
+          notes?: string | null
+          organization_slug?: string
+          payment_method?: string | null
+          performance_date?: string | null
+          processing_notes?: string | null
+          raw_text?: string | null
+          status?: string
+          total_amount?: number | null
+          total_vat_amount?: number | null
+          updated_at?: string
+          uploaded_at?: string
+          uploaded_by?: string
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_invoices_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_invoices_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_calendar: {
         Row: {
           available_rooms: number | null
@@ -4297,6 +4559,32 @@ export type Database = {
         }
         Relationships: []
       }
+      user_tour_progress: {
+        Row: {
+          completed_at: string
+          tour_key: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string
+          tour_key: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string
+          tour_key?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_tour_progress_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_training_assignments: {
         Row: {
           assigned_by: string | null
@@ -4648,6 +4936,9 @@ export type Database = {
         Args: { org_slug: string }
         Returns: boolean
       }
+      pi_user_hotel: { Args: never; Returns: string }
+      pi_user_org: { Args: never; Returns: string }
+      pi_user_role: { Args: never; Returns: string }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
       update_assignment_type: {
         Args: {
@@ -4737,6 +5028,7 @@ export type Database = {
         | "finance_manager"
         | "top_management_manager"
         | "breakfast_staff"
+        | "back_office"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4921,6 +5213,7 @@ export const Constants = {
         "finance_manager",
         "top_management_manager",
         "breakfast_staff",
+        "back_office",
       ],
     },
   },

@@ -6,6 +6,7 @@ import { pmsTranslations } from '@/lib/pms-translations';
 import { highlightedTranslations } from '@/lib/highlighted-translations';
 import { screenTranslations } from '@/lib/screen-translations';
 import { roomOverviewTranslations } from '@/lib/room-overview-translations';
+import { purchaseInvoiceTranslations } from '@/lib/purchase-invoice-translations';
 
 const translations = {
   en: {
@@ -2217,6 +2218,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...toStringBundle(highlightedTranslations[lang]),
   ...toStringBundle(screenTranslations[lang]),
   ...(roomOverviewTranslations[lang as keyof typeof roomOverviewTranslations] || {}),
+  ...((purchaseInvoiceTranslations as any)[lang] || {}),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {
