@@ -6,6 +6,7 @@ import { pmsTranslations } from '@/lib/pms-translations';
 import { highlightedTranslations } from '@/lib/highlighted-translations';
 import { screenTranslations } from '@/lib/screen-translations';
 import { roomOverviewTranslations } from '@/lib/room-overview-translations';
+import { purchaseInvoiceTranslations } from '@/lib/purchase-invoice-translations';
 
 const translations = {
   en: {
