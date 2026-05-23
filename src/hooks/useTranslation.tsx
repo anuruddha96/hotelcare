@@ -2218,6 +2218,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...toStringBundle(highlightedTranslations[lang]),
   ...toStringBundle(screenTranslations[lang]),
   ...(roomOverviewTranslations[lang as keyof typeof roomOverviewTranslations] || {}),
+  ...((purchaseInvoiceTranslations as any)[lang] || {}),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {
