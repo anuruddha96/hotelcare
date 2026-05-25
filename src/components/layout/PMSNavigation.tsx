@@ -31,8 +31,8 @@ export function PMSNavigation() {
   const { t } = useTranslation();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
-  // Show to admin and top_management; each item also filters by role
-  if (profile?.role !== 'admin' && profile?.role !== 'top_management') return null;
+  // Show to finance/back-office in addition to admin/top-management
+  if (!profile || !NAV_GATE_ROLES.includes(profile.role)) return null;
 
   const visibleItems = PMS_NAV_ITEMS.filter(
     (item) => profile && item.roles.includes(profile.role)
