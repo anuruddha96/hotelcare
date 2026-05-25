@@ -21,6 +21,7 @@ import {
   PieChart, Pie, Cell, LineChart, Line,
 } from 'recharts';
 import { useFirstRunTour, TourReplayButton, type TourStep } from '@/components/training/GuidedTour';
+import { VerifyInvoiceDialog } from '@/components/purchase-invoices/VerifyInvoiceDialog';
 
 const ALLOWED_ROLES = ['admin','top_management','control_finance','back_office','reception','front_office'];
 const ANALYTICS_ROLES = ['admin','top_management','control_finance'];
