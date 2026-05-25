@@ -43,6 +43,7 @@ export default function PurchaseInvoices() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
+  const [verifyId, setVerifyId] = useState<string | null>(null);
 
   const canAccess = profile && ALLOWED_ROLES.includes(profile.role);
   const canSeeAnalytics = profile && ANALYTICS_ROLES.includes(profile.role);
