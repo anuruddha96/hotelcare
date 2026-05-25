@@ -50,6 +50,7 @@ const TenantRouter = () => {
         <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
         <Route path="/bb" element={<Breakfast />} />
         <Route path="/bb/:hotelCode" element={<Breakfast />} />
+        <Route path="/purchase-invoices" element={<PurchaseInvoices />} />
       </Routes>
     </TenantProvider>
   );
