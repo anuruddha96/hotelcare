@@ -8,9 +8,12 @@ import {
   DoorOpen,
   Radio,
   TrendingUp,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+
+const NAV_GATE_ROLES = ['admin', 'top_management', 'control_finance', 'control_manager', 'back_office_manager'];
 
 const PMS_NAV_ITEMS = [
   { key: 'front-desk', icon: DoorOpen, labelKey: 'pms.frontDesk', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management'] },
@@ -18,6 +21,7 @@ const PMS_NAV_ITEMS = [
   { key: 'guests', icon: Users, labelKey: 'pms.guests', roles: ['admin', 'manager', 'reception', 'front_office', 'top_management'] },
   { key: 'channel-manager', icon: Radio, labelKey: 'pms.channelManager', roles: ['admin', 'manager', 'top_management'] },
   { key: 'revenue', icon: TrendingUp, labelKey: 'pms.revenue', roles: ['admin', 'top_management'] },
+  { key: 'purchase-invoices', icon: Receipt, labelKey: 'pms.purchaseInvoices', roles: ['admin', 'top_management', 'control_finance', 'control_manager', 'back_office_manager'] },
 ];
 
 export function PMSNavigation() {
@@ -27,8 +31,8 @@ export function PMSNavigation() {
   const { t } = useTranslation();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
-  // Show to admin and top_management; each item also filters by role
-  if (profile?.role !== 'admin' && profile?.role !== 'top_management') return null;
+  // Show to finance/back-office in addition to admin/top-management
+  if (!profile || !NAV_GATE_ROLES.includes(profile.role)) return null;
 
   const visibleItems = PMS_NAV_ITEMS.filter(
     (item) => profile && item.roles.includes(profile.role)
