@@ -367,6 +367,12 @@ export default function PurchaseInvoices() {
           )}
         </Tabs>
       </div>
+      <VerifyInvoiceDialog
+        invoiceId={verifyId}
+        open={!!verifyId}
+        onClose={() => setVerifyId(null)}
+        onSaved={() => reload()}
+      />
     </div>
   );
 }
