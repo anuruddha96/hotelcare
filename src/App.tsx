@@ -23,6 +23,7 @@ import Revenue from "./pages/Revenue";
 import RevenueHotelDetail from "./pages/RevenueHotelDetail";
 import Breakfast from "./pages/Breakfast";
 import BreakfastAuth from "./pages/BreakfastAuth";
+import PurchaseInvoices from "./pages/PurchaseInvoices";
 
 const queryClient = new QueryClient();
 
