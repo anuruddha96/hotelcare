@@ -6,6 +6,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { TranslationProvider } from "@/hooks/useTranslation";
 import { TenantProvider } from "@/contexts/TenantContext";
 import { TrainingGuideProvider } from "@/contexts/TrainingGuideContext";
+import { GuidedTourProvider } from "@/components/training/GuidedTour";
 import { LiveSyncProvider } from "@/contexts/LiveSyncContext";
 import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNotificationProvider";
 import { TrainingOverlay, TrainingWelcomePrompt } from "@/components/training";
@@ -81,6 +82,7 @@ const MainApp = () => (
       <AuthProvider>
         <LiveSyncProvider>
         <TrainingGuideProvider>
+          <GuidedTourProvider>
           <RealtimeNotificationProvider>
             <TooltipProvider>
               <Toaster />
@@ -105,6 +107,7 @@ const MainApp = () => (
               </BrowserRouter>
             </TooltipProvider>
           </RealtimeNotificationProvider>
+          </GuidedTourProvider>
         </TrainingGuideProvider>
         </LiveSyncProvider>
       </AuthProvider>
