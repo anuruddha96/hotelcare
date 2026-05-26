@@ -82,6 +82,7 @@ const MainApp = () => (
       <AuthProvider>
         <LiveSyncProvider>
         <TrainingGuideProvider>
+          <GuidedTourProvider>
           <RealtimeNotificationProvider>
             <TooltipProvider>
               <Toaster />
