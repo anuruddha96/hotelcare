@@ -1,51 +1,75 @@
-## Wire up Purchase Invoices module
+# Purchase Invoices — Fixes & Improvements
 
-Complete the integration of the Purchase Invoices feature built in the previous loop so admins, top management, controlling, and back-office users can access it end-to-end.
+## 1. Fix upload error ("Failed to send a request to the Edge Function")
 
-### 1. Route registration (`src/App.tsx`)
+**Root cause:** `process-purchase-invoice` returns 404 NOT_FOUND when curled — the function never deployed (likely a build/syntax issue or it was registered in `config.toml` after first deploy snapshot). The client invoke therefore fails before any code runs, so no logs exist.
 
-Inside `TenantRouter`, add:
-```
-<Route path="/purchase-invoices" element={<PurchaseInvoices />} />
-```
-Import `PurchaseInvoices` from `./pages/PurchaseInvoices`. No changes to the public `/bb` shell.
+Actions:
+- Touch `supabase/functions/process-purchase-invoice/index.ts` (minor harmless edit + add explicit `// deploy` marker) to force a redeploy.
+- Add a small input-validation guard at the top so the function returns 400 (not 500) for missing fields, which also confirms deploy via curl.
+- In the client (`handleFile`), improve error surface: when `error.message` is `Failed to send a request to the Edge Function`, show a clearer toast ("Processor unavailable — invoice saved as draft, retry from Queue") and still keep the inserted DB row so the user can re-trigger from Queue.
+- Add a **"Retry OCR"** action per row in the Queue (calls the same function for an existing invoice id).
 
-### 2. Navigation entry (`src/components/layout/PMSNavigation.tsx`)
+## 2. Expand the guided tour (currently 4 steps → ~12)
 
-- Add a new nav item `purchase-invoices` with a `Receipt` (or `FileText`) icon and label key `pms.purchaseInvoices`.
-- Visible roles: `admin`, `top_management`, `control_finance`, `control_manager`, `back_office_manager`.
-- Extend the outer visibility gate so the nav bar also renders for these finance/back-office roles (currently it only renders for admin + top_management).
-- Add `pms.purchaseInvoices` translation keys in `hu, es, vi, mn, en` via `src/lib/purchase-invoice-translations.ts` (or the main translations file, matching existing pattern).
+Add `data-tour` anchors and steps for:
+1. Welcome / what this module does
+2. Top stats area (replay button, role badge)
+3. Tabs overview
+4. Upload — Camera tile (mobile capture)
+5. Upload — File tile (PDF support, multi-file)
+6. Quality tips strip (lighting / flat / clear)
+7. Queue — search box
+8. Queue — status badges legend
+9. Queue — click row to verify
+10. Queue — Retry OCR button (new)
+11. Analytics — KPI cards
+12. Analytics — daily trend, category & VAT breakdown
+13. Export — CSV / XLSX (new)
+14. Replay tour button — how to revisit anytime
 
-### 3. Inline "Verify & edit" dialog
+All step copy added to `purchase-invoice-translations.ts` for `en, hu, es, vi, mn`.
 
-New component `src/components/purchase-invoices/VerifyInvoiceDialog.tsx`:
-- Opens from the Queue tab row action "Verify".
-- Loads the invoice with its `purchase_invoice_vat_lines` and `purchase_invoice_items` in one query.
-- Tabs: **Header** (merchant, tax_id, invoice_number, dates, currency, totals, category, payment method), **VAT lines** (editable table per rate), **Items** (editable rows with add/remove).
-- Shows the document preview (signed URL from the `purchase-invoices` bucket) side-by-side on desktop, stacked on mobile.
-- Save button: updates `purchase_invoices` row, upserts VAT lines and items (delete-then-insert for simplicity), sets `is_verified = true`, `verified_by = auth.uid()`, `verified_at = now()`, `status = 'verified'`.
-- Only `admin`, `top_management`, `control_finance`, `back_office_manager` see the Save button; others get read-only.
-- Uses native scrollable `div` (not Radix ScrollArea) inside the flex dialog, per project UI constraint.
+## 3. Queue improvements
 
-### 4. Queue wiring (`src/pages/PurchaseInvoices.tsx`)
+- **Status filters** (chips): All / Uploaded / Processing / Processed / Verified / Failed / Needs review.
+- **Date range** filter (this month / last month / custom).
+- **Bulk select** with checkboxes: bulk verify, bulk retry OCR, bulk delete (admin only).
+- **Inline preview thumbnail** (first page / image) per row with signed URL.
+- **Sort** by date / amount / merchant.
+- **Pagination** (50 per page) — current 500 limit becomes paginated query.
+- **Failure reason chip** with error tip on hover (uses `error_details.tips`).
+- **Empty state** with CTA to Upload tab.
 
-- Add a "Verify" button per row that opens `VerifyInvoiceDialog`.
-- After save, invalidate the queue query so status badges refresh.
-- Badge for `is_verified` ✓ next to status.
+## 4. Analytics improvements
 
-### 5. Mount confirmation
+- **Date range selector** (7d / 30d / 90d / YTD / custom) driving all charts.
+- **New KPI tiles:** Avg invoice value, VAT reclaimable total, Processing success rate, Unique merchants.
+- **Monthly comparison chart** (this year vs last year, grouped bars).
+- **Top 10 merchants** horizontal bar chart.
+- **VAT breakdown by kind** (27% / 18% / 5% / AAM / KBA) — stacked bar by month, replacing the duplicate line chart.
+- **Payment method split** donut.
+- **Hotel split** (when org has multiple hotels and user can see them).
+- **Anomaly callout:** invoices where total differs from sum(vat_lines) by >1%, or duplicates (same merchant+invoice_number).
+- **Drill-through:** clicking a chart segment filters the Queue tab to that slice.
 
-`PurchaseInvoices` already lives under `TenantRouter`, which is mounted inside `MainApp`. No extra provider mounting needed beyond the route registration — `TrainingGuideProvider`, `AuthProvider`, and `TenantProvider` are already in scope.
+## 5. Export improvements
 
-### Technical notes
+- CSV (exists), add **XLSX** (multi-sheet: Invoices, VAT lines, Items) using `xlsx` package.
+- Add **NAV-compatible XML** stub (Hungarian tax authority format) — header only with merchant/tax_id/dates/totals; flagged as beta.
+- Date-range + status filter applied to export.
 
-- RLS already restricts visibility per `assigned_hotel` + `organization_slug`; no policy changes needed.
-- `is_verified`, `verified_by`, `verified_at` columns already exist on `purchase_invoices` (added in the prior migration).
-- No new edge functions, no migrations.
+## 6. Files touched
 
-### Out of scope
+- `supabase/functions/process-purchase-invoice/index.ts` — force redeploy, add input validation, allow re-processing existing rows.
+- `src/pages/PurchaseInvoices.tsx` — queue/analytics/export upgrades, retry, filters, tour anchors.
+- `src/components/purchase-invoices/QueueRow.tsx` (new) — extracted row with thumbnail + actions.
+- `src/components/purchase-invoices/AnalyticsPanel.tsx` (new) — extracted analytics.
+- `src/components/purchase-invoices/ExportPanel.tsx` (new) — CSV + XLSX + NAV XML.
+- `src/lib/purchase-invoice-translations.ts` — 5 languages, ~30 new keys for tour + UI.
+- `src/components/training/GuidedTour.tsx` — no changes needed (already supports N steps).
 
-- Bulk verify
-- XLSX/ZIP export edge function
-- Housekeeping guided tour selectors (separate follow-up)
+## Out of scope
+- Real NAV Online Invoice API submission (only export stub).
+- Mobile-native camera enhancement plugins.
+- Auto-categorization ML beyond current AI extraction.
