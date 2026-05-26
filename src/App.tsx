@@ -107,6 +107,7 @@ const MainApp = () => (
               </BrowserRouter>
             </TooltipProvider>
           </RealtimeNotificationProvider>
+          </GuidedTourProvider>
         </TrainingGuideProvider>
         </LiveSyncProvider>
       </AuthProvider>
