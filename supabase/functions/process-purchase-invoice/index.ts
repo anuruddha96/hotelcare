@@ -49,10 +49,13 @@ function vatFromGross(gross: number, rate: number) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // v2 — force redeploy + input validation
   try {
-    const { invoiceId } = await req.json();
-    if (!invoiceId) {
-      return new Response(JSON.stringify({ error: "Missing invoiceId" }), {
+    let body: any = {};
+    try { body = await req.json(); } catch (_) { body = {}; }
+    const invoiceId: string | undefined = body?.invoiceId;
+    if (!invoiceId || typeof invoiceId !== "string") {
+      return new Response(JSON.stringify({ error: "Missing or invalid invoiceId" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
