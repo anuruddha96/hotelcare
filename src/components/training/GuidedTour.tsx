@@ -11,6 +11,9 @@ export interface TourStep {
   titleKey: string;
   bodyKey: string;
   placement?: 'top' | 'bottom' | 'left' | 'right';
+  /** Optional tab key. GuidedTour dispatches a `tour:navigate` CustomEvent with this
+   *  before locating the selector, so pages can switch tabs to reveal the target. */
+  tab?: string;
 }
 
 interface TourContextValue {
@@ -28,12 +31,28 @@ export function GuidedTourProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!active) return;
     const step = active.steps[index];
+    // Ask the host page to switch tab/route if the step declares one.
+    if (step?.tab) {
+      window.dispatchEvent(new CustomEvent('tour:navigate', { detail: { tab: step.tab, tourKey: active.key } }));
+    }
     if (!step?.selector) { setRect(null); return; }
-    const el = document.querySelector(step.selector) as HTMLElement | null;
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setTimeout(() => setRect(el.getBoundingClientRect()), 250);
-    } else setRect(null);
+    // Poll for the element — it may not exist until the tab content mounts.
+    let cancelled = false;
+    let attempts = 0;
+    const tryLocate = () => {
+      if (cancelled) return;
+      const el = document.querySelector(step.selector!) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => !cancelled && setRect(el.getBoundingClientRect()), 250);
+      } else if (attempts++ < 20) {
+        setTimeout(tryLocate, 100);
+      } else {
+        setRect(null);
+      }
+    };
+    tryLocate();
+    return () => { cancelled = true; };
   }, [active, index]);
 
   const finish = async () => {

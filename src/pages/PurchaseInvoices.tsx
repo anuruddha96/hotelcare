@@ -33,18 +33,18 @@ const QUEUE_ROLES = ['admin','top_management','control_finance','back_office'];
 const PI_TOUR: TourStep[] = [
   { titleKey: 'tour.pi.welcome.title', bodyKey: 'tour.pi.welcome.body' },
   { selector: '[data-tour="pi-tabs"]', titleKey: 'tour.pi.tabs.title', bodyKey: 'tour.pi.tabs.body' },
-  { selector: '[data-tour="pi-upload"]', titleKey: 'tour.pi.upload.title', bodyKey: 'tour.pi.upload.body' },
-  { selector: '[data-tour="pi-camera"]', titleKey: 'tour.pi.camera.title', bodyKey: 'tour.pi.camera.body' },
-  { selector: '[data-tour="pi-file"]', titleKey: 'tour.pi.file.title', bodyKey: 'tour.pi.file.body' },
-  { selector: '[data-tour="pi-tips"]', titleKey: 'tour.pi.tips.title', bodyKey: 'tour.pi.tips.body' },
-  { selector: '[data-tour="pi-queue"]', titleKey: 'tour.pi.queue.title', bodyKey: 'tour.pi.queue.body' },
-  { selector: '[data-tour="pi-filter"]', titleKey: 'tour.pi.filter.title', bodyKey: 'tour.pi.filter.body' },
-  { selector: '[data-tour="pi-row"]', titleKey: 'tour.pi.row.title', bodyKey: 'tour.pi.row.body' },
-  { selector: '[data-tour="pi-retry"]', titleKey: 'tour.pi.retry.title', bodyKey: 'tour.pi.retry.body' },
-  { selector: '[data-tour="pi-analytics"]', titleKey: 'tour.pi.analytics.title', bodyKey: 'tour.pi.analytics.body' },
-  { selector: '[data-tour="pi-kpis"]', titleKey: 'tour.pi.kpis.title', bodyKey: 'tour.pi.kpis.body' },
-  { selector: '[data-tour="pi-top"]', titleKey: 'tour.pi.top.title', bodyKey: 'tour.pi.top.body' },
-  { selector: '[data-tour="pi-export"]', titleKey: 'tour.pi.export.title', bodyKey: 'tour.pi.export.body' },
+  { tab: 'upload', selector: '[data-tour="pi-upload"]', titleKey: 'tour.pi.upload.title', bodyKey: 'tour.pi.upload.body' },
+  { tab: 'upload', selector: '[data-tour="pi-camera"]', titleKey: 'tour.pi.camera.title', bodyKey: 'tour.pi.camera.body' },
+  { tab: 'upload', selector: '[data-tour="pi-file"]', titleKey: 'tour.pi.file.title', bodyKey: 'tour.pi.file.body' },
+  { tab: 'upload', selector: '[data-tour="pi-tips"]', titleKey: 'tour.pi.tips.title', bodyKey: 'tour.pi.tips.body' },
+  { tab: 'queue', selector: '[data-tour="pi-queue"]', titleKey: 'tour.pi.queue.title', bodyKey: 'tour.pi.queue.body' },
+  { tab: 'queue', selector: '[data-tour="pi-filter"]', titleKey: 'tour.pi.filter.title', bodyKey: 'tour.pi.filter.body' },
+  { tab: 'queue', selector: '[data-tour="pi-row"]', titleKey: 'tour.pi.row.title', bodyKey: 'tour.pi.row.body' },
+  { tab: 'queue', selector: '[data-tour="pi-retry"]', titleKey: 'tour.pi.retry.title', bodyKey: 'tour.pi.retry.body' },
+  { tab: 'analytics', selector: '[data-tour="pi-analytics"]', titleKey: 'tour.pi.analytics.title', bodyKey: 'tour.pi.analytics.body' },
+  { tab: 'analytics', selector: '[data-tour="pi-kpis"]', titleKey: 'tour.pi.kpis.title', bodyKey: 'tour.pi.kpis.body' },
+  { tab: 'analytics', selector: '[data-tour="pi-top"]', titleKey: 'tour.pi.top.title', bodyKey: 'tour.pi.top.body' },
+  { tab: 'export', selector: '[data-tour="pi-export"]', titleKey: 'tour.pi.export.title', bodyKey: 'tour.pi.export.body' },
   { selector: '[data-tour="pi-replay"]', titleKey: 'tour.pi.replay.title', bodyKey: 'tour.pi.replay.body' },
 ];
 
@@ -66,6 +66,16 @@ export default function PurchaseInvoices() {
   const [sortMode, setSortMode] = useState<SortMode>('newest');
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('30d');
+  const [activeTab, setActiveTab] = useState<string>('upload');
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.tab) setActiveTab(String(detail.tab));
+    };
+    window.addEventListener('tour:navigate', handler);
+    return () => window.removeEventListener('tour:navigate', handler);
+  }, []);
 
   const canAccess = profile && ALLOWED_ROLES.includes(profile.role);
   const canSeeAnalytics = profile && ANALYTICS_ROLES.includes(profile.role);
@@ -217,7 +227,7 @@ export default function PurchaseInvoices() {
           </div>
         </div>
 
-        <Tabs defaultValue="upload" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="flex flex-wrap" data-tour="pi-tabs">
             <TabsTrigger value="upload">
               <Camera className="h-4 w-4 mr-1.5" />{t('pi.tab.upload')}
