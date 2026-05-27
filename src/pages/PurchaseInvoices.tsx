@@ -227,7 +227,7 @@ export default function PurchaseInvoices() {
           </div>
         </div>
 
-        <Tabs defaultValue="upload" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="flex flex-wrap" data-tour="pi-tabs">
             <TabsTrigger value="upload">
               <Camera className="h-4 w-4 mr-1.5" />{t('pi.tab.upload')}
