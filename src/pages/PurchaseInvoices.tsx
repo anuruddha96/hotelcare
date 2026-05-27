@@ -66,6 +66,16 @@ export default function PurchaseInvoices() {
   const [sortMode, setSortMode] = useState<SortMode>('newest');
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('30d');
+  const [activeTab, setActiveTab] = useState<string>('upload');
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.tab) setActiveTab(String(detail.tab));
+    };
+    window.addEventListener('tour:navigate', handler);
+    return () => window.removeEventListener('tour:navigate', handler);
+  }, []);
 
   const canAccess = profile && ALLOWED_ROLES.includes(profile.role);
   const canSeeAnalytics = profile && ANALYTICS_ROLES.includes(profile.role);
