@@ -11,6 +11,9 @@ export interface TourStep {
   titleKey: string;
   bodyKey: string;
   placement?: 'top' | 'bottom' | 'left' | 'right';
+  /** Optional tab key. GuidedTour dispatches a `tour:navigate` CustomEvent with this
+   *  before locating the selector, so pages can switch tabs to reveal the target. */
+  tab?: string;
 }
 
 interface TourContextValue {
