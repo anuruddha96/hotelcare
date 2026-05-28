@@ -196,15 +196,43 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
         ) : (
           <div className="flex-1 min-h-0 grid md:grid-cols-2 gap-0 overflow-hidden">
             {/* Document preview */}
-            <div className="border-r bg-muted/30 overflow-y-auto min-h-0">
+            <div className="border-r bg-muted/30 flex flex-col min-h-0">
               {previewUrl ? (
-                invoice.file_mime?.includes('pdf') ? (
-                  <iframe src={previewUrl} className="w-full h-full min-h-[600px]" title="invoice" />
-                ) : (
-                  <img src={previewUrl} alt="invoice" className="w-full h-auto" />
-                )
+                <>
+                  <div className="px-3 py-2 border-b bg-background/80 flex items-center justify-between gap-2 shrink-0">
+                    <span className="text-xs text-muted-foreground truncate">
+                      {invoice.file_mime || 'file'} · {invoice.file_path?.split('/').pop()}
+                    </span>
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline shrink-0"
+                    >
+                      Open in new tab
+                    </a>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-auto">
+                    {(invoice.file_mime?.includes('pdf') || invoice.file_path?.toLowerCase().endsWith('.pdf')) ? (
+                      <iframe
+                        src={previewUrl}
+                        className="w-full h-full border-0"
+                        style={{ minHeight: '600px' }}
+                        title="invoice"
+                      />
+                    ) : (invoice.file_mime?.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic)$/i.test(invoice.file_path || '')) ? (
+                      <img src={previewUrl} alt="invoice" className="w-full h-auto" />
+                    ) : (
+                      <div className="p-6 text-sm text-muted-foreground">
+                        Preview unavailable for this file type. Use “Open in new tab”.
+                      </div>
+                    )}
+                  </div>
+                </>
               ) : (
-                <div className="p-6 text-sm text-muted-foreground">No preview</div>
+                <div className="flex-1 flex items-center justify-center p-6 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading preview…
+                </div>
               )}
             </div>
 
