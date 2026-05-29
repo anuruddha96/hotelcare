@@ -49,10 +49,20 @@ const PI_TOUR: TourStep[] = [
 ];
 
 const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
+const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
 const STATUS_FILTERS = ['all','uploaded','processing','processed','verified','failed','needs_review'] as const;
 type StatusFilter = typeof STATUS_FILTERS[number];
 type SortMode = 'newest'|'oldest'|'amountDesc'|'amountAsc'|'merchant';
 type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all';
+type UploadJob = {
+  id: string;
+  name: string;
+  size: number;
+  status: 'uploading'|'scanning'|'done'|'error';
+  progress: number; // 0..100
+  error?: string;
+  startedAt: number;
+};
 
 export default function PurchaseInvoices() {
   const navigate = useNavigate();
@@ -118,49 +128,61 @@ export default function PurchaseInvoices() {
       return { ok: false, errorCode: 'unknown' };
     }
     if (data?.success === false && data?.error_code) return { ok: false, errorCode: data.error_code };
-    return { ok: true };
-  };
-
   const handleFile = async (file: File) => {
     if (!user || !profile?.organization_slug) return;
-    setUploading(true);
     const tid = crypto.randomUUID();
-    try {
-      const ext = file.name.split('.').pop() || 'jpg';
-      const path = `${profile.organization_slug}/${profile.assigned_hotel || 'unassigned'}/${tid}.${ext}`;
+    const job: UploadJob = {
+      id: tid, name: file.name, size: file.size,
+      status: 'uploading', progress: 10, startedAt: Date.now(),
+    };
+    setUploadJobs(prev => [job, ...prev].slice(0, 12));
+    const patch = (p: Partial<UploadJob>) =>
+      setUploadJobs(prev => prev.map(j => j.id === tid ? { ...j, ...p } : j));
 
-      const { error: upErr } = await supabase.storage
-        .from('purchase-invoices').upload(path, file, { contentType: file.type });
-      if (upErr) throw upErr;
+    // Fire-and-forget — the user can switch tabs immediately. The job survives
+    // tab switches because state lives on the PurchaseInvoices component.
+    (async () => {
+      try {
+        const ext = file.name.split('.').pop() || 'jpg';
+        const path = `${profile.organization_slug}/${profile.assigned_hotel || 'unassigned'}/${tid}.${ext}`;
 
-      const { error: insErr } = await supabase.from('purchase_invoices').insert({
-        id: tid,
-        organization_slug: profile.organization_slug,
-        hotel_id: profile.assigned_hotel,
-        uploaded_by: user.id,
-        file_path: path,
-        file_mime: file.type,
-        file_size_bytes: file.size,
-        status: 'uploaded',
-      });
-      if (insErr) throw insErr;
+        const { error: upErr } = await supabase.storage
+          .from('purchase-invoices').upload(path, file, { contentType: file.type });
+        if (upErr) throw upErr;
+        patch({ progress: 50, status: 'scanning' });
 
-      toast.loading(t('pi.upload.processing'), { id: tid });
-      const res = await runOcr(tid);
-      await reload();
-      if (res.ok) {
-        toast.success(t('pi.upload.success'), { id: tid });
-      } else if (res.errorCode === 'processor_unavailable') {
-        toast.warning(t('pi.error.processor_unavailable'), { id: tid, duration: 6000 });
-      } else if (res.errorCode) {
-        toast.error(t(`pi.error.${res.errorCode}`) || t('pi.upload.failed'), { id: tid });
-      } else {
-        toast.error(t('pi.upload.failed'), { id: tid });
+        const { error: insErr } = await supabase.from('purchase_invoices').insert({
+          id: tid,
+          organization_slug: profile.organization_slug,
+          hotel_id: profile.assigned_hotel,
+          uploaded_by: user.id,
+          file_path: path,
+          file_mime: file.type,
+          file_size_bytes: file.size,
+          status: 'uploaded',
+        });
+        if (insErr) throw insErr;
+        patch({ progress: 70 });
+
+        const res = await runOcr(tid);
+        await reload();
+        if (res.ok) {
+          patch({ status: 'done', progress: 100 });
+          toast.success(t('pi.upload.success'));
+        } else {
+          const code = res.errorCode || 'unknown';
+          patch({ status: 'error', progress: 100, error: code });
+          if (code === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
+          else toast.error(t(`pi.error.${code}`) || t('pi.upload.failed'));
+        }
+      } catch (e: any) {
+        console.error(e);
+        patch({ status: 'error', progress: 100, error: e?.message });
+        toast.error(e?.message || t('pi.upload.failed'));
       }
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e?.message || t('pi.upload.failed'), { id: tid });
-    } finally {
+    })();
+  };
+
       setUploading(false);
     }
   };
