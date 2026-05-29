@@ -9,7 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Lock, Shield, User, Mail, Bell, Volume2 } from 'lucide-react';
+import { Lock, Shield, User, Mail, Bell, Volume2, MapPin } from 'lucide-react';
+
 import { toast } from 'sonner';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
@@ -255,7 +256,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </div>
               </CardContent>
             </Card>
+            <LocationAccessCard />
           </TabsContent>
+
 
           <TabsContent value="notifications" className="space-y-4">
             <Card>
