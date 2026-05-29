@@ -128,7 +128,11 @@ export default function PurchaseInvoices() {
       return { ok: false, errorCode: 'unknown' };
     }
     if (data?.success === false && data?.error_code) return { ok: false, errorCode: data.error_code };
+    return { ok: true };
+  };
+
   const handleFile = async (file: File) => {
+
     if (!user || !profile?.organization_slug) return;
     const tid = crypto.randomUUID();
     const job: UploadJob = {
@@ -183,11 +187,8 @@ export default function PurchaseInvoices() {
     })();
   };
 
-      setUploading(false);
-    }
-  };
 
-  const handleRetry = async (id: string) => {
+
     setRetryingId(id);
     toast.loading(t('pi.queue.retrying'), { id: `retry-${id}` });
     const res = await runOcr(id);
