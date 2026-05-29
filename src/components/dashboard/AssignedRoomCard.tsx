@@ -1293,21 +1293,22 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 size="sm"
                 variant="outline"
                 onClick={() => setDirtyLinenDialogOpen(true)}
-                className="w-full border-purple-300 text-purple-700 hover:bg-purple-100"
+                className="w-full border-purple-300 text-purple-700 hover:bg-purple-100 h-auto min-h-[44px] py-2 px-2 whitespace-normal text-xs leading-tight flex items-center justify-center gap-2"
               >
-                <Shirt className="h-4 w-4 mr-2" />
-                {t('actions.updateDirtyLinen')}
+                <Shirt className="h-4 w-4 shrink-0" />
+                <span className="text-center break-words">{t('actions.updateDirtyLinen')}</span>
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 onClick={() => setRoomDetailOpen(true)}
-                className="w-full border-purple-300 text-purple-700 hover:bg-purple-100"
+                className="w-full border-purple-300 text-purple-700 hover:bg-purple-100 h-auto min-h-[44px] py-2 px-2 whitespace-normal text-xs leading-tight flex items-center justify-center gap-2"
               >
-                <BedDouble className="h-4 w-4 mr-2" />
-                {t('roomCard.addMinibarLate')}
+                <BedDouble className="h-4 w-4 shrink-0" />
+                <span className="text-center break-words">{t('roomCard.addMinibarLate')}</span>
               </Button>
             </div>
+
             {assignment.supervisor_approved && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
                 {t('minibar.addedLateNotice')}
