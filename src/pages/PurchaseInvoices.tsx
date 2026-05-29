@@ -84,13 +84,23 @@ export default function PurchaseInvoices() {
   useFirstRunTour('purchase_invoices_v2', PI_TOUR);
 
   const reload = async () => {
-    const { data } = await supabase
-      .from('purchase_invoices')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
-    setInvoices(data || []);
+    // Fetch ALL invoices in 1000-row pages so the queue is not capped (previously
+    // hard-coded to .limit(500) which stopped pagination at ~14 pages × 50/page).
+    const PAGE = 1000;
+    const all: any[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('purchase_invoices')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+    }
+    setInvoices(all);
   };
+
 
   useEffect(() => { if (canAccess) reload(); }, [canAccess]);
 
