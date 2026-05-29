@@ -187,9 +187,9 @@ export default function PurchaseInvoices() {
     })();
   };
 
-
-
+  const handleRetry = async (id: string) => {
     setRetryingId(id);
+
     toast.loading(t('pi.queue.retrying'), { id: `retry-${id}` });
     const res = await runOcr(id);
     await reload();
