@@ -1,75 +1,58 @@
-# Purchase Invoices — Fixes & Improvements
+# Fixes & Improvements — 5 items
 
-## 1. Fix upload error ("Failed to send a request to the Edge Function")
+## 1. Purchase Invoices — Background uploads + recent summary + status animation
 
-**Root cause:** `process-purchase-invoice` returns 404 NOT_FOUND when curled — the function never deployed (likely a build/syntax issue or it was registered in `config.toml` after first deploy snapshot). The client invoke therefore fails before any code runs, so no logs exist.
+**Problem:** Uploads cancel when user switches tab. No visibility of progress on other tabs. No recent activity summary on the Upload tab.
 
-Actions:
-- Touch `supabase/functions/process-purchase-invoice/index.ts` (minor harmless edit + add explicit `// deploy` marker) to force a redeploy.
-- Add a small input-validation guard at the top so the function returns 400 (not 500) for missing fields, which also confirms deploy via curl.
-- In the client (`handleFile`), improve error surface: when `error.message` is `Failed to send a request to the Edge Function`, show a clearer toast ("Processor unavailable — invoice saved as draft, retry from Queue") and still keep the inserted DB row so the user can re-trigger from Queue.
-- Add a **"Retry OCR"** action per row in the Queue (calls the same function for an existing invoice id).
+**Changes (frontend only, `src/pages/PurchaseInvoices.tsx` + new components):**
 
-## 2. Expand the guided tour (currently 4 steps → ~12)
+- **Global upload manager** — lift upload state to a new `UploadQueueContext` (mounted in `PurchaseInvoices`). Each file gets a job: `{ id, name, size, status: 'uploading'|'scanning'|'done'|'error', progress }`. Promises run independently of which tab is active so switching tabs no longer cancels work.
+- **Persistent status dock** — fixed bottom-right card that lists active jobs with a smooth Framer Motion progress ring + check/error transitions, collapsible, survives tab switches. Reuses design tokens.
+- **Inline status strip** on the Upload tab (current spinner) becomes a richer animated row (per-file pill: file icon + animated progress arc + status label).
+- **Recent uploads panel** under the Upload tiles: shows last 10 invoices (merchant, date, total, status badge). Pulls from same `invoices` query, ordered desc, limit 10.
+- **"View all invoices →" button** under the panel — calls `setActiveTab('queue')` (already controlled via state from prior work).
 
-Add `data-tour` anchors and steps for:
-1. Welcome / what this module does
-2. Top stats area (replay button, role badge)
-3. Tabs overview
-4. Upload — Camera tile (mobile capture)
-5. Upload — File tile (PDF support, multi-file)
-6. Quality tips strip (lighting / flat / clear)
-7. Queue — search box
-8. Queue — status badges legend
-9. Queue — click row to verify
-10. Queue — Retry OCR button (new)
-11. Analytics — KPI cards
-12. Analytics — daily trend, category & VAT breakdown
-13. Export — CSV / XLSX (new)
-14. Replay tour button — how to revisit anytime
+## 2. Purchase Invoices — Queue stops at page 14
 
-All step copy added to `purchase-invoice-translations.ts` for `en, hu, es, vi, mn`.
+**Root cause:** `src/pages/PurchaseInvoices.tsx:91` hard-codes `.limit(500)`. With 50 per page that's exactly ~14 pages (a partial 15th).
 
-## 3. Queue improvements
+**Fix:** Switch the queue query to server-side pagination — fetch `range((page-1)*50, page*50-1)` with `{ count: 'exact' }` and drive pagination from the returned `count` so it continues past 500 to the true end. Keep client-side filters working by re-querying when filters change.
 
-- **Status filters** (chips): All / Uploaded / Processing / Processed / Verified / Failed / Needs review.
-- **Date range** filter (this month / last month / custom).
-- **Bulk select** with checkboxes: bulk verify, bulk retry OCR, bulk delete (admin only).
-- **Inline preview thumbnail** (first page / image) per row with signed URL.
-- **Sort** by date / amount / merchant.
-- **Pagination** (50 per page) — current 500 limit becomes paginated query.
-- **Failure reason chip** with error tip on hover (uses `error_details.tips`).
-- **Empty state** with CTA to Upload tab.
+## 3. Breakfast — Hotel Memories room 216 missing (70 instead of 71)
 
-## 4. Analytics improvements
+**Root cause:** `breakfast-public-lookup` (list mode) reads only from `daily_overview_snapshots`. For Hotel Memories Budapest, the latest snapshot (2026-05-28) contains 70 distinct rooms — room **216** is absent from the PMS daily overview, even though it exists in the `rooms` table (confirmed: 71 active rooms incl. 216 `economy_quadruple`).
 
-- **Date range selector** (7d / 30d / 90d / YTD / custom) driving all charts.
-- **New KPI tiles:** Avg invoice value, VAT reclaimable total, Processing success rate, Unique merchants.
-- **Monthly comparison chart** (this year vs last year, grouped bars).
-- **Top 10 merchants** horizontal bar chart.
-- **VAT breakdown by kind** (27% / 18% / 5% / AAM / KBA) — stacked bar by month, replacing the duplicate line chart.
-- **Payment method split** donut.
-- **Hotel split** (when org has multiple hotels and user can see them).
-- **Anomaly callout:** invoices where total differs from sum(vat_lines) by >1%, or duplicates (same merchant+invoice_number).
-- **Drill-through:** clicking a chart segment filters the Queue tab to that slice.
+**Fix (edge function `supabase/functions/breakfast-public-lookup/index.ts`, list mode):**
+After building the snapshot map, also fetch all rooms from the `rooms` table for that hotel and **union** any missing rooms in as `status: 'no_breakfast'` chips (vacant/no PMS row). This guarantees the full 71 rooms always show and is resilient to future PMS gaps. No DB migration needed.
 
-## 5. Export improvements
+## 4. Housekeeper card — "Add Minibar Item (after completion)" overflows
 
-- CSV (exists), add **XLSX** (multi-sheet: Invoices, VAT lines, Items) using `xlsx` package.
-- Add **NAV-compatible XML** stub (Hungarian tax authority format) — header only with merchant/tax_id/dates/totals; flagged as beta.
-- Date-range + status filter applied to export.
+**File:** `src/components/dashboard/AssignedRoomCard.tsx` (~line 1301)
 
-## 6. Files touched
+**Fix:** Allow the button text to wrap on two lines on narrow screens and shrink font:
+- `className="w-full ... h-auto min-h-[40px] py-2 whitespace-normal text-xs leading-tight"`
+- Replace static label with two-line layout: bold "Add Minibar" + small "(after completion)" subtitle, so it fits cleanly in the button without truncation. Same treatment for the matching dirty linen button for visual parity.
 
-- `supabase/functions/process-purchase-invoice/index.ts` — force redeploy, add input validation, allow re-processing existing rows.
-- `src/pages/PurchaseInvoices.tsx` — queue/analytics/export upgrades, retry, filters, tour anchors.
-- `src/components/purchase-invoices/QueueRow.tsx` (new) — extracted row with thumbnail + actions.
-- `src/components/purchase-invoices/AnalyticsPanel.tsx` (new) — extracted analytics.
-- `src/components/purchase-invoices/ExportPanel.tsx` (new) — CSV + XLSX + NAV XML.
-- `src/lib/purchase-invoice-translations.ts` — 5 languages, ~30 new keys for tour + UI.
-- `src/components/training/GuidedTour.tsx` — no changes needed (already supports N steps).
+## 5. Location access — ask once, manage from Settings
+
+**Problem:** `AttendanceTracker.tsx:83` calls `getCurrentPosition` on every mount, re-prompting after every refresh.
+
+**Changes:**
+- New helper `src/lib/locationPreference.ts` — wraps the Permissions API (`navigator.permissions.query({ name: 'geolocation' })`). Caches the last granted position with timestamp in `localStorage` (`hc.location.lastFix`, `hc.location.optIn`).
+- `AttendanceTracker.tsx` — only calls `getCurrentPosition` if `optIn === true` AND `permissions.state !== 'denied'`. If a recent fix (<10 min) is cached, reuse it instead of re-querying. First-time users see a small inline opt-in card ("Use my location for sign-in?  Allow / Skip") rather than a forced browser prompt loop.
+- **Settings page entry** — add a "Location access" row in the user/profile settings panel (whichever Settings surface exists in `Header` dropdown). Shows current permission state and a button to: enable (triggers `getCurrentPosition` once), disable (clears opt-in + cached fix), or "Open browser site settings" (deep link instructions when permission is `denied` — browser-level revoke).
+
+## Files touched
+
+- `src/pages/PurchaseInvoices.tsx` — pagination fix, recent panel, view-all button, hook into upload context
+- `src/components/purchase-invoices/UploadQueueDock.tsx` (new) — persistent animated status dock
+- `src/contexts/UploadQueueContext.tsx` (new)
+- `src/components/purchase-invoices/RecentInvoicesPanel.tsx` (new)
+- `supabase/functions/breakfast-public-lookup/index.ts` — union rooms table in list mode
+- `src/components/dashboard/AssignedRoomCard.tsx` — button fit
+- `src/components/dashboard/AttendanceTracker.tsx` + new `src/lib/locationPreference.ts`
+- Settings surface (location row) — exact file TBD on implementation (likely a dropdown in `Header.tsx` or existing profile panel)
 
 ## Out of scope
-- Real NAV Online Invoice API submission (only export stub).
-- Mobile-native camera enhancement plugins.
-- Auto-categorization ML beyond current AI extraction.
+- Fixing the PMS sync to backfill room 216 into `daily_overview_snapshots` (frontend union is the safe fix; deeper Previo sync investigation can follow if you want).
+- Resumable uploads across full page reloads (background continues across tab switches inside the SPA; a hard browser reload still cancels — that would need Service Worker upload, larger scope).
