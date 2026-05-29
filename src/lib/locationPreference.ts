@@ -41,8 +41,8 @@ export function saveFix(fix: Omit<LocationFix, 'ts'>) {
 export async function getBrowserPermissionState(): Promise<PermissionState | 'unsupported'> {
   if (typeof navigator === 'undefined' || !('permissions' in navigator)) return 'unsupported';
   try {
-    // @ts-expect-error geolocation is a valid PermissionName in modern browsers
-    const status = await navigator.permissions.query({ name: 'geolocation' });
+    const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+
     return status.state;
   } catch { return 'unsupported'; }
 }
