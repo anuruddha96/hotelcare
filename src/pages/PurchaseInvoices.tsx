@@ -49,7 +49,6 @@ const PI_TOUR: TourStep[] = [
 ];
 
 const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
-const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
 const STATUS_FILTERS = ['all','uploaded','processing','processed','verified','failed','needs_review'] as const;
 type StatusFilter = typeof STATUS_FILTERS[number];
 type SortMode = 'newest'|'oldest'|'amountDesc'|'amountAsc'|'merchant';
