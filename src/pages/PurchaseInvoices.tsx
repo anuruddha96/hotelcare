@@ -283,7 +283,7 @@ export default function PurchaseInvoices() {
             )}
           </TabsList>
 
-          <TabsContent value="upload">
+          <TabsContent value="upload" className="space-y-4">
             <Card data-tour="pi-upload">
               <CardHeader><CardTitle className="text-base">{t('pi.upload.heading')}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -291,8 +291,10 @@ export default function PurchaseInvoices() {
                 <div className="grid grid-cols-2 gap-3">
                   <label className="cursor-pointer" data-tour="pi-camera">
                     <input type="file" accept="image/*" capture="environment" hidden
-                      disabled={uploading}
-                      onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]; if (f) handleFile(f);
+                        e.currentTarget.value = '';
+                      }} />
                     <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-accent transition">
                       <Camera className="h-8 w-8 mx-auto mb-2 text-primary" />
                       <div className="text-sm font-medium">{t('pi.upload.camera')}</div>
@@ -300,17 +302,21 @@ export default function PurchaseInvoices() {
                   </label>
                   <label className="cursor-pointer" data-tour="pi-file">
                     <input type="file" accept="image/*,application/pdf" hidden
-                      disabled={uploading}
-                      onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]; if (f) handleFile(f);
+                        e.currentTarget.value = '';
+                      }} />
                     <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-accent transition">
                       <Upload className="h-8 w-8 mx-auto mb-2 text-primary" />
                       <div className="text-sm font-medium">{t('pi.upload.file')}</div>
                     </div>
                   </label>
                 </div>
-                {uploading && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" /> {t('pi.upload.processing')}
+                {activeJobs.length > 0 && (
+                  <div className="space-y-1.5">
+                    {activeJobs.map(j => (
+                      <UploadJobRow key={j.id} job={j} />
+                    ))}
                   </div>
                 )}
                 <div data-tour="pi-tips" className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground pt-2 border-t">
@@ -321,7 +327,50 @@ export default function PurchaseInvoices() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Recent uploads — last 10 invoices + jump to queue */}
+            <Card>
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-base">Recent uploads</CardTitle>
+                {canSeeQueue && (
+                  <Button size="sm" variant="ghost" onClick={() => setActiveTab('queue')}>
+                    View all invoices →
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent>
+                {invoices.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">No invoices uploaded yet.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {invoices.slice(0, 10).map(inv => (
+                      <button
+                        key={inv.id}
+                        onClick={() => canSeeQueue ? setVerifyId(inv.id) : null}
+                        className="w-full flex items-center justify-between gap-2 p-2 rounded-md border hover:bg-accent/30 text-left"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">{inv.merchant_name || '—'}</div>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {inv.invoice_date || inv.created_at?.slice(0, 10)} · {inv.invoice_number || '—'}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-semibold">
+                            {inv.total_amount ? `${Number(inv.total_amount).toLocaleString()} ${inv.currency || ''}` : '—'}
+                          </div>
+                          <Badge variant={inv.is_verified ? 'default' : inv.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">
+                            {inv.is_verified ? t('pi.status.verified') : t(`pi.status.${inv.status}`)}
+                          </Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
+
 
           {canSeeQueue && (
             <TabsContent value="queue">
