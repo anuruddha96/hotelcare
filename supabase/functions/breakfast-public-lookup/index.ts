@@ -92,8 +92,48 @@ serve(async (req) => {
           status: chipStatus,
           row_status: r.status,
         };
-      }).sort((a: any, b: any) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }));
+      });
+
+      // Union with the master rooms table so any room missing from the PMS
+      // daily overview snapshot (e.g. Hotel Memories Budapest room 216) still
+      // appears in the BB grid as "no breakfast / vacant".
+      try {
+        const { data: hotelCfg } = await supabaseEarly
+          .from("hotel_configurations")
+          .select("hotel_name")
+          .eq("hotel_id", hotel_id)
+          .maybeSingle();
+        const hotelName = hotelCfg?.hotel_name;
+        if (hotelName) {
+          const { data: masterRooms } = await supabaseEarly
+            .from("rooms")
+            .select("room_number")
+            .eq("hotel", hotelName);
+          const present = new Set(rooms.map((r: any) => normalizeRoomNumber(r.room ?? "")));
+          for (const mr of masterRooms ?? []) {
+            const key = normalizeRoomNumber(mr.room_number ?? "");
+            if (key && !present.has(key)) {
+              rooms.push({
+                room: mr.room_number,
+                room_label: null,
+                room_type_code: null,
+                room_type_label: null,
+                room_suffix: null,
+                pax: 0,
+                breakfast: 0,
+                all_inclusive: 0,
+                served: 0,
+                status: "no_breakfast",
+                row_status: "vacant",
+              });
+            }
+          }
+        }
+      } catch (_e) { /* non-fatal — fall back to snapshot-only list */ }
+
+      rooms.sort((a: any, b: any) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }));
       return new Response(JSON.stringify({ rooms, snapshot_date: snapshotDate, stay_date: stayDate }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     }
 
     if (!room) throw new Error("Missing room");

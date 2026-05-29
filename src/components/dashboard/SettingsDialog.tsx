@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -9,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Lock, Shield, User, Mail, Bell, Volume2 } from 'lucide-react';
+import { Lock, Shield, User, Mail, Bell, Volume2, MapPin } from 'lucide-react';
+
 import { toast } from 'sonner';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
@@ -255,7 +257,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </div>
               </CardContent>
             </Card>
+            <LocationAccessCard />
           </TabsContent>
+
 
           <TabsContent value="notifications" className="space-y-4">
             <Card>
@@ -423,5 +427,85 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </div>
       </DialogContent>
     </Dialog>
+
+  );
+}
+
+function LocationAccessCard() {
+  const [optIn, setOptInState] = useState(false);
+  const [permState, setPermState] = useState<string>('unsupported');
+  const [busy, setBusy] = useState(false);
+  const [address, setAddress] = useState<string | null>(null);
+
+  const refresh = async () => {
+    const m = await import('@/lib/locationPreference');
+    setOptInState(m.getOptIn());
+    setPermState(await m.getBrowserPermissionState());
+    setAddress(m.getCachedFix()?.address ?? null);
+  };
+  useEffect(() => { void refresh(); }, []);
+
+  const enable = async () => {
+    setBusy(true);
+    const m = await import('@/lib/locationPreference');
+    const fix = await m.requestLocationOnce();
+    setBusy(false);
+    if (fix) toast.success('Location enabled');
+    else toast.error('Could not get your location. Check browser permission.');
+    await refresh();
+  };
+  const disable = async () => {
+    const m = await import('@/lib/locationPreference');
+    m.clearLocation();
+    toast.success('Location access disabled');
+    await refresh();
+  };
+
+  const permBadgeColor =
+    permState === 'granted' ? 'bg-green-500'
+    : permState === 'denied' ? 'bg-red-500'
+    : 'bg-muted-foreground';
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <MapPin className="h-5 w-5" /> Location access
+        </CardTitle>
+        <CardDescription>
+          Saved once — used for attendance sign-in. You won't be prompted on every refresh.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="space-y-1">
+            <div className="text-sm">
+              Status:{' '}
+              <Badge variant={optIn ? 'default' : 'secondary'}>
+                {optIn ? 'Enabled' : 'Disabled'}
+              </Badge>
+              <Badge className={`${permBadgeColor} text-white ml-1.5`}>
+                browser: {permState}
+              </Badge>
+            </div>
+            {address && (
+              <p className="text-xs text-muted-foreground">Last fix: {address}</p>
+            )}
+          </div>
+          {optIn ? (
+            <Button size="sm" variant="outline" onClick={disable}>Disable</Button>
+          ) : (
+            <Button size="sm" onClick={enable} disabled={busy || permState === 'denied'}>
+              {busy ? 'Requesting…' : 'Enable'}
+            </Button>
+          )}
+        </div>
+        {permState === 'denied' && (
+          <p className="text-xs text-destructive">
+            Location is blocked at the browser level. Open your browser site settings for this page and allow Location, then click Enable.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

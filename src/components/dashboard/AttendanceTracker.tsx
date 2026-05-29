@@ -78,36 +78,14 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     }
   }, [user]);
 
-  const getCurrentLocation = () => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          
-          // Get address from coordinates
-          try {
-            const response = await fetch(
-              `https://api.opencagedata.com/geocode/v1/json?q=${latitude}+${longitude}&key=demo&limit=1`
-            );
-            const data = await response.json();
-            const address = data.results[0]?.formatted || `${latitude}, ${longitude}`;
-            
-            setLocation({ latitude, longitude, address });
-          } catch (error) {
-            setLocation({ latitude, longitude, address: `${latitude}, ${longitude}` });
-          }
-        },
-        (error) => {
-          toast({
-            title: "Location Access",
-            description: "Could not get your location. Please enable location services.",
-            variant: "destructive"
-          });
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-      );
-    }
+  const getCurrentLocation = async () => {
+    // Only resolve the location automatically when the user has opted in.
+    // First-time users are prompted from Settings → Account → Location access.
+    const { resolveLocationIfAllowed } = await import('@/lib/locationPreference');
+    const fix = await resolveLocationIfAllowed();
+    if (fix) setLocation({ latitude: fix.latitude, longitude: fix.longitude, address: fix.address });
   };
+
 
   const fetchBreakTypes = async () => {
     const { data, error } = await supabase

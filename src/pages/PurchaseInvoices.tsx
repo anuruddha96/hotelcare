@@ -53,13 +53,22 @@ const STATUS_FILTERS = ['all','uploaded','processing','processed','verified','fa
 type StatusFilter = typeof STATUS_FILTERS[number];
 type SortMode = 'newest'|'oldest'|'amountDesc'|'amountAsc'|'merchant';
 type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all';
+type UploadJob = {
+  id: string;
+  name: string;
+  size: number;
+  status: 'uploading'|'scanning'|'done'|'error';
+  progress: number; // 0..100
+  error?: string;
+  startedAt: number;
+};
 
 export default function PurchaseInvoices() {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
   const { t } = useTranslation();
   const [invoices, setInvoices] = useState<any[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
   const [search, setSearch] = useState('');
   const [verifyId, setVerifyId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -67,6 +76,8 @@ export default function PurchaseInvoices() {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('30d');
   const [activeTab, setActiveTab] = useState<string>('upload');
+  const activeJobs = uploadJobs.filter(j => j.status === 'uploading' || j.status === 'scanning');
+
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -84,13 +95,23 @@ export default function PurchaseInvoices() {
   useFirstRunTour('purchase_invoices_v2', PI_TOUR);
 
   const reload = async () => {
-    const { data } = await supabase
-      .from('purchase_invoices')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
-    setInvoices(data || []);
+    // Fetch ALL invoices in 1000-row pages so the queue is not capped (previously
+    // hard-coded to .limit(500) which stopped pagination at ~14 pages × 50/page).
+    const PAGE = 1000;
+    const all: any[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('purchase_invoices')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+    }
+    setInvoices(all);
   };
+
 
   useEffect(() => { if (canAccess) reload(); }, [canAccess]);
 
@@ -110,51 +131,64 @@ export default function PurchaseInvoices() {
   };
 
   const handleFile = async (file: File) => {
+
     if (!user || !profile?.organization_slug) return;
-    setUploading(true);
     const tid = crypto.randomUUID();
-    try {
-      const ext = file.name.split('.').pop() || 'jpg';
-      const path = `${profile.organization_slug}/${profile.assigned_hotel || 'unassigned'}/${tid}.${ext}`;
+    const job: UploadJob = {
+      id: tid, name: file.name, size: file.size,
+      status: 'uploading', progress: 10, startedAt: Date.now(),
+    };
+    setUploadJobs(prev => [job, ...prev].slice(0, 12));
+    const patch = (p: Partial<UploadJob>) =>
+      setUploadJobs(prev => prev.map(j => j.id === tid ? { ...j, ...p } : j));
 
-      const { error: upErr } = await supabase.storage
-        .from('purchase-invoices').upload(path, file, { contentType: file.type });
-      if (upErr) throw upErr;
+    // Fire-and-forget — the user can switch tabs immediately. The job survives
+    // tab switches because state lives on the PurchaseInvoices component.
+    (async () => {
+      try {
+        const ext = file.name.split('.').pop() || 'jpg';
+        const path = `${profile.organization_slug}/${profile.assigned_hotel || 'unassigned'}/${tid}.${ext}`;
 
-      const { error: insErr } = await supabase.from('purchase_invoices').insert({
-        id: tid,
-        organization_slug: profile.organization_slug,
-        hotel_id: profile.assigned_hotel,
-        uploaded_by: user.id,
-        file_path: path,
-        file_mime: file.type,
-        file_size_bytes: file.size,
-        status: 'uploaded',
-      });
-      if (insErr) throw insErr;
+        const { error: upErr } = await supabase.storage
+          .from('purchase-invoices').upload(path, file, { contentType: file.type });
+        if (upErr) throw upErr;
+        patch({ progress: 50, status: 'scanning' });
 
-      toast.loading(t('pi.upload.processing'), { id: tid });
-      const res = await runOcr(tid);
-      await reload();
-      if (res.ok) {
-        toast.success(t('pi.upload.success'), { id: tid });
-      } else if (res.errorCode === 'processor_unavailable') {
-        toast.warning(t('pi.error.processor_unavailable'), { id: tid, duration: 6000 });
-      } else if (res.errorCode) {
-        toast.error(t(`pi.error.${res.errorCode}`) || t('pi.upload.failed'), { id: tid });
-      } else {
-        toast.error(t('pi.upload.failed'), { id: tid });
+        const { error: insErr } = await supabase.from('purchase_invoices').insert({
+          id: tid,
+          organization_slug: profile.organization_slug,
+          hotel_id: profile.assigned_hotel,
+          uploaded_by: user.id,
+          file_path: path,
+          file_mime: file.type,
+          file_size_bytes: file.size,
+          status: 'uploaded',
+        });
+        if (insErr) throw insErr;
+        patch({ progress: 70 });
+
+        const res = await runOcr(tid);
+        await reload();
+        if (res.ok) {
+          patch({ status: 'done', progress: 100 });
+          toast.success(t('pi.upload.success'));
+        } else {
+          const code = res.errorCode || 'unknown';
+          patch({ status: 'error', progress: 100, error: code });
+          if (code === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
+          else toast.error(t(`pi.error.${code}`) || t('pi.upload.failed'));
+        }
+      } catch (e: any) {
+        console.error(e);
+        patch({ status: 'error', progress: 100, error: e?.message });
+        toast.error(e?.message || t('pi.upload.failed'));
       }
-    } catch (e: any) {
-      console.error(e);
-      toast.error(e?.message || t('pi.upload.failed'), { id: tid });
-    } finally {
-      setUploading(false);
-    }
+    })();
   };
 
   const handleRetry = async (id: string) => {
     setRetryingId(id);
+
     toast.loading(t('pi.queue.retrying'), { id: `retry-${id}` });
     const res = await runOcr(id);
     await reload();
@@ -249,7 +283,7 @@ export default function PurchaseInvoices() {
             )}
           </TabsList>
 
-          <TabsContent value="upload">
+          <TabsContent value="upload" className="space-y-4">
             <Card data-tour="pi-upload">
               <CardHeader><CardTitle className="text-base">{t('pi.upload.heading')}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -257,8 +291,10 @@ export default function PurchaseInvoices() {
                 <div className="grid grid-cols-2 gap-3">
                   <label className="cursor-pointer" data-tour="pi-camera">
                     <input type="file" accept="image/*" capture="environment" hidden
-                      disabled={uploading}
-                      onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]; if (f) handleFile(f);
+                        e.currentTarget.value = '';
+                      }} />
                     <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-accent transition">
                       <Camera className="h-8 w-8 mx-auto mb-2 text-primary" />
                       <div className="text-sm font-medium">{t('pi.upload.camera')}</div>
@@ -266,17 +302,21 @@ export default function PurchaseInvoices() {
                   </label>
                   <label className="cursor-pointer" data-tour="pi-file">
                     <input type="file" accept="image/*,application/pdf" hidden
-                      disabled={uploading}
-                      onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]; if (f) handleFile(f);
+                        e.currentTarget.value = '';
+                      }} />
                     <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-accent transition">
                       <Upload className="h-8 w-8 mx-auto mb-2 text-primary" />
                       <div className="text-sm font-medium">{t('pi.upload.file')}</div>
                     </div>
                   </label>
                 </div>
-                {uploading && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" /> {t('pi.upload.processing')}
+                {activeJobs.length > 0 && (
+                  <div className="space-y-1.5">
+                    {activeJobs.map(j => (
+                      <UploadJobRow key={j.id} job={j} />
+                    ))}
                   </div>
                 )}
                 <div data-tour="pi-tips" className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground pt-2 border-t">
@@ -287,7 +327,50 @@ export default function PurchaseInvoices() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Recent uploads — last 10 invoices + jump to queue */}
+            <Card>
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-base">Recent uploads</CardTitle>
+                {canSeeQueue && (
+                  <Button size="sm" variant="ghost" onClick={() => setActiveTab('queue')}>
+                    View all invoices →
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent>
+                {invoices.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-2">No invoices uploaded yet.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {invoices.slice(0, 10).map(inv => (
+                      <button
+                        key={inv.id}
+                        onClick={() => canSeeQueue ? setVerifyId(inv.id) : null}
+                        className="w-full flex items-center justify-between gap-2 p-2 rounded-md border hover:bg-accent/30 text-left"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">{inv.merchant_name || '—'}</div>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {inv.invoice_date || inv.created_at?.slice(0, 10)} · {inv.invoice_number || '—'}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-semibold">
+                            {inv.total_amount ? `${Number(inv.total_amount).toLocaleString()} ${inv.currency || ''}` : '—'}
+                          </div>
+                          <Badge variant={inv.is_verified ? 'default' : inv.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">
+                            {inv.is_verified ? t('pi.status.verified') : t(`pi.status.${inv.status}`)}
+                          </Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
+
 
           {canSeeQueue && (
             <TabsContent value="queue">
@@ -702,4 +785,40 @@ function download(blob: Blob, name: string) {
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
+}
+
+function UploadJobRow({ job }: { job: UploadJob }) {
+  const isDone = job.status === 'done';
+  const isErr = job.status === 'error';
+  const label =
+    job.status === 'uploading' ? 'Uploading…'
+    : job.status === 'scanning' ? 'Scanning invoice…'
+    : isDone ? 'Done'
+    : 'Failed';
+  return (
+    <div className="flex items-center gap-2 p-2 border rounded-md bg-card">
+      <div className="relative h-7 w-7 shrink-0">
+        <svg viewBox="0 0 28 28" className="h-7 w-7 -rotate-90">
+          <circle cx="14" cy="14" r="11" stroke="hsl(var(--muted))" strokeWidth="3" fill="none" />
+          <circle
+            cx="14" cy="14" r="11" strokeWidth="3" fill="none"
+            stroke={isErr ? 'hsl(var(--destructive))' : isDone ? 'hsl(142 71% 45%)' : 'hsl(var(--primary))'}
+            strokeDasharray={2 * Math.PI * 11}
+            strokeDashoffset={(1 - job.progress / 100) * 2 * Math.PI * 11}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 400ms ease' }}
+          />
+        </svg>
+        {(job.status === 'uploading' || job.status === 'scanning') && (
+          <Loader2 className="h-3 w-3 animate-spin absolute inset-0 m-auto text-primary" />
+        )}
+        {isDone && <CheckCircle className="h-3.5 w-3.5 absolute inset-0 m-auto text-green-600" />}
+        {isErr && <AlertCircle className="h-3.5 w-3.5 absolute inset-0 m-auto text-destructive" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium truncate">{job.name}</div>
+        <div className="text-[10px] text-muted-foreground">{label}</div>
+      </div>
+    </div>
+  );
 }
