@@ -786,3 +786,39 @@ function download(blob: Blob, name: string) {
   a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
 }
+
+function UploadJobRow({ job }: { job: UploadJob }) {
+  const isDone = job.status === 'done';
+  const isErr = job.status === 'error';
+  const label =
+    job.status === 'uploading' ? 'Uploading…'
+    : job.status === 'scanning' ? 'Scanning invoice…'
+    : isDone ? 'Done'
+    : 'Failed';
+  return (
+    <div className="flex items-center gap-2 p-2 border rounded-md bg-card">
+      <div className="relative h-7 w-7 shrink-0">
+        <svg viewBox="0 0 28 28" className="h-7 w-7 -rotate-90">
+          <circle cx="14" cy="14" r="11" stroke="hsl(var(--muted))" strokeWidth="3" fill="none" />
+          <circle
+            cx="14" cy="14" r="11" strokeWidth="3" fill="none"
+            stroke={isErr ? 'hsl(var(--destructive))' : isDone ? 'hsl(142 71% 45%)' : 'hsl(var(--primary))'}
+            strokeDasharray={2 * Math.PI * 11}
+            strokeDashoffset={(1 - job.progress / 100) * 2 * Math.PI * 11}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 400ms ease' }}
+          />
+        </svg>
+        {(job.status === 'uploading' || job.status === 'scanning') && (
+          <Loader2 className="h-3 w-3 animate-spin absolute inset-0 m-auto text-primary" />
+        )}
+        {isDone && <CheckCircle className="h-3.5 w-3.5 absolute inset-0 m-auto text-green-600" />}
+        {isErr && <AlertCircle className="h-3.5 w-3.5 absolute inset-0 m-auto text-destructive" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium truncate">{job.name}</div>
+        <div className="text-[10px] text-muted-foreground">{label}</div>
+      </div>
+    </div>
+  );
+}
