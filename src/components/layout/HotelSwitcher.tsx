@@ -24,7 +24,7 @@ export function HotelSwitcher() {
   }, [profile?.assigned_hotel]);
 
   // Only show for admin and manager roles
-  if (!profile || !['admin', 'manager', 'housekeeping_manager'].includes(profile.role)) {
+  if (!profile || !['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'].includes(profile.role)) {
     return null;
   }
 
