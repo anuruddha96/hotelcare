@@ -794,13 +794,32 @@ export function Dashboard() {
           </TabsContent>
 
           <TabsContent value="attendance" className="space-y-6">
-            {(profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>
-                <AttendanceTracker />
-                <AttendanceReports />
-              </div>
-            )}
+            {(() => {
+              const isExecutive = ['admin', 'top_management', 'top_management_manager', 'hr'].includes(profile?.role || '');
+              if (isExecutive) {
+                return (
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>
+                      {hotelDisplayName && (
+                        <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>
+                      )}
+                    </div>
+                    <AttendanceReports />
+                  </div>
+                );
+              }
+              if (profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) {
+                return (
+                  <div className="space-y-6">
+                    <h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>
+                    <AttendanceTracker />
+                    <AttendanceReports />
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </TabsContent>
 
           {/* Reception-specific tabs */}
