@@ -4477,38 +4477,59 @@ export type Database = {
         Row: {
           action_type: string | null
           created_at: string | null
+          cta_label_key: string | null
           guide_id: string
           highlight_padding: number | null
           id: string
+          media_url: string | null
+          optional: boolean
           position: string | null
+          precondition: string | null
           requires_action: boolean | null
+          route: string | null
           step_key: string
           step_order: number
+          tab: string | null
           target_selector: string | null
+          wait_for_event: string | null
         }
         Insert: {
           action_type?: string | null
           created_at?: string | null
+          cta_label_key?: string | null
           guide_id: string
           highlight_padding?: number | null
           id?: string
+          media_url?: string | null
+          optional?: boolean
           position?: string | null
+          precondition?: string | null
           requires_action?: boolean | null
+          route?: string | null
           step_key: string
           step_order: number
+          tab?: string | null
           target_selector?: string | null
+          wait_for_event?: string | null
         }
         Update: {
           action_type?: string | null
           created_at?: string | null
+          cta_label_key?: string | null
           guide_id?: string
           highlight_padding?: number | null
           id?: string
+          media_url?: string | null
+          optional?: boolean
           position?: string | null
+          precondition?: string | null
           requires_action?: boolean | null
+          route?: string | null
           step_key?: string
           step_order?: number
+          tab?: string | null
           target_selector?: string | null
+          wait_for_event?: string | null
         }
         Relationships: [
           {
@@ -4522,38 +4543,53 @@ export type Database = {
       }
       training_guides: {
         Row: {
+          auto_start: boolean
+          category: string
           created_at: string | null
           description: string | null
+          icon: string | null
           id: string
           is_active: boolean | null
           name: string
+          priority: number
           slug: string
           sort_order: number | null
           target_role: string | null
+          target_roles: string[] | null
           total_steps: number | null
           updated_at: string | null
         }
         Insert: {
+          auto_start?: boolean
+          category?: string
           created_at?: string | null
           description?: string | null
+          icon?: string | null
           id?: string
           is_active?: boolean | null
           name: string
+          priority?: number
           slug: string
           sort_order?: number | null
           target_role?: string | null
+          target_roles?: string[] | null
           total_steps?: number | null
           updated_at?: string | null
         }
         Update: {
+          auto_start?: boolean
+          category?: string
           created_at?: string | null
           description?: string | null
+          icon?: string | null
           id?: string
           is_active?: boolean | null
           name?: string
+          priority?: number
           slug?: string
           sort_order?: number | null
           target_role?: string | null
+          target_roles?: string[] | null
           total_steps?: number | null
           updated_at?: string | null
         }
@@ -4562,17 +4598,29 @@ export type Database = {
       user_tour_progress: {
         Row: {
           completed_at: string
+          completed_steps: number[]
+          current_step: number
+          status: string
           tour_key: string
+          updated_at: string
           user_id: string
         }
         Insert: {
           completed_at?: string
+          completed_steps?: number[]
+          current_step?: number
+          status?: string
           tour_key: string
+          updated_at?: string
           user_id: string
         }
         Update: {
           completed_at?: string
+          completed_steps?: number[]
+          current_step?: number
+          status?: string
           tour_key?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -4637,6 +4685,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_training_state: {
+        Row: {
+          dismissed_until: string | null
+          last_guide_slug: string | null
+          last_step: number
+          seen_promos: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          dismissed_until?: string | null
+          last_guide_slug?: string | null
+          last_step?: number
+          seen_promos?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          dismissed_until?: string | null
+          last_guide_slug?: string | null
+          last_step?: number
+          seen_promos?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       yielding_tags: {
         Row: {

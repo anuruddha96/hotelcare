@@ -7,6 +7,7 @@ import { TranslationProvider } from "@/hooks/useTranslation";
 import { TenantProvider } from "@/contexts/TenantContext";
 import { TrainingGuideProvider } from "@/contexts/TrainingGuideContext";
 import { GuidedTourProvider } from "@/components/training/GuidedTour";
+import { TrainingV2Provider } from "@/components/training/v2/TrainingV2Provider";
 import { LiveSyncProvider } from "@/contexts/LiveSyncContext";
 import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNotificationProvider";
 import { TrainingOverlay, TrainingWelcomePrompt } from "@/components/training";
@@ -89,21 +90,23 @@ const MainApp = () => (
               <TrainingOverlay />
               <TrainingWelcomePrompt />
               <BrowserRouter>
-                <Routes>
-                  {/* Legacy routes - redirect to rdhotels organization */}
-                  <Route path="/" element={<Navigate to="/rdhotels" replace />} />
-                  <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
+                <TrainingV2Provider>
+                  <Routes>
+                    {/* Legacy routes - redirect to rdhotels organization */}
+                    <Route path="/" element={<Navigate to="/rdhotels" replace />} />
+                    <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
 
-                  {/* Guest minibar - public, no auth needed */}
-                  <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />
-                  <Route path="/:organizationSlug/minibar/:roomToken" element={<GuestMinibar />} />
+                    {/* Guest minibar - public, no auth needed */}
+                    <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />
+                    <Route path="/:organizationSlug/minibar/:roomToken" element={<GuestMinibar />} />
 
-                  {/* Multi-tenant routes */}
-                  <Route path="/:organizationSlug/*" element={<TenantRouter />} />
+                    {/* Multi-tenant routes */}
+                    <Route path="/:organizationSlug/*" element={<TenantRouter />} />
 
-                  {/* Catch-all */}
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
+                    {/* Catch-all */}
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </TrainingV2Provider>
               </BrowserRouter>
             </TooltipProvider>
           </RealtimeNotificationProvider>

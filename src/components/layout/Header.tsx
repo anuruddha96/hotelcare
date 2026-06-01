@@ -14,7 +14,7 @@ import { HotelSwitcher } from '@/components/layout/HotelSwitcher';
 import { OrganizationSwitcher } from '@/components/layout/OrganizationSwitcher';
 import { RoomAssignmentSummary } from '@/components/dashboard/RoomAssignmentSummary';
 import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge';
-import { TrainingHelpButton } from '@/components/training';
+import { TrainingHelpButtonV2 as TrainingHelpButton } from '@/components/training/v2/TrainingHelpButtonV2';
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 import { LiveSyncIndicator } from '@/components/layout/LiveSyncIndicator';
 import { LogOut, Settings, User } from 'lucide-react';
