@@ -17,8 +17,13 @@ export type GuardKey =
   | 'always'
   | 'is_signed_in'
   | 'has_active_assignment'
+  | 'has_any_assignment_today'
   | 'has_in_progress_cleaning'
   | 'is_manager'
+  | 'hotel_selected'
+  | 'is_online'
+  | 'not_switching_hotel'
+  | `data_loaded:${string}`
   | 'never_block';
 
 export interface I18nText {
@@ -30,20 +35,22 @@ export interface I18nText {
 }
 
 export interface TrainingStepV2 {
-  key: string;                       // stable id within curriculum
+  key: string;
   title: I18nText;
   body: I18nText;
-  selector?: string;                 // CSS selector to spotlight; centered if absent
-  route?: string;                    // navigate to this path before locating selector
-  tab?: string;                      // emit tour:navigate {tab} (existing convention)
-  precondition?: GuardKey;           // skip/defer if false
-  waitFor?: GuardKey;                // only proceed once true (polls)
-  optional?: boolean;                // never block on this step
-  ctaLabel?: I18nText;               // primary CTA replaces "Next" label
+  selector?: string;
+  route?: string;
+  tab?: string;
+  precondition?: GuardKey;
+  waitFor?: GuardKey;
+  optional?: boolean;
+  ctaLabel?: I18nText;
+  /** Optional event name emitted to analytics when the step is shown. */
+  analyticsEvent?: string;
 }
 
 export interface TrainingCurriculum {
-  slug: string;                      // persisted in user_tour_progress.tour_key
+  slug: string;
   name: I18nText;
   description: I18nText;
   roles: RoleKey[];

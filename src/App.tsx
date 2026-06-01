@@ -26,6 +26,7 @@ import RevenueHotelDetail from "./pages/RevenueHotelDetail";
 import Breakfast from "./pages/Breakfast";
 import BreakfastAuth from "./pages/BreakfastAuth";
 import PurchaseInvoices from "./pages/PurchaseInvoices";
+import TrainingCenterPage from "./pages/TrainingCenter";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,7 @@ const TenantRouter = () => {
         <Route path="/bb" element={<Breakfast />} />
         <Route path="/bb/:hotelCode" element={<Breakfast />} />
         <Route path="/purchase-invoices" element={<PurchaseInvoices />} />
+        <Route path="/training" element={<TrainingCenterPage />} />
       </Routes>
     </TenantProvider>
   );
