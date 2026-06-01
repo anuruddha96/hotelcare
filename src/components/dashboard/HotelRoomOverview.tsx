@@ -163,8 +163,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [managerMessage, setManagerMessage] = useState('');
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
-  const canViewFullOverview = isManagerOrAdmin || isReception;
+  const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = async () => {
