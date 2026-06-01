@@ -62,6 +62,7 @@ export function Dashboard() {
   const { organization, hotels } = useTenant();
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
