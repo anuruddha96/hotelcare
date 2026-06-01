@@ -48,7 +48,7 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
   const goDashboard = (tab: string) => navigate(`${orgPath}?tab=${tab}`);
 
   const base =
-    'flex-1 inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-1 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium transition-colors';
+    'inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium transition-colors whitespace-nowrap shrink-0';
   const inactive = 'text-muted-foreground hover:text-foreground hover:bg-background/60';
   const active = 'bg-background text-foreground shadow-sm';
 
