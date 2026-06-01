@@ -33,7 +33,20 @@ export function Header() {
   const { t } = useTranslation();
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>();
+  const [settingsFocusTarget, setSettingsFocusTarget] = useState<'location' | undefined>();
   const [hotelDisplayName, setHotelDisplayName] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      setSettingsInitialTab(detail.tab);
+      setSettingsFocusTarget(detail.focus);
+      setSettingsDialogOpen(true);
+    };
+    window.addEventListener('hc:open-settings', handler as EventListener);
+    return () => window.removeEventListener('hc:open-settings', handler as EventListener);
+  }, []);
 
   useEffect(() => {
     const resolveHotelName = async () => {
