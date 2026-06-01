@@ -477,8 +477,8 @@ export function Dashboard() {
                   <span>{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
               </TabsList>
-            ) : ['manager','housekeeping_manager','admin','top_management'].includes(profile?.role || '') ? (
-              <TabsList className="flex w-full max-w-2xl h-10 sm:h-12" data-training="main-tabs">
+            ) : ['manager','housekeeping_manager','admin','top_management','top_management_manager'].includes(profile?.role || '') ? (
+              <TabsList className="flex w-full max-w-3xl h-10 sm:h-12" data-training="main-tabs">
                 <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="tickets-tab">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>{t('dashboard.tickets')}</span>
@@ -495,6 +495,26 @@ export function Dashboard() {
                   <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
+                {['admin','top_management','top_management_manager'].includes(profile?.role || '') && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/revenue`)}
+                      className="flex-1 inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-1 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                    >
+                      <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                      <span>{t('pms.revenue')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/purchase-invoices`)}
+                      className="flex-1 inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-1 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                    >
+                      <Receipt className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                      <span>{t('pms.purchaseInvoices')}</span>
+                    </button>
+                  </>
+                )}
                 {profile?.role === 'admin' && (
                   <TabsTrigger value="admin" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="admin-tab">
                     <Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
