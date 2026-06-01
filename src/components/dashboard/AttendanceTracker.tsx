@@ -82,9 +82,21 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const getCurrentLocation = async () => {
     // Only resolve the location automatically when the user has opted in.
     // First-time users are prompted from Settings → Account → Location access.
-    const { resolveLocationIfAllowed } = await import('@/lib/locationPreference');
-    const fix = await resolveLocationIfAllowed();
-    if (fix) setLocation({ latitude: fix.latitude, longitude: fix.longitude, address: fix.address });
+    const m = await import('@/lib/locationPreference');
+    const fix = await m.resolveLocationIfAllowed();
+    if (fix) {
+      setLocation({ latitude: fix.latitude, longitude: fix.longitude, address: fix.address });
+      setLocationStatus('ok');
+      return;
+    }
+    const perm = await m.getBrowserPermissionState();
+    if (perm === 'denied') setLocationStatus('denied');
+    else if (perm === 'unsupported') setLocationStatus('unsupported');
+    else setLocationStatus('needs-opt-in');
+  };
+
+  const openLocationSettings = () => {
+    window.dispatchEvent(new CustomEvent('hc:open-settings', { detail: { tab: 'account', focus: 'location' } }));
   };
 
 
