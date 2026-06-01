@@ -520,10 +520,11 @@ export default function Revenue() {
         jobs={dialogJobs}
         setJobs={setDialogJobs}
         onComplete={() => void load()}
-      />
+      </div>
     </div>
   );
 }
+
 
 type UploadKind = "pickup" | "occupancy" | "overview";
 
