@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
@@ -62,6 +62,7 @@ export function Dashboard() {
   const { organization, hotels } = useTenant();
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -320,6 +321,19 @@ export function Dashboard() {
   useEffect(() => {
     setActiveTab(getDefaultTab(profile?.role));
   }, [profile?.role, attendanceStatus]);
+
+  // Honor ?tab=<key> when arriving from external pages (Revenue, Purchase Invoices)
+  useEffect(() => {
+    const urlTab = searchParams.get('tab');
+    const valid = ['tickets', 'rooms', 'housekeeping', 'attendance', 'minibar', 'lost-found', 'maintenance-tasks', 'admin'];
+    if (urlTab && valid.includes(urlTab)) {
+      setActiveTab(urlTab);
+      // Consume the param so refreshes don't override later user clicks
+      searchParams.delete('tab');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Build breadcrumb labels
   const mainTabLabels: Record<string, string> = useMemo(() => ({
@@ -780,13 +794,32 @@ export function Dashboard() {
           </TabsContent>
 
           <TabsContent value="attendance" className="space-y-6">
-            {(profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>
-                <AttendanceTracker />
-                <AttendanceReports />
-              </div>
-            )}
+            {(() => {
+              const isExecutive = ['admin', 'top_management', 'top_management_manager', 'hr'].includes(profile?.role || '');
+              if (isExecutive) {
+                return (
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>
+                      {hotelDisplayName && (
+                        <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>
+                      )}
+                    </div>
+                    <AttendanceReports />
+                  </div>
+                );
+              }
+              if (profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) {
+                return (
+                  <div className="space-y-6">
+                    <h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>
+                    <AttendanceTracker />
+                    <AttendanceReports />
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </TabsContent>
 
           {/* Reception-specific tabs */}

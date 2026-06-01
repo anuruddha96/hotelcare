@@ -5,6 +5,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
+import { MainTabsBar } from '@/components/layout/MainTabsBar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -248,6 +249,7 @@ export default function PurchaseInvoices() {
     <div className="min-h-screen bg-background">
       <Header />
       <PMSNavigation />
+      <div className="container mx-auto px-3 sm:px-6 pt-3"><MainTabsBar current="purchase-invoices" /></div>
       <div className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>

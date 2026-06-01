@@ -49,7 +49,7 @@ export const AttendanceReports = () => {
   const [employees, setEmployees] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'top_management';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'top_management' || profile?.role === 'top_management_manager';
 
   useEffect(() => {
     if (user && isAdmin) {

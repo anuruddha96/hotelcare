@@ -125,13 +125,20 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     loadTabOrder();
   }, [user?.id]);
 
-  // Full management access: admin, top_management, manager, housekeeping_manager, marketing, control_finance, hr, front_office
-  const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
+  // Full management access: admin, top_management, top_management_manager, manager, housekeeping_manager, marketing, control_finance, hr, front_office
+  const hasManagerAccess = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
   const isAdmin = userRole === 'admin';
+  // Executive read-only viewers (Top Management): see informational tabs, skip operational ones
+  const isExecutiveReadOnly = ['top_management', 'top_management_manager'].includes(userRole);
   
   // Set the default active tab based on manager access and PMS upload status
   useEffect(() => {
     const checkDefaultTab = async () => {
+      // Top Management (read-only) always lands on Team View
+      if (isExecutiveReadOnly) {
+        setActiveTab('manage');
+        return;
+      }
       if (hasManagerAccess) {
         // For hotels where the PMS Upload tab is hidden (managed via Team
         // View → PMS Refresh), default straight to Team View / approvals.
@@ -167,7 +174,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     };
 
     checkDefaultTab();
-  }, [hasManagerAccess, userRole, pendingCount, hidePmsUploadTab]);
+  }, [hasManagerAccess, isExecutiveReadOnly, userRole, pendingCount, hidePmsUploadTab]);
 
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
   const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'reception'].includes(userRole);
@@ -184,8 +191,13 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       'dirty-linen', 'attendance', 'minibar'
     ];
 
-    const order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
-    return hidePmsUploadTab ? order.filter((id) => id !== 'pms-upload') : order;
+    let order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
+    if (hidePmsUploadTab) order = order.filter((id) => id !== 'pms-upload');
+    // Hide operational/admin tabs for read-only executives
+    if (isExecutiveReadOnly) {
+      order = order.filter((id) => !['pms-upload', 'staff-management', 'supervisor'].includes(id));
+    }
+    return order;
   };
 
   const renderTabTrigger = (tabId: string) => {
