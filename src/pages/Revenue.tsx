@@ -52,7 +52,7 @@ interface UploadJob {
   hotel?: string;
 }
 
-const ALLOWED = ["admin", "top_management"];
+const ALLOWED = ["admin", "top_management", "top_management_manager"];
 
 export default function Revenue() {
   const { profile, loading } = useAuth();

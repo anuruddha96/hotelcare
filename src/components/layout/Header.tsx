@@ -64,6 +64,7 @@ export function Header() {
       case 'hr': return 'bg-yellow-500';
       case 'front_office': return 'bg-teal-500';
       case 'top_management': return 'bg-gray-900';
+      case 'top_management_manager': return 'bg-gray-800';
       default: return 'bg-gray-500';
     }
   };
@@ -81,6 +82,7 @@ export function Header() {
       case 'hr': return t('roles.hr');
       case 'front_office': return t('roles.frontOffice');
       case 'top_management': return t('roles.topManagement');
+      case 'top_management_manager': return t('roles.topManagementManager');
       default: return role;
     }
   };

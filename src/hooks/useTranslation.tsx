@@ -476,6 +476,7 @@ const translations = {
     'roles.hr': 'HR',
     'roles.frontOffice': 'Front Office',
     'roles.topManagement': 'Top Management',
+    'roles.topManagementManager': 'Top Manager',
     
     // Team Management
     'team.management': 'Team Management',
@@ -1210,6 +1211,7 @@ const translations = {
     'roles.hr': 'HR',
     'roles.frontOffice': 'Front Office',
     'roles.topManagement': 'Felsővezetés',
+    'roles.topManagementManager': 'Felső vezető',
     
     // Team Management
     'team.management': 'Csapat kezelés',

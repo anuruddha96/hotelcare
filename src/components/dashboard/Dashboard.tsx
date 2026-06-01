@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
@@ -29,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon } from 'lucide-react';
+import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, TrendingUp, Receipt } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
@@ -59,6 +60,8 @@ export function Dashboard() {
   const { profile } = useAuth();
   const { t } = useTranslation();
   const { organization, hotels } = useTenant();
+  const navigate = useNavigate();
+  const { organizationSlug } = useParams<{ organizationSlug: string }>();
   
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -298,6 +301,7 @@ export function Dashboard() {
       case 'manager':
       case 'admin':
       case 'top_management':
+      case 'top_management_manager':
         return "housekeeping"; // Managers go to housekeeping section (PMS upload / team view logic handled inside)
       case 'maintenance':
         return "maintenance-tasks";
@@ -473,8 +477,8 @@ export function Dashboard() {
                   <span>{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
               </TabsList>
-            ) : ['manager','housekeeping_manager','admin','top_management'].includes(profile?.role || '') ? (
-              <TabsList className="flex w-full max-w-2xl h-10 sm:h-12" data-training="main-tabs">
+            ) : ['manager','housekeeping_manager','admin','top_management','top_management_manager'].includes(profile?.role || '') ? (
+              <TabsList className="flex w-full max-w-3xl h-10 sm:h-12" data-training="main-tabs">
                 <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="tickets-tab">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>{t('dashboard.tickets')}</span>
@@ -491,6 +495,26 @@ export function Dashboard() {
                   <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
+                {['admin','top_management','top_management_manager'].includes(profile?.role || '') && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/revenue`)}
+                      className="flex-1 inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-1 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                    >
+                      <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                      <span>{t('pms.revenue')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/purchase-invoices`)}
+                      className="flex-1 inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-1 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                    >
+                      <Receipt className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                      <span>{t('pms.purchaseInvoices')}</span>
+                    </button>
+                  </>
+                )}
                 {profile?.role === 'admin' && (
                   <TabsTrigger value="admin" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="admin-tab">
                     <Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />

@@ -33,12 +33,10 @@ export function LanguageSwitcher() {
   return (
     <div className="flex items-center gap-2">
     <Select value={language} onValueChange={handleLanguageChange}>
-      <SelectTrigger className="w-auto min-w-[60px] sm:w-[180px] bg-background/50 border-border/40 hover:bg-background/80 transition-colors">
+      <SelectTrigger className="w-auto h-9 px-3 gap-2 bg-background/50 border-border/40 hover:bg-background/80 transition-colors [&>span]:flex [&>span]:items-center [&>span]:gap-2 [&>span]:whitespace-nowrap [&>span]:overflow-visible">
         <SelectValue>
-          <div className="flex items-center gap-2">
-            <span className="text-lg">{current.flag}</span>
-            <span className="font-medium hidden sm:inline">{current.name}</span>
-          </div>
+          <span className="text-base leading-none">{current.flag}</span>
+          <span className="font-medium hidden sm:inline whitespace-nowrap">{current.name}</span>
         </SelectValue>
       </SelectTrigger>
         <SelectContent>
