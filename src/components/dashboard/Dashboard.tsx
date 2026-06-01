@@ -301,6 +301,7 @@ export function Dashboard() {
       case 'manager':
       case 'admin':
       case 'top_management':
+      case 'top_management_manager':
         return "housekeeping"; // Managers go to housekeeping section (PMS upload / team view logic handled inside)
       case 'maintenance':
         return "maintenance-tasks";
