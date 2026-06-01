@@ -492,20 +492,20 @@ export function Dashboard() {
                 </TabsTrigger>
               </TabsList>
             ) : ['manager','housekeeping_manager','admin','top_management','top_management_manager'].includes(profile?.role || '') ? (
-              <TabsList className="flex w-full max-w-3xl h-10 sm:h-12" data-training="main-tabs">
-                <TabsTrigger value="tickets" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="tickets-tab">
+              <TabsList className="inline-flex w-auto h-10 sm:h-12 gap-1" data-training="main-tabs">
+                <TabsTrigger value="tickets" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="tickets-tab">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>{t('dashboard.tickets')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="rooms" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="rooms-tab">
+                <TabsTrigger value="rooms" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="rooms-tab">
                   <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>{t('dashboard.rooms')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="housekeeping" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="housekeeping-tab">
+                <TabsTrigger value="housekeeping" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="housekeeping-tab">
                   <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>{t('dashboard.housekeeping')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="attendance" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="attendance-tab">
+                <TabsTrigger value="attendance" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="attendance-tab">
                   <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>{t('dashboard.workStatus')}</span>
                 </TabsTrigger>
@@ -514,7 +514,7 @@ export function Dashboard() {
                     <button
                       type="button"
                       onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/revenue`)}
-                      className="flex-1 inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-1 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                      className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
                     >
                       <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                       <span>{t('pms.revenue')}</span>
@@ -522,7 +522,7 @@ export function Dashboard() {
                     <button
                       type="button"
                       onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/purchase-invoices`)}
-                      className="flex-1 inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-1 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                      className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
                     >
                       <Receipt className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                       <span>{t('pms.purchaseInvoices')}</span>
@@ -530,7 +530,7 @@ export function Dashboard() {
                   </>
                 )}
                 {profile?.role === 'admin' && (
-                  <TabsTrigger value="admin" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-1 sm:px-3" data-training="admin-tab">
+                  <TabsTrigger value="admin" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="admin-tab">
                     <Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                     <span>Admin</span>
                   </TabsTrigger>
