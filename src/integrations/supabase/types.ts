@@ -4688,25 +4688,34 @@ export type Database = {
       }
       user_training_state: {
         Row: {
+          auto_start_pending: boolean
           dismissed_until: string | null
+          last_active_step_key: string | null
           last_guide_slug: string | null
           last_step: number
+          paused_at: string | null
           seen_promos: string[]
           updated_at: string
           user_id: string
         }
         Insert: {
+          auto_start_pending?: boolean
           dismissed_until?: string | null
+          last_active_step_key?: string | null
           last_guide_slug?: string | null
           last_step?: number
+          paused_at?: string | null
           seen_promos?: string[]
           updated_at?: string
           user_id: string
         }
         Update: {
+          auto_start_pending?: boolean
           dismissed_until?: string | null
+          last_active_step_key?: string | null
           last_guide_slug?: string | null
           last_step?: number
+          paused_at?: string | null
           seen_promos?: string[]
           updated_at?: string
           user_id?: string
@@ -4762,9 +4771,39 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      v_training_completion_by_role: {
+        Row: {
+          completed_users: number | null
+          completion_pct: number | null
+          curriculum_slug: string | null
+          in_progress_users: number | null
+          role: string | null
+          total_users: number | null
+        }
+        Relationships: []
+      }
+      v_training_dismissals: {
+        Row: {
+          dismissed_count: number | null
+          paused_count: number | null
+        }
+        Relationships: []
+      }
+      v_training_step_funnel: {
+        Row: {
+          curriculum_slug: string | null
+          role: string | null
+          step_idx: number | null
+          users_reached: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      can_view_training_analytics: {
+        Args: { _user_id: string }
+        Returns: boolean
+      }
       cleanup_old_photos: { Args: never; Returns: undefined }
       create_authenticated_housekeeper: {
         Args: {
