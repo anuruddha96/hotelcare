@@ -1,58 +1,60 @@
-# Fixes & Improvements — 5 items
+## Goals
 
-## 1. Purchase Invoices — Background uploads + recent summary + status animation
+Make `top_management_manager` a first-class, read-only "executive overview" role that mirrors what admins see but without admin/management controls, scoped to their organization. Surface Revenue and Purchase Invoices inline with the main tab bar (not in the top PMS bar). Clean up the role label and the odd "..English" glyph near the language switcher.
 
-**Problem:** Uploads cancel when user switches tab. No visibility of progress on other tabs. No recent activity summary on the Upload tab.
+## Changes
 
-**Changes (frontend only, `src/pages/PurchaseInvoices.tsx` + new components):**
+### 1. Friendly role label (no more "top_management_manager")
 
-- **Global upload manager** — lift upload state to a new `UploadQueueContext` (mounted in `PurchaseInvoices`). Each file gets a job: `{ id, name, size, status: 'uploading'|'scanning'|'done'|'error', progress }`. Promises run independently of which tab is active so switching tabs no longer cancels work.
-- **Persistent status dock** — fixed bottom-right card that lists active jobs with a smooth Framer Motion progress ring + check/error transitions, collapsible, survives tab switches. Reuses design tokens.
-- **Inline status strip** on the Upload tab (current spinner) becomes a richer animated row (per-file pill: file icon + animated progress arc + status label).
-- **Recent uploads panel** under the Upload tiles: shows last 10 invoices (merchant, date, total, status badge). Pulls from same `invoices` query, ordered desc, limit 10.
-- **"View all invoices →" button** under the panel — calls `setActiveTab('queue')` (already controlled via state from prior work).
+`src/components/layout/Header.tsx` + `src/hooks/useTranslation.tsx`
+- Add `roles.topManagementManager` translations: EN "Top Manager", plus hu/es/vi/mn equivalents.
+- `getRoleLabel`: add `case 'top_management_manager': return t('roles.topManagementManager')`.
+- `getRoleColor`: add `case 'top_management_manager': return 'bg-gray-800'` so the badge matches `top_management`.
 
-## 2. Purchase Invoices — Queue stops at page 14
+### 2. Hotel switching for top managers
 
-**Root cause:** `src/pages/PurchaseInvoices.tsx:91` hard-codes `.limit(500)`. With 50 per page that's exactly ~14 pages (a partial 15th).
+`src/components/layout/HotelSwitcher.tsx`
+- Extend the allow-list from `['admin', 'manager', 'housekeeping_manager']` to also include `'top_management'` and `'top_management_manager'` so they can move across hotels in their org.
 
-**Fix:** Switch the queue query to server-side pagination — fetch `range((page-1)*50, page*50-1)` with `{ count: 'exact' }` and drive pagination from the returned `count` so it continues past 500 to the true end. Keep client-side filters working by re-querying when filters change.
+### 3. Read-only operational view (Tickets / Rooms / Housekeeping / Attendance + Revenue + Invoices)
 
-## 3. Breakfast — Hotel Memories room 216 missing (70 instead of 71)
+`src/components/dashboard/Dashboard.tsx`
+- Treat `top_management_manager` everywhere `top_management` is treated for tab visibility and default tab (housekeeping landing), but keep all management-only buttons (Manage Users, Access Control, Ticket Permissions, Admin tab) hidden — they remain gated by `canManageUsers` (admin only), which is already the case.
+- Reuse the existing manager/admin/top_management TabsList branch for `top_management_manager`, then append two extra triggers visible only for `top_management` and `top_management_manager`:
+  - `Revenue` (icon: TrendingUp)
+  - `Purchase Invoices` (icon: Receipt)
+- Clicking those triggers does NOT render an inline panel; it `navigate()`s to `/{org}/revenue` and `/{org}/purchase-invoices` respectively (keeps existing route-based pages). Visually they sit right next to Attendance in the same `TabsList`, satisfying the "next to main tabs, not on top" request.
+- Housekeeping content for these roles already shows the read-only Team View + Performance (per existing top_management gate). No housekeeping write actions are exposed — confirm by reusing the same conditional render path used for `top_management`.
 
-**Root cause:** `breakfast-public-lookup` (list mode) reads only from `daily_overview_snapshots`. For Hotel Memories Budapest, the latest snapshot (2026-05-28) contains 70 distinct rooms — room **216** is absent from the PMS daily overview, even though it exists in the `rooms` table (confirmed: 71 active rooms incl. 216 `economy_quadruple`).
+### 4. Hide the duplicated top PMS bar for top_management_manager
 
-**Fix (edge function `supabase/functions/breakfast-public-lookup/index.ts`, list mode):**
-After building the snapshot map, also fetch all rooms from the `rooms` table for that hotel and **union** any missing rooms in as `status: 'no_breakfast'` chips (vacant/no PMS row). This guarantees the full 71 rooms always show and is resilient to future PMS gaps. No DB migration needed.
+`src/components/layout/PMSNavigation.tsx`
+- Remove `top_management_manager` from the top PMS nav (do not add it to `NAV_GATE_ROLES`). The user wants Revenue / Purchase Invoices to appear with the main tabs, not in the secondary top bar. `top_management` keeps the current bar; `top_management_manager` will only see the main tabs.
 
-## 4. Housekeeper card — "Add Minibar Item (after completion)" overflows
+### 5. Route access for new tabs
 
-**File:** `src/components/dashboard/AssignedRoomCard.tsx` (~line 1301)
+- `Revenue.tsx` and `PurchaseInvoices.tsx` role gates: add `top_management_manager` to the allowed roles so the inline tab navigation does not bounce them. Restrict actions inside these pages to read-only for this role (no create/approve buttons) — gate write controls behind `['admin','top_management','control_finance', ...]` as today; just add view access.
 
-**Fix:** Allow the button text to wrap on two lines on narrow screens and shrink font:
-- `className="w-full ... h-auto min-h-[40px] py-2 whitespace-normal text-xs leading-tight"`
-- Replace static label with two-line layout: bold "Add Minibar" + small "(after completion)" subtitle, so it fits cleanly in the button without truncation. Same treatment for the matching dirty linen button for visual parity.
+### 6. Language switcher cleanup ("..English" / three dots)
 
-## 5. Location access — ask once, manage from Settings
+`src/components/dashboard/LanguageSwitcher.tsx`
+- The "dots" are caused by the SelectTrigger's flag span sitting next to a `hidden sm:inline` label inside a narrow trigger, producing CSS text-overflow ellipsis on certain widths. Fixes:
+  - Widen trigger min width and add `whitespace-nowrap` + `overflow-visible` on the inner span so the label is never truncated.
+  - Drop the redundant `min-w-[60px] sm:w-[180px]` in favor of `w-auto` with `px-3`, and render `{current.flag} {current.name}` together without ellipsis.
+- Verify in the preview at 1001px that no "‥" glyph remains.
 
-**Problem:** `AttendanceTracker.tsx:83` calls `getCurrentPosition` on every mount, re-prompting after every refresh.
+## Out of scope
 
-**Changes:**
-- New helper `src/lib/locationPreference.ts` — wraps the Permissions API (`navigator.permissions.query({ name: 'geolocation' })`). Caches the last granted position with timestamp in `localStorage` (`hc.location.lastFix`, `hc.location.optIn`).
-- `AttendanceTracker.tsx` — only calls `getCurrentPosition` if `optIn === true` AND `permissions.state !== 'denied'`. If a recent fix (<10 min) is cached, reuse it instead of re-querying. First-time users see a small inline opt-in card ("Use my location for sign-in?  Allow / Skip") rather than a forced browser prompt loop.
-- **Settings page entry** — add a "Location access" row in the user/profile settings panel (whichever Settings surface exists in `Header` dropdown). Shows current permission state and a button to: enable (triggers `getCurrentPosition` once), disable (clears opt-in + cached fix), or "Open browser site settings" (deep link instructions when permission is `denied` — browser-level revoke).
+- No DB / RLS changes. All edits are frontend gating + labels.
+- No changes to admin/super-admin powers.
+- No new pages — Revenue and Purchase Invoices reuse existing routes.
 
 ## Files touched
 
-- `src/pages/PurchaseInvoices.tsx` — pagination fix, recent panel, view-all button, hook into upload context
-- `src/components/purchase-invoices/UploadQueueDock.tsx` (new) — persistent animated status dock
-- `src/contexts/UploadQueueContext.tsx` (new)
-- `src/components/purchase-invoices/RecentInvoicesPanel.tsx` (new)
-- `supabase/functions/breakfast-public-lookup/index.ts` — union rooms table in list mode
-- `src/components/dashboard/AssignedRoomCard.tsx` — button fit
-- `src/components/dashboard/AttendanceTracker.tsx` + new `src/lib/locationPreference.ts`
-- Settings surface (location row) — exact file TBD on implementation (likely a dropdown in `Header.tsx` or existing profile panel)
-
-## Out of scope
-- Fixing the PMS sync to backfill room 216 into `daily_overview_snapshots` (frontend union is the safe fix; deeper Previo sync investigation can follow if you want).
-- Resumable uploads across full page reloads (background continues across tab switches inside the SPA; a hard browser reload still cancels — that would need Service Worker upload, larger scope).
+- `src/components/dashboard/Dashboard.tsx`
+- `src/components/layout/Header.tsx`
+- `src/components/layout/HotelSwitcher.tsx`
+- `src/components/layout/PMSNavigation.tsx`
+- `src/components/dashboard/LanguageSwitcher.tsx`
+- `src/hooks/useTranslation.tsx`
+- `src/pages/Revenue.tsx`, `src/pages/PurchaseInvoices.tsx` (role allow-list only)
