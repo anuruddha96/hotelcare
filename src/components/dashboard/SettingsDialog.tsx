@@ -490,7 +490,7 @@ function LocationAccessCard() {
     : 'bg-muted-foreground';
 
   return (
-    <Card>
+    <Card id="settings-location-access" className="scroll-mt-4 rounded-lg">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MapPin className="h-5 w-5" /> Location access
