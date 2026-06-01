@@ -191,8 +191,13 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       'dirty-linen', 'attendance', 'minibar'
     ];
 
-    const order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
-    return hidePmsUploadTab ? order.filter((id) => id !== 'pms-upload') : order;
+    let order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
+    if (hidePmsUploadTab) order = order.filter((id) => id !== 'pms-upload');
+    // Hide operational/admin tabs for read-only executives
+    if (isExecutiveReadOnly) {
+      order = order.filter((id) => !['pms-upload', 'staff-management', 'supervisor'].includes(id));
+    }
+    return order;
   };
 
   const renderTabTrigger = (tabId: string) => {
