@@ -57,7 +57,7 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
 
   return (
     <div className={cn('w-full overflow-x-auto', className)}>
-      <div className="flex w-full max-w-3xl h-10 sm:h-12 bg-muted rounded-md p-1 gap-1">
+      <div className="inline-flex h-10 sm:h-12 bg-muted rounded-md p-1 gap-1">
         <button type="button" className={btn('tickets')} onClick={() => goDashboard('tickets')}>
           <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
           <span>{t('dashboard.tickets')}</span>
