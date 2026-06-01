@@ -189,7 +189,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
           <DialogTitle>{t('settings.title')}</DialogTitle>
         </DialogHeader>
         
-        <Tabs defaultValue="account" className="w-full">
+        <Tabs value={initialTab || 'account'} defaultValue="account" className="w-full" onValueChange={() => { /* user can navigate freely */ }}>
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="account">{t('settings.tabAccount')}</TabsTrigger>
             <TabsTrigger value="notifications">{t('settings.tabNotifications')}</TabsTrigger>
