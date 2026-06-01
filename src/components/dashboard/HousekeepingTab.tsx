@@ -134,6 +134,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   // Set the default active tab based on manager access and PMS upload status
   useEffect(() => {
     const checkDefaultTab = async () => {
+      // Top Management (read-only) always lands on Team View
+      if (isExecutiveReadOnly) {
+        setActiveTab('manage');
+        return;
+      }
       if (hasManagerAccess) {
         // For hotels where the PMS Upload tab is hidden (managed via Team
         // View → PMS Refresh), default straight to Team View / approvals.
@@ -169,7 +174,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     };
 
     checkDefaultTab();
-  }, [hasManagerAccess, userRole, pendingCount, hidePmsUploadTab]);
+  }, [hasManagerAccess, isExecutiveReadOnly, userRole, pendingCount, hidePmsUploadTab]);
 
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
   const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'reception'].includes(userRole);
