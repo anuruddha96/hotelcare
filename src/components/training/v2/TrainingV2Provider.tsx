@@ -335,10 +335,7 @@ export function useTrainingV2() {
   return ctx;
 }
 
-export function txt<T extends { en: string; [k: string]: string | undefined }>(
-  text: T,
-  lang: LangCode,
-): string {
+export function txt(text: { en: string } & Record<string, string | undefined>, lang: LangCode): string {
   return tx(text, lang);
 }
 
