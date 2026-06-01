@@ -60,6 +60,8 @@ export function Dashboard() {
   const { profile } = useAuth();
   const { t } = useTranslation();
   const { organization, hotels } = useTenant();
+  const navigate = useNavigate();
+  const { organizationSlug } = useParams<{ organizationSlug: string }>();
   
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
