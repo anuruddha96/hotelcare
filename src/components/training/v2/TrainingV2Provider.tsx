@@ -48,7 +48,7 @@ const MANAGER_ROLES = [
   'top_management_manager',
 ];
 
-function tx(text: { en: string } & Record<string, string | undefined>, lang: LangCode): string {
+function tx(text: import("./types").I18nText, lang: LangCode): string {
   return (text[lang] as string) || text.en;
 }
 
@@ -335,7 +335,7 @@ export function useTrainingV2() {
   return ctx;
 }
 
-export function txt(text: { en: string } & Record<string, string | undefined>, lang: LangCode): string {
+export function txt(text: import("./types").I18nText, lang: LangCode): string {
   return tx(text, lang);
 }
 
