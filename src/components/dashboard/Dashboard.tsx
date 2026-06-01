@@ -30,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon } from 'lucide-react';
+import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, TrendingUp, Receipt } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
