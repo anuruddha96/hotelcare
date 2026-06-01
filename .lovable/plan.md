@@ -1,59 +1,72 @@
 ## Goals
 
-Three connected fixes for the **Top Manager** role (and where applicable `top_management`):
+Three fixes for executive roles (`admin`, `top_management`, `top_management_manager`) so they get the same Housekeeping / navigation experience as managers.
 
-1. Restore cross-module navigation while on Purchase Invoices / Revenue.
-2. Give Top Manager read-only Housekeeping visibility (instead of "Access restricted").
-3. Make the Attendance section an executive overview (all-staff records) for `top_management`, `top_management_manager`, `admin`, `hr`.
+## 1. Revenue page is missing the top app Header
 
-## Changes
+`src/pages/Revenue.tsx` renders only `MainTabsBar` + content — no `<Header />`, so the logo, Hotel switcher, Organization switcher, Language switcher, profile menu, etc. all disappear when an exec opens Revenue. `PurchaseInvoices.tsx` already renders `<Header />` and that page is fine.
 
-### 1. Persistent main-tabs bar on Revenue & Purchase Invoices
+**Change**: import `Header` (and keep `PMSNavigation` hidden for `top_management_manager` as today) and render it as the first child of the root `<div>`, exactly like `PurchaseInvoices.tsx`:
 
-Create `src/components/layout/MainTabsBar.tsx` — a stateless horizontal tab strip with the same icons/labels as the dashboard's main tabs:
-- Tickets, Rooms, Housekeeping, Attendance — `navigate('/{org}?tab=<key>')`
-- Revenue, Purchase Invoices — `navigate('/{org}/revenue')` / `navigate('/{org}/purchase-invoices')`
-- Visible only when `profile.role ∈ {manager, housekeeping_manager, admin, top_management, top_management_manager}`. Revenue/Invoices triggers shown only for `admin / top_management / top_management_manager`.
-- Highlights the current location via a `current` prop.
+```tsx
+return (
+  <div className="min-h-screen bg-background">
+    <Header />
+    <div className="container mx-auto p-4 space-y-4">
+      <MainTabsBar current="revenue" />
+      ...existing content
+    </div>
+  </div>
+);
+```
 
-Wire-up:
-- `src/pages/Revenue.tsx`: render `<MainTabsBar current="revenue" />` directly under the page heading row (keep the existing "Back" button).
-- `src/pages/PurchaseInvoices.tsx`: render `<MainTabsBar current="purchase-invoices" />` between `<Header />` and the page container. PMSNavigation stays hidden for `top_management_manager` (already gated).
-- `src/pages/Index.tsx` / `Dashboard.tsx`: on mount, read `?tab=` from `useSearchParams()` and call `setActiveTab(...)` when it matches a valid tab. This lets cross-page navigation land on the right tab.
+Wrap the existing container in this outer shell so the sticky header sits above it.
 
-### 2. Housekeeping RO for Top Manager
+## 2. "Purchase Invoices" tab wraps to two lines in MainTabsBar
 
-`src/components/dashboard/HousekeepingTab.tsx`:
-- Extend the `hasManagerAccess` list with `'top_management_manager'` (already includes `'top_management'`). This removes the "Access restricted" wall.
-- Add `const isExecutiveReadOnly = ['top_management', 'top_management_manager'].includes(userRole);`
-- For executives, default `activeTab` to `'manage'` (Team View) regardless of the PMS-upload-today check.
-- From `getTabOrder()`, filter out `'pms-upload'` and `'staff-management'` when `isExecutiveReadOnly` (those are operational, not informational).
-- Pass an `isReadOnly` prop (or reuse the existing `isReadOnlyAccess` shape) into the rendered sub-tab components so action buttons can hide. Scope of this change here: just flip the entry gate + tab filtering. Per-button RO enforcement remains as-is for now; the visible tabs are already mostly informational (Team View, Performance, photos, dirty linen, attendance, minibar tracking).
+`src/components/layout/MainTabsBar.tsx` — the buttons use `flex-1` with no `whitespace-nowrap`, so the long label collapses onto two lines and visibly breaks the bar (screenshot 698).
 
-### 3. Executive Attendance overview
+**Changes**:
+- Add `whitespace-nowrap` to the `base` class.
+- Drop `flex-1` and let labels size naturally; keep the existing `overflow-x-auto` wrapper so the bar scrolls on narrow viewports instead of wrapping. Remove `max-w-3xl` so the bar can grow to fit the longer exec-only set (6 tabs).
+- For the Purchase Invoices trigger, render the label as one piece (`{t('pms.purchaseInvoices')}`) but ensure the translation string itself is a single line (already is in English — wrapping was caused by CSS, not the string).
 
-`src/components/dashboard/Dashboard.tsx`:
-- In the `attendance` `TabsContent`, render differently for executives: skip the personal `<AttendanceTracker />` (they don't clock in) and render `<AttendanceReports />` full-width with a heading "Staff Attendance — {hotel/organization}". Detect with `const isExecutive = ['admin','top_management','top_management_manager','hr'].includes(profile?.role || '')`.
-- Keep current behaviour for `housekeeping / maintenance / manager`.
+Net effect: every tab stays on a single line; on small screens the bar scrolls horizontally.
 
-`src/components/dashboard/AttendanceReports.tsx`:
-- Extend the `isAdmin` flag (line 52) to include `top_management_manager`. This already enables the employee filter dropdown and the all-staff query path (`get_employees_by_hotel` RPC + admin branch). Verify the RPC honours `assigned_hotel` scoping — it does, per the function name.
-- Add a small organization/hotel context line at the top of the card ("Showing: {hotel_name}") so executives know the scope; already filtered server-side.
+## 3. Top Management / admin can't see full Team View → Hotel Room Overview
 
-`src/components/dashboard/AttendanceTracker.tsx`:
-- No change required; it's no longer rendered for executives.
+`src/components/dashboard/HotelRoomOverview.tsx` line 165 gates the rich overview UI:
 
-## Out of scope
+```ts
+const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+const canViewFullOverview = isManagerOrAdmin || isReception;
+```
 
-- No DB / RLS / migration changes — RPCs already enforce hotel scoping.
-- No per-button audit inside every housekeeping sub-tab (call out as follow-up if the executive needs strict RO).
-- No new tour steps.
+`top_management` and `top_management_manager` are excluded, so they lose: the Map/List view toggle, the same room cards/sections affordances managers get, and several other view-side branches keyed on `isManagerOrAdmin`. Admin is in the list, but the user reports the same gap because the *Map button* is gated by `canViewFullOverview` only (which also excludes execs).
+
+**Changes**:
+1. Introduce a clear split between read access and write access:
+   ```ts
+   const isWriteRole = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
+   const isManagerOrAdmin = isWriteRole; // keep name for all existing write/drag-drop gates
+   const canViewFullOverview = isWriteRole || isExecViewer || isReception;
+   ```
+2. Replace every read-only UI affordance currently gated by `isManagerOrAdmin` with `canViewFullOverview`. Specifically the Map/List toggle button at line 1104 and the legend visibility checks. **Do not** change drag/drop, edit, assignment, or "ready to clean" mutation gates — those stay on `isManagerOrAdmin` (write role only) so execs remain truly read-only.
+3. `HotelFloorMap` `isAdmin` prop stays `profile?.role === 'admin'` (admin-only admin features).
+
+Result: `top_management`, `top_management_manager`, and `admin` see the full Hotel Room Overview (rooms grid, Map toggle, legend) in the Housekeeping → Team View tab, identical to managers, but cannot mutate.
+
+`HousekeepingManagerView.tsx` and `HousekeepingTab.tsx` already grant Team View access to these roles (verified in `hasManagerAccess`), so no change needed there. The housekeeper cards / Team Summary already render whenever `housekeepingStaff` is non-empty for the assigned hotel — that part is data-driven, not gated by role.
 
 ## Files touched
 
-- new: `src/components/layout/MainTabsBar.tsx`
-- `src/pages/Revenue.tsx`
-- `src/pages/PurchaseInvoices.tsx`
-- `src/components/dashboard/Dashboard.tsx`
-- `src/components/dashboard/HousekeepingTab.tsx`
-- `src/components/dashboard/AttendanceReports.tsx`
+- `src/pages/Revenue.tsx` — add `<Header />` wrapper.
+- `src/components/layout/MainTabsBar.tsx` — `whitespace-nowrap`, drop `flex-1` / `max-w-3xl`.
+- `src/components/dashboard/HotelRoomOverview.tsx` — split write vs view roles, expand `canViewFullOverview`, swap the Map-button gate.
+
+## Out of scope
+
+- No DB / RLS / migration changes.
+- No new translations.
+- No changes to housekeeping write actions — execs remain read-only.
