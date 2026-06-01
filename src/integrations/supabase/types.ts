@@ -4598,17 +4598,29 @@ export type Database = {
       user_tour_progress: {
         Row: {
           completed_at: string
+          completed_steps: number[]
+          current_step: number
+          status: string
           tour_key: string
+          updated_at: string
           user_id: string
         }
         Insert: {
           completed_at?: string
+          completed_steps?: number[]
+          current_step?: number
+          status?: string
           tour_key: string
+          updated_at?: string
           user_id: string
         }
         Update: {
           completed_at?: string
+          completed_steps?: number[]
+          current_step?: number
+          status?: string
           tour_key?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
