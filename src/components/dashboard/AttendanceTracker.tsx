@@ -63,6 +63,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [selectedBreakType, setSelectedBreakType] = useState<string>('');
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<'loading' | 'ok' | 'needs-opt-in' | 'denied' | 'unsupported'>('loading');
   const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: any} | null>(null);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
   const [pendingRooms, setPendingRooms] = useState<PendingRoom[]>([]);
