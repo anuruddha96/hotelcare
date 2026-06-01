@@ -219,9 +219,14 @@ export function Header() {
         open={profileDialogOpen} 
         onOpenChange={setProfileDialogOpen} 
       />
-      <SettingsDialog 
-        open={settingsDialogOpen} 
-        onOpenChange={setSettingsDialogOpen} 
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={(o) => {
+          setSettingsDialogOpen(o);
+          if (!o) { setSettingsInitialTab(undefined); setSettingsFocusTarget(undefined); }
+        }}
+        initialTab={settingsInitialTab}
+        focusTarget={settingsFocusTarget}
       />
     </header>
   );
