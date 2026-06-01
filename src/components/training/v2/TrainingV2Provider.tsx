@@ -48,10 +48,7 @@ const MANAGER_ROLES = [
   'top_management_manager',
 ];
 
-function tx<T extends { en: string; [k: string]: string | undefined }>(
-  text: T,
-  lang: LangCode,
-): string {
+function tx(text: { en: string } & Record<string, string | undefined>, lang: LangCode): string {
   return (text[lang] as string) || text.en;
 }
 
