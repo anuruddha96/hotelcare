@@ -125,9 +125,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     loadTabOrder();
   }, [user?.id]);
 
-  // Full management access: admin, top_management, manager, housekeeping_manager, marketing, control_finance, hr, front_office
-  const hasManagerAccess = ['admin', 'top_management', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
+  // Full management access: admin, top_management, top_management_manager, manager, housekeeping_manager, marketing, control_finance, hr, front_office
+  const hasManagerAccess = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
   const isAdmin = userRole === 'admin';
+  // Executive read-only viewers (Top Management): see informational tabs, skip operational ones
+  const isExecutiveReadOnly = ['top_management', 'top_management_manager'].includes(userRole);
   
   // Set the default active tab based on manager access and PMS upload status
   useEffect(() => {
