@@ -82,6 +82,7 @@ export function Header() {
       case 'hr': return t('roles.hr');
       case 'front_office': return t('roles.frontOffice');
       case 'top_management': return t('roles.topManagement');
+      case 'top_management_manager': return t('roles.topManagementManager');
       default: return role;
     }
   };
