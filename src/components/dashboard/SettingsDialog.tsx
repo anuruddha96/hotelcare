@@ -189,12 +189,8 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
           <DialogTitle>{t('settings.title')}</DialogTitle>
         </DialogHeader>
         
-        <Tabs value={initialTab || 'account'} defaultValue="account" className="w-full" onValueChange={() => { /* user can navigate freely */ }}>
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="account">{t('settings.tabAccount')}</TabsTrigger>
-            <TabsTrigger value="notifications">{t('settings.tabNotifications')}</TabsTrigger>
-            <TabsTrigger value="security">{t('settings.tabSecurity')}</TabsTrigger>
-          </TabsList>
+        <SettingsTabs initialTab={initialTab} focusTarget={focusTarget} open={open} profile={profile} t={t} onOpenChange={onOpenChange} body={{ /* placeholder, see below */ }} />
+        <Tabs value={undefined as any} className="hidden" />
           
           <TabsContent value="account" className="space-y-4">
             <Card>
