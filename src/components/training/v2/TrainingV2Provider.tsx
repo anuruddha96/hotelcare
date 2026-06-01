@@ -49,7 +49,7 @@ const MANAGER_ROLES = [
 ];
 
 function tx(text: import("./types").I18nText, lang: LangCode): string {
-  return (text[lang] as string) || text.en;
+  return ((text as Record<string, string | undefined>)[lang]) || text.en;
 }
 
 export function TrainingV2Provider({ children }: { children: ReactNode }) {
