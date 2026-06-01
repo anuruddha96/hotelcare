@@ -322,6 +322,19 @@ export function Dashboard() {
     setActiveTab(getDefaultTab(profile?.role));
   }, [profile?.role, attendanceStatus]);
 
+  // Honor ?tab=<key> when arriving from external pages (Revenue, Purchase Invoices)
+  useEffect(() => {
+    const urlTab = searchParams.get('tab');
+    const valid = ['tickets', 'rooms', 'housekeeping', 'attendance', 'minibar', 'lost-found', 'maintenance-tasks', 'admin'];
+    if (urlTab && valid.includes(urlTab)) {
+      setActiveTab(urlTab);
+      // Consume the param so refreshes don't override later user clicks
+      searchParams.delete('tab');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // Build breadcrumb labels
   const mainTabLabels: Record<string, string> = useMemo(() => ({
     tickets: t('dashboard.tickets'),
