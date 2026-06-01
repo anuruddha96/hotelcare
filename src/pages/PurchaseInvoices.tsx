@@ -249,6 +249,7 @@ export default function PurchaseInvoices() {
     <div className="min-h-screen bg-background">
       <Header />
       <PMSNavigation />
+      <div className="container mx-auto px-3 sm:px-6 pt-3"><MainTabsBar current="purchase-invoices" /></div>
       <div className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
