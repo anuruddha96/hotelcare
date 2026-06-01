@@ -7,6 +7,7 @@ import { TranslationProvider } from "@/hooks/useTranslation";
 import { TenantProvider } from "@/contexts/TenantContext";
 import { TrainingGuideProvider } from "@/contexts/TrainingGuideContext";
 import { GuidedTourProvider } from "@/components/training/GuidedTour";
+import { TrainingV2Provider } from "@/components/training/v2/TrainingV2Provider";
 import { LiveSyncProvider } from "@/contexts/LiveSyncContext";
 import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNotificationProvider";
 import { TrainingOverlay, TrainingWelcomePrompt } from "@/components/training";
