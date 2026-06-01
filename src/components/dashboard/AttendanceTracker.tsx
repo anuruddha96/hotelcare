@@ -736,8 +736,13 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             </div>
 
             {!location && (
-              <div className="text-xs text-muted-foreground text-center">
-                {t('attendance.waitingLocation')}
+              <div className="flex flex-col items-center gap-1.5 text-xs text-muted-foreground">
+                <span>{t('attendance.waitingLocation')}</span>
+                {locationStatus !== 'loading' && locationStatus !== 'ok' && (
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={openLocationSettings}>
+                    <MapPin className="h-3 w-3 mr-1" /> Open Location Settings
+                  </Button>
+                )}
               </div>
             )}
           </div>
