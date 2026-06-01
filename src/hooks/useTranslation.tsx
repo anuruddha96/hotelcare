@@ -476,6 +476,7 @@ const translations = {
     'roles.hr': 'HR',
     'roles.frontOffice': 'Front Office',
     'roles.topManagement': 'Top Management',
+    'roles.topManagementManager': 'Top Manager',
     
     // Team Management
     'team.management': 'Team Management',
