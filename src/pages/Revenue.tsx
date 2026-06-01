@@ -14,6 +14,7 @@ import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader
 import { formatDistanceToNow } from "date-fns";
 import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
+import { MainTabsBar } from "@/components/layout/MainTabsBar";
 
 interface PickupDateRow { stay_date: string; delta: number }
 interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
