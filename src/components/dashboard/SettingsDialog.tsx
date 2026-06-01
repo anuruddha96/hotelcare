@@ -31,11 +31,32 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
   const { preferences, updatePreferences, clearBannerDismissal } = useNotificationPreferences();
   const [isLoading, setIsLoading] = useState(false);
   const [isTogglingNotifications, setIsTogglingNotifications] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>(initialTab || 'account');
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: ''
   });
+
+  // Sync tab when opened with a requested initial tab
+  useEffect(() => {
+    if (open && initialTab) setActiveTab(initialTab);
+  }, [open, initialTab]);
+
+  // Scroll & highlight the location card when requested
+  useEffect(() => {
+    if (!open || focusTarget !== 'location') return;
+    const id = window.setTimeout(() => {
+      const el = document.getElementById('settings-location-access');
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-primary', 'ring-offset-2', 'transition-all');
+      window.setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2');
+      }, 2400);
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [open, focusTarget]);
 
   const getRoleLabel = (role: string) => {
     switch (role) {
