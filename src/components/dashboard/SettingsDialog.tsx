@@ -20,9 +20,11 @@ import { useTranslation } from '@/hooks/useTranslation';
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialTab?: string;
+  focusTarget?: 'location';
 }
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: SettingsDialogProps) {
   const { profile } = useAuth();
   const { t } = useTranslation();
   const { requestNotificationPermission, notificationPermission, playNotificationSound, ensureAudioUnlocked } = useNotifications();
