@@ -1,60 +1,56 @@
-## Goals
+## Goal
 
-Make `top_management_manager` a first-class, read-only "executive overview" role that mirrors what admins see but without admin/management controls, scoped to their organization. Surface Revenue and Purchase Invoices inline with the main tab bar (not in the top PMS bar). Clean up the role label and the odd "..English" glyph near the language switcher.
+When attendance sign-in is blocked because location is unavailable (opt-out or browser permission denied), show a clear inline action that opens **Settings → Account → Location access** directly, focused and scrolled into view — no manual navigation needed.
 
 ## Changes
 
-### 1. Friendly role label (no more "top_management_manager")
+### 1. Global "open settings" event
 
-`src/components/layout/Header.tsx` + `src/hooks/useTranslation.tsx`
-- Add `roles.topManagementManager` translations: EN "Top Manager", plus hu/es/vi/mn equivalents.
-- `getRoleLabel`: add `case 'top_management_manager': return t('roles.topManagementManager')`.
-- `getRoleColor`: add `case 'top_management_manager': return 'bg-gray-800'` so the badge matches `top_management`.
+Use a lightweight `window` CustomEvent so any component can request the Settings dialog without prop drilling.
 
-### 2. Hotel switching for top managers
+- Event name: `hc:open-settings`
+- Payload: `{ tab?: 'account' | 'notifications' | 'security'; focus?: 'location' }`
 
-`src/components/layout/HotelSwitcher.tsx`
-- Extend the allow-list from `['admin', 'manager', 'housekeeping_manager']` to also include `'top_management'` and `'top_management_manager'` so they can move across hotels in their org.
+### 2. `Header.tsx`
 
-### 3. Read-only operational view (Tickets / Rooms / Housekeeping / Attendance + Revenue + Invoices)
+- Add a `useEffect` that listens for `hc:open-settings`. On fire:
+  - `setSettingsDialogOpen(true)`
+  - Store `initialTab` and `focusTarget` in local state and pass them as new props to `SettingsDialog`.
+- Reset those props when the dialog closes so a normal click on "Settings" behaves as before.
 
-`src/components/dashboard/Dashboard.tsx`
-- Treat `top_management_manager` everywhere `top_management` is treated for tab visibility and default tab (housekeeping landing), but keep all management-only buttons (Manage Users, Access Control, Ticket Permissions, Admin tab) hidden — they remain gated by `canManageUsers` (admin only), which is already the case.
-- Reuse the existing manager/admin/top_management TabsList branch for `top_management_manager`, then append two extra triggers visible only for `top_management` and `top_management_manager`:
-  - `Revenue` (icon: TrendingUp)
-  - `Purchase Invoices` (icon: Receipt)
-- Clicking those triggers does NOT render an inline panel; it `navigate()`s to `/{org}/revenue` and `/{org}/purchase-invoices` respectively (keeps existing route-based pages). Visually they sit right next to Attendance in the same `TabsList`, satisfying the "next to main tabs, not on top" request.
-- Housekeeping content for these roles already shows the read-only Team View + Performance (per existing top_management gate). No housekeeping write actions are exposed — confirm by reusing the same conditional render path used for `top_management`.
+### 3. `SettingsDialog.tsx`
 
-### 4. Hide the duplicated top PMS bar for top_management_manager
+- Accept optional `initialTab?: string` and `focusTarget?: 'location'` props.
+- Use `initialTab` as the `Tabs` `value` (controlled) when provided, defaulting to `'account'`.
+- Give `LocationAccessCard` a stable `id="settings-location-access"` and a `ref`. When the dialog opens with `focusTarget === 'location'`:
+  - `scrollIntoView({ block: 'center' })`
+  - Add a temporary highlight (e.g. `ring-2 ring-primary` for ~2s) so the user immediately sees where to act.
 
-`src/components/layout/PMSNavigation.tsx`
-- Remove `top_management_manager` from the top PMS nav (do not add it to `NAV_GATE_ROLES`). The user wants Revenue / Purchase Invoices to appear with the main tabs, not in the secondary top bar. `top_management` keeps the current bar; `top_management_manager` will only see the main tabs.
+### 4. `AttendanceTracker.tsx` — actionable denied state
 
-### 5. Route access for new tabs
+- After `getCurrentLocation()` completes without a fix, call `getBrowserPermissionState()` to distinguish:
+  - `granted` but opt-out → "Enable to sign in" path
+  - `denied` → browser blocked
+  - `prompt` / `unsupported` → not opted in yet
+- Replace the silent "Getting your location…" line (around line 493) when there is no fix AND the call already finished, with a compact inline alert:
+  - Icon + short message ("Location is required to sign in" / "Location access is blocked in your browser")
+  - Primary button **"Open Location Settings"** that dispatches `hc:open-settings` with `{ tab: 'account', focus: 'location' }`
+  - For `denied`, add secondary helper text linking to the browser-settings hint already present in `LocationAccessCard`.
+- Also surface the same button next to the disabled **Sign In** button (around line 704–712) so users don't have to scroll to find it.
 
-- `Revenue.tsx` and `PurchaseInvoices.tsx` role gates: add `top_management_manager` to the allowed roles so the inline tab navigation does not bounce them. Restrict actions inside these pages to read-only for this role (no create/approve buttons) — gate write controls behind `['admin','top_management','control_finance', ...]` as today; just add view access.
+### 5. No changes to `locationPreference.ts`
 
-### 6. Language switcher cleanup ("..English" / three dots)
-
-`src/components/dashboard/LanguageSwitcher.tsx`
-- The "dots" are caused by the SelectTrigger's flag span sitting next to a `hidden sm:inline` label inside a narrow trigger, producing CSS text-overflow ellipsis on certain widths. Fixes:
-  - Widen trigger min width and add `whitespace-nowrap` + `overflow-visible` on the inner span so the label is never truncated.
-  - Drop the redundant `min-w-[60px] sm:w-[180px]` in favor of `w-auto` with `px-3`, and render `{current.flag} {current.name}` together without ellipsis.
-- Verify in the preview at 1001px that no "‥" glyph remains.
+It already exposes `getBrowserPermissionState`, `getOptIn`, `requestLocationOnce`, and `clearLocation` — reused as-is.
 
 ## Out of scope
 
-- No DB / RLS changes. All edits are frontend gating + labels.
-- No changes to admin/super-admin powers.
-- No new pages — Revenue and Purchase Invoices reuse existing routes.
+- No DB / RLS changes.
+- No changes to the sign-in business rules (still blocked without a fix; we just make the recovery one click).
+- No new translation keys beyond two short strings (added to `useTranslation.tsx` EN + HU).
 
 ## Files touched
 
-- `src/components/dashboard/Dashboard.tsx`
+- `src/components/dashboard/AttendanceTracker.tsx`
+- `src/components/dashboard/SettingsDialog.tsx`
 - `src/components/layout/Header.tsx`
-- `src/components/layout/HotelSwitcher.tsx`
-- `src/components/layout/PMSNavigation.tsx`
-- `src/components/dashboard/LanguageSwitcher.tsx`
-- `src/hooks/useTranslation.tsx`
-- `src/pages/Revenue.tsx`, `src/pages/PurchaseInvoices.tsx` (role allow-list only)
+- `src/hooks/useTranslation.tsx` (two strings)

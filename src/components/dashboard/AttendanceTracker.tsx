@@ -63,6 +63,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [selectedBreakType, setSelectedBreakType] = useState<string>('');
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<'loading' | 'ok' | 'needs-opt-in' | 'denied' | 'unsupported'>('loading');
   const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: any} | null>(null);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
   const [pendingRooms, setPendingRooms] = useState<PendingRoom[]>([]);
@@ -81,9 +82,21 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const getCurrentLocation = async () => {
     // Only resolve the location automatically when the user has opted in.
     // First-time users are prompted from Settings → Account → Location access.
-    const { resolveLocationIfAllowed } = await import('@/lib/locationPreference');
-    const fix = await resolveLocationIfAllowed();
-    if (fix) setLocation({ latitude: fix.latitude, longitude: fix.longitude, address: fix.address });
+    const m = await import('@/lib/locationPreference');
+    const fix = await m.resolveLocationIfAllowed();
+    if (fix) {
+      setLocation({ latitude: fix.latitude, longitude: fix.longitude, address: fix.address });
+      setLocationStatus('ok');
+      return;
+    }
+    const perm = await m.getBrowserPermissionState();
+    if (perm === 'denied') setLocationStatus('denied');
+    else if (perm === 'unsupported') setLocationStatus('unsupported');
+    else setLocationStatus('needs-opt-in');
+  };
+
+  const openLocationSettings = () => {
+    window.dispatchEvent(new CustomEvent('hc:open-settings', { detail: { tab: 'account', focus: 'location' } }));
   };
 
 
@@ -490,10 +503,27 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         </CardHeader>
 
       <CardContent className="space-y-3 p-3 sm:p-4">
-        {!location && (
+        {!location && locationStatus === 'loading' && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
             <MapPin className="h-3 w-3 animate-pulse" />
             <span>{t('attendance.gettingLocation')}</span>
+          </div>
+        )}
+        {!location && locationStatus !== 'loading' && locationStatus !== 'ok' && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-2.5">
+            <MapPin className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+                {locationStatus === 'denied'
+                  ? 'Location access is blocked in your browser.'
+                  : locationStatus === 'unsupported'
+                    ? 'This device does not support location.'
+                    : 'Location access is required to sign in.'}
+              </p>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={openLocationSettings}>
+                <MapPin className="h-3 w-3 mr-1" /> Open Location Settings
+              </Button>
+            </div>
           </div>
         )}
 
@@ -706,8 +736,13 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             </div>
 
             {!location && (
-              <div className="text-xs text-muted-foreground text-center">
-                {t('attendance.waitingLocation')}
+              <div className="flex flex-col items-center gap-1.5 text-xs text-muted-foreground">
+                <span>{t('attendance.waitingLocation')}</span>
+                {locationStatus !== 'loading' && locationStatus !== 'ok' && (
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={openLocationSettings}>
+                    <MapPin className="h-3 w-3 mr-1" /> Open Location Settings
+                  </Button>
+                )}
               </div>
             )}
           </div>
