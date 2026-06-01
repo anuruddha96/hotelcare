@@ -520,6 +520,7 @@ export default function Revenue() {
         jobs={dialogJobs}
         setJobs={setDialogJobs}
         onComplete={() => void load()}
+      />
       </div>
     </div>
   );
