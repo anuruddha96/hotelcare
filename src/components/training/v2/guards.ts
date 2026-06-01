@@ -24,12 +24,12 @@ export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<b
       ].includes(ctx.role as string);
     case 'is_signed_in': {
       const { data } = await supabase
-        .from('attendance_records')
-        .select('id, status')
+        .from('staff_attendance')
+        .select('id')
         .eq('user_id', ctx.userId)
-        .eq('status', 'signed_in')
-        .maybeSingle();
-      return !!data;
+        .is('check_out_time', null)
+        .limit(1);
+      return !!(data && data.length);
     }
     case 'has_active_assignment': {
       const today = new Date().toISOString().slice(0, 10);
