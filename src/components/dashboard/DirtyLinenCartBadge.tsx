@@ -30,6 +30,9 @@ export function DirtyLinenCartBadge() {
   const [open, setOpen] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [showScrollHint, setShowScrollHint] = useState(false);
+  const [atBottom, setAtBottom] = useState(false);
 
   // Get current user
   useEffect(() => {
