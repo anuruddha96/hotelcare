@@ -3505,6 +3505,7 @@ export const additionalTranslations = {
     'linen.todayTotal': 'Mai Összesen',
     'linen.breakdown': 'Típus Szerinti Bontás',
     'linen.detailedRecords': 'Részletes Bejegyzések',
+    'linen.scrollHint': 'Görgess a többiért',
     'linen.emptyCart': 'Még nincsenek összegyűjtött tételek',
     'linen.collectionSummary': 'Gyűjtési Összesítés',
     'linen.housekeepers': 'Takarítók',
