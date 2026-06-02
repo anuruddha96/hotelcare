@@ -1687,6 +1687,7 @@ export const additionalTranslations = {
     'linen.todayTotal': 'Tổng Hôm Nay',
     'linen.breakdown': 'Phân Loại Theo Loại',
     'linen.detailedRecords': 'Hồ Sơ Chi Tiết',
+    'linen.scrollHint': 'Cuộn để xem thêm',
     'linen.emptyCart': 'Chưa thu thập mặt hàng nào',
     'linen.collectionSummary': 'Tóm Tắt Thu Thập',
     'linen.housekeepers': 'Nhân Viên Dọn Phòng',
