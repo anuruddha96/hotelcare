@@ -11,6 +11,7 @@ const languages = [
   { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳' },
   { code: 'mn', name: 'Монгол', flag: '🇲🇳' },
   { code: 'az', name: 'Azərbaycanca', flag: '🇦🇿' },
+  { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
 ];
 
 export function LanguageSwitcher() {

@@ -1,7 +1,7 @@
 // Public /bb page translations. Kept self-contained so we don't have to mutate
 // the giant useTranslation bundle. Falls back to English when a key is missing.
 
-export type BBLang = "en" | "hu" | "es" | "vi" | "mn" | "az";
+export type BBLang = "en" | "hu" | "es" | "vi" | "mn" | "az" | "tl";
 
 type Bundle = Record<string, string>;
 
@@ -214,7 +214,22 @@ const mn: Bundle = {
 const az: Bundle = {
 };
 
-const BUNDLES: Record<BBLang, Bundle> = { en, hu, es, vi, mn, az };
+const tl: Bundle = {
+  title: "Breakfast Verification",
+  selectHotel: "Pumili ng iyong hotel para magsimula.",
+  selectRestaurant: "Pumili ng restawran.",
+  back: "Bumalik",
+  change: "Palitan",
+  roomNumber: "Numero ng kuwarto",
+  date: "Petsa",
+  check: "I-check",
+  eligible: "Pwede sa breakfast",
+  notEligibleNoBreakfast: "Walang kasamang breakfast sa reservation",
+  notEligibleHelp: "Pakipasabi sa guest na magpunta sa reception.",
+  notFound: "Walang nakitang reservation para sa kuwarto/petsa na ito",
+};
+
+const BUNDLES: Record<BBLang, Bundle> = { en, hu, es, vi, mn, az, tl };
 
 export function bbT(lang: string | undefined, key: string, vars?: Record<string, string | number>): string {
   const l = (BUNDLES[lang as BBLang] ? lang : "en") as BBLang;

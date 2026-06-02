@@ -18,6 +18,7 @@ interface Translation {
   mn?: string;
   es?: string;
   vi?: string;
+  tl?: string;
 }
 
 const LANGUAGES = [
@@ -26,6 +27,7 @@ const LANGUAGES = [
   { code: 'mn', name: 'Mongolian', flag: '🇲🇳' },
   { code: 'es', name: 'Spanish', flag: '🇪🇸' },
   { code: 'vi', name: 'Vietnamese', flag: '🇻🇳' },
+  { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
 ];
 
 export function TranslationManagement() {
