@@ -11,6 +11,8 @@ import { TrainingV2Provider } from "@/components/training/v2/TrainingV2Provider"
 import { LiveSyncProvider } from "@/contexts/LiveSyncContext";
 import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNotificationProvider";
 import { TrainingOverlay, TrainingWelcomePrompt } from "@/components/training";
+import { BrowserLocationHelpRoot } from "@/components/dashboard/BrowserLocationHelpDialog";
+import { LocationPermissionBoot } from "@/components/dashboard/LocationPermissionBoot";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
@@ -91,6 +93,8 @@ const MainApp = () => (
               <Toaster />
               <TrainingOverlay />
               <TrainingWelcomePrompt />
+              <BrowserLocationHelpRoot />
+              <LocationPermissionBoot />
               <BrowserRouter>
                 <TrainingV2Provider>
                   <Routes>
