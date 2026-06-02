@@ -2278,6 +2278,7 @@ export const additionalTranslations = {
     'linen.todayTotal': 'Өнөөдрийн Нийт',
     'linen.breakdown': 'Төрлөөр Ангилах',
     'linen.detailedRecords': 'Нарийвчилсан Бүртгэл',
+    'linen.scrollHint': 'Бусдыг харахын тулд гүйлгэнэ үү',
     'linen.emptyCart': 'Одоогоор зүйл цуглуулаагүй байна',
     'linen.collectionSummary': 'Цуглуулалтын Хураангуй',
     'linen.housekeepers': 'Үйлчлэгч Нар',
