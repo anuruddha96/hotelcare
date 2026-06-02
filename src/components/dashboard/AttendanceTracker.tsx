@@ -571,10 +571,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             </p>
           </div>
         )}
-              </Button>
-            </div>
-          </div>
-        )}
+
 
         {currentRecord ? (
           <div className="space-y-3">
