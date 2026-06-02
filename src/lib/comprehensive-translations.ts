@@ -1120,6 +1120,7 @@ export const additionalTranslations = {
     'linen.todayTotal': 'Total de Hoy',
     'linen.breakdown': 'Desglose por Tipo',
     'linen.detailedRecords': 'Registros Detallados',
+    'linen.scrollHint': 'Desplázate para ver más',
     'linen.emptyCart': 'Aún no se han recolectado artículos',
     'linen.collectionSummary': 'Resumen de Recolección',
     'linen.housekeepers': 'Camareras',
