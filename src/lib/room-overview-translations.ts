@@ -1,7 +1,7 @@
 // Translations for the HotelRoomOverview room popover dialog.
 // Keep keys flat under `roomOverview.*` and supply all supported languages.
 
-export type RoomOverviewLang = 'en' | 'hu' | 'es' | 'vi' | 'mn';
+export type RoomOverviewLang = 'en' | 'hu' | 'es' | 'vi' | 'mn' | 'tl';
 
 const dict = {
   en: {
@@ -173,6 +173,40 @@ const dict = {
     'roomOverview.statusInProgress': 'Хийгдэж байна',
     'roomOverview.statusPending': 'Хүлээгдэж буй',
     'roomOverview.alreadyMarkedReady': 'Аль Хэдийн Бэлэн',
+  },
+  tl: {
+    'roomOverview.markReadyToClean': 'Markahan bilang Handang Linisin',
+    'roomOverview.readyToClean': 'Handang Linisin',
+    'roomOverview.services': 'Mga Serbisyo',
+    'roomOverview.towelChange': 'Palit ng Tuwalya',
+    'roomOverview.cleanRoomC': 'Linisin ang Kuwarto (C)',
+    'roomOverview.roomCleaningRC': 'Paglilinis ng Kuwarto (RC)',
+    'roomOverview.collectExtraTowels': 'Kolektahin ang Extra na Tuwalya',
+    'roomOverview.required': 'Kailangan',
+    'roomOverview.off': 'Off',
+    'roomOverview.yes': 'Oo',
+    'roomOverview.bedConfig': 'Ayos ng Kama',
+    'roomOverview.bedNone': 'Wala',
+    'roomOverview.bedDouble': 'Double',
+    'roomOverview.bedTwin': 'Twin',
+    'roomOverview.bedTwinSeparated': 'Twin (hiwalay)',
+    'roomOverview.bedSingle': 'Single',
+    'roomOverview.bedBaby': 'Baby cot',
+    'roomOverview.bedExtraCot': 'Extra cot',
+    'roomOverview.switchToDaily': 'Gawing daily',
+    'roomOverview.switchToCheckout': 'Gawing checkout',
+    'roomOverview.markAsDirty': 'Markahan bilang marumi',
+    'roomOverview.markAsClean': 'Markahan bilang malinis',
+    'roomOverview.managerNotes': 'Note ng manager...',
+    'roomOverview.messageHousekeeper': 'Magpa-message sa housekeeper',
+    'roomOverview.typeMessage': 'Mag-type ng mensahe...',
+    'roomOverview.markNoService': 'Walang serbisyo',
+    'roomOverview.roomSettings': 'Setting ng Kuwarto...',
+    'roomOverview.statusClean': 'Malinis',
+    'roomOverview.statusDirty': 'Marumi',
+    'roomOverview.statusInProgress': 'Ginagawa',
+    'roomOverview.statusPending': 'Naghihintay',
+    'roomOverview.alreadyMarkedReady': 'Handa Na',
   },
 } as const;
 

@@ -353,4 +353,17 @@ const mn: Bundle = {
   'tour.done': 'Ойлголоо', 'tour.replay': 'Дахин үзэх',
 };
 
-export const purchaseInvoiceTranslations = { en, hu, es, vi, mn };
+const tl: Bundle = {
+  'pi.title': 'Mga Purchase Invoice',
+  'pi.subtitle': 'Mag-upload, i-digitize at suriin ang mga invoice',
+  'pi.tab.upload': 'Upload',
+  'pi.tab.queue': 'Queue',
+  'pi.tab.analytics': 'Analytics',
+  'pi.tab.export': 'I-export',
+  'pms.purchaseInvoices': 'Mga Invoice',
+  'pi.access.denied': 'Wala kang permiso sa Purchase Invoices.',
+  'tour.skip': 'Laktawan', 'tour.next': 'Susunod', 'tour.back': 'Bumalik',
+  'tour.done': 'Naintindihan', 'tour.replay': 'Ulitin ang gabay',
+};
+
+export const purchaseInvoiceTranslations = { en, hu, es, vi, mn, tl };
