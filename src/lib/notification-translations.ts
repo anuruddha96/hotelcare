@@ -245,6 +245,28 @@ export const notificationTranslations: { [lang: string]: { [key: string]: string
     'notifications.short.ticketUpdate': 'Texniki xidmət yeniləməsi',
     'notifications.short.minibarLateAdded': 'Mini-bar tamamlandıqdan sonra yeniləndi',
   },
+
+  tl: {
+    'notifications.enableTitle': 'I-enable ang mga Notipikasyon',
+    'notifications.enableDescription': 'Makakatanggap ka ng tunog at vibration kapag may bagong kuwarto o approval.',
+    'notifications.enable': 'I-enable ngayon',
+    'notifications.enabled': 'Na-enable ang mga notipikasyon!',
+    'notifications.disabled': 'Naka-disable ang mga notipikasyon',
+    'notifications.permissionDenied': 'Tinanggihan ang permiso. I-enable sa browser settings.',
+    'notifications.newAssignment': 'May bagong kuwarto kang nakatalaga!',
+    'notifications.newAssignmentTitle': 'Bagong Gawain',
+    'notifications.newPendingApprovalTitle': 'Tapos ang Gawain',
+    'notifications.newCompletion': 'May tapos na gawaing naghihintay ng approval',
+    'notifications.gotIt': 'Naintindihan',
+    'notifications.dismiss': 'Isara',
+    'notifications.short.newAssignment': 'Bagong kuwartong nakatalaga',
+    'notifications.short.pendingApproval': 'Kuwarto naghihintay ng approval',
+    'notifications.short.roomStatusChange': 'Na-update ang status ng kuwarto',
+    'notifications.short.lateMinibar': 'Mini-bar item na dapat i-review',
+    'notifications.short.breakRequest': 'Break request',
+    'notifications.short.ticketUpdate': 'Maintenance update',
+    'notifications.short.minibarLateAdded': 'Na-update ang mini-bar pagkatapos tapusin',
+  },
 };
 
 // Dashboard and common translations for all supported languages
