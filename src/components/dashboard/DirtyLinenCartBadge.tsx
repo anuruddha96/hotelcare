@@ -166,6 +166,19 @@ export function DirtyLinenCartBadge() {
     };
   }, [userId]);
 
+  // After records render or sheet opens, decide whether the scroll hint is needed
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const overflowing = el.scrollHeight > el.clientHeight + 4;
+      setShowScrollHint(overflowing);
+      setAtBottom(!overflowing);
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, [open, records.length]);
+
   const handleDeleteRecord = async (recordId: string) => {
     const { error } = await supabase
       .from('dirty_linen_counts')
