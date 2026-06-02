@@ -1427,6 +1427,36 @@ export const trainingTranslations: AllTrainingTranslations = {
       },
     },
   },
+  tl: {
+    ui: {
+      nextButton: 'Susunod',
+      prevButton: 'Bumalik',
+      skipButton: 'Laktawan',
+      finishButton: 'Tapusin',
+      exitButton: 'Lumabas sa training',
+      stepOf: 'Hakbang {current} sa {total}',
+      trainingComplete: 'Tapos na ang training!',
+      congratulations: 'Maligayang bati! Natapos mo ang training.',
+      startTraining: 'Simulan ang training',
+      continueTraining: 'Ituloy ang training',
+      assignTraining: 'Mag-assign ng training',
+      trainingAssigned: 'Naitalaga ang training',
+      noTrainingAssigned: 'Walang naitalagang training',
+      selectGuide: 'Pumili ng gabay',
+      trainingProgress: 'Progreso ng training',
+      completed: 'Tapos',
+      inProgress: 'Ginagawa',
+      notStarted: 'Hindi pa nagsimula',
+      helpButton: 'Tulong at Training',
+    },
+    guides: {
+      'getting-started': { name: 'Pagsisimula', description: 'Matutunan ang mga pangunahing paggamit ng app' },
+      'working-with-rooms': { name: 'Pagtatrabaho sa mga kuwarto', description: 'Paano linisin at pamahalaan ang nakatalagang kuwarto' },
+      'breaks-and-signout': { name: 'Break at Sign-out', description: 'Pamamahala ng break at pagtatapos ng shift' },
+      'special-situations': { name: 'Espesyal na sitwasyon', description: 'DND, maintenance issue at lost & found' },
+    },
+    steps: {},
+  },
 };
 
 export const getTrainingTranslation = (language: string) => {
