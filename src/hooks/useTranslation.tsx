@@ -2178,13 +2178,48 @@ const translations = {
     'common.noData': 'Məlumat yoxdur',
     'language.changed': 'Dil dəyişdirildi',
     'language.switchedTo': 'Dil dəyişdirildi:',
-  }
+  },
+
+  tl: {
+    // Filipino (Tagalog). Missing keys fall back to English at runtime.
+    'dashboard.title': 'Dashboard ng Hotel',
+    'dashboard.subtitle': 'Pamahalaan ang lahat ng kahilingan ng serbisyo sa RD Hotels',
+    'dashboard.tickets': 'Mga Ticket',
+    'dashboard.rooms': 'Mga Kuwarto',
+    'dashboard.reports': 'Mga Ulat',
+    'dashboard.housekeeping': 'Housekeeping',
+    'dashboard.workStatus': 'Attendance',
+    'dashboard.myTasks': 'Aking Mga Gawain',
+    'common.profile': 'Profile',
+    'common.settings': 'Mga Setting',
+    'common.logout': 'Mag-logout',
+    'common.error': 'May Error',
+    'common.success': 'Tagumpay',
+    'common.dismiss': 'Isara',
+    'common.gotIt': 'Naintindihan',
+    'common.search': 'Maghanap',
+    'common.filter': 'Salain',
+    'common.edit': 'I-edit',
+    'common.delete': 'Burahin',
+    'common.save': 'I-save',
+    'common.cancel': 'Kanselahin',
+    'common.confirm': 'Kumpirmahin',
+    'common.loading': 'Naglo-load...',
+    'common.today': 'Ngayon',
+    'common.yesterday': 'Kahapon',
+    'common.hotel': 'Hotel',
+    'common.status': 'Status',
+    'common.priority': 'Priyoridad',
+    'common.noData': 'Walang datos',
+    'language.changed': 'Nabago ang wika',
+    'language.switchedTo': 'Nilipat sa:',
+  },
 };
 
 type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.en;
 
-const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn', 'az'];
+const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl'];
 const LANGUAGE_STORAGE_KEYS = ['preferred_language', 'preferred-language'] as const;
 const TRANSLATION_BUNDLE_CACHE_PREFIX = 'translation_bundle_';
 
