@@ -1,79 +1,113 @@
-# Smarter Location Access UX
+# Translation completeness + 2 UI fixes
 
-Goal: only prompt for location when the user actually needs it (clicking Sign In), persist their choice, detect blocked/blacklisted browser permission, and guide them step-by-step to fix it — translated into all supported languages including Filipino (`tl`).
+## Goal
+Bring Filipino (`tl`), Spanish (`es`), and the other supported languages (`hu, vi, mn, az`) to full coverage for the screens shown in the screenshots, and fix two specific UI issues that prevent housekeepers from understanding what's actionable.
 
-## 1. `src/lib/locationPreference.ts` — persistence + sync
+## Part A — UI fixes (independent of translations)
 
-- Add `syncOptInFromBrowser()`:
-  - Reads `navigator.permissions.query({name:'geolocation'})`.
-  - If browser state is `granted` and we have no opt-in flag yet, silently set opt-in `true` and refresh the cached fix (no prompt).
-  - If browser state is `denied`, clear cached fix and mark `optIn=false` so UI shows the recovery path.
-  - Subscribe to the `PermissionStatus.onchange` event and re-run sync; emit a `window` event `hc:location-permission-changed` with the new state so live components can react.
-- Add `getPermissionStateCached()` helper that caches the last known state in memory (avoids re-querying every render).
-- Call `syncOptInFromBrowser()` once on app boot (from `App.tsx` effect) and whenever the page regains visibility.
+### A1. "Hold to complete" hint clipped on active room card
+`AssignedRoomCard.tsx` (the room currently being cleaned) renders the hold-text under the green "Tapos na" button. With a long localized phrase like *"Pindutin at hawakan para tapusin"* it currently overflows the card edge.
 
-## 2. `AttendanceTracker.tsx` — prompt only on Sign In
+Fix in `AssignedRoomCard.tsx` only:
+- Move the hint into the same constrained width as the button (full card width, `px-3`).
+- Apply `text-[11px] sm:text-xs leading-tight text-center break-words` so the string wraps to 2 lines instead of overflowing.
+- Same treatment to the matching "Press & hold to start" hint shown above non-active rooms (`housekeeping.holdToStart`) where Filipino/Spanish are also longer than English.
 
-- Remove the mount-time geolocation request. On mount only call `resolveLocationIfAllowed()` (cache-only path, never prompts).
-- In `handleCheckIn`:
-  1. If we already have a fresh `location`, proceed.
-  2. Otherwise call `requestLocationOnce()` (this is the only place that triggers the native prompt).
-  3. On success: continue check-in.
-  4. On failure with permission `denied` / `unsupported`: open the new `BrowserLocationHelpDialog` (see §3) and abort check-in with a single toast.
-- Sign Out / break / room-start flows must NOT prompt — they reuse the cached fix or proceed without one (location is only required for check-in per current rules).
-- Replace inline English strings (`'This device does not support location.'`, etc.) with `t('attendance.location.*')` keys.
+### A2. "Detalyadong Record" list looks non-scrollable in linen cart
+`LinenCart.tsx` (the bottom-sheet shown in screenshot 8) lists per-room entries inside a fixed-height container, but there is no visual cue that more content exists below.
 
-## 3. New `src/components/dashboard/BrowserLocationHelpDialog.tsx`
+Fix in `LinenCart.tsx` only:
+- Wrap the list in a relatively-positioned div with `flex-1 min-h-0 overflow-y-auto pr-1`.
+- Force the scrollbar to remain visible on touch devices: `scrollbar-thin scrollbar-thumb-muted-foreground/30 [&::-webkit-scrollbar]:w-1.5`.
+- Add a bottom fade-out gradient overlay (`pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background to-transparent`) that hides automatically when the user has scrolled to the end (toggle via a small `onScroll` state).
+- Add a tiny "↓ Mag-scroll para makita ang lahat" (translated) hint above the list when the content is taller than the viewport.
 
-- Props: `open`, `onOpenChange`, `reason: 'denied' | 'blocked' | 'unsupported'`.
-- Detects browser + OS from `navigator.userAgentData` (fallback to UA string): Chrome desktop, Edge, Safari macOS, Safari iOS, Firefox, Chrome Android, Samsung Internet.
-- Renders an ordered, illustrated step list per browser (icons from lucide-react, no external screenshots). Example for Chrome desktop:
-  1. Click the 🔒 lock icon in the address bar.
-  2. Find "Location" and switch it to **Allow**.
-  3. Reload the page.
-- For Chrome/Edge desktop also show a "Copy settings URL" button (`chrome://settings/content/location`) since the page cannot navigate there directly.
-- Footer buttons: **Open Settings → Location Access** (dispatches existing `hc:open-settings` event with `focus:'location'`), **I've fixed it — try again** (re-runs `requestLocationOnce()` then closes on success), **Close**.
-- All copy keyed under `t('locationHelp.*')`.
+No business logic changes.
 
-## 4. `SettingsDialog.tsx` — recovery surface
+## Part B — Translation completeness
 
-- In the Location Access card, when `permState === 'denied'`:
-  - Replace the generic "permission blocked" text with a CTA button **"How to unblock location"** that opens `BrowserLocationHelpDialog`.
-  - Keep the toggle disabled until permission becomes `granted` (live-updated via the `hc:location-permission-changed` event from §1).
-- When `permState === 'granted'` and opt-in is on, show "Enabled — using your browser's allowed location."
-- Translate every visible string in this card via `t('settings.location.*')`.
+Approach: keep existing modules, only add missing keys per language. Where a string is currently rendered as a hardcoded English literal (e.g. *"Hotel Ottofiori Management System"*, *"Hotel Assignment:"*, ticket stat labels), replace with a `t('...')` call and add the key to every language bundle. English fallback remains automatic.
 
-## 5. Global recovery flow
+### B1. Strings to translate (grouped by screen)
 
-- In `App.tsx` (or the existing root provider), listen for `hc:location-permission-changed`:
-  - If new state is `denied` AND the user is on a route that requires location (currently only the attendance check-in moment), dispatch `hc:open-location-help` which `BrowserLocationHelpDialog` (mounted once at root) consumes.
-- Add a thin root-level mount of `BrowserLocationHelpDialog` so any component can trigger it without prop-drilling.
+**Manager → Housekeeping → Pending Approvals (screenshots 1 & 2)**
+- `dashboard.subtitleManagement` — *"{hotel} Management System"* (currently hardcoded literal)
+- `approvals.title`, `approvals.subtitle` (*Manage approvals and review history*)
+- `approvals.tabPending`, `approvals.tabLateMinibar` (*Mga Huling Idinagdag sa Minibar*), `approvals.tabHistory`
+- `approvals.reviewCleaningTasks`, `approvals.roomsCount`, `approvals.maintenanceCount`, `approvals.flaggedCount`, `approvals.oldestLabel`
+- `approvals.roomCompletionTitle` (*Approval sa Pagkatapos ng Kuwarto*)
+- `approvals.approveAll`, `approvals.approve`, `approvals.pendingBreakRequests`
+- `approvals.cleaningTrend.normal`, `cleaningTrend.fast`, `cleaningTrend.slow` plus the existing tooltip *Items with unusually fast or slow completion times* (`approvals.trendTooltip`)
 
-## 6. Translations
+**Housekeeper mobile dashboard (screenshots 3, 4, 5, 6)**
+- `housekeeping.myTasksButton` (the big "My Tasks" CTA)
+- `housekeeping.workSchedule`, `housekeeping.totalTasksToday`, `housekeeping.done`, `housekeeping.inProgressShort`, `housekeeping.waiting`
+- `housekeeping.todaysAssignments` (already exists?), `housekeeping.tasksCount` for the pill count
+- `housekeeping.hotelAssignmentLabel` (*Hotel Assignment:*)
+- Room status badges: `housekeeping.status.inProgress` (GINAGAWA PA), `status.pending` (NAGHIHINTAY), `status.dirty`, `status.checkoutClean`, `status.dailyClean`, `status.towelChange` (already), `status.night2`, `status.night3`, `status.mediumPriority`
+- Room card sections: `housekeeping.todoTitle` (Kailangang gawin), `housekeeping.dndPhoto` (Larawan ng DND), `housekeeping.dirtyLinen`, `housekeeping.minibar`, `housekeeping.lostFound`, `housekeeping.maintenance`
+- Buttons: `housekeeping.markDone` (Tapos na), `housekeeping.startCleaning` (Simulan ang paglilinis), `housekeeping.noService` (Walang serbisyo), `housekeeping.holdToStart`, `housekeeping.holdToComplete`, `housekeeping.addNote` (Magdagdag ng note), `housekeeping.details`
+- Messages: `housekeeping.messagesLabel` (MGA MENSAHE), `housekeeping.messagePlaceholder` (Mag-type ng mensahe…)
 
-Add new keys to **all** supported language bundles (`en, hu, es, vi, mn, az, tl`) in `src/lib/comprehensive-translations.ts` (or a new `location-translations.ts` for tidiness):
+**Attendance / Settings (screenshot 7)**
+- Top tab label `dashboard.attendance` (the third tab still says "Attendance" because the key is missing in `tl`)
+- Settings field labels — `settings.email` already exists but missing `tl`; same for `settings.role` (Tungkulin), `settings.assignedHotel` (Nakatalagang Hotel), `settings.nickname` (Palayaw), `settings.lastLogin` (Huling pag-login)
+- Location-access card keys (already added in previous turn) — verify `tl` translations appear; if missing extend `location-translations.ts`
 
-- `settings.location.title`, `settings.location.description`, `settings.location.enable`, `settings.location.disable`, `settings.location.enabled`, `settings.location.blockedTitle`, `settings.location.blockedHelpCta`, `settings.location.permissionGranted`
-- `attendance.location.denied`, `attendance.location.unsupported`, `attendance.location.requestingPrompt`, `attendance.location.checkInRequires`
-- `locationHelp.title`, `locationHelp.intro`, `locationHelp.chromeDesktop.step1..3`, `locationHelp.safariIos.step1..3`, `locationHelp.chromeAndroid.step1..3`, `locationHelp.firefox.step1..3`, `locationHelp.edge.step1..3`, `locationHelp.copyUrl`, `locationHelp.openSettings`, `locationHelp.tryAgain`, `locationHelp.close`, `locationHelp.fixed`, `locationHelp.stillBlocked`
+**Linen Cart (screenshot 8)**
+- Cart chrome: `linenCart.title` (Aking Linen Cart), `linenCart.totalToday` (Kabuuan ngayong araw), `linenCart.totalSuffix` (Mga Linen), `linenCart.breakdown` (Hati-hati ayon sa uri), `linenCart.detailedRecord` (Detalyadong Record), `linenCart.scrollHint`, `linenCart.empty`
+- Linen item names — these come from a DB enum/lookup currently rendered raw. Add a translation map `linen.item.bathMat`, `linen.item.bigTowel`, `linen.item.smallTowel`, `linen.item.bigPillow`, `linen.item.duvetCovers`, `linen.item.bedSheetsQueen`, `linen.item.bedSheetsKing`, etc. Create a tiny helper `tLinenItem(name)` that maps the DB code/English label to the translation key with English fallback. Apply in both the breakdown list and the per-room rows.
 
-Filipino translations included alongside the others; English is the fallback for any miss.
+**Tickets (screenshot 9)**
+- Header: `tickets.allTickets`, `tickets.manageFor` (Pamahalaan ang mga gawain para sa {hotel})
+- Stats: `tickets.totalLabel`, `tickets.openLabel`, `tickets.inProgressLabel`, `tickets.completedLabel`
+- Filters: `tickets.searchPlaceholder` (already), `tickets.allStatus`, `tickets.allPriority`, `tickets.allDepartments` (Lahat ng Department — currently truncated as "Lahat ng De|")
+- Empty state: `tickets.noResults` (No tickets found) — verify `tl`
+- Button: `tickets.new` (New)
+
+### B2. Language coverage rule
+For every key above, add translations in this order with this fallback rule:
+1. `en` — canonical source
+2. `tl`, `es`, `hu`, `vi`, `mn`, `az` — full translations for every new key
+
+Filipino, Spanish, Hungarian, Vietnamese, Mongolian, Azerbaijani — all get the same key list. Where translation is uncertain we use natural phrasing aligned with the existing tone (informal "you" for housekeepers in `tl/vi/mn`, formal "usted" in `es`).
+
+### B3. Module placement
+- General/UI strings → `src/lib/comprehensive-translations.ts`
+- Housekeeping mobile dashboard → `src/lib/expanded-translations.ts`
+- Approvals screen → `src/lib/screen-translations.ts`
+- Linen cart + linen item names → new `src/lib/linen-translations.ts` registered in `useTranslation.tsx`
+- Tickets list → `src/lib/comprehensive-translations.ts`
+
+### B4. Component edits to swap hardcoded literals to `t()`
+
+- `HousekeepingManagerView.tsx` (subtitle, approvals tabs, approval card titles, "Approve All")
+- `PendingApprovalsTab.tsx` / `ApprovalCard.tsx` (stat cards, approval row labels)
+- `MyTasksMobile.tsx` (or equivalent) — My Tasks button, schedule labels, stat cards, "Hotel Assignment:"
+- `AssignedRoomCard.tsx` — *GINAGAWA PA* badge, todo title, action labels, hold-to-* hints
+- `LinenCart.tsx` — all chrome strings + per-item names via `tLinenItem`
+- `TicketsList.tsx` / `TicketsHeader.tsx` — title, subtitle, New button, stat labels, filter placeholders, empty state
+- `SettingsDialog.tsx` — verify all field labels go through `t()`
+
+No DB changes, no API changes.
 
 ## Out of scope
-
-- No DB schema, no edge functions, no role changes.
-- No background polling beyond the existing `PermissionStatus.onchange` listener.
-- No changes to room/ticket flows — they continue to use cached fixes when available.
+- No new auth, RLS, edge functions.
+- No layout/structural changes besides the 2 UI fixes in Part A.
+- Training translations (already complete in `tl`).
 
 ## Files
 
 **New**
-- `src/components/dashboard/BrowserLocationHelpDialog.tsx`
-- `src/lib/location-translations.ts` (optional split; otherwise append to `comprehensive-translations.ts`)
+- `src/lib/linen-translations.ts`
 
 **Edited**
-- `src/lib/locationPreference.ts`
-- `src/components/dashboard/AttendanceTracker.tsx`
-- `src/components/dashboard/SettingsDialog.tsx`
-- `src/App.tsx`
-- `src/lib/comprehensive-translations.ts` (or new translation module + register in `useTranslation.tsx`)
+- `src/hooks/useTranslation.tsx` (register linen module)
+- `src/lib/comprehensive-translations.ts`, `expanded-translations.ts`, `screen-translations.ts`, `location-translations.ts`
+- `src/components/dashboard/HousekeepingManagerView.tsx`
+- `src/components/dashboard/PendingApprovalsTab.tsx`, `ApprovalCard.tsx` (or equivalent)
+- `src/components/dashboard/MyTasksMobile.tsx` (or equivalent housekeeper mobile dashboard)
+- `src/components/dashboard/AssignedRoomCard.tsx` (UI fix A1 + translation swaps)
+- `src/components/dashboard/LinenCart.tsx` (UI fix A2 + translation swaps)
+- `src/components/dashboard/TicketsList.tsx` / header (translation swaps)
+- `src/components/dashboard/SettingsDialog.tsx` (translation swaps)

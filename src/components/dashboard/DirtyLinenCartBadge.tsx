@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { ShoppingCart, Trash2, Shirt } from 'lucide-react';
+import { ShoppingCart, Trash2, Shirt, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
+import { translateLinenItem } from '@/lib/linen-item-i18n';
 
 interface LinenRecord {
   id: string;
@@ -30,6 +30,9 @@ export function DirtyLinenCartBadge() {
   const [open, setOpen] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [showScrollHint, setShowScrollHint] = useState(false);
+  const [atBottom, setAtBottom] = useState(false);
 
   // Get current user
   useEffect(() => {
@@ -163,6 +166,19 @@ export function DirtyLinenCartBadge() {
     };
   }, [userId]);
 
+  // After records render or sheet opens, decide whether the scroll hint is needed
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const overflowing = el.scrollHeight > el.clientHeight + 4;
+      setShowScrollHint(overflowing);
+      setAtBottom(!overflowing);
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, [open, records.length]);
+
   const handleDeleteRecord = async (recordId: string) => {
     const { error } = await supabase
       .from('dirty_linen_counts')
@@ -228,7 +244,7 @@ export function DirtyLinenCartBadge() {
                   <div key={item.item_name} className="flex items-center justify-between text-sm">
                     <span className="flex items-center gap-2">
                       <Shirt className="h-4 w-4 text-muted-foreground" />
-                      {item.item_name}
+                      {translateLinenItem(item.item_name, t)}
                     </span>
                     <span className="font-medium">× {item.total_count}</span>
                   </div>
@@ -237,11 +253,26 @@ export function DirtyLinenCartBadge() {
             )}
           </div>
 
-          {/* Detailed Records */}
+          {/* Detailed Records — native scroll w/ visible scrollbar + fade hint */}
           <div className="space-y-2">
-            <h4 className="font-medium text-sm text-muted-foreground">{t('linen.detailedRecords')}</h4>
-            <ScrollArea className="h-[calc(100vh-400px)]">
-              <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium text-sm text-muted-foreground">{t('linen.detailedRecords')}</h4>
+              {showScrollHint && !atBottom && (
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground animate-pulse">
+                  <ChevronDown className="h-3 w-3" />
+                  {t('linen.scrollHint')}
+                </span>
+              )}
+            </div>
+            <div className="relative">
+              <div
+                ref={scrollRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 8);
+                }}
+                className="h-[calc(100vh-400px)] overflow-y-auto pr-1 space-y-2 scroll-smooth [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30"
+              >
                 {records.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <ShoppingCart className="h-12 w-12 mx-auto mb-2 opacity-50" />
@@ -261,7 +292,7 @@ export function DirtyLinenCartBadge() {
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <Shirt className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{record.linen_item_name}</span>
+                          <span className="font-medium">{translateLinenItem(record.linen_item_name, t)}</span>
                           <span className="text-muted-foreground">× {record.count}</span>
                         </div>
                       </div>
@@ -277,7 +308,11 @@ export function DirtyLinenCartBadge() {
                   ))
                 )}
               </div>
-            </ScrollArea>
+              {/* fade-out indicates more below */}
+              {showScrollHint && !atBottom && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background to-transparent" />
+              )}
+            </div>
           </div>
         </div>
       </SheetContent>
