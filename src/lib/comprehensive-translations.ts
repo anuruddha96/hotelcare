@@ -3998,6 +3998,7 @@ export const additionalTranslations = {
   'linen.todayTotal': 'Kabuuan ngayong araw',
   'linen.breakdown': 'Hati-hati ayon sa uri',
   'linen.detailedRecords': 'Detalyadong Record',
+  'linen.scrollHint': 'Mag-scroll para makita ang iba pa',
   'linen.emptyCart': 'Wala pang naipong item',
   'linen.collectionSummary': 'Buod ng Koleksyon',
   'linen.housekeepers': 'Mga Housekeeper',
