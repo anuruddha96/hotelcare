@@ -777,18 +777,15 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
               <SwipeAction
                 label={t('attendance.swipeToCheckInAction')}
                 onComplete={handleCheckIn}
-                disabled={isLoading || !location}
+                disabled={isLoading || locationStatus === 'unsupported'}
               />
             </div>
 
-            {!location && (
+            {!location && locationStatus === 'denied' && (
               <div className="flex flex-col items-center gap-1.5 text-xs text-muted-foreground">
-                <span>{t('attendance.waitingLocation')}</span>
-                {locationStatus !== 'loading' && locationStatus !== 'ok' && (
-                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={openLocationSettings}>
-                    <MapPin className="h-3 w-3 mr-1" /> Open Location Settings
-                  </Button>
-                )}
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openLocationHelp('denied')}>
+                  <MapPin className="h-3 w-3 mr-1" /> {t('attendance.location.openHelp')}
+                </Button>
               </div>
             )}
           </div>
