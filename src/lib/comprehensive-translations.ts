@@ -2760,6 +2760,7 @@ export const additionalTranslations = {
     'linen.todayTotal': 'Bugünkü Cəmi',
     'linen.breakdown': 'Növə görə bölgü',
     'linen.detailedRecords': 'Ətraflı Qeydlər',
+    'linen.scrollHint': 'Daha çoxunu görmək üçün sürüşdürün',
     'linen.emptyCart': 'Hələ heç bir əşya toplanmayıb',
     'linen.collectionSummary': 'Toplama Xülasəsi',
     'linen.housekeepers': 'Xadimələr',
