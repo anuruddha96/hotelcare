@@ -89,7 +89,7 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
     }, [])
 
     return (
-      <div className="relative inline-flex">
+      <div className="relative inline-flex flex-col items-stretch">
         <Button
           ref={ref}
           className={cn(
@@ -112,7 +112,6 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
           onContextMenu={(e) => e.preventDefault()}
           {...props}
         >
-          {/* Background progress indicator */}
           <div 
             className={cn(
               "absolute inset-0 bg-primary-foreground/20 transition-all duration-100",
@@ -123,8 +122,6 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
               transition: progress === 0 ? 'none' : 'width 16ms linear'
             }}
           />
-          
-          {/* Content */}
           <span className="relative z-10 flex items-center gap-2">
             {isComplete ? (
               <svg className="h-5 w-5 animate-scale-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
@@ -134,16 +131,18 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
           </span>
         </Button>
 
-        {/* Instruction text */}
+        {/* Instruction text — wraps within the button width so long localized strings don't overflow the card */}
         {!isHolding && !isComplete && holdText && (
-          <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground animate-fade-in">
+          <div
+            className="mt-1 px-2 text-[11px] sm:text-xs leading-tight text-center text-muted-foreground break-words animate-fade-in"
+            aria-live="polite"
+          >
             {holdText}
           </div>
         )}
 
-        {/* Release warning */}
         {isHolding && !isComplete && releaseText && progress < 95 && (
-          <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-primary font-medium animate-pulse">
+          <div className="mt-1 px-2 text-[11px] sm:text-xs leading-tight text-center text-primary font-medium break-words animate-pulse">
             {releaseText}
           </div>
         )}
