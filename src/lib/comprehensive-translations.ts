@@ -325,6 +325,7 @@ export const additionalTranslations = {
     'linen.todayTotal': "Today's Total",
     'linen.breakdown': 'Breakdown by Type',
     'linen.detailedRecords': 'Detailed Records',
+    'linen.scrollHint': 'Scroll to see more',
     'linen.emptyCart': 'No items collected yet',
     'linen.collectionSummary': 'Collection Summary',
     'linen.housekeepers': 'Housekeepers',
