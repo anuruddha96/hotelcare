@@ -1,74 +1,79 @@
-## 1. Add Filipino (Tagalog) language — code `tl`
+# Smarter Location Access UX
 
-We currently support `en, hu, es, vi, mn, az`. Add Filipino as a first-class language (ISO `tl`, flag 🇵🇭, label "Filipino"). Tagalog is what most Filipinos read and speak; works for the housekeeper who speaks English but doesn't read it.
+Goal: only prompt for location when the user actually needs it (clicking Sign In), persist their choice, detect blocked/blacklisted browser permission, and guide them step-by-step to fix it — translated into all supported languages including Filipino (`tl`).
 
-**Files to update (add a full `tl:` block parallel to the existing `mn:`/`vi:` blocks):**
-- `src/hooks/useTranslation.tsx` — add `'tl'` to `Language` union + `supportedLanguages`, add full `tl` dictionary alongside `en/hu/es/vi/mn/az`.
-- `src/components/dashboard/LanguageSwitcher.tsx` — add `{ code: 'tl', name: 'Filipino', flag: '🇵🇭' }`.
-- `src/components/admin/TranslationManagement.tsx` — add Filipino to `LANGUAGES`, surface in editor + missing-count.
-- All twelve translation modules with per-language bundles:
-  - `comprehensive-translations.ts`, `expanded-translations.ts`, `screen-translations.ts`, `highlighted-translations.ts`, `training-translations.ts`, `maintenance-translations.ts`, `notification-translations.ts`, `pms-translations.ts`, `purchase-invoice-translations.ts`, `breakfast-translations.ts`, `guest-minibar-translations.ts`, `room-overview-translations.ts`.
-- `src/lib/translation-utils.ts` if it enumerates languages.
-- Persist `tl` via existing `profiles.preferred_language` (already free-form text, no migration needed) and `localStorage` `preferred_language` key.
+## 1. `src/lib/locationPreference.ts` — persistence + sync
 
-**Translation source policy:** translate every existing English key into Filipino, mirroring the same key names. Filipino phrases will use everyday Tagalog (with the common English hospitality loanwords like "check-in", "room", "minibar" kept as-is, because that's how housekeepers actually use them). All 5 existing user-facing modules — housekeeping, maintenance, breakfast, PMS/front-desk, minibar, training, notifications, settings — get the same Filipino coverage we already give Vietnamese/Mongolian. No partial coverage; the goal is the housekeeper sees zero English in normal flows.
+- Add `syncOptInFromBrowser()`:
+  - Reads `navigator.permissions.query({name:'geolocation'})`.
+  - If browser state is `granted` and we have no opt-in flag yet, silently set opt-in `true` and refresh the cached fix (no prompt).
+  - If browser state is `denied`, clear cached fix and mark `optIn=false` so UI shows the recovery path.
+  - Subscribe to the `PermissionStatus.onchange` event and re-run sync; emit a `window` event `hc:location-permission-changed` with the new state so live components can react.
+- Add `getPermissionStateCached()` helper that caches the last known state in memory (avoids re-querying every render).
+- Call `syncOptInFromBrowser()` once on app boot (from `App.tsx` effect) and whenever the page regains visibility.
 
-## 2. Location access — make it quiet and self-healing
+## 2. `AttendanceTracker.tsx` — prompt only on Sign In
 
-**Goals**
-- Don't ask anyone who already granted browser permission.
-- Don't show banners during cleaning/tickets/anything that doesn't need a fix.
-- Ask only when the user does an action that actually needs location (attendance sign-in).
-- If the browser is `denied` or the app is blocklisted, guide the user to the exact OS/browser setting that fixes it.
+- Remove the mount-time geolocation request. On mount only call `resolveLocationIfAllowed()` (cache-only path, never prompts).
+- In `handleCheckIn`:
+  1. If we already have a fresh `location`, proceed.
+  2. Otherwise call `requestLocationOnce()` (this is the only place that triggers the native prompt).
+  3. On success: continue check-in.
+  4. On failure with permission `denied` / `unsupported`: open the new `BrowserLocationHelpDialog` (see §3) and abort check-in with a single toast.
+- Sign Out / break / room-start flows must NOT prompt — they reuse the cached fix or proceed without one (location is only required for check-in per current rules).
+- Replace inline English strings (`'This device does not support location.'`, etc.) with `t('attendance.location.*')` keys.
 
-**Changes to `src/lib/locationPreference.ts`**
-- Add `syncOptInFromBrowser()`: if `getOptIn() === false` but `navigator.permissions` reports `'granted'`, auto-flip opt-in to `true` and immediately cache a fresh fix (silent — no prompt). Run this on app boot and whenever the Permissions API `change` event fires (subscribe in `useAuth` boot).
-- Listener: in `requestLocationOnce`, attach `status.onchange` once per session so revoking in the browser flips our flag back to `false` without a refresh.
+## 3. New `src/components/dashboard/BrowserLocationHelpDialog.tsx`
 
-**Changes to attendance/sign-in flow (`AttendanceTracker.tsx`)**
-- Remove the always-on `getCurrentLocation()` on mount for users whose permission state is `'prompt'` and who have never opted in. Only resolve silently when `granted`.
-- `handleCheckIn` becomes the single trigger for the prompt: when the user clicks Sign In and we have no location, run `requestLocationOnce()` inline (which triggers the native browser prompt) before inserting the row. No banner needed unless the request fails.
-- Banner copy gets a `locationStatus === 'denied'` variant with two buttons:
-  1. **"Fix in browser"** — opens a new helper component `BrowserLocationHelpDialog` (see below).
-  2. **"Open Settings"** — existing in-app settings card.
+- Props: `open`, `onOpenChange`, `reason: 'denied' | 'blocked' | 'unsupported'`.
+- Detects browser + OS from `navigator.userAgentData` (fallback to UA string): Chrome desktop, Edge, Safari macOS, Safari iOS, Firefox, Chrome Android, Samsung Internet.
+- Renders an ordered, illustrated step list per browser (icons from lucide-react, no external screenshots). Example for Chrome desktop:
+  1. Click the 🔒 lock icon in the address bar.
+  2. Find "Location" and switch it to **Allow**.
+  3. Reload the page.
+- For Chrome/Edge desktop also show a "Copy settings URL" button (`chrome://settings/content/location`) since the page cannot navigate there directly.
+- Footer buttons: **Open Settings → Location Access** (dispatches existing `hc:open-settings` event with `focus:'location'`), **I've fixed it — try again** (re-runs `requestLocationOnce()` then closes on success), **Close**.
+- All copy keyed under `t('locationHelp.*')`.
 
-**New component: `src/components/dashboard/BrowserLocationHelpDialog.tsx`**
-- Detects browser (Chrome/Edge/Safari/Firefox, desktop vs iOS vs Android) from `navigator.userAgent` + `navigator.userAgentData`.
-- Shows step-by-step instructions with screenshots/icons for the matching browser, e.g. Chrome desktop: "Click the 🔒 lock icon → Site settings → Location → Allow". Includes a deep link where supported (Chrome `chrome://settings/content/location`, Edge `edge://settings/content/location`) — rendered as copy-to-clipboard since `chrome://` can't be navigated from a web page.
-- Mobile iOS Safari: "Settings → Safari → Location → Ask/Allow → Reload this tab".
-- Android Chrome: "Site settings → Permissions → Location → Allow".
-- All copy goes through `t()` so it's also localized into the 7 languages including Filipino.
-- Wired from both the attendance banner and the Settings → Location Access card (`SettingsDialog`) when `permState === 'denied'`.
+## 4. `SettingsDialog.tsx` — recovery surface
 
-**Settings → Location Access card (`SettingsDialog.tsx`)**
-- Show "Enabled (already allowed by browser)" without a button when browser permission is `granted` and we have a cached fix — no second click needed.
-- When `denied`, replace the text-only hint with the "Fix in browser" button that opens `BrowserLocationHelpDialog`.
-- Localize the whole card (currently hardcoded English).
+- In the Location Access card, when `permState === 'denied'`:
+  - Replace the generic "permission blocked" text with a CTA button **"How to unblock location"** that opens `BrowserLocationHelpDialog`.
+  - Keep the toggle disabled until permission becomes `granted` (live-updated via the `hc:location-permission-changed` event from §1).
+- When `permState === 'granted'` and opt-in is on, show "Enabled — using your browser's allowed location."
+- Translate every visible string in this card via `t('settings.location.*')`.
 
-**Migration of existing users**
-- On first load after this change, `syncOptInFromBrowser()` runs once. Anyone whose browser already says `granted` is silently upgraded to opt-in=true and a fresh fix is cached — they never see a prompt again.
-- No DB migration needed; preference is purely client-side localStorage.
+## 5. Global recovery flow
 
-## 3. Out of scope
+- In `App.tsx` (or the existing root provider), listen for `hc:location-permission-changed`:
+  - If new state is `denied` AND the user is on a route that requires location (currently only the attendance check-in moment), dispatch `hc:open-location-help` which `BrowserLocationHelpDialog` (mounted once at root) consumes.
+- Add a thin root-level mount of `BrowserLocationHelpDialog` so any component can trigger it without prop-drilling.
 
-- No new tables, RLS, or edge function changes.
-- No changes to attendance business rules; we only change *when* the prompt appears.
-- No automatic background polling of geolocation.
+## 6. Translations
 
-## Technical notes
+Add new keys to **all** supported language bundles (`en, hu, es, vi, mn, az, tl`) in `src/lib/comprehensive-translations.ts` (or a new `location-translations.ts` for tidiness):
 
-```text
-Boot (useAuth)
- └─ syncOptInFromBrowser()          // silent upgrade if browser=granted
-        └─ caches fix, sets opt-in=true
+- `settings.location.title`, `settings.location.description`, `settings.location.enable`, `settings.location.disable`, `settings.location.enabled`, `settings.location.blockedTitle`, `settings.location.blockedHelpCta`, `settings.location.permissionGranted`
+- `attendance.location.denied`, `attendance.location.unsupported`, `attendance.location.requestingPrompt`, `attendance.location.checkInRequires`
+- `locationHelp.title`, `locationHelp.intro`, `locationHelp.chromeDesktop.step1..3`, `locationHelp.safariIos.step1..3`, `locationHelp.chromeAndroid.step1..3`, `locationHelp.firefox.step1..3`, `locationHelp.edge.step1..3`, `locationHelp.copyUrl`, `locationHelp.openSettings`, `locationHelp.tryAgain`, `locationHelp.close`, `locationHelp.fixed`, `locationHelp.stillBlocked`
 
-Sign In click
- ├─ have fix?  ── yes → insert attendance row
- └─ no  → requestLocationOnce()
-            ├─ granted → cache + insert
-            ├─ denied  → open BrowserLocationHelpDialog
-            └─ dismissed → toast "Location needed to sign in"
-```
+Filipino translations included alongside the others; English is the fallback for any miss.
 
-Filipino dictionary additions are mechanical mirrors of the existing English keys; each translation file gains a `tl: { ... }` block of identical shape to `vi:`.
+## Out of scope
 
+- No DB schema, no edge functions, no role changes.
+- No background polling beyond the existing `PermissionStatus.onchange` listener.
+- No changes to room/ticket flows — they continue to use cached fixes when available.
+
+## Files
+
+**New**
+- `src/components/dashboard/BrowserLocationHelpDialog.tsx`
+- `src/lib/location-translations.ts` (optional split; otherwise append to `comprehensive-translations.ts`)
+
+**Edited**
+- `src/lib/locationPreference.ts`
+- `src/components/dashboard/AttendanceTracker.tsx`
+- `src/components/dashboard/SettingsDialog.tsx`
+- `src/App.tsx`
+- `src/lib/comprehensive-translations.ts` (or new translation module + register in `useTranslation.tsx`)
