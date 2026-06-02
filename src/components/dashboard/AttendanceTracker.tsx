@@ -63,7 +63,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [selectedBreakType, setSelectedBreakType] = useState<string>('');
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
-  const [locationStatus, setLocationStatus] = useState<'loading' | 'ok' | 'needs-opt-in' | 'denied' | 'unsupported'>('loading');
+  const [locationStatus, setLocationStatus] = useState<'loading' | 'ok' | 'needs-opt-in' | 'denied' | 'unsupported'>('needs-opt-in');
   const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: any} | null>(null);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
   const [pendingRooms, setPendingRooms] = useState<PendingRoom[]>([]);
@@ -74,14 +74,20 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   useEffect(() => {
     if (user) {
       fetchTodaysAttendance();
-      getCurrentLocation();
+      hydrateLocationFromCache();
       fetchBreakTypes();
     }
   }, [user]);
 
-  const getCurrentLocation = async () => {
-    // Only resolve the location automatically when the user has opted in.
-    // First-time users are prompted from Settings → Account → Location access.
+  // Listen for permission changes (granted/denied) emitted by locationPreference.
+  useEffect(() => {
+    const handler = () => { void hydrateLocationFromCache(); };
+    window.addEventListener('hc:location-permission-changed', handler);
+    return () => window.removeEventListener('hc:location-permission-changed', handler);
+  }, []);
+
+  // Cache-only resolve — never triggers the native prompt.
+  const hydrateLocationFromCache = async () => {
     const m = await import('@/lib/locationPreference');
     const fix = await m.resolveLocationIfAllowed();
     if (fix) {
@@ -98,6 +104,12 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const openLocationSettings = () => {
     window.dispatchEvent(new CustomEvent('hc:open-settings', { detail: { tab: 'account', focus: 'location' } }));
   };
+
+  const openLocationHelp = (reason: 'denied' | 'unsupported' = 'denied') => {
+    window.dispatchEvent(new CustomEvent('hc:open-location-help', { detail: { reason } }));
+  };
+
+
 
 
   const fetchBreakTypes = async () => {
@@ -186,25 +198,49 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   };
 
   const handleCheckIn = async () => {
-    console.log('handleCheckIn called', { user: !!user, location: !!location });
-    
-    if (!user || !location) {
-      toast({
-        title: "Error",
-        description: "Location is required for check-in",
-        variant: "destructive"
-      });
-      return;
+    if (!user) return;
+
+    // Resolve location on-demand: only prompt the browser when the user actually
+    // tries to sign in. Other tasks never trigger the native permission prompt.
+    let fix = location;
+    if (!fix) {
+      const m = await import('@/lib/locationPreference');
+      const cached = await m.resolveLocationIfAllowed();
+      if (cached) {
+        fix = { latitude: cached.latitude, longitude: cached.longitude, address: cached.address };
+      } else {
+        const perm = await m.getBrowserPermissionState();
+        if (perm === 'denied') {
+          openLocationHelp('denied');
+          toast({ title: t('attendance.location.denied'), description: t('attendance.location.checkInRequires'), variant: 'destructive' });
+          return;
+        }
+        if (perm === 'unsupported') {
+          openLocationHelp('unsupported');
+          toast({ title: t('attendance.location.unsupported'), variant: 'destructive' });
+          return;
+        }
+        const got = await m.requestLocationOnce();
+        if (!got) {
+          // User denied or timeout — guide them to the recovery flow.
+          openLocationHelp('denied');
+          toast({ title: t('attendance.location.denied'), description: t('attendance.location.checkInRequires'), variant: 'destructive' });
+          return;
+        }
+        fix = { latitude: got.latitude, longitude: got.longitude, address: got.address };
+        setLocation(fix);
+        setLocationStatus('ok');
+      }
     }
 
     setIsLoading(true);
-    
+
     try {
       const { error } = await supabase
         .from('staff_attendance')
         .insert({
           user_id: user.id,
-          check_in_location: location,
+          check_in_location: fix,
           notes: notes || null,
           status: 'checked_in',
           organization_slug: profile?.organization_slug || 'rdhotels'
@@ -509,23 +545,33 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             <span>{t('attendance.gettingLocation')}</span>
           </div>
         )}
-        {!location && locationStatus !== 'loading' && locationStatus !== 'ok' && (
+        {!location && locationStatus === 'denied' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-2.5">
             <MapPin className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0 space-y-1.5">
               <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
-                {locationStatus === 'denied'
-                  ? 'Location access is blocked in your browser.'
-                  : locationStatus === 'unsupported'
-                    ? 'This device does not support location.'
-                    : 'Location access is required to sign in.'}
+                {t('attendance.location.denied')}
               </p>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={openLocationSettings}>
-                <MapPin className="h-3 w-3 mr-1" /> Open Location Settings
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="default" className="h-7 px-2 text-xs" onClick={() => openLocationHelp('denied')}>
+                  <MapPin className="h-3 w-3 mr-1" /> {t('attendance.location.openHelp')}
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={openLocationSettings}>
+                  {t('attendance.location.openSettings')}
+                </Button>
+              </div>
             </div>
           </div>
         )}
+        {!location && locationStatus === 'unsupported' && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-2.5">
+            <MapPin className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+              {t('attendance.location.unsupported')}
+            </p>
+          </div>
+        )}
+
 
         {currentRecord ? (
           <div className="space-y-3">
@@ -731,18 +777,15 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
               <SwipeAction
                 label={t('attendance.swipeToCheckInAction')}
                 onComplete={handleCheckIn}
-                disabled={isLoading || !location}
+                disabled={isLoading || locationStatus === 'unsupported'}
               />
             </div>
 
-            {!location && (
+            {!location && locationStatus === 'denied' && (
               <div className="flex flex-col items-center gap-1.5 text-xs text-muted-foreground">
-                <span>{t('attendance.waitingLocation')}</span>
-                {locationStatus !== 'loading' && locationStatus !== 'ok' && (
-                  <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={openLocationSettings}>
-                    <MapPin className="h-3 w-3 mr-1" /> Open Location Settings
-                  </Button>
-                )}
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openLocationHelp('denied')}>
+                  <MapPin className="h-3 w-3 mr-1" /> {t('attendance.location.openHelp')}
+                </Button>
               </div>
             )}
           </div>
