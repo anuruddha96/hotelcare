@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { useTranslation } from '@/hooks/useTranslation';
+import { BrowserLocationHelpDialog } from './BrowserLocationHelpDialog';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -455,10 +456,12 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
 }
 
 function LocationAccessCard() {
+  const { t } = useTranslation();
   const [optIn, setOptInState] = useState(false);
   const [permState, setPermState] = useState<string>('unsupported');
   const [busy, setBusy] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const refresh = async () => {
     const m = await import('@/lib/locationPreference');
@@ -466,21 +469,29 @@ function LocationAccessCard() {
     setPermState(await m.getBrowserPermissionState());
     setAddress(m.getCachedFix()?.address ?? null);
   };
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    void refresh();
+    const handler = () => { void refresh(); };
+    window.addEventListener('hc:location-permission-changed', handler);
+    return () => window.removeEventListener('hc:location-permission-changed', handler);
+  }, []);
 
   const enable = async () => {
     setBusy(true);
     const m = await import('@/lib/locationPreference');
     const fix = await m.requestLocationOnce();
     setBusy(false);
-    if (fix) toast.success('Location enabled');
-    else toast.error('Could not get your location. Check browser permission.');
+    if (fix) toast.success(t('settings.location.enableSuccess'));
+    else {
+      toast.error(t('settings.location.enableFailed'));
+      setHelpOpen(true);
+    }
     await refresh();
   };
   const disable = async () => {
     const m = await import('@/lib/locationPreference');
     m.clearLocation();
-    toast.success('Location access disabled');
+    toast.success(t('settings.location.disableSuccess'));
     await refresh();
   };
 
@@ -490,45 +501,60 @@ function LocationAccessCard() {
     : 'bg-muted-foreground';
 
   return (
-    <Card id="settings-location-access" className="scroll-mt-4 rounded-lg">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <MapPin className="h-5 w-5" /> Location access
-        </CardTitle>
-        <CardDescription>
-          Saved once — used for attendance sign-in. You won't be prompted on every refresh.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="space-y-1">
-            <div className="text-sm">
-              Status:{' '}
-              <Badge variant={optIn ? 'default' : 'secondary'}>
-                {optIn ? 'Enabled' : 'Disabled'}
-              </Badge>
-              <Badge className={`${permBadgeColor} text-white ml-1.5`}>
-                browser: {permState}
-              </Badge>
+    <>
+      <Card id="settings-location-access" className="scroll-mt-4 rounded-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MapPin className="h-5 w-5" /> {t('settings.location.title')}
+          </CardTitle>
+          <CardDescription>
+            {t('settings.location.description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="space-y-1">
+              <div className="text-sm">
+                {t('settings.location.statusLabel')}:{' '}
+                <Badge variant={optIn ? 'default' : 'secondary'}>
+                  {optIn ? t('settings.location.enabled') : t('settings.location.disabled')}
+                </Badge>
+                <Badge className={`${permBadgeColor} text-white ml-1.5`}>
+                  {t('settings.location.browserLabel')}: {permState}
+                </Badge>
+              </div>
+              {address && (
+                <p className="text-xs text-muted-foreground">{t('settings.location.lastFix')}: {address}</p>
+              )}
+              {permState === 'granted' && optIn && (
+                <p className="text-xs text-muted-foreground">{t('settings.location.permissionGranted')}</p>
+              )}
             </div>
-            {address && (
-              <p className="text-xs text-muted-foreground">Last fix: {address}</p>
+            {optIn ? (
+              <Button size="sm" variant="outline" onClick={disable}>{t('settings.location.disable')}</Button>
+            ) : (
+              <Button size="sm" onClick={enable} disabled={busy || permState === 'denied'}>
+                {busy ? t('settings.location.requesting') : t('settings.location.enable')}
+              </Button>
             )}
           </div>
-          {optIn ? (
-            <Button size="sm" variant="outline" onClick={disable}>Disable</Button>
-          ) : (
-            <Button size="sm" onClick={enable} disabled={busy || permState === 'denied'}>
-              {busy ? 'Requesting…' : 'Enable'}
-            </Button>
+          {permState === 'denied' && (
+            <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5">
+              <p className="text-xs text-destructive font-medium">
+                {t('settings.location.blockedTitle')}
+              </p>
+              <Button size="sm" variant="default" onClick={() => setHelpOpen(true)}>
+                <MapPin className="h-3 w-3 mr-1" /> {t('settings.location.blockedHelpCta')}
+              </Button>
+            </div>
           )}
-        </div>
-        {permState === 'denied' && (
-          <p className="text-xs text-destructive">
-            Location is blocked at the browser level. Open your browser site settings for this page and allow Location, then click Enable.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+      <BrowserLocationHelpDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        reason={permState === 'denied' ? 'denied' : 'blocked'}
+      />
+    </>
   );
 }
