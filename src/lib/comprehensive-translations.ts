@@ -1406,31 +1406,8 @@ export const additionalTranslations = {
     'attendance.notSignedOut': 'No Firmó Salida',
     'attendance.working': 'Trabajando',
     'attendance.completed': 'Completado',
-    // Attendance Reports (es)
-    'hr.management': 'Informes de Asistencia',
-    'hr.totalDays': 'Días Totales',
-    'hr.totalHours': 'Horas Totales',
-    'hr.avgHoursPerDay': 'Horas Promedio/Día',
-    'hr.punctualDays': 'Días Puntuales',
-    'hr.attendanceRecords': 'Registros de Asistencia',
-    'hr.date': 'Fecha',
-    'hr.employee': 'Empleado',
-    'hr.checkIn': 'Entrada',
-    'hr.checkOut': 'Salida',
-    'hr.hours': 'Horas',
-    'hr.status': 'Estado',
-    'hr.location': 'Ubicación',
-    'hr.notes': 'Notas',
-    'hr.exportCsv': 'Exportar CSV',
-    'hr.noRecordsFound': 'No se encontraron registros',
-    'periods.today': 'Hoy',
-    'periods.thisWeek': 'Esta Semana',
-    'periods.thisMonth': 'Este Mes',
-    'periods.last30Days': 'Últimos 30 Días',
-    'periods.allEmployees': 'Todos los Empleados',
-    'attendance.autoSignedOut': 'Salida Automática',
-    'attendance.forgotSignOut': 'Olvidó Firmar Salida',
   },
+  
   
   
   vi: {
