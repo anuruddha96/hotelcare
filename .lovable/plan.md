@@ -1,113 +1,140 @@
-# Translation completeness + 2 UI fixes
+## Root cause
 
-## Goal
-Bring Filipino (`tl`), Spanish (`es`), and the other supported languages (`hu, vi, mn, az`) to full coverage for the screens shown in the screenshots, and fix two specific UI issues that prevent housekeepers from understanding what's actionable.
+Two separate issues are producing the leftover English strings shown in the screenshots:
 
-## Part A — UI fixes (independent of translations)
+1. **Translation resolver only keeps top-level string entries.** In `src/hooks/useTranslation.tsx`, `toStringBundle()` walks each language module and skips any value that isn't a string. But several modules store entries as nested objects, e.g. in `comprehensive-translations.ts`:
 
-### A1. "Hold to complete" hint clipped on active room card
-`AssignedRoomCard.tsx` (the room currently being cleaned) renders the hold-text under the green "Tapos na" button. With a long localized phrase like *"Pindutin at hawakan para tapusin"* it currently overflows the card edge.
+   ```ts
+   'housekeeping.assignmentType': { dailyClean: 'Daily Clean', checkoutClean: 'Checkout Clean', ... },
+   'housekeeping.priority':       { medium: 'Medium Priority', high: 'High Priority', ... },
+   ```
 
-Fix in `AssignedRoomCard.tsx` only:
-- Move the hint into the same constrained width as the button (full card width, `px-3`).
-- Apply `text-[11px] sm:text-xs leading-tight text-center break-words` so the string wraps to 2 lines instead of overflowing.
-- Same treatment to the matching "Press & hold to start" hint shown above non-active rooms (`housekeeping.holdToStart`) where Filipino/Spanish are also longer than English.
+   The component calls `t('housekeeping.assignmentType.checkoutClean')` and `t('housekeeping.priority.medium')`. The nested form is dropped by the resolver, so these keys only ever resolve when someone manually duplicated a flat version. Today that flat version exists only in the `en` and `hu` blocks of `useTranslation.tsx`. Every other language (`tl`, `es`, `vi`, `mn`, `az`) falls through to the English flat key, which is why housekeepers in Filipino still see `Checkout Clean`, `Daily Clean`, `Medium Priority`, `Maintenance`, etc.
 
-### A2. "Detalyadong Record" list looks non-scrollable in linen cart
-`LinenCart.tsx` (the bottom-sheet shown in screenshot 8) lists per-room entries inside a fixed-height container, but there is no visual cue that more content exists below.
+2. **A handful of flat keys are missing in `tl`** (and sometimes other languages) — `rooms.dirty`, `roomCard.night`, `dashboard.attendance` (currently set to the English word "Attendance"), the room status alert badge phrases, and the entire `hr.*` + `periods.*` bundles used by `AttendanceReports.tsx` (the "Attendance Reports", "Total Days", "Total Hours", "Avg Hours/Day", "Punctual Days", "Export CSV", "This Week" etc. card seen in screenshot 3).
 
-Fix in `LinenCart.tsx` only:
-- Wrap the list in a relatively-positioned div with `flex-1 min-h-0 overflow-y-auto pr-1`.
-- Force the scrollbar to remain visible on touch devices: `scrollbar-thin scrollbar-thumb-muted-foreground/30 [&::-webkit-scrollbar]:w-1.5`.
-- Add a bottom fade-out gradient overlay (`pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background to-transparent`) that hides automatically when the user has scrolled to the end (toggle via a small `onScroll` state).
-- Add a tiny "↓ Mag-scroll para makita ang lahat" (translated) hint above the list when the content is taller than the viewport.
+## Part A — Make the resolver understand nested keys
 
-No business logic changes.
+Edit `src/hooks/useTranslation.tsx` only.
 
-## Part B — Translation completeness
+Replace `toStringBundle` with a recursive flattener that produces flat dotted keys. Pseudocode:
 
-Approach: keep existing modules, only add missing keys per language. Where a string is currently rendered as a hardcoded English literal (e.g. *"Hotel Ottofiori Management System"*, *"Hotel Assignment:"*, ticket stat labels), replace with a `t('...')` call and add the key to every language bundle. English fallback remains automatic.
+```ts
+const flattenBundle = (
+  source: Record<string, unknown> | undefined,
+  prefix = '',
+  out: Record<string, string> = {},
+) => {
+  if (!source) return out;
+  for (const [key, value] of Object.entries(source)) {
+    const next = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      flattenBundle(value as Record<string, unknown>, next, out);
+    } else if (typeof value === 'string') {
+      out[next] = value;
+    }
+  }
+  return out;
+};
+```
 
-### B1. Strings to translate (grouped by screen)
+Use `flattenBundle` wherever `toStringBundle` was used inside `getStaticTranslationBundle()`. No other behavior changes — strings still win, and the existing flat entries continue to load. This single change immediately exposes the nested `housekeeping.assignmentType.*`, `housekeeping.priority.*`, `housekeeping.status.*`, `roomCard.*` nested groups, and any similar nested blocks in `expanded-translations.ts`, `comprehensive-translations.ts`, etc. for **all** languages.
 
-**Manager → Housekeeping → Pending Approvals (screenshots 1 & 2)**
-- `dashboard.subtitleManagement` — *"{hotel} Management System"* (currently hardcoded literal)
-- `approvals.title`, `approvals.subtitle` (*Manage approvals and review history*)
-- `approvals.tabPending`, `approvals.tabLateMinibar` (*Mga Huling Idinagdag sa Minibar*), `approvals.tabHistory`
-- `approvals.reviewCleaningTasks`, `approvals.roomsCount`, `approvals.maintenanceCount`, `approvals.flaggedCount`, `approvals.oldestLabel`
-- `approvals.roomCompletionTitle` (*Approval sa Pagkatapos ng Kuwarto*)
-- `approvals.approveAll`, `approvals.approve`, `approvals.pendingBreakRequests`
-- `approvals.cleaningTrend.normal`, `cleaningTrend.fast`, `cleaningTrend.slow` plus the existing tooltip *Items with unusually fast or slow completion times* (`approvals.trendTooltip`)
+After this, for Filipino (`tl`), the `housekeeping.priority` and `housekeeping.assignmentType` entries already defined in `comprehensive-translations.ts` (lines around 3895–3970) will start resolving, so the room-card badges in screenshots 1 & 2 will render in Filipino without any other change.
 
-**Housekeeper mobile dashboard (screenshots 3, 4, 5, 6)**
-- `housekeeping.myTasksButton` (the big "My Tasks" CTA)
-- `housekeeping.workSchedule`, `housekeeping.totalTasksToday`, `housekeeping.done`, `housekeeping.inProgressShort`, `housekeeping.waiting`
-- `housekeeping.todaysAssignments` (already exists?), `housekeeping.tasksCount` for the pill count
-- `housekeeping.hotelAssignmentLabel` (*Hotel Assignment:*)
-- Room status badges: `housekeeping.status.inProgress` (GINAGAWA PA), `status.pending` (NAGHIHINTAY), `status.dirty`, `status.checkoutClean`, `status.dailyClean`, `status.towelChange` (already), `status.night2`, `status.night3`, `status.mediumPriority`
-- Room card sections: `housekeeping.todoTitle` (Kailangang gawin), `housekeeping.dndPhoto` (Larawan ng DND), `housekeeping.dirtyLinen`, `housekeeping.minibar`, `housekeeping.lostFound`, `housekeeping.maintenance`
-- Buttons: `housekeeping.markDone` (Tapos na), `housekeeping.startCleaning` (Simulan ang paglilinis), `housekeeping.noService` (Walang serbisyo), `housekeeping.holdToStart`, `housekeeping.holdToComplete`, `housekeeping.addNote` (Magdagdag ng note), `housekeeping.details`
-- Messages: `housekeeping.messagesLabel` (MGA MENSAHE), `housekeeping.messagePlaceholder` (Mag-type ng mensahe…)
+## Part B — Fill in remaining missing Filipino (and peer-language) strings
 
-**Attendance / Settings (screenshot 7)**
-- Top tab label `dashboard.attendance` (the third tab still says "Attendance" because the key is missing in `tl`)
-- Settings field labels — `settings.email` already exists but missing `tl`; same for `settings.role` (Tungkulin), `settings.assignedHotel` (Nakatalagang Hotel), `settings.nickname` (Palayaw), `settings.lastLogin` (Huling pag-login)
-- Location-access card keys (already added in previous turn) — verify `tl` translations appear; if missing extend `location-translations.ts`
+These keys are referenced by the screens in the screenshots but have no Filipino entry (or no entry beyond English) anywhere. Add them to `src/lib/comprehensive-translations.ts` in the appropriate language block (the `tl` block lives at the bottom of the file, around lines 3760–4207).
 
-**Linen Cart (screenshot 8)**
-- Cart chrome: `linenCart.title` (Aking Linen Cart), `linenCart.totalToday` (Kabuuan ngayong araw), `linenCart.totalSuffix` (Mga Linen), `linenCart.breakdown` (Hati-hati ayon sa uri), `linenCart.detailedRecord` (Detalyadong Record), `linenCart.scrollHint`, `linenCart.empty`
-- Linen item names — these come from a DB enum/lookup currently rendered raw. Add a translation map `linen.item.bathMat`, `linen.item.bigTowel`, `linen.item.smallTowel`, `linen.item.bigPillow`, `linen.item.duvetCovers`, `linen.item.bedSheetsQueen`, `linen.item.bedSheetsKing`, etc. Create a tiny helper `tLinenItem(name)` that maps the DB code/English label to the translation key with English fallback. Apply in both the breakdown list and the per-room rows.
+For each key, add `tl, es, vi, mn, az, hu` translations (English already canonical in `useTranslation.tsx`):
 
-**Tickets (screenshot 9)**
-- Header: `tickets.allTickets`, `tickets.manageFor` (Pamahalaan ang mga gawain para sa {hotel})
-- Stats: `tickets.totalLabel`, `tickets.openLabel`, `tickets.inProgressLabel`, `tickets.completedLabel`
-- Filters: `tickets.searchPlaceholder` (already), `tickets.allStatus`, `tickets.allPriority`, `tickets.allDepartments` (Lahat ng Department — currently truncated as "Lahat ng De|")
-- Empty state: `tickets.noResults` (No tickets found) — verify `tl`
-- Button: `tickets.new` (New)
+### B1. Room status badge and night badge (`AssignedRoomCard.tsx`)
 
-### B2. Language coverage rule
-For every key above, add translations in this order with this fallback rule:
-1. `en` — canonical source
-2. `tl`, `es`, `hu`, `vi`, `mn`, `az` — full translations for every new key
+- `rooms.dirty` → tl: `Marumi` (already present in `room-overview-translations.ts` under a different key, but `rooms.dirty` itself is missing in `tl`. Add it to the tl block of `highlighted-translations.ts` alongside the other language entries.)
+- `rooms.maintenance`, `rooms.outOfOrder` — confirm `tl` exists; add if missing.
+- `roomCard.night` → tl: `Gabi`, az: `Gecə` (es/hu/vi/mn already exist).
 
-Filipino, Spanish, Hungarian, Vietnamese, Mongolian, Azerbaijani — all get the same key list. Where translation is uncertain we use natural phrasing aligned with the existing tone (informal "you" for housekeepers in `tl/vi/mn`, formal "usted" in `es`).
+### B2. Filipino "Attendance" tab heading
 
-### B3. Module placement
-- General/UI strings → `src/lib/comprehensive-translations.ts`
-- Housekeeping mobile dashboard → `src/lib/expanded-translations.ts`
-- Approvals screen → `src/lib/screen-translations.ts`
-- Linen cart + linen item names → new `src/lib/linen-translations.ts` registered in `useTranslation.tsx`
-- Tickets list → `src/lib/comprehensive-translations.ts`
+`dashboard.attendance` and `dashboard.workStatus` are currently set to the English literal `Attendance` in the `tl` block (`comprehensive-translations.ts` lines 4075 and 4181). Change both to `Pagdalo` (or keep `Attendance` as loan word — confirm with user; default to `Pagdalo`).
 
-### B4. Component edits to swap hardcoded literals to `t()`
+### B3. Attendance Reports card (`AttendanceReports.tsx`, screenshot 3)
 
-- `HousekeepingManagerView.tsx` (subtitle, approvals tabs, approval card titles, "Approve All")
-- `PendingApprovalsTab.tsx` / `ApprovalCard.tsx` (stat cards, approval row labels)
-- `MyTasksMobile.tsx` (or equivalent) — My Tasks button, schedule labels, stat cards, "Hotel Assignment:"
-- `AssignedRoomCard.tsx` — *GINAGAWA PA* badge, todo title, action labels, hold-to-* hints
-- `LinenCart.tsx` — all chrome strings + per-item names via `tLinenItem`
-- `TicketsList.tsx` / `TicketsHeader.tsx` — title, subtitle, New button, stat labels, filter placeholders, empty state
-- `SettingsDialog.tsx` — verify all field labels go through `t()`
+Add the following keys to every non-English language block (`tl, es, vi, mn, az`) — Hungarian already has them. Filipino values shown for reference:
 
-No DB changes, no API changes.
+```
+hr.management        → 'Mga Ulat sa Pagdalo'
+hr.totalDays         → 'Kabuuang Araw'
+hr.totalHours        → 'Kabuuang Oras'
+hr.avgHoursPerDay    → 'Average Oras / Araw'
+hr.punctualDays      → 'Mga Maagang Araw'
+hr.attendanceRecords → 'Mga Talaan ng Pagdalo'
+hr.date              → 'Petsa'
+hr.employee          → 'Empleyado'
+hr.checkIn           → 'Pagpasok'
+hr.checkOut          → 'Paglabas'
+hr.hours             → 'Oras'
+hr.status            → 'Status'
+hr.location          → 'Lokasyon'
+hr.notes             → 'Mga Note'
+hr.exportCsv         → 'I-export ang CSV'
+hr.noRecordsFound    → 'Walang nahanap na talaan'
+periods.today        → 'Ngayong Araw'
+periods.thisWeek     → 'Ngayong Linggo'
+periods.thisMonth    → 'Ngayong Buwan'
+periods.last30Days   → 'Huling 30 Araw'
+periods.allEmployees → 'Lahat ng Empleyado'
+attendance.working   → 'Nagtatrabaho'
+attendance.completed → 'Tapos na'
+attendance.notSignedOut → 'Hindi naka-sign out'
+```
 
-## Out of scope
-- No new auth, RLS, edge functions.
-- No layout/structural changes besides the 2 UI fixes in Part A.
-- Training translations (already complete in `tl`).
+Provide equivalent translations for `es`, `vi`, `mn`, `az`.
+
+### B4. Action buttons on the in-progress room card (screenshots 1 & 2)
+
+These are already wired through `t('actions.*')`. The `tl` block has the strings (`actions.dndPhoto`, `actions.dirtyLinen`, `actions.minibar`, `actions.lostAndFound`, `actions.maintenance`), but `Lost & Found`, `Minibar`, `Maintenance` are loan words for `tl`. Replace with:
+
+```
+actions.lostAndFound → 'Nahanap/Nawala'
+actions.minibar      → 'Minibar' (kept as brand term — keep)
+actions.maintenance  → 'Pagkukumpuni'
+```
+
+Repeat for `es` ("Objetos perdidos", "Mantenimiento"), `vi`, `mn`, `az`. The "Minibar" label can stay as-is across all languages.
+
+### B5. `housekeeping.assignmentType.*` and `housekeeping.priority.*` for `tl`
+
+Already declared in nested form in `comprehensive-translations.ts`; after Part A they resolve automatically. Verify the Filipino values render as:
+
+- `Checkout Clean` → `Paglilinis pagkatapos ng check-out`
+- `Daily Clean`    → `Araw-araw na paglilinis`
+- `Medium Priority` → `Karaniwang priyoridad`
+- `High Priority`  → `Mataas na priyoridad`
+- `Maintenance`    → `Pagkukumpuni`
+
+If any of these are still English or empty in the nested `tl` block, update them in place.
+
+## Part C — Verification
+
+After editing:
+
+1. Run `bunx vitest run src/hooks/useTranslation.test.tsx` to confirm the resolver change doesn't break existing tests.
+2. Manually flip the LanguageSwitcher to Filipino and walk through:
+   - Housekeeper "My Tasks" page → confirm Room card badges read in Filipino (Checkout/Daily Clean, Night N, Medium Priority, Dirty status badge).
+   - "Attendance" bottom tab heading shows Filipino.
+   - "Attendance Reports" card titles, period dropdown, stat cards, status badges all read Filipino.
 
 ## Files
 
-**New**
-- `src/lib/linen-translations.ts`
-
 **Edited**
-- `src/hooks/useTranslation.tsx` (register linen module)
-- `src/lib/comprehensive-translations.ts`, `expanded-translations.ts`, `screen-translations.ts`, `location-translations.ts`
-- `src/components/dashboard/HousekeepingManagerView.tsx`
-- `src/components/dashboard/PendingApprovalsTab.tsx`, `ApprovalCard.tsx` (or equivalent)
-- `src/components/dashboard/MyTasksMobile.tsx` (or equivalent housekeeper mobile dashboard)
-- `src/components/dashboard/AssignedRoomCard.tsx` (UI fix A1 + translation swaps)
-- `src/components/dashboard/LinenCart.tsx` (UI fix A2 + translation swaps)
-- `src/components/dashboard/TicketsList.tsx` / header (translation swaps)
-- `src/components/dashboard/SettingsDialog.tsx` (translation swaps)
+- `src/hooks/useTranslation.tsx` — replace `toStringBundle` with recursive `flattenBundle`; add missing `hr.*`, `periods.*`, `attendance.working/completed/notSignedOut`, `rooms.dirty`, `roomCard.night`, `dashboard.attendance` flat entries to every language block.
+- `src/lib/comprehensive-translations.ts` — fix `tl` values for `dashboard.attendance`, `actions.lostAndFound`, `actions.maintenance`; confirm nested `housekeeping.assignmentType` and `housekeeping.priority` entries are translated.
+- `src/lib/highlighted-translations.ts` — add `rooms.dirty` (and any other missing room-status keys) for `tl` and `az`.
+
+No DB, edge function, auth, or layout changes. No new files.
+
+## Out of scope
+- Re-translating screens that already render correctly in Filipino.
+- Restructuring any other parts of the dashboard.
+- Changing the language switcher itself.
