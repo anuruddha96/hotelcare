@@ -2212,6 +2212,20 @@ const translations = {
     'common.status': 'Status',
     'common.priority': 'Priyoridad',
     'common.noData': 'Walang datos',
+    'common.details': 'Mga Detalye',
+    'roomCard.towelChange': 'Pagpapalit ng Tuwalya',
+    'roomCard.linenChange': 'Pagpapalit ng Linen',
+    'roomCard.night': 'Gabi',
+    'rooms.dirty': 'Marumi',
+    'rooms.maintenance': 'Pagkukumpuni',
+    'rooms.outOfOrder': 'Hindi gumagana',
+    'housekeeping.assignmentType.dailyClean': 'Araw-araw na paglilinis',
+    'housekeeping.assignmentType.checkoutClean': 'Paglilinis pagkatapos ng check-out',
+    'housekeeping.assignmentType.deepClean': 'Masusing paglilinis',
+    'housekeeping.assignmentType.maintenance': 'Pagkukumpuni',
+    'housekeeping.priority.high': 'Mataas na priyoridad',
+    'housekeeping.priority.medium': 'Karaniwang priyoridad',
+    'housekeeping.priority.low': 'Mababang priyoridad',
     'language.changed': 'Nabago ang wika',
     'language.switchedTo': 'Nilipat sa:',
   },
@@ -2240,24 +2254,38 @@ const persistLanguage = (lang: Language) => {
   LANGUAGE_STORAGE_KEYS.forEach((key) => localStorage.setItem(key, lang));
 };
 
-const toStringBundle = (source: Record<string, unknown> | undefined): Record<string, string> =>
-  Object.entries(source ?? {}).reduce((bundle, [key, value]) => {
-    if (typeof value === 'string') bundle[key] = value;
-    return bundle;
-  }, {} as Record<string, string>);
+// Recursively flatten nested translation objects so callers can use dotted keys
+// like `t('housekeeping.priority.medium')` regardless of whether the source
+// module stored that value as a flat key or as a nested object.
+const flattenBundle = (
+  source: Record<string, unknown> | undefined,
+  prefix = '',
+  out: Record<string, string> = {},
+): Record<string, string> => {
+  if (!source) return out;
+  for (const [key, value] of Object.entries(source)) {
+    const next = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      flattenBundle(value as Record<string, unknown>, next, out);
+    } else if (typeof value === 'string') {
+      out[next] = value;
+    }
+  }
+  return out;
+};
 
 const getStaticTranslationBundle = (lang: Language): Record<string, string> => ({
-  ...toStringBundle(translations[lang]),
-  ...toStringBundle(additionalTranslations[lang]),
-  ...toStringBundle(expandedTranslations[lang]),
-  ...toStringBundle(notificationTranslations[lang as keyof typeof notificationTranslations]),
-  ...toStringBundle(dashboardTranslations[lang as keyof typeof dashboardTranslations]),
-  ...toStringBundle(pmsTranslations[lang]),
-  ...toStringBundle(highlightedTranslations[lang]),
-  ...toStringBundle(screenTranslations[lang]),
-  ...(roomOverviewTranslations[lang as keyof typeof roomOverviewTranslations] || {}),
-  ...((purchaseInvoiceTranslations as any)[lang] || {}),
-  ...toStringBundle(locationTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(translations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(additionalTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(expandedTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(notificationTranslations[lang as keyof typeof notificationTranslations] as Record<string, unknown> | undefined),
+  ...flattenBundle(dashboardTranslations[lang as keyof typeof dashboardTranslations] as Record<string, unknown> | undefined),
+  ...flattenBundle(pmsTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(highlightedTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(screenTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(roomOverviewTranslations[lang as keyof typeof roomOverviewTranslations] as Record<string, unknown> | undefined),
+  ...flattenBundle((purchaseInvoiceTranslations as any)[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(locationTranslations[lang] as Record<string, unknown> | undefined),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {

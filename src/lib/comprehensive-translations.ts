@@ -1408,6 +1408,8 @@ export const additionalTranslations = {
     'attendance.completed': 'Completado',
   },
   
+  
+  
   vi: {
     // Housekeeping Tabs
     'housekeeping.tabs.staffManagement': 'Quản lý Nhân viên',
@@ -4012,8 +4014,8 @@ export const additionalTranslations = {
   'actions.dndPhoto': 'Larawan ng DND',
   'actions.dirtyLinen': 'Maruming Linen',
   'actions.minibar': 'Minibar',
-  'actions.lostAndFound': 'Lost & Found',
-  'actions.maintenance': 'Maintenance',
+  'actions.lostAndFound': 'Nahanap/Nawala',
+  'actions.maintenance': 'Pagkukumpuni',
   'actions.updateDirtyLinen': 'I-update ang Maruming Linen',
   'actions.roomStatusAlert': 'Alerto sa Status ng Kuwarto',
   'actions.addMinibarLate': 'Magdagdag ng Minibar Item',
@@ -4072,8 +4074,8 @@ export const additionalTranslations = {
   'photoCategory.teaCoffeeTable': 'Mesa ng tea/coffee',
   'dashboard.tickets': 'Mga gawain',
   'dashboard.myTasks': 'Aking mga gawain',
-  'dashboard.workStatus': 'Attendance',
-  'attendance.title': 'Attendance',
+  'dashboard.workStatus': 'Pagdalo',
+  'attendance.title': 'Pagdalo',
   'attendance.checkIn': 'Mag-sign in',
   'attendance.checkOut': 'Mag-sign out',
   'attendance.currentLocation': 'Kasalukuyang lokasyon',
@@ -4178,7 +4180,7 @@ export const additionalTranslations = {
   'dashboard.newTicketShort': 'Bago',
   'dashboard.manageUsers': 'Pamahalaan ang Users',
   'dashboard.manageUsersShort': 'Users',
-  'dashboard.attendance': 'Attendance',
+  'dashboard.attendance': 'Pagdalo',
   'dashboard.subtitleManagement': 'Management System',
   'dashboard.hotelAssignmentLabel': 'Nakatalagang Hotel:',
   'dashboard.myTasksButton': 'Aking Mga Gawain',
@@ -4198,12 +4200,53 @@ export const additionalTranslations = {
   'approvals.approve': 'Aprubahan',
   'approvals.pendingBreakRequests': 'Naghihintay na Break Request',
   'approvals.trendTooltip': 'Mga item na may pambihirang bilis o bagal ng pagtatapos',
-  // Settings card labels (missing in tl)
+  // Settings card labels
   'settings.email': 'Email',
   'settings.role': 'Tungkulin',
   'settings.assignedHotel': 'Nakatalagang Hotel',
   'settings.nickname': 'Palayaw',
   'settings.lastLogin': 'Huling pag-login',
+  // Room status badges + night badge
+  'rooms.dirty': 'Marumi',
+  'rooms.maintenance': 'Pagkukumpuni',
+  'rooms.outOfOrder': 'Hindi gumagana',
+  'roomCard.night': 'Gabi',
+  // Housekeeping assignment type + priority (flat, used by AssignedRoomCard)
+  'housekeeping.assignmentType.dailyClean': 'Araw-araw na paglilinis',
+  'housekeeping.assignmentType.checkoutClean': 'Paglilinis pagkatapos ng check-out',
+  'housekeeping.assignmentType.deepClean': 'Masusing paglilinis',
+  'housekeeping.assignmentType.maintenance': 'Pagkukumpuni',
+  'housekeeping.priority.high': 'Mataas na priyoridad',
+  'housekeeping.priority.medium': 'Karaniwang priyoridad',
+  'housekeeping.priority.low': 'Mababang priyoridad',
+  // Action buttons on room card (updated above)
+  // Attendance Reports card (AttendanceReports.tsx)
+  'hr.management': 'Mga Ulat sa Pagdalo',
+  'hr.totalDays': 'Kabuuang Araw',
+  'hr.totalHours': 'Kabuuang Oras',
+  'hr.avgHoursPerDay': 'Average Oras / Araw',
+  'hr.punctualDays': 'Mga Maagang Araw',
+  'hr.attendanceRecords': 'Mga Talaan ng Pagdalo',
+  'hr.date': 'Petsa',
+  'hr.employee': 'Empleyado',
+  'hr.checkIn': 'Pagpasok',
+  'hr.checkOut': 'Paglabas',
+  'hr.hours': 'Oras',
+  'hr.status': 'Status',
+  'hr.location': 'Lokasyon',
+  'hr.notes': 'Mga Note',
+  'hr.exportCsv': 'I-export ang CSV',
+  'hr.noRecordsFound': 'Walang nahanap na talaan',
+  'periods.today': 'Ngayong Araw',
+  'periods.thisWeek': 'Ngayong Linggo',
+  'periods.thisMonth': 'Ngayong Buwan',
+  'periods.last30Days': 'Huling 30 Araw',
+  'periods.allEmployees': 'Lahat ng Empleyado',
+  'attendance.working': 'Nagtatrabaho',
+  'attendance.completed': 'Tapos na',
+  'attendance.notSignedOut': 'Hindi naka-sign out',
+  'attendance.autoSignedOut': 'Auto sign-out',
+  'attendance.forgotSignOut': 'Nakalimutang mag-sign out',
 };
 
 
