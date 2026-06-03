@@ -4217,9 +4217,7 @@ export const additionalTranslations = {
   'housekeeping.priority.high': 'Mataas na priyoridad',
   'housekeeping.priority.medium': 'Karaniwang priyoridad',
   'housekeeping.priority.low': 'Mababang priyoridad',
-  // Action buttons on room card
-  'actions.lostAndFound': 'Nahanap/Nawala',
-  'actions.maintenance': 'Pagkukumpuni',
+  // Action buttons on room card (updated above)
   // Attendance Reports card (AttendanceReports.tsx)
   'hr.management': 'Mga Ulat sa Pagdalo',
   'hr.totalDays': 'Kabuuang Araw',
