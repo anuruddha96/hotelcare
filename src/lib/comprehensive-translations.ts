@@ -4182,7 +4182,6 @@ export const additionalTranslations = {
   'dashboard.subtitleManagement': 'Management System',
   'dashboard.hotelAssignmentLabel': 'Nakatalagang Hotel:',
   'dashboard.myTasksButton': 'Aking Mga Gawain',
-  'dashboard.workStatus': 'Pagdalo',
   // Approvals (manager view)
   'approvals.title': 'Mga Aprubahan',
   'approvals.subtitle': 'Pamahalaan ang mga aprubahan at i-review ang history',
