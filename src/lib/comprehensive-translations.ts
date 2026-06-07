@@ -29,6 +29,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Required Actions',
+    'actions.requiredSubtitle': 'Report all that apply before completing the room — these are mandatory checks.',
+    'actions.mandatoryBadge': 'MANDATORY',
+    'actions.ifApplicable': 'If applicable',
     'actions.roomPhotos': 'Room Photos',
     'actions.dndPhoto': 'DND Photo',
     'actions.dirtyLinen': 'Dirty Linen',
