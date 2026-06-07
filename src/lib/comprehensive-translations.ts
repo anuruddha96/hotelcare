@@ -3272,6 +3272,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Szükséges Műveletek',
+    'actions.requiredSubtitle': 'A szoba befejezése előtt jelents minden vonatkozó tételt — ezek kötelező ellenőrzések.',
+    'actions.mandatoryBadge': 'KÖTELEZŐ',
+    'actions.ifApplicable': 'Ha releváns',
     'actions.roomPhotos': 'Szoba Fotók',
     'actions.dndPhoto': 'DND Fotó',
     'actions.dirtyLinen': 'Piszkos Ágynemű',
