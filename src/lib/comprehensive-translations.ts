@@ -786,6 +786,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Acciones Requeridas',
+    'actions.requiredSubtitle': 'Reporta todo lo que aplique antes de terminar la habitación — son verificaciones obligatorias.',
+    'actions.mandatoryBadge': 'OBLIGATORIO',
+    'actions.ifApplicable': 'Si aplica',
     'actions.roomPhotos': 'Fotos de Habitación',
     'actions.dndPhoto': 'Foto DND',
     'actions.dirtyLinen': 'Ropa Sucia',
