@@ -1435,6 +1435,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Hành Động Cần Thiết',
+    'actions.requiredSubtitle': 'Báo cáo tất cả các mục áp dụng trước khi hoàn tất phòng — đây là các kiểm tra bắt buộc.',
+    'actions.mandatoryBadge': 'BẮT BUỘC',
+    'actions.ifApplicable': 'Nếu áp dụng',
     'actions.roomPhotos': 'Hình Phòng',
     'actions.dndPhoto': 'Hình DND',
     'actions.dirtyLinen': 'Vải Bẩn',
