@@ -1106,11 +1106,25 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
           {/* Required Actions Section - Daily Photo, DND Photo and Dirty Linen for In-Progress Tasks */}
           {assignment.status === 'in_progress' && (
-            <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border-2 border-dashed border-amber-200">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
-                <span className="font-semibold text-amber-800">{t('actions.required')}</span>
+            <div className="p-4 bg-gradient-to-r from-red-50 to-amber-50 rounded-lg border-2 border-red-300 shadow-sm ring-1 ring-red-200">
+              <div className="flex items-start gap-2 mb-1">
+                <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5 animate-pulse" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-red-800 uppercase tracking-wide text-sm">{t('actions.required')}</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-600 text-white tracking-wider">
+                      {t('actions.mandatoryBadge')}
+                    </span>
+                  </div>
+                  <p className="text-xs text-red-700/90 mt-1 leading-snug">
+                    {t('actions.requiredSubtitle')}
+                  </p>
+                </div>
               </div>
+              <div className="text-[10px] text-amber-700 font-medium mb-2 mt-2 italic">
+                · {t('actions.ifApplicable')} ·
+              </div>
+
               
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {/* Room Photos Button - Only show for daily cleaning rooms, not checkout rooms */}

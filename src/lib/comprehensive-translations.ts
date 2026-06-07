@@ -29,6 +29,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Required Actions',
+    'actions.requiredSubtitle': 'Report all that apply before completing the room — these are mandatory checks.',
+    'actions.mandatoryBadge': 'MANDATORY',
+    'actions.ifApplicable': 'If applicable',
     'actions.roomPhotos': 'Room Photos',
     'actions.dndPhoto': 'DND Photo',
     'actions.dirtyLinen': 'Dirty Linen',
@@ -783,6 +786,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Acciones Requeridas',
+    'actions.requiredSubtitle': 'Reporta todo lo que aplique antes de terminar la habitación — son verificaciones obligatorias.',
+    'actions.mandatoryBadge': 'OBLIGATORIO',
+    'actions.ifApplicable': 'Si aplica',
     'actions.roomPhotos': 'Fotos de Habitación',
     'actions.dndPhoto': 'Foto DND',
     'actions.dirtyLinen': 'Ropa Sucia',
@@ -1429,6 +1435,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Hành Động Cần Thiết',
+    'actions.requiredSubtitle': 'Báo cáo tất cả các mục áp dụng trước khi hoàn tất phòng — đây là các kiểm tra bắt buộc.',
+    'actions.mandatoryBadge': 'BẮT BUỘC',
+    'actions.ifApplicable': 'Nếu áp dụng',
     'actions.roomPhotos': 'Hình Phòng',
     'actions.dndPhoto': 'Hình DND',
     'actions.dirtyLinen': 'Vải Bẩn',
@@ -2013,6 +2022,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Шаардлагатай Үйлдлүүд',
+    'actions.requiredSubtitle': 'Өрөөг дуусгахаас өмнө бүх холбогдох зүйлийг мэдэгдээрэй — эдгээр нь заавал шалгах ёстой.',
+    'actions.mandatoryBadge': 'ЗААВАЛ',
+    'actions.ifApplicable': 'Хамаарах бол',
     'actions.roomPhotos': 'Өрөөний Зураг',
     'actions.dndPhoto': 'DND Зураг',
     'actions.dirtyLinen': 'Бохир Даавуу',
@@ -2619,6 +2631,9 @@ export const additionalTranslations = {
     'dnd.previouslyApprovedCleaned': 'Əvvəllər təsdiqlənmiş DND otağı təmizləndi',
     'dnd.previouslyApprovedDesc': 'Bu otaq DND olaraq işarələnmiş və nəzarətçi tərəfindən təsdiqlənmişdi, lakin DND işarəsi silindikdən sonra otaq təmizləyicisi tərəfindən təmizləndi',
     'actions.required': 'Tələb Olunan Fəaliyyətlər',
+    'actions.requiredSubtitle': 'Otağı tamamlamadan əvvəl tətbiq olunan hər şeyi bildirin — bunlar məcburi yoxlamalardır.',
+    'actions.mandatoryBadge': 'MƏCBURİ',
+    'actions.ifApplicable': 'Tətbiq olunarsa',
     'actions.roomPhotos': 'Otaq Şəkilləri',
     'actions.dndPhoto': 'DND Şəkli',
     'actions.dirtyLinen': 'Çirkli Kətan',
@@ -3257,6 +3272,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Szükséges Műveletek',
+    'actions.requiredSubtitle': 'A szoba befejezése előtt jelents minden vonatkozó tételt — ezek kötelező ellenőrzések.',
+    'actions.mandatoryBadge': 'KÖTELEZŐ',
+    'actions.ifApplicable': 'Ha releváns',
     'actions.roomPhotos': 'Szoba Fotók',
     'actions.dndPhoto': 'DND Fotó',
     'actions.dirtyLinen': 'Piszkos Ágynemű',
@@ -4010,6 +4028,9 @@ export const additionalTranslations = {
   'dnd.startCleaning': 'Simulan ang Paglilinis',
   'dnd.starting': 'Sinisimulan...',
   'actions.required': 'Kailangang Gawin',
+  'actions.requiredSubtitle': 'Iulat ang lahat ng naaangkop bago tapusin ang kuwarto — ito ay mga sapilitang pagsusuri.',
+  'actions.mandatoryBadge': 'SAPILITAN',
+  'actions.ifApplicable': 'Kung naaangkop',
   'actions.roomPhotos': 'Mga Larawan ng Kuwarto',
   'actions.dndPhoto': 'Larawan ng DND',
   'actions.dirtyLinen': 'Maruming Linen',
