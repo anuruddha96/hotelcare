@@ -2022,6 +2022,9 @@ export const additionalTranslations = {
     
     // Required Actions
     'actions.required': 'Шаардлагатай Үйлдлүүд',
+    'actions.requiredSubtitle': 'Өрөөг дуусгахаас өмнө бүх холбогдох зүйлийг мэдэгдээрэй — эдгээр нь заавал шалгах ёстой.',
+    'actions.mandatoryBadge': 'ЗААВАЛ',
+    'actions.ifApplicable': 'Хамаарах бол',
     'actions.roomPhotos': 'Өрөөний Зураг',
     'actions.dndPhoto': 'DND Зураг',
     'actions.dirtyLinen': 'Бохир Даавуу',
