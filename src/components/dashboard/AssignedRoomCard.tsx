@@ -467,9 +467,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     try {
       const updateData: any = { status: newStatus };
 
-      // Only set started_at the FIRST time the assignment goes in_progress.
-      // Overwriting on resume after completion produced negative durations.
-      if (newStatus === 'in_progress' && !assignment.started_at) {
+      // Always stamp a fresh started_at when transitioning into in_progress.
+      // The DB trigger guard_room_assignment_started_at is the source of truth
+      // and overwrites this with now() server-side, but we send a value so the
+      // optimistic UI stays in sync.
+      if (newStatus === 'in_progress' && assignment.status !== 'in_progress') {
         updateData.started_at = new Date().toISOString();
       }
 

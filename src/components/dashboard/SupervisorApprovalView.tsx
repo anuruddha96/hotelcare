@@ -115,7 +115,12 @@ function getSpeedIndicator(type: string, durationMinutes: number) {
 
 function getDurationMinutes(startedAt: string | null, completedAt: string): number {
   if (!startedAt) return 0;
-  return Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000);
+  const mins = Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000);
+  // Safety: a single cleaning session over 8 hours is almost certainly bad data
+  // (stale started_at from a previous session). Treat as unknown so we don't
+  // flag an honest room as "Very Slow" based on corrupt timestamps.
+  if (!Number.isFinite(mins) || mins < 0 || mins > 480) return 0;
+  return mins;
 }
 
 function getMinutesSince(dateStr: string): number {
