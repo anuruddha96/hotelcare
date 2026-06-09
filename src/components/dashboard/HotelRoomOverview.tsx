@@ -1325,17 +1325,20 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           onClick={async () => {
                             setActionLoading('start');
                             try {
-                              const existing = assignments.find(a => a.room_id === selectedRoom.id);
-                              const updatePayload: any = { status: 'in_progress' };
-                              // Preserve original start time when resuming
-                              if (!existing?.started_at) updatePayload.started_at = new Date().toISOString();
+                              const nowIso = new Date().toISOString();
+                              const updatePayload: any = {
+                                status: 'in_progress',
+                                // Always set a fresh start time; the DB trigger is
+                                // the final source of truth and will use server now().
+                                started_at: nowIso,
+                              };
                               const { error } = await supabase
                                 .from('room_assignments')
                                 .update(updatePayload)
                                 .eq('room_id', selectedRoom.id)
                                 .eq('assignment_date', selectedDate);
                               if (error) throw error;
-                              setAssignments(prev => prev.map(a => a.room_id === selectedRoom.id ? { ...a, status: 'in_progress', started_at: a.started_at ?? new Date().toISOString() } : a));
+                              setAssignments(prev => prev.map(a => a.room_id === selectedRoom.id ? { ...a, status: 'in_progress', started_at: nowIso } : a));
                               setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'in_progress' } : r));
                               toast.success(`Room ${selectedRoom.room_number} cleaning started`);
                               setRoomSizeDialogOpen(false);

@@ -115,7 +115,12 @@ function getSpeedIndicator(type: string, durationMinutes: number) {
 
 function getDurationMinutes(startedAt: string | null, completedAt: string): number {
   if (!startedAt) return 0;
-  return Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000);
+  const mins = Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000);
+  // Safety: a single cleaning session over 8 hours is almost certainly bad data
+  // (stale started_at from a previous session). Treat as unknown so we don't
+  // flag an honest room as "Very Slow" based on corrupt timestamps.
+  if (!Number.isFinite(mins) || mins < 0 || mins > 480) return 0;
+  return mins;
 }
 
 function getMinutesSince(dateStr: string): number {
@@ -521,10 +526,16 @@ export function SupervisorApprovalView() {
     const end = new Date(endTime);
     const diffMs = end.getTime() - start.getTime();
     const diffMins = Math.round(diffMs / (1000 * 60));
-    
+
+    // Safety against bad source data (stale started_at producing fake multi-hour
+    // durations on rooms actually cleaned in minutes).
+    if (!Number.isFinite(diffMins) || diffMins < 0 || diffMins > 480) {
+      return '—';
+    }
+
     const hours = Math.floor(diffMins / 60);
     const minutes = diffMins % 60;
-    
+
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
     }
