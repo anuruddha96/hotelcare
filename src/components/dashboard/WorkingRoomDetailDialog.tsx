@@ -122,6 +122,10 @@ export function WorkingRoomDetailDialog({
 
   const getElapsedTime = (startedAt: string) => {
     const elapsed = differenceInMinutes(new Date(), new Date(startedAt));
+    // Safety: clamp impossible elapsed values (stale started_at from previous
+    // sessions can produce false multi-hour timers). A single cleaning session
+    // over 8 hours is almost certainly bad data.
+    if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 480) return '—';
     const hours = Math.floor(elapsed / 60);
     const minutes = elapsed % 60;
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
@@ -130,8 +134,9 @@ export function WorkingRoomDetailDialog({
   const getProgressStatus = (assignment: WorkingAssignment) => {
     if (!assignment.started_at || !assignment.estimated_duration) return 'on_track';
     const elapsed = differenceInMinutes(new Date(), new Date(assignment.started_at));
+    if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 480) return 'on_track';
     const progress = (elapsed / assignment.estimated_duration) * 100;
-    
+
     if (progress > 120) return 'overdue';
     if (progress > 100) return 'at_risk';
     return 'on_track';

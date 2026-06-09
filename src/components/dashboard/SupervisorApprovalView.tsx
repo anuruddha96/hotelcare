@@ -526,10 +526,16 @@ export function SupervisorApprovalView() {
     const end = new Date(endTime);
     const diffMs = end.getTime() - start.getTime();
     const diffMins = Math.round(diffMs / (1000 * 60));
-    
+
+    // Safety against bad source data (stale started_at producing fake multi-hour
+    // durations on rooms actually cleaned in minutes).
+    if (!Number.isFinite(diffMins) || diffMins < 0 || diffMins > 480) {
+      return '—';
+    }
+
     const hours = Math.floor(diffMins / 60);
     const minutes = diffMins % 60;
-    
+
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
     }
