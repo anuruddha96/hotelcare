@@ -114,8 +114,15 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
     const updateElapsed = () => {
       const startTime = new Date(startedAt).getTime();
       const now = Date.now();
-      const totalElapsed = Math.floor((now - startTime) / 1000);
-      
+      let totalElapsed = Math.floor((now - startTime) / 1000);
+
+      // Safety guard against bad client clocks / stale data: if the stored
+      // start time is in the future or absurdly old (> 12h), don't display
+      // a wildly wrong timer — clamp to 0 so the UI doesn't lie.
+      if (!Number.isFinite(totalElapsed) || totalElapsed < 0 || totalElapsed > 12 * 60 * 60) {
+        totalElapsed = 0;
+      }
+
       // Subtract break time from total elapsed time
       setElapsed(Math.max(0, totalElapsed - totalBreakTime));
     };
