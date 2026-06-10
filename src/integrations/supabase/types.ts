@@ -1734,6 +1734,39 @@ export type Database = {
           },
         ]
       }
+      invoice_buyer_companies: {
+        Row: {
+          created_at: string
+          display_color: string | null
+          id: string
+          name: string
+          notes: string | null
+          organization_slug: string
+          tax_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_color?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          organization_slug: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_color?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          organization_slug?: string
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       lead_time_adjustments: {
         Row: {
           bucket: string
@@ -3115,11 +3148,17 @@ export type Database = {
       purchase_invoices: {
         Row: {
           bottle_deposit_amount: number | null
+          buyer_address: string | null
+          buyer_company_id: string | null
+          buyer_name: string | null
+          buyer_tax_id: string | null
           confidence_score: number | null
           created_at: string
           currency: string
           document_type: string | null
           due_date: string | null
+          duplicate_of: string | null
+          duplicate_status: string
           error_code: string | null
           error_details: Json | null
           expense_category: string | null
@@ -3131,6 +3170,7 @@ export type Database = {
           id: string
           invoice_date: string | null
           invoice_number: string | null
+          is_credit_note: boolean
           is_verified: boolean
           merchant_address: string | null
           merchant_country: string | null
@@ -3155,11 +3195,17 @@ export type Database = {
         }
         Insert: {
           bottle_deposit_amount?: number | null
+          buyer_address?: string | null
+          buyer_company_id?: string | null
+          buyer_name?: string | null
+          buyer_tax_id?: string | null
           confidence_score?: number | null
           created_at?: string
           currency?: string
           document_type?: string | null
           due_date?: string | null
+          duplicate_of?: string | null
+          duplicate_status?: string
           error_code?: string | null
           error_details?: Json | null
           expense_category?: string | null
@@ -3171,6 +3217,7 @@ export type Database = {
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          is_credit_note?: boolean
           is_verified?: boolean
           merchant_address?: string | null
           merchant_country?: string | null
@@ -3195,11 +3242,17 @@ export type Database = {
         }
         Update: {
           bottle_deposit_amount?: number | null
+          buyer_address?: string | null
+          buyer_company_id?: string | null
+          buyer_name?: string | null
+          buyer_tax_id?: string | null
           confidence_score?: number | null
           created_at?: string
           currency?: string
           document_type?: string | null
           due_date?: string | null
+          duplicate_of?: string | null
+          duplicate_status?: string
           error_code?: string | null
           error_details?: Json | null
           expense_category?: string | null
@@ -3211,6 +3264,7 @@ export type Database = {
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          is_credit_note?: boolean
           is_verified?: boolean
           merchant_address?: string | null
           merchant_country?: string | null
@@ -3234,6 +3288,20 @@ export type Database = {
           verified_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "purchase_invoices_buyer_company_fk"
+            columns: ["buyer_company_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_buyer_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_invoices_duplicate_of_fkey"
+            columns: ["duplicate_of"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "purchase_invoices_uploaded_by_fkey"
             columns: ["uploaded_by"]

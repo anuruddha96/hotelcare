@@ -48,6 +48,7 @@ export function GuidedTourProvider({ children }: { children: ReactNode }) {
       } else if (attempts++ < 20) {
         setTimeout(tryLocate, 100);
       } else {
+        // Anchor missing — center the card and let the user advance instead of stalling.
         setRect(null);
       }
     };

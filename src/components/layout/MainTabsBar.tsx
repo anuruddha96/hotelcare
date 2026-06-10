@@ -60,19 +60,19 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
       <div className="inline-flex h-10 sm:h-12 bg-muted rounded-md p-1 gap-1">
         <button type="button" className={btn('tickets')} onClick={() => goDashboard('tickets')}>
           <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-          <span>{t('dashboard.tickets')}</span>
+          <span>Maintenance</span>
         </button>
         <button type="button" className={btn('rooms')} onClick={() => goDashboard('rooms')}>
           <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-          <span>{t('dashboard.rooms')}</span>
+          <span>Reception</span>
         </button>
         <button type="button" className={btn('housekeeping')} onClick={() => goDashboard('housekeeping')}>
           <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-          <span>{t('dashboard.housekeeping')}</span>
+          <span>Housekeeping</span>
         </button>
         <button type="button" className={btn('attendance')} onClick={() => goDashboard('attendance')}>
           <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-          <span>{t('dashboard.workStatus')}</span>
+          <span>HR</span>
         </button>
         {isExec && (
           <>
@@ -82,7 +82,7 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
               onClick={() => navigate(`${orgPath}/revenue`)}
             >
               <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span>{t('pms.revenue')}</span>
+              <span>Revenue Management</span>
             </button>
             <button
               type="button"
@@ -90,7 +90,7 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
               onClick={() => navigate(`${orgPath}/purchase-invoices`)}
             >
               <Receipt className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span>{t('pms.purchaseInvoices')}</span>
+              <span>Invoices</span>
             </button>
           </>
         )}
