@@ -987,6 +987,29 @@ function UploadJobRow({ job, onPreview, onDismiss }: { job: UploadJob; onPreview
               );
             })}
           </div>
+          {(isErr || onPreview) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {isErr && (
+                <div className="text-[11px] text-destructive flex-1 min-w-0">
+                  {job.errorCode === 'ERR_NOT_INVOICE'
+                    ? 'We could not detect invoice fields. Open the document to review and fill in details manually.'
+                    : job.errorCode === 'processor_unavailable'
+                    ? 'OCR service is temporarily unavailable. Open to edit manually or try again.'
+                    : 'Processing failed. Open to review the document and edit details.'}
+                </div>
+              )}
+              {onPreview && (
+                <Button size="sm" variant={isErr ? 'default' : 'outline'} className="h-7 text-xs" onClick={onPreview}>
+                  <Eye className="h-3 w-3 mr-1" />Open preview & edit
+                </Button>
+              )}
+              {onDismiss && (isErr || isDone) && (
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onDismiss}>
+                  Dismiss
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
