@@ -306,6 +306,59 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
         " [VAT auto-defaulted to 27% — please verify]";
     }
 
+    // --- Buyer company resolution (auto-register unseen buyers) ---
+    let buyerCompanyId: string | null = null;
+    if (parsed.buyer_tax_id || parsed.buyer_name) {
+      const taxId = (parsed.buyer_tax_id || "").trim() || null;
+      const name = (parsed.buyer_name || "").trim() || "Unknown buyer";
+      if (taxId) {
+        const { data: existing } = await supabase
+          .from("invoice_buyer_companies")
+          .select("id")
+          .eq("organization_slug", invoice.organization_slug)
+          .eq("tax_id", taxId)
+          .maybeSingle();
+        if (existing?.id) {
+          buyerCompanyId = existing.id;
+        } else {
+          const { data: created } = await supabase
+            .from("invoice_buyer_companies")
+            .insert({ organization_slug: invoice.organization_slug, name, tax_id: taxId })
+            .select("id").single();
+          buyerCompanyId = created?.id ?? null;
+        }
+      }
+    }
+
+    // --- Duplicate detection & credit-note classification ---
+    let isCreditNote = (parsed.total_amount != null && Number(parsed.total_amount) < 0);
+    let duplicateOf: string | null = null;
+    let duplicateStatus = "none";
+    if (parsed.invoice_number && parsed.merchant_tax_id) {
+      const { data: prior } = await supabase
+        .from("purchase_invoices")
+        .select("id, total_amount, is_credit_note")
+        .eq("organization_slug", invoice.organization_slug)
+        .eq("merchant_tax_id", parsed.merchant_tax_id)
+        .eq("invoice_number", parsed.invoice_number)
+        .neq("id", invoiceId)
+        .order("created_at", { ascending: true })
+        .limit(1);
+      const original = prior?.[0];
+      if (original) {
+        duplicateOf = original.id;
+        if (isCreditNote) {
+          duplicateStatus = "credit_note";
+        } else if (original.is_credit_note) {
+          // Original was a credit; new positive invoice — keep as standalone
+          duplicateStatus = "none";
+          duplicateOf = null;
+        } else {
+          duplicateStatus = "suspected";
+        }
+      }
+    }
+
     // Persist
     await supabase.from("purchase_invoices").update({
       status: "processed",
@@ -313,13 +366,20 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
       error_code: null,
       error_details: null,
       confidence_score: parsed.confidence_score,
-      needs_review: parsed.needs_review ?? false,
+      needs_review: (parsed.needs_review ?? false) || duplicateStatus === "suspected",
       raw_text: parsed.raw_text,
       extraction_notes: parsed.extraction_notes,
       merchant_name: parsed.merchant_name,
       merchant_tax_id: parsed.merchant_tax_id,
       merchant_address: parsed.merchant_address,
       merchant_country: parsed.merchant_country ?? "HU",
+      buyer_name: parsed.buyer_name ?? null,
+      buyer_tax_id: parsed.buyer_tax_id ?? null,
+      buyer_address: parsed.buyer_address ?? null,
+      buyer_company_id: buyerCompanyId,
+      is_credit_note: isCreditNote,
+      duplicate_of: duplicateOf,
+      duplicate_status: duplicateStatus,
       invoice_number: parsed.invoice_number,
       invoice_date: parsed.invoice_date,
       due_date: parsed.due_date,
