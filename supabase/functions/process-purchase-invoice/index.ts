@@ -140,26 +140,23 @@ Deno.serve(async (req) => {
     const systemPrompt = `You are an OCR + invoice parsing engine specialized in Hungarian invoices and receipts.
 You MUST call the tool 'return_invoice' with the extracted structured data. Never reply with free text.
 
+Extract BOTH parties:
+- MERCHANT / SELLER (Eladó / Szállító): the company issuing the invoice → merchant_name, merchant_tax_id, merchant_address.
+- BUYER / CUSTOMER (Vevő / Számlafogadó): the company being billed → buyer_name, buyer_tax_id, buyer_address.
+The buyer is typically the hotel company on the invoice (e.g. "RD Hotel Kft", "Gózsdu Hotel Kft"). Use the Hungarian adószám for buyer_tax_id.
+
 Hungarian VAT rules:
-- Standard 27% (most goods/services)
-- Reduced 18% (basic foods, hotel accommodation)
-- Reduced 5% (books, medicines, district heating, certain meats, new residential)
-- 0% / AAM (exempt without deduction — small business)
-- KBA (domestic reverse-charge — construction, scrap)
-- EU intra-community 0% / export 0%
-- Foreign VAT (non-HU country) — store country code separately
+- Standard 27% / Reduced 18% (hotel acc.) / Reduced 5% / 0% AAM / KBA reverse-charge / EU 0% / Foreign VAT
+- Receipt codes A=5% B=18% C=27%
+If only gross shown: vat_base = gross / (1 + rate); vat_amount = gross - vat_base.
 
-Hungarian receipts often print short codes:
-- A = 5%, B = 18%, C = 27%
-If only codes appear, infer the VAT rate. If only the gross is shown, set vat_base = gross / (1 + rate) and vat_amount = gross - vat_base.
+Credit notes / storno (sztornó / helyesbítő számla): when the document is a credit/correction invoice, the total_amount must be NEGATIVE.
 
-If the document is not an invoice/receipt → set document_type='not_invoice' and error_code='ERR_NOT_INVOICE'.
-If you cannot read it → document_type='unreadable' with appropriate error_code (ERR_BLURRY, ERR_DARK, ERR_PARTIAL, ERR_UNREADABLE).
-If critical fields (total, date, merchant) are missing → error_code='ERR_MISSING_DATA'.
+If not an invoice → document_type='not_invoice', error_code='ERR_NOT_INVOICE'.
+If unreadable → document_type='unreadable' + ERR_BLURRY/ERR_DARK/ERR_PARTIAL/ERR_UNREADABLE.
+If critical fields missing → ERR_MISSING_DATA.
 
-Dates must be returned as ISO YYYY-MM-DD when possible.
-Amounts as numbers (no thousand separators, no currency symbols).
-Default currency is HUF if not specified.`;
+Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
 
     const tool = {
       type: "function",
@@ -181,6 +178,9 @@ Default currency is HUF if not specified.`;
             merchant_tax_id: { type: ["string","null"] },
             merchant_address: { type: ["string","null"] },
             merchant_country: { type: ["string","null"] },
+            buyer_name: { type: ["string","null"], description: "Customer / vevő name (the company being billed)" },
+            buyer_tax_id: { type: ["string","null"], description: "Customer Hungarian tax id (adószám)" },
+            buyer_address: { type: ["string","null"] },
             invoice_number: { type: ["string","null"] },
             invoice_date: { type: ["string","null"] },
             due_date: { type: ["string","null"] },
@@ -306,6 +306,59 @@ Default currency is HUF if not specified.`;
         " [VAT auto-defaulted to 27% — please verify]";
     }
 
+    // --- Buyer company resolution (auto-register unseen buyers) ---
+    let buyerCompanyId: string | null = null;
+    if (parsed.buyer_tax_id || parsed.buyer_name) {
+      const taxId = (parsed.buyer_tax_id || "").trim() || null;
+      const name = (parsed.buyer_name || "").trim() || "Unknown buyer";
+      if (taxId) {
+        const { data: existing } = await supabase
+          .from("invoice_buyer_companies")
+          .select("id")
+          .eq("organization_slug", invoice.organization_slug)
+          .eq("tax_id", taxId)
+          .maybeSingle();
+        if (existing?.id) {
+          buyerCompanyId = existing.id;
+        } else {
+          const { data: created } = await supabase
+            .from("invoice_buyer_companies")
+            .insert({ organization_slug: invoice.organization_slug, name, tax_id: taxId })
+            .select("id").single();
+          buyerCompanyId = created?.id ?? null;
+        }
+      }
+    }
+
+    // --- Duplicate detection & credit-note classification ---
+    let isCreditNote = (parsed.total_amount != null && Number(parsed.total_amount) < 0);
+    let duplicateOf: string | null = null;
+    let duplicateStatus = "none";
+    if (parsed.invoice_number && parsed.merchant_tax_id) {
+      const { data: prior } = await supabase
+        .from("purchase_invoices")
+        .select("id, total_amount, is_credit_note")
+        .eq("organization_slug", invoice.organization_slug)
+        .eq("merchant_tax_id", parsed.merchant_tax_id)
+        .eq("invoice_number", parsed.invoice_number)
+        .neq("id", invoiceId)
+        .order("created_at", { ascending: true })
+        .limit(1);
+      const original = prior?.[0];
+      if (original) {
+        duplicateOf = original.id;
+        if (isCreditNote) {
+          duplicateStatus = "credit_note";
+        } else if (original.is_credit_note) {
+          // Original was a credit; new positive invoice — keep as standalone
+          duplicateStatus = "none";
+          duplicateOf = null;
+        } else {
+          duplicateStatus = "suspected";
+        }
+      }
+    }
+
     // Persist
     await supabase.from("purchase_invoices").update({
       status: "processed",
@@ -313,13 +366,20 @@ Default currency is HUF if not specified.`;
       error_code: null,
       error_details: null,
       confidence_score: parsed.confidence_score,
-      needs_review: parsed.needs_review ?? false,
+      needs_review: (parsed.needs_review ?? false) || duplicateStatus === "suspected",
       raw_text: parsed.raw_text,
       extraction_notes: parsed.extraction_notes,
       merchant_name: parsed.merchant_name,
       merchant_tax_id: parsed.merchant_tax_id,
       merchant_address: parsed.merchant_address,
       merchant_country: parsed.merchant_country ?? "HU",
+      buyer_name: parsed.buyer_name ?? null,
+      buyer_tax_id: parsed.buyer_tax_id ?? null,
+      buyer_address: parsed.buyer_address ?? null,
+      buyer_company_id: buyerCompanyId,
+      is_credit_note: isCreditNote,
+      duplicate_of: duplicateOf,
+      duplicate_status: duplicateStatus,
       invoice_number: parsed.invoice_number,
       invoice_date: parsed.invoice_date,
       due_date: parsed.due_date,
