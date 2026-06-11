@@ -591,6 +591,52 @@ export default function PurchaseInvoices() {
                 </CardContent>
               </Card>
 
+              {/* By Company breakdown — invoices vs credit notes per buyer company */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">By Company</CardTitle>
+                  <p className="text-xs text-muted-foreground">Totals per hotel company (buyer), split between standard invoices and credit notes.</p>
+                </CardHeader>
+                <CardContent>
+                  {byCompany(rangedInvoices).length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No buyer companies detected yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {byCompany(rangedInvoices).map(c => {
+                        const net = c.invoicesTotal + c.creditTotal; // creditTotal is negative
+                        const max = Math.max(...byCompany(rangedInvoices).map(x => x.invoicesTotal), 1);
+                        return (
+                          <div key={c.name} className="rounded-lg border p-3 bg-card">
+                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                              <div className="min-w-0">
+                                <div className="font-medium text-sm truncate">{c.name}</div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  {c.invoicesCount} invoices · {c.creditCount} credit notes
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="font-semibold tabular-nums text-sm">{net.toLocaleString()} HUF</div>
+                                <div className="text-[10px] text-muted-foreground">net</div>
+                              </div>
+                            </div>
+                            <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
+                              <div className="h-full bg-primary" style={{ width: `${(c.invoicesTotal / max) * 100}%` }} />
+                              <div className="h-full bg-amber-500" style={{ width: `${(Math.abs(c.creditTotal) / max) * 100}%` }} />
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] mt-1.5">
+                              <span className="text-primary tabular-nums">+ {c.invoicesTotal.toLocaleString()}</span>
+                              <span className="text-amber-600 tabular-nums">{c.creditTotal.toLocaleString()}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+
+
               <div className="grid lg:grid-cols-2 gap-4">
                 <Card>
                   <CardHeader><CardTitle className="text-base">{t('pi.analytics.byCategory')}</CardTitle></CardHeader>
