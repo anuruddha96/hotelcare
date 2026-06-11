@@ -45,8 +45,9 @@ const PI_TOUR: TourStep[] = [
   { tab: 'analytics', selector: '[data-tour="pi-analytics"]', titleKey: 'tour.pi.analytics.title', bodyKey: 'tour.pi.analytics.body' },
   { tab: 'analytics', selector: '[data-tour="pi-kpis"]', titleKey: 'tour.pi.kpis.title', bodyKey: 'tour.pi.kpis.body' },
   { tab: 'analytics', selector: '[data-tour="pi-top"]', titleKey: 'tour.pi.top.title', bodyKey: 'tour.pi.top.body' },
-  { tab: 'export', selector: '[data-tour="pi-export"]', titleKey: 'tour.pi.export.title', bodyKey: 'tour.pi.export.body' },
-  { selector: '[data-tour="pi-replay"]', titleKey: 'tour.pi.replay.title', bodyKey: 'tour.pi.replay.body' },
+  { tab: 'export', selector: '[data-tour="pi-export-buttons"]', titleKey: 'tour.pi.export.title', bodyKey: 'tour.pi.export.body', placement: 'left' as any },
+  // Final step: no selector → centered card → Done button always reachable.
+  { titleKey: 'tour.pi.replay.title', bodyKey: 'tour.pi.replay.body' },
 ];
 
 const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
@@ -612,7 +613,7 @@ export default function PurchaseInvoices() {
             <TabsContent value="export">
               <Card>
                 <CardContent className="p-6 flex flex-col gap-3">
-                  <div className="flex gap-2 flex-wrap">
+                  <div data-tour="pi-export-buttons" className="flex gap-2 flex-wrap">
                     <Button variant="outline" onClick={() => exportCsv(rangedInvoices)}>
                       <Download className="h-4 w-4 mr-2" />{t('pi.export.csv')}
                     </Button>
