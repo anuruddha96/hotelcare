@@ -216,6 +216,8 @@ export default function PurchaseInvoices() {
       if (statusFilter === 'all') return true;
       if (statusFilter === 'verified') return i.is_verified === true;
       if (statusFilter === 'needs_review') return i.status === 'processed' && !i.is_verified;
+      if (statusFilter === 'duplicates') return i.duplicate_status === 'suspected' || i.duplicate_status === 'credit_note';
+      if (statusFilter === 'credit_notes') return i.is_credit_note === true;
       return i.status === statusFilter;
     });
     if (s) list = list.filter(i =>
