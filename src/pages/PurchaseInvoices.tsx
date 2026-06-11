@@ -85,7 +85,7 @@ export default function PurchaseInvoices() {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('30d');
   const [activeTab, setActiveTab] = useState<string>('upload');
-  const activeJobs = uploadJobs.filter(j => j.status === 'uploading' || j.status === 'scanning');
+  const activeJobs = uploadJobs.filter(j => j.status !== 'done' && j.status !== 'error');
 
 
   useEffect(() => {
