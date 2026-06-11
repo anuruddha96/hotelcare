@@ -381,13 +381,24 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   };
 
   const fetchManagerHotelName = async () => {
-    if (!profile?.assigned_hotel) return;
-    const { data: hotelConfig } = await supabase
-      .from('hotel_configurations')
-      .select('hotel_name')
-      .eq('hotel_id', profile.assigned_hotel)
-      .maybeSingle();
-    setManagerHotelName(hotelConfig?.hotel_name || profile.assigned_hotel);
+    // Try the user's assigned hotel first
+    if (profile?.assigned_hotel) {
+      const { data: hotelConfig } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', profile.assigned_hotel)
+        .maybeSingle();
+      setManagerHotelName(hotelConfig?.hotel_name || profile.assigned_hotel);
+      return;
+    }
+    // Fallback for admins / top management with no assigned hotel:
+    // pick the first hotel of their organization so the Hotel Room Overview
+    // (and housekeeper assignment chips) renders instead of being blank.
+    if (profile?.role && ['admin', 'top_management', 'top_management_manager'].includes(profile.role)) {
+      const { data: hotels } = await supabase.rpc('get_user_organization_hotels');
+      const first = (hotels || [])[0];
+      if (first?.hotel_name) setManagerHotelName(first.hotel_name);
+    }
   };
 
 
