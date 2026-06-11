@@ -802,37 +802,72 @@ function download(blob: Blob, name: string) {
 }
 
 function UploadJobRow({ job }: { job: UploadJob }) {
-  const isDone = job.status === 'done';
   const isErr = job.status === 'error';
-  const label =
-    job.status === 'uploading' ? 'Uploading…'
-    : job.status === 'scanning' ? 'Scanning invoice…'
-    : isDone ? 'Done'
-    : 'Failed';
+  const isDone = job.status === 'done';
+  const currentIdx = isErr ? STAGES.findIndex(s => s.key === 'extracting')
+    : STAGES.findIndex(s => s.key === job.status);
   return (
-    <div className="flex items-center gap-2 p-2 border rounded-md bg-card">
-      <div className="relative h-7 w-7 shrink-0">
-        <svg viewBox="0 0 28 28" className="h-7 w-7 -rotate-90">
-          <circle cx="14" cy="14" r="11" stroke="hsl(var(--muted))" strokeWidth="3" fill="none" />
-          <circle
-            cx="14" cy="14" r="11" strokeWidth="3" fill="none"
-            stroke={isErr ? 'hsl(var(--destructive))' : isDone ? 'hsl(142 71% 45%)' : 'hsl(var(--primary))'}
-            strokeDasharray={2 * Math.PI * 11}
-            strokeDashoffset={(1 - job.progress / 100) * 2 * Math.PI * 11}
-            strokeLinecap="round"
-            style={{ transition: 'stroke-dashoffset 400ms ease' }}
-          />
-        </svg>
-        {(job.status === 'uploading' || job.status === 'scanning') && (
-          <Loader2 className="h-3 w-3 animate-spin absolute inset-0 m-auto text-primary" />
-        )}
-        {isDone && <CheckCircle className="h-3.5 w-3.5 absolute inset-0 m-auto text-green-600" />}
-        {isErr && <AlertCircle className="h-3.5 w-3.5 absolute inset-0 m-auto text-destructive" />}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium truncate">{job.name}</div>
-        <div className="text-[10px] text-muted-foreground">{label}</div>
+    <div className={`rounded-xl border p-3 sm:p-4 transition-shadow ${
+      isErr ? 'bg-destructive/5 border-destructive/40'
+      : isDone ? 'bg-emerald-500/5 border-emerald-500/40'
+      : 'bg-gradient-to-br from-primary/5 via-card to-card border-primary/30 shadow-sm'
+    }`}>
+      <div className="flex items-start gap-3">
+        <div className="relative h-10 w-10 shrink-0">
+          {!isDone && !isErr && (
+            <span className="absolute inset-0 rounded-full bg-gradient-to-tr from-primary via-primary/60 to-transparent animate-spin [animation-duration:2.4s]" />
+          )}
+          <div className={`absolute inset-[3px] rounded-full flex items-center justify-center ${
+            isErr ? 'bg-destructive/15' : isDone ? 'bg-emerald-500/15' : 'bg-background'
+          }`}>
+            {isErr ? <AlertCircle className="h-5 w-5 text-destructive" />
+              : isDone ? <CheckCircle className="h-5 w-5 text-emerald-600" />
+              : <FileText className="h-4 w-4 text-primary" />}
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-medium truncate">{job.name}</div>
+            <div className="text-[11px] text-muted-foreground tabular-nums">{Math.round(job.progress)}%</div>
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            {isErr ? (job.error || 'Failed') : isDone ? 'Ready for review' : STAGES[currentIdx]?.label + '…'}
+          </div>
+          {/* Animated progress bar */}
+          <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                isErr ? 'bg-destructive' : isDone ? 'bg-emerald-500'
+                : 'bg-gradient-to-r from-primary via-primary/80 to-primary'
+              }`}
+              style={{ width: `${job.progress}%` }}
+            />
+          </div>
+          {/* Stepper dots */}
+          <div className="mt-2.5 flex items-center gap-1">
+            {STAGES.map((s, i) => {
+              const done = i < currentIdx || isDone;
+              const active = i === currentIdx && !isDone && !isErr;
+              return (
+                <div key={s.key} className="flex-1 flex items-center gap-1">
+                  <div className={`h-1.5 w-1.5 rounded-full shrink-0 transition-colors ${
+                    isErr && i >= currentIdx ? 'bg-destructive'
+                    : done ? 'bg-emerald-500'
+                    : active ? 'bg-primary animate-pulse'
+                    : 'bg-muted-foreground/30'
+                  }`} />
+                  <span className={`text-[10px] truncate ${
+                    done ? 'text-emerald-700 dark:text-emerald-400'
+                    : active ? 'text-primary font-medium'
+                    : 'text-muted-foreground/70'
+                  }`}>{s.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+
