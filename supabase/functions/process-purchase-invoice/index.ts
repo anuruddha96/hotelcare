@@ -140,26 +140,23 @@ Deno.serve(async (req) => {
     const systemPrompt = `You are an OCR + invoice parsing engine specialized in Hungarian invoices and receipts.
 You MUST call the tool 'return_invoice' with the extracted structured data. Never reply with free text.
 
+Extract BOTH parties:
+- MERCHANT / SELLER (Eladó / Szállító): the company issuing the invoice → merchant_name, merchant_tax_id, merchant_address.
+- BUYER / CUSTOMER (Vevő / Számlafogadó): the company being billed → buyer_name, buyer_tax_id, buyer_address.
+The buyer is typically the hotel company on the invoice (e.g. "RD Hotel Kft", "Gózsdu Hotel Kft"). Use the Hungarian adószám for buyer_tax_id.
+
 Hungarian VAT rules:
-- Standard 27% (most goods/services)
-- Reduced 18% (basic foods, hotel accommodation)
-- Reduced 5% (books, medicines, district heating, certain meats, new residential)
-- 0% / AAM (exempt without deduction — small business)
-- KBA (domestic reverse-charge — construction, scrap)
-- EU intra-community 0% / export 0%
-- Foreign VAT (non-HU country) — store country code separately
+- Standard 27% / Reduced 18% (hotel acc.) / Reduced 5% / 0% AAM / KBA reverse-charge / EU 0% / Foreign VAT
+- Receipt codes A=5% B=18% C=27%
+If only gross shown: vat_base = gross / (1 + rate); vat_amount = gross - vat_base.
 
-Hungarian receipts often print short codes:
-- A = 5%, B = 18%, C = 27%
-If only codes appear, infer the VAT rate. If only the gross is shown, set vat_base = gross / (1 + rate) and vat_amount = gross - vat_base.
+Credit notes / storno (sztornó / helyesbítő számla): when the document is a credit/correction invoice, the total_amount must be NEGATIVE.
 
-If the document is not an invoice/receipt → set document_type='not_invoice' and error_code='ERR_NOT_INVOICE'.
-If you cannot read it → document_type='unreadable' with appropriate error_code (ERR_BLURRY, ERR_DARK, ERR_PARTIAL, ERR_UNREADABLE).
-If critical fields (total, date, merchant) are missing → error_code='ERR_MISSING_DATA'.
+If not an invoice → document_type='not_invoice', error_code='ERR_NOT_INVOICE'.
+If unreadable → document_type='unreadable' + ERR_BLURRY/ERR_DARK/ERR_PARTIAL/ERR_UNREADABLE.
+If critical fields missing → ERR_MISSING_DATA.
 
-Dates must be returned as ISO YYYY-MM-DD when possible.
-Amounts as numbers (no thousand separators, no currency symbols).
-Default currency is HUF if not specified.`;
+Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
 
     const tool = {
       type: "function",
@@ -181,6 +178,9 @@ Default currency is HUF if not specified.`;
             merchant_tax_id: { type: ["string","null"] },
             merchant_address: { type: ["string","null"] },
             merchant_country: { type: ["string","null"] },
+            buyer_name: { type: ["string","null"], description: "Customer / vevő name (the company being billed)" },
+            buyer_tax_id: { type: ["string","null"], description: "Customer Hungarian tax id (adószám)" },
+            buyer_address: { type: ["string","null"] },
             invoice_number: { type: ["string","null"] },
             invoice_date: { type: ["string","null"] },
             due_date: { type: ["string","null"] },
