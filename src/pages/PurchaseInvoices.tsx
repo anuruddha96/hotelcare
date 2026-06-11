@@ -195,7 +195,7 @@ export default function PurchaseInvoices() {
           setTimeout(() => setUploadJobs(prev => prev.filter(j => j.id !== tid)), 3500);
         } else {
           const code = res.errorCode || 'unknown';
-          patch({ status: 'error', progress: 100, error: code });
+          patch({ status: 'error', progress: 100, error: code, errorCode: code });
           if (code === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
           else toast.error(t(`pi.error.${code}`) || t('pi.upload.failed'));
         }
