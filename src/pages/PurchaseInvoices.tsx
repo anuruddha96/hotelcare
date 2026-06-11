@@ -923,7 +923,7 @@ function download(blob: Blob, name: string) {
   URL.revokeObjectURL(url);
 }
 
-function UploadJobRow({ job }: { job: UploadJob }) {
+function UploadJobRow({ job, onPreview, onDismiss }: { job: UploadJob; onPreview?: () => void; onDismiss?: () => void }) {
   const isErr = job.status === 'error';
   const isDone = job.status === 'done';
   const currentIdx = isErr ? STAGES.findIndex(s => s.key === 'extracting')
