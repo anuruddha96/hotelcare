@@ -107,6 +107,9 @@ export default function PurchaseInvoices() {
   const canAccess = profile && ALLOWED_ROLES.includes(profile.role);
   const canSeeAnalytics = profile && ANALYTICS_ROLES.includes(profile.role);
   const canSeeQueue = profile && QUEUE_ROLES.includes(profile.role);
+  const canDelete = profile && DELETE_ROLES.includes(profile.role);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useFirstRunTour('purchase_invoices_v2', PI_TOUR);
 
