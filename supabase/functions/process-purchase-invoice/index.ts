@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const allowed = ["admin","top_management","control_finance","back_office","reception","front_office"];
+    const allowed = ["admin","top_management","top_management_manager","control_finance","back_office","reception","front_office"];
     if (!allowed.includes(profile.role)) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
