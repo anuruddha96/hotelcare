@@ -92,7 +92,9 @@ export default function PurchaseInvoices() {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('30d');
   const [activeTab, setActiveTab] = useState<string>('upload');
-  const activeJobs = uploadJobs.filter(j => j.status !== 'done' && j.status !== 'error');
+  // Keep errored jobs visible so the user can preview/fix or dismiss them.
+  const visibleJobs = uploadJobs.filter(j => j.status !== 'done');
+  const dismissJob = (id: string) => setUploadJobs(prev => prev.filter(j => j.id !== id));
 
 
   useEffect(() => {
