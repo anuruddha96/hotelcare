@@ -439,10 +439,30 @@ export default function PurchaseInvoices() {
                           className="flex items-center justify-between gap-2 p-3 border rounded-lg hover:bg-accent/30 cursor-pointer"
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="font-medium truncate">{inv.merchant_name || '—'}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {inv.invoice_date || inv.created_at?.slice(0, 10)} · {inv.invoice_number || '—'}
+                            <div className="font-medium truncate flex items-center gap-1.5">
+                              {inv.merchant_name || '—'}
+                              {inv.is_credit_note && (
+                                <Badge variant="outline" className="text-[9px] border-amber-500/50 text-amber-700 dark:text-amber-400">CREDIT</Badge>
+                              )}
+                              {inv.duplicate_status === 'suspected' && (
+                                <Badge variant="outline" className="text-[9px] border-destructive/50 text-destructive">DUPLICATE?</Badge>
+                              )}
+                              {inv.duplicate_status === 'credit_note' && (
+                                <Badge variant="outline" className="text-[9px] border-blue-500/50 text-blue-600">MATCHED CREDIT</Badge>
+                              )}
                             </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {inv.invoice_date || inv.created_at?.slice(0, 10)} · {inv.invoice_number || '—'}
+                              {inv.buyer_name && <> · <span className="text-foreground/70">{inv.buyer_name}</span></>}
+                            </div>
+                            {inv.duplicate_of && (
+                              <button
+                                className="text-[10px] text-primary hover:underline mt-0.5"
+                                onClick={(e) => { e.stopPropagation(); setVerifyId(inv.duplicate_of); }}
+                              >
+                                View original →
+                              </button>
+                            )}
                             {inv.status === 'failed' && inv.error_details?.tips?.length > 0 && (
                               <div className="text-[10px] text-destructive mt-0.5 truncate">
                                 {inv.error_details.tips[0]}
@@ -450,8 +470,8 @@ export default function PurchaseInvoices() {
                             )}
                           </div>
                           <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                            <div className="font-semibold">
-                              {inv.total_amount ? `${Number(inv.total_amount).toLocaleString()} ${inv.currency || ''}` : '—'}
+                            <div className={`font-semibold tabular-nums ${Number(inv.total_amount) < 0 ? 'text-amber-600' : ''}`}>
+                              {inv.total_amount != null ? `${Number(inv.total_amount).toLocaleString()} ${inv.currency || ''}` : '—'}
                             </div>
                             <div className="flex items-center gap-1 flex-wrap justify-end">
                               <Badge variant={inv.is_verified ? 'default' : inv.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">
