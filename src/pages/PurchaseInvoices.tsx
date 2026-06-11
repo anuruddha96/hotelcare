@@ -818,6 +818,22 @@ function byPayment(invoices: any[]) {
   });
   return Object.entries(map).map(([name, value]) => ({ name, value }));
 }
+function byCompany(invoices: any[]) {
+  const map: Record<string, { name: string; invoicesTotal: number; creditTotal: number; invoicesCount: number; creditCount: number }> = {};
+  invoices.forEach(i => {
+    const name = (i.buyer_name && String(i.buyer_name).trim()) || 'Unassigned';
+    if (!map[name]) map[name] = { name, invoicesTotal: 0, creditTotal: 0, invoicesCount: 0, creditCount: 0 };
+    const amt = Number(i.total_amount || 0);
+    if (i.is_credit_note || amt < 0) {
+      map[name].creditTotal += amt; // negative
+      map[name].creditCount += 1;
+    } else {
+      map[name].invoicesTotal += amt;
+      map[name].invoicesCount += 1;
+    }
+  });
+  return Object.values(map).sort((a, b) => b.invoicesTotal - a.invoicesTotal);
+}
 function topMerchants(invoices: any[]) {
   const map: Record<string, number> = {};
   invoices.forEach(i => {
