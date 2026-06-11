@@ -63,11 +63,13 @@ type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all';
 type UploadStage = 'uploading'|'digitizing'|'extracting'|'done'|'error';
 type UploadJob = {
   id: string;
+  invoiceId?: string;
   name: string;
   size: number;
   status: UploadStage;
   progress: number; // 0..100
   error?: string;
+  errorCode?: string;
   startedAt: number;
 };
 const STAGES: { key: UploadStage; label: string }[] = [
