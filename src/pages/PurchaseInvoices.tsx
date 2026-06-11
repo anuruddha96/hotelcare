@@ -18,8 +18,12 @@ import {
 import { toast } from 'sonner';
 import {
   Camera, Upload, Receipt, BarChart3, Download, Loader2, ShieldAlert,
-  CheckCircle, AlertCircle, FileText, RefreshCw, AlertTriangle,
+  CheckCircle, AlertCircle, FileText, RefreshCw, AlertTriangle, Trash2, Eye,
 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, LineChart, Line, Legend,
