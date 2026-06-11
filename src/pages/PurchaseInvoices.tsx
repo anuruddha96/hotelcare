@@ -539,6 +539,20 @@ export default function PurchaseInvoices() {
                               >
                                 {inv.is_verified ? t('pi.upload.retake') : t('pi.upload.save')}
                               </Button>
+                              {canDelete && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  disabled={deletingId === inv.id}
+                                  title="Delete invoice"
+                                  onClick={(e) => { e.stopPropagation(); setDeleteTarget(inv); }}
+                                >
+                                  {deletingId === inv.id
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <Trash2 className="h-3 w-3" />}
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </div>
