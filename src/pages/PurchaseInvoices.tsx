@@ -34,6 +34,7 @@ import { VerifyInvoiceDialog } from '@/components/purchase-invoices/VerifyInvoic
 const ALLOWED_ROLES = ['admin','top_management','top_management_manager','control_finance','back_office','reception','front_office'];
 const ANALYTICS_ROLES = ['admin','top_management','top_management_manager','control_finance'];
 const QUEUE_ROLES = ['admin','top_management','top_management_manager','control_finance','back_office'];
+const DELETE_ROLES = ['admin','top_management','top_management_manager'];
 
 const PI_TOUR: TourStep[] = [
   { titleKey: 'tour.pi.welcome.title', bodyKey: 'tour.pi.welcome.body' },
