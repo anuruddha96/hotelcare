@@ -361,10 +361,15 @@ export default function PurchaseInvoices() {
                     </div>
                   </label>
                 </div>
-                {activeJobs.length > 0 && (
+                {visibleJobs.length > 0 && (
                   <div className="space-y-1.5">
-                    {activeJobs.map(j => (
-                      <UploadJobRow key={j.id} job={j} />
+                    {visibleJobs.map(j => (
+                      <UploadJobRow
+                        key={j.id}
+                        job={j}
+                        onPreview={j.invoiceId ? () => setVerifyId(j.invoiceId!) : undefined}
+                        onDismiss={() => dismissJob(j.id)}
+                      />
                     ))}
                   </div>
                 )}
