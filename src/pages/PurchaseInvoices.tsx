@@ -220,6 +220,29 @@ export default function PurchaseInvoices() {
     else toast.error(t(`pi.error.${res.errorCode}`) || t('pi.upload.failed'), { id: `retry-${id}` });
   };
 
+  const handleDelete = async (inv: any) => {
+    if (!inv?.id) return;
+    setDeletingId(inv.id);
+    try {
+      // Best-effort storage cleanup first
+      if (inv.file_path) {
+        await supabase.storage.from('purchase-invoices').remove([inv.file_path]);
+      }
+      const { error } = await supabase.from('purchase_invoices').delete().eq('id', inv.id);
+      if (error) throw error;
+      setInvoices(prev => prev.filter(x => x.id !== inv.id));
+      setUploadJobs(prev => prev.filter(j => j.invoiceId !== inv.id));
+      if (verifyId === inv.id) setVerifyId(null);
+      toast.success('Invoice deleted');
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || 'Failed to delete');
+    } finally {
+      setDeletingId(null);
+      setDeleteTarget(null);
+    }
+  };
+
   const filtered = useMemo(() => {
     const s = search.toLowerCase().trim();
     let list = invoices.filter(i => {
