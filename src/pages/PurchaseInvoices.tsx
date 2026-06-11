@@ -154,7 +154,7 @@ export default function PurchaseInvoices() {
     if (!user || !profile?.organization_slug) return;
     const tid = crypto.randomUUID();
     const job: UploadJob = {
-      id: tid, name: file.name, size: file.size,
+      id: tid, invoiceId: tid, name: file.name, size: file.size,
       status: 'uploading', progress: 10, startedAt: Date.now(),
     };
     setUploadJobs(prev => [job, ...prev].slice(0, 12));
