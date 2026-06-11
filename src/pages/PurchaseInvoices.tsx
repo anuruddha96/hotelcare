@@ -51,19 +51,26 @@ const PI_TOUR: TourStep[] = [
 ];
 
 const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
-const STATUS_FILTERS = ['all','uploaded','processing','processed','verified','failed','needs_review'] as const;
+const STATUS_FILTERS = ['all','uploaded','processing','processed','verified','failed','needs_review','duplicates','credit_notes'] as const;
 type StatusFilter = typeof STATUS_FILTERS[number];
 type SortMode = 'newest'|'oldest'|'amountDesc'|'amountAsc'|'merchant';
 type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all';
+type UploadStage = 'uploading'|'digitizing'|'extracting'|'done'|'error';
 type UploadJob = {
   id: string;
   name: string;
   size: number;
-  status: 'uploading'|'scanning'|'done'|'error';
+  status: UploadStage;
   progress: number; // 0..100
   error?: string;
   startedAt: number;
 };
+const STAGES: { key: UploadStage; label: string }[] = [
+  { key: 'uploading', label: 'Uploading' },
+  { key: 'digitizing', label: 'Digitizing' },
+  { key: 'extracting', label: 'Extracting' },
+  { key: 'done', label: 'Ready' },
+];
 
 export default function PurchaseInvoices() {
   const navigate = useNavigate();
