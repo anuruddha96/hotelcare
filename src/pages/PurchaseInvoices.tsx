@@ -161,7 +161,7 @@ export default function PurchaseInvoices() {
         const { error: upErr } = await supabase.storage
           .from('purchase-invoices').upload(path, file, { contentType: file.type });
         if (upErr) throw upErr;
-        patch({ progress: 50, status: 'scanning' });
+        patch({ progress: 40, status: 'digitizing' });
 
         const { error: insErr } = await supabase.from('purchase_invoices').insert({
           id: tid,
@@ -174,13 +174,15 @@ export default function PurchaseInvoices() {
           status: 'uploaded',
         });
         if (insErr) throw insErr;
-        patch({ progress: 70 });
+        patch({ progress: 70, status: 'extracting' });
 
         const res = await runOcr(tid);
         await reload();
         if (res.ok) {
           patch({ status: 'done', progress: 100 });
           toast.success(t('pi.upload.success'));
+          // Auto-remove completed stepper after a brief celebration
+          setTimeout(() => setUploadJobs(prev => prev.filter(j => j.id !== tid)), 3500);
         } else {
           const code = res.errorCode || 'unknown';
           patch({ status: 'error', progress: 100, error: code });
