@@ -104,6 +104,9 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
         merchant_tax_id: invoice.merchant_tax_id,
         merchant_address: invoice.merchant_address,
         merchant_country: invoice.merchant_country,
+        buyer_name: invoice.buyer_name,
+        buyer_tax_id: invoice.buyer_tax_id,
+        buyer_address: invoice.buyer_address,
         invoice_number: invoice.invoice_number,
         invoice_date: invoice.invoice_date || null,
         due_date: invoice.due_date || null,
@@ -246,12 +249,37 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
                 </TabsList>
 
                 <TabsContent value="header" className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3 mt-0">
+                  {(invoice.is_credit_note || invoice.duplicate_status === 'suspected' || invoice.duplicate_status === 'credit_note') && (
+                    <div className={`rounded-md border p-2.5 text-xs space-y-1 ${
+                      invoice.duplicate_status === 'suspected' ? 'border-destructive/40 bg-destructive/5'
+                      : 'border-amber-500/40 bg-amber-500/5'
+                    }`}>
+                      {invoice.is_credit_note && <div><strong>Credit note</strong> — total is negative.</div>}
+                      {invoice.duplicate_status === 'suspected' && (
+                        <div>⚠ Suspected duplicate of an existing invoice (same merchant + invoice number).</div>
+                      )}
+                      {invoice.duplicate_status === 'credit_note' && (
+                        <div>This credit note matches an earlier invoice.</div>
+                      )}
+                      {invoice.duplicate_of && (
+                        <div className="text-muted-foreground">Original ID: <code className="text-[10px]">{invoice.duplicate_of}</code></div>
+                      )}
+                    </div>
+                  )}
                   <Field label={t('pi.field.merchant')} value={invoice.merchant_name} onChange={v => update({ merchant_name: v })} disabled={!canEdit} />
                   <div className="grid grid-cols-2 gap-3">
                     <Field label={t('pi.field.taxId')} value={invoice.merchant_tax_id} onChange={v => update({ merchant_tax_id: v })} disabled={!canEdit} />
                     <Field label="Country" value={invoice.merchant_country} onChange={v => update({ merchant_country: v })} disabled={!canEdit} />
                   </div>
                   <Field label="Address" value={invoice.merchant_address} onChange={v => update({ merchant_address: v })} disabled={!canEdit} />
+                  <div className="rounded-md border border-dashed p-3 space-y-2">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">Buyer (Vevő)</div>
+                    <Field label="Buyer name" value={invoice.buyer_name} onChange={v => update({ buyer_name: v })} disabled={!canEdit} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Buyer tax ID" value={invoice.buyer_tax_id} onChange={v => update({ buyer_tax_id: v })} disabled={!canEdit} />
+                      <Field label="Buyer address" value={invoice.buyer_address} onChange={v => update({ buyer_address: v })} disabled={!canEdit} />
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label={t('pi.field.invoiceNumber')} value={invoice.invoice_number} onChange={v => update({ invoice_number: v })} disabled={!canEdit} />
                     <Field label={t('pi.field.currency')} value={invoice.currency} onChange={v => update({ currency: v })} disabled={!canEdit} />
