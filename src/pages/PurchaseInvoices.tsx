@@ -18,8 +18,12 @@ import {
 import { toast } from 'sonner';
 import {
   Camera, Upload, Receipt, BarChart3, Download, Loader2, ShieldAlert,
-  CheckCircle, AlertCircle, FileText, RefreshCw, AlertTriangle,
+  CheckCircle, AlertCircle, FileText, RefreshCw, AlertTriangle, Trash2, Eye,
 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, LineChart, Line, Legend,
@@ -30,6 +34,7 @@ import { VerifyInvoiceDialog } from '@/components/purchase-invoices/VerifyInvoic
 const ALLOWED_ROLES = ['admin','top_management','top_management_manager','control_finance','back_office','reception','front_office'];
 const ANALYTICS_ROLES = ['admin','top_management','top_management_manager','control_finance'];
 const QUEUE_ROLES = ['admin','top_management','top_management_manager','control_finance','back_office'];
+const DELETE_ROLES = ['admin','top_management','top_management_manager'];
 
 const PI_TOUR: TourStep[] = [
   { titleKey: 'tour.pi.welcome.title', bodyKey: 'tour.pi.welcome.body' },
@@ -58,11 +63,13 @@ type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all';
 type UploadStage = 'uploading'|'digitizing'|'extracting'|'done'|'error';
 type UploadJob = {
   id: string;
+  invoiceId?: string;
   name: string;
   size: number;
   status: UploadStage;
   progress: number; // 0..100
   error?: string;
+  errorCode?: string;
   startedAt: number;
 };
 const STAGES: { key: UploadStage; label: string }[] = [
@@ -85,7 +92,9 @@ export default function PurchaseInvoices() {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('30d');
   const [activeTab, setActiveTab] = useState<string>('upload');
-  const activeJobs = uploadJobs.filter(j => j.status !== 'done' && j.status !== 'error');
+  // Keep errored jobs visible so the user can preview/fix or dismiss them.
+  const visibleJobs = uploadJobs.filter(j => j.status !== 'done');
+  const dismissJob = (id: string) => setUploadJobs(prev => prev.filter(j => j.id !== id));
 
 
   useEffect(() => {
@@ -100,6 +109,9 @@ export default function PurchaseInvoices() {
   const canAccess = profile && ALLOWED_ROLES.includes(profile.role);
   const canSeeAnalytics = profile && ANALYTICS_ROLES.includes(profile.role);
   const canSeeQueue = profile && QUEUE_ROLES.includes(profile.role);
+  const canDelete = profile && DELETE_ROLES.includes(profile.role);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useFirstRunTour('purchase_invoices_v2', PI_TOUR);
 
@@ -144,7 +156,7 @@ export default function PurchaseInvoices() {
     if (!user || !profile?.organization_slug) return;
     const tid = crypto.randomUUID();
     const job: UploadJob = {
-      id: tid, name: file.name, size: file.size,
+      id: tid, invoiceId: tid, name: file.name, size: file.size,
       status: 'uploading', progress: 10, startedAt: Date.now(),
     };
     setUploadJobs(prev => [job, ...prev].slice(0, 12));
@@ -185,7 +197,7 @@ export default function PurchaseInvoices() {
           setTimeout(() => setUploadJobs(prev => prev.filter(j => j.id !== tid)), 3500);
         } else {
           const code = res.errorCode || 'unknown';
-          patch({ status: 'error', progress: 100, error: code });
+          patch({ status: 'error', progress: 100, error: code, errorCode: code });
           if (code === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
           else toast.error(t(`pi.error.${code}`) || t('pi.upload.failed'));
         }
@@ -208,6 +220,29 @@ export default function PurchaseInvoices() {
     else if (res.errorCode === 'processor_unavailable')
       toast.warning(t('pi.error.processor_unavailable'), { id: `retry-${id}` });
     else toast.error(t(`pi.error.${res.errorCode}`) || t('pi.upload.failed'), { id: `retry-${id}` });
+  };
+
+  const handleDelete = async (inv: any) => {
+    if (!inv?.id) return;
+    setDeletingId(inv.id);
+    try {
+      // Best-effort storage cleanup first
+      if (inv.file_path) {
+        await supabase.storage.from('purchase-invoices').remove([inv.file_path]);
+      }
+      const { error } = await supabase.from('purchase_invoices').delete().eq('id', inv.id);
+      if (error) throw error;
+      setInvoices(prev => prev.filter(x => x.id !== inv.id));
+      setUploadJobs(prev => prev.filter(j => j.invoiceId !== inv.id));
+      if (verifyId === inv.id) setVerifyId(null);
+      toast.success('Invoice deleted');
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || 'Failed to delete');
+    } finally {
+      setDeletingId(null);
+      setDeleteTarget(null);
+    }
   };
 
   const filtered = useMemo(() => {
@@ -326,10 +361,15 @@ export default function PurchaseInvoices() {
                     </div>
                   </label>
                 </div>
-                {activeJobs.length > 0 && (
+                {visibleJobs.length > 0 && (
                   <div className="space-y-1.5">
-                    {activeJobs.map(j => (
-                      <UploadJobRow key={j.id} job={j} />
+                    {visibleJobs.map(j => (
+                      <UploadJobRow
+                        key={j.id}
+                        job={j}
+                        onPreview={j.invoiceId ? () => setVerifyId(j.invoiceId!) : undefined}
+                        onDismiss={() => dismissJob(j.id)}
+                      />
                     ))}
                   </div>
                 )}
@@ -499,6 +539,20 @@ export default function PurchaseInvoices() {
                               >
                                 {inv.is_verified ? t('pi.upload.retake') : t('pi.upload.save')}
                               </Button>
+                              {canDelete && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  disabled={deletingId === inv.id}
+                                  title="Delete invoice"
+                                  onClick={(e) => { e.stopPropagation(); setDeleteTarget(inv); }}
+                                >
+                                  {deletingId === inv.id
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <Trash2 className="h-3 w-3" />}
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -713,6 +767,29 @@ export default function PurchaseInvoices() {
         onClose={() => setVerifyId(null)}
         onSaved={() => reload()}
       />
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this invoice?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.merchant_name || 'Untitled'} · {deleteTarget?.invoice_number || '—'}
+              <br />
+              This permanently removes the invoice, its line items, the uploaded file, and excludes it from analytics. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!deletingId}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!!deletingId}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); handleDelete(deleteTarget); }}
+            >
+              {deletingId ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -883,7 +960,7 @@ function download(blob: Blob, name: string) {
   URL.revokeObjectURL(url);
 }
 
-function UploadJobRow({ job }: { job: UploadJob }) {
+function UploadJobRow({ job, onPreview, onDismiss }: { job: UploadJob; onPreview?: () => void; onDismiss?: () => void }) {
   const isErr = job.status === 'error';
   const isDone = job.status === 'done';
   const currentIdx = isErr ? STAGES.findIndex(s => s.key === 'extracting')
@@ -947,6 +1024,29 @@ function UploadJobRow({ job }: { job: UploadJob }) {
               );
             })}
           </div>
+          {(isErr || onPreview) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {isErr && (
+                <div className="text-[11px] text-destructive flex-1 min-w-0">
+                  {job.errorCode === 'ERR_NOT_INVOICE'
+                    ? 'We could not detect invoice fields. Open the document to review and fill in details manually.'
+                    : job.errorCode === 'processor_unavailable'
+                    ? 'OCR service is temporarily unavailable. Open to edit manually or try again.'
+                    : 'Processing failed. Open to review the document and edit details.'}
+                </div>
+              )}
+              {onPreview && (
+                <Button size="sm" variant={isErr ? 'default' : 'outline'} className="h-7 text-xs" onClick={onPreview}>
+                  <Eye className="h-3 w-3 mr-1" />Open preview & edit
+                </Button>
+              )}
+              {onDismiss && (isErr || isDone) && (
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onDismiss}>
+                  Dismiss
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
