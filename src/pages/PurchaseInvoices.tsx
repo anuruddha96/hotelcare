@@ -192,9 +192,12 @@ export default function PurchaseInvoices() {
         await reload();
         if (res.ok) {
           patch({ status: 'done', progress: 100 });
-          toast.success(t('pi.upload.success'));
+          toast.success(t('pi.upload.autoOpening') || 'Opening review…');
+          // Auto-open the verify dialog so the user can review the extracted
+          // data against the original document before saving.
+          setVerifyId(tid);
           // Auto-remove completed stepper after a brief celebration
-          setTimeout(() => setUploadJobs(prev => prev.filter(j => j.id !== tid)), 3500);
+          setTimeout(() => setUploadJobs(prev => prev.filter(j => j.id !== tid)), 2500);
         } else {
           const code = res.errorCode || 'unknown';
           patch({ status: 'error', progress: 100, error: code, errorCode: code });
