@@ -56,10 +56,12 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
   const [vatLines, setVatLines] = useState<VatLine[]>([]);
   const [items, setItems] = useState<ItemLine[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [externalUrl, setExternalUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !invoiceId) return;
     let cancelled = false;
+    let createdObjectUrl: string | null = null;
     (async () => {
       setLoading(true);
       try {
@@ -73,15 +75,30 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
         setVatLines((vats as any) || []);
         setItems((its as any) || []);
         if (inv?.file_path) {
-          const { data: signed } = await supabase.storage
-            .from('purchase-invoices').createSignedUrl(inv.file_path, 3600);
-          if (!cancelled) setPreviewUrl(signed?.signedUrl || null);
+          // Live in-dialog preview via a Blob URL — iframes render PDFs from
+          // blob: URLs reliably across browsers, unlike signed storage URLs.
+          const [{ data: blob }, { data: signed }] = await Promise.all([
+            supabase.storage.from('purchase-invoices').download(inv.file_path),
+            supabase.storage.from('purchase-invoices').createSignedUrl(inv.file_path, 3600),
+          ]);
+          if (!cancelled) {
+            if (blob) {
+              createdObjectUrl = URL.createObjectURL(blob);
+              setPreviewUrl(createdObjectUrl);
+            } else if (signed?.signedUrl) {
+              setPreviewUrl(signed.signedUrl);
+            }
+            setExternalUrl(signed?.signedUrl || null);
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (createdObjectUrl) URL.revokeObjectURL(createdObjectUrl);
+    };
   }, [open, invoiceId]);
 
   const update = (patch: Partial<any>) => setInvoice((p: any) => ({ ...p, ...patch }));
@@ -207,7 +224,7 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
                       {invoice.file_mime || 'file'} · {invoice.file_path?.split('/').pop()}
                     </span>
                     <a
-                      href={previewUrl}
+                      href={externalUrl || previewUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs text-primary hover:underline shrink-0"
