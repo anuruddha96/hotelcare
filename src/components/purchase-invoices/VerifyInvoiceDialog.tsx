@@ -224,7 +224,7 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
                       {invoice.file_mime || 'file'} · {invoice.file_path?.split('/').pop()}
                     </span>
                     <a
-                      href={previewUrl}
+                      href={externalUrl || previewUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs text-primary hover:underline shrink-0"
