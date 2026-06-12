@@ -974,70 +974,138 @@ function download(blob: Blob, name: string) {
 }
 
 function UploadJobRow({ job, onPreview, onDismiss }: { job: UploadJob; onPreview?: () => void; onDismiss?: () => void }) {
+  const { t } = useTranslation();
   const isErr = job.status === 'error';
   const isDone = job.status === 'done';
   const currentIdx = isErr ? STAGES.findIndex(s => s.key === 'extracting')
     : STAGES.findIndex(s => s.key === job.status);
+
+  // Rotating "AI is working" tagline while processing.
+  const taglines = [
+    t('pi.upload.ai.tagline1') || 'Uploading your invoice…',
+    t('pi.upload.ai.tagline2') || 'Digitizing the document…',
+    t('pi.upload.ai.tagline3') || 'AI is reading the fields — sit back & relax ☕',
+    t('pi.upload.ai.tagline4') || 'Almost there ✨',
+  ];
+  const [taglineIdx, setTaglineIdx] = useState(0);
+  useEffect(() => {
+    if (isDone || isErr) return;
+    const id = setInterval(() => setTaglineIdx(i => (i + 1) % taglines.length), 2200);
+    return () => clearInterval(id);
+  }, [isDone, isErr, taglines.length]);
+
+  // Map status to a tagline anchor so it doesn't feel random.
+  const statusTagline =
+    job.status === 'uploading' ? taglines[0]
+    : job.status === 'digitizing' ? taglines[1]
+    : job.status === 'extracting' ? taglines[(taglineIdx % 2) + 2] // alternate 3/4
+    : taglines[taglineIdx];
+
   return (
-    <div className={`rounded-xl border p-3 sm:p-4 transition-shadow ${
+    <div className={`relative overflow-hidden rounded-2xl border p-3 sm:p-4 transition-all animate-fade-in ${
       isErr ? 'bg-destructive/5 border-destructive/40'
       : isDone ? 'bg-emerald-500/5 border-emerald-500/40'
-      : 'bg-gradient-to-br from-primary/5 via-card to-card border-primary/30 shadow-sm'
+      : 'bg-gradient-to-br from-primary/10 via-card to-purple-500/5 border-primary/30 shadow-lg shadow-primary/5'
     }`}>
-      <div className="flex items-start gap-3">
-        <div className="relative h-10 w-10 shrink-0">
+      {/* Animated sheen across the card while working */}
+      {!isDone && !isErr && (
+        <div
+          className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-primary/10 to-transparent"
+          style={{ animation: 'pi-sheen 2.8s ease-in-out infinite' }}
+        />
+      )}
+      <style>{`
+        @keyframes pi-sheen { 0% { transform: translateX(0) } 100% { transform: translateX(450%) } }
+        @keyframes pi-shimmer { 0% { background-position: -200% 0 } 100% { background-position: 200% 0 } }
+      `}</style>
+
+      <div className="relative flex items-start gap-3">
+        {/* Animated AI icon */}
+        <div className="relative h-11 w-11 shrink-0">
           {!isDone && !isErr && (
-            <span className="absolute inset-0 rounded-full bg-gradient-to-tr from-primary via-primary/60 to-transparent animate-spin [animation-duration:2.4s]" />
+            <>
+              <span className="absolute inset-0 rounded-full bg-gradient-to-tr from-primary via-purple-500 to-pink-500 animate-spin [animation-duration:3s] opacity-80" />
+              <span className="absolute inset-0 rounded-full bg-primary/30 animate-ping [animation-duration:1.6s]" />
+            </>
           )}
           <div className={`absolute inset-[3px] rounded-full flex items-center justify-center ${
             isErr ? 'bg-destructive/15' : isDone ? 'bg-emerald-500/15' : 'bg-background'
           }`}>
             {isErr ? <AlertCircle className="h-5 w-5 text-destructive" />
               : isDone ? <CheckCircle className="h-5 w-5 text-emerald-600" />
-              : <FileText className="h-4 w-4 text-primary" />}
+              : (
+                <span className="relative">
+                  <span className="absolute -inset-1 rounded-full bg-primary/30 blur-md animate-pulse" />
+                  <span className="relative text-base">✨</span>
+                </span>
+              )}
           </div>
         </div>
+
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-sm font-medium truncate">{job.name}</div>
+            <div className="text-sm font-semibold truncate">{job.name}</div>
             <div className="text-[11px] text-muted-foreground tabular-nums">{Math.round(job.progress)}%</div>
           </div>
-          <div className="text-[11px] text-muted-foreground">
-            {isErr ? (job.error || 'Failed') : isDone ? 'Ready for review' : STAGES[currentIdx]?.label + '…'}
+
+          {/* Rotating tagline */}
+          <div
+            key={statusTagline}
+            className={`text-[12px] mt-0.5 animate-fade-in ${
+              isErr ? 'text-destructive'
+              : isDone ? 'text-emerald-700 dark:text-emerald-400 font-medium'
+              : 'text-foreground/80'
+            }`}
+          >
+            {isErr ? (job.error || 'Failed') : isDone ? (t('pi.upload.ai.ready') || 'Ready to review') : statusTagline}
           </div>
-          {/* Animated progress bar */}
-          <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+
+          {/* Progress bar with shimmer */}
+          <div className="mt-2.5 h-2 w-full rounded-full bg-muted/70 overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                isErr ? 'bg-destructive' : isDone ? 'bg-emerald-500'
-                : 'bg-gradient-to-r from-primary via-primary/80 to-primary'
+              className={`h-full rounded-full transition-all duration-700 ease-out ${
+                isErr ? 'bg-destructive'
+                : isDone ? 'bg-emerald-500'
+                : 'bg-gradient-to-r from-primary via-purple-500 to-primary'
               }`}
-              style={{ width: `${job.progress}%` }}
+              style={{
+                width: `${job.progress}%`,
+                backgroundSize: '200% 100%',
+                animation: !isDone && !isErr ? 'pi-shimmer 2s linear infinite' : undefined,
+              }}
             />
           </div>
-          {/* Stepper dots */}
-          <div className="mt-2.5 flex items-center gap-1">
+
+          {/* Step pills */}
+          <div className="mt-3 grid grid-cols-4 gap-1.5">
             {STAGES.map((s, i) => {
               const done = i < currentIdx || isDone;
               const active = i === currentIdx && !isDone && !isErr;
+              const errored = isErr && i >= currentIdx;
               return (
-                <div key={s.key} className="flex-1 flex items-center gap-1">
-                  <div className={`h-1.5 w-1.5 rounded-full shrink-0 transition-colors ${
-                    isErr && i >= currentIdx ? 'bg-destructive'
-                    : done ? 'bg-emerald-500'
-                    : active ? 'bg-primary animate-pulse'
-                    : 'bg-muted-foreground/30'
-                  }`} />
-                  <span className={`text-[10px] truncate ${
-                    done ? 'text-emerald-700 dark:text-emerald-400'
-                    : active ? 'text-primary font-medium'
-                    : 'text-muted-foreground/70'
-                  }`}>{s.label}</span>
+                <div
+                  key={s.key}
+                  className={`relative flex items-center justify-center gap-1 px-1.5 py-1 rounded-full text-[10px] font-medium border transition-all ${
+                    errored ? 'bg-destructive/10 border-destructive/40 text-destructive'
+                    : done ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-400'
+                    : active ? 'bg-primary/10 border-primary/50 text-primary'
+                    : 'bg-muted/50 border-border text-muted-foreground/70'
+                  }`}
+                >
+                  {done && !errored ? (
+                    <CheckCircle className="h-3 w-3 shrink-0 animate-scale-in" />
+                  ) : active ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  ) : (
+                    <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${errored ? 'bg-destructive' : 'bg-muted-foreground/40'}`} />
+                  )}
+                  <span className="truncate">{s.label}</span>
                 </div>
               );
             })}
           </div>
-          {(isErr || onPreview) && (
+
+          {(isErr || isDone || onPreview) && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {isErr && (
                 <div className="text-[11px] text-destructive flex-1 min-w-0">
@@ -1049,8 +1117,8 @@ function UploadJobRow({ job, onPreview, onDismiss }: { job: UploadJob; onPreview
                 </div>
               )}
               {onPreview && (
-                <Button size="sm" variant={isErr ? 'default' : 'outline'} className="h-7 text-xs" onClick={onPreview}>
-                  <Eye className="h-3 w-3 mr-1" />Open preview & edit
+                <Button size="sm" variant={isDone || isErr ? 'default' : 'outline'} className="h-7 text-xs" onClick={onPreview}>
+                  <Eye className="h-3 w-3 mr-1" />{t('pi.upload.openReview') || 'Review & verify'}
                 </Button>
               )}
               {onDismiss && (isErr || isDone) && (
@@ -1065,4 +1133,5 @@ function UploadJobRow({ job, onPreview, onDismiss }: { job: UploadJob; onPreview
     </div>
   );
 }
+
 
