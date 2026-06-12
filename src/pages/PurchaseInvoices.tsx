@@ -517,9 +517,19 @@ export default function PurchaseInvoices() {
                               {inv.total_amount != null ? `${Number(inv.total_amount).toLocaleString()} ${inv.currency || ''}` : '—'}
                             </div>
                             <div className="flex items-center gap-1 flex-wrap justify-end">
-                              <Badge variant={inv.is_verified ? 'default' : inv.status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">
-                                {inv.is_verified ? t('pi.status.verified') : t(`pi.status.${inv.status}`)}
-                              </Badge>
+                              {inv.is_verified ? (
+                                <Badge variant="default" className="text-[10px] bg-emerald-600 hover:bg-emerald-600">
+                                  {t('pi.status.verified')}
+                                </Badge>
+                              ) : inv.status === 'failed' ? (
+                                <Badge variant="destructive" className="text-[10px]">{t('pi.status.failed')}</Badge>
+                              ) : inv.status === 'processing' || inv.status === 'uploaded' ? (
+                                <Badge variant="secondary" className="text-[10px]">{t(`pi.status.${inv.status}`)}</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] border-amber-500/60 text-amber-700 dark:text-amber-400">
+                                  {t('pi.status.unverified') || 'Unverified'}
+                                </Badge>
+                              )}
                               {(inv.status === 'failed' || inv.status === 'uploaded') && (
                                 <Button
                                   size="sm"
@@ -536,11 +546,11 @@ export default function PurchaseInvoices() {
                               )}
                               <Button
                                 size="sm"
-                                variant="outline"
+                                variant={inv.is_verified ? 'outline' : 'default'}
                                 className="h-6 px-2 text-[10px]"
                                 onClick={(e) => { e.stopPropagation(); setVerifyId(inv.id); }}
                               >
-                                {inv.is_verified ? t('pi.upload.retake') : t('pi.upload.save')}
+                                {inv.is_verified ? t('pi.upload.retake') : (t('pi.upload.openReview') || 'Review & verify')}
                               </Button>
                               {canDelete && (
                                 <Button
