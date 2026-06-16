@@ -192,17 +192,31 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
     }
   };
 
+  const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  useEffect(() => { if (open) { setZoom(1); setRotation(0); } }, [open, invoiceId]);
+
+  const isPdf = invoice?.file_mime?.includes('pdf') || invoice?.file_path?.toLowerCase().endsWith('.pdf');
+  const isImage = invoice?.file_mime?.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic)$/i.test(invoice?.file_path || '');
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-5xl w-[95vw] h-[90vh] p-0 flex flex-col gap-0">
-        <DialogHeader className="px-6 py-4 border-b shrink-0">
+      <DialogContent className="max-w-[1400px] w-[97vw] h-[94vh] p-0 flex flex-col gap-0">
+        <DialogHeader className="px-6 py-3 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-primary" />
             {t('pi.preview.heading')}
-            {invoice?.is_verified && (
-              <Badge variant="default" className="ml-2 gap-1">
+            {invoice?.is_verified ? (
+              <Badge variant="default" className="ml-2 gap-1 bg-emerald-600 hover:bg-emerald-600">
                 <CheckCircle2 className="h-3 w-3" />{t('pi.status.verified')}
               </Badge>
+            ) : invoice && (
+              <Badge variant="outline" className="ml-2 border-amber-500/60 text-amber-700 dark:text-amber-400">
+                {t('pi.status.unverified') || 'Unverified'}
+              </Badge>
+            )}
+            {!canEdit && invoice && (
+              <Badge variant="secondary" className="ml-1 text-[10px]">Read-only</Badge>
             )}
           </DialogTitle>
         </DialogHeader>
@@ -214,37 +228,71 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
         ) : !invoice ? (
           <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">—</div>
         ) : (
-          <div className="flex-1 min-h-0 grid md:grid-cols-2 gap-0 overflow-hidden">
-            {/* Document preview */}
+          <div className="flex-1 min-h-0 grid md:grid-cols-[3fr_2fr] gap-0 overflow-hidden">
+            {/* Document preview — larger, with zoom/rotate toolbar */}
             <div className="border-r bg-muted/30 flex flex-col min-h-0">
               {previewUrl ? (
                 <>
-                  <div className="px-3 py-2 border-b bg-background/80 flex items-center justify-between gap-2 shrink-0">
+                  <div className="px-3 py-2 border-b bg-background/90 flex items-center justify-between gap-2 shrink-0">
                     <span className="text-xs text-muted-foreground truncate">
                       {invoice.file_mime || 'file'} · {invoice.file_path?.split('/').pop()}
                     </span>
-                    <a
-                      href={externalUrl || previewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-primary hover:underline shrink-0"
-                    >
-                      Open in new tab
-                    </a>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {isImage && (
+                        <>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} title="Zoom out">
+                            <ZoomOut className="h-3.5 w-3.5" />
+                          </Button>
+                          <span className="text-[11px] text-muted-foreground tabular-nums w-10 text-center">{Math.round(zoom * 100)}%</span>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setZoom(z => Math.min(4, z + 0.25))} title="Zoom in">
+                            <ZoomIn className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setZoom(1); setRotation(0); }} title="Fit">
+                            <Maximize2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setRotation(r => (r + 90) % 360)} title="Rotate">
+                            <RotateCw className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                      <a
+                        href={previewUrl}
+                        download={invoice.file_path?.split('/').pop()}
+                        className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent"
+                        title="Download original"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </a>
+                      <a
+                        href={externalUrl || previewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline shrink-0 ml-1"
+                      >
+                        Open ↗
+                      </a>
+                    </div>
                   </div>
-                  <div className="flex-1 min-h-0 overflow-auto">
-                    {(invoice.file_mime?.includes('pdf') || invoice.file_path?.toLowerCase().endsWith('.pdf')) ? (
+                  <div className="flex-1 min-h-0 overflow-auto bg-neutral-100 dark:bg-neutral-900">
+                    {isPdf ? (
                       <iframe
                         src={previewUrl}
-                        className="w-full h-full border-0"
+                        className="w-full h-full border-0 bg-white"
                         style={{ minHeight: '600px' }}
                         title="invoice"
                       />
-                    ) : (invoice.file_mime?.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic)$/i.test(invoice.file_path || '')) ? (
-                      <img src={previewUrl} alt="invoice" className="w-full h-auto" />
+                    ) : isImage ? (
+                      <div className="min-h-full flex items-center justify-center p-2">
+                        <img
+                          src={previewUrl}
+                          alt="invoice"
+                          className="max-w-none transition-transform"
+                          style={{ transform: `scale(${zoom}) rotate(${rotation}deg)`, transformOrigin: 'center center' }}
+                        />
+                      </div>
                     ) : (
                       <div className="p-6 text-sm text-muted-foreground">
-                        Preview unavailable for this file type. Use “Open in new tab”.
+                        Preview unavailable for this file type. Use "Open ↗".
                       </div>
                     )}
                   </div>
@@ -255,6 +303,7 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
                 </div>
               )}
             </div>
+
 
             {/* Editable fields */}
             <div className="flex flex-col min-h-0">
