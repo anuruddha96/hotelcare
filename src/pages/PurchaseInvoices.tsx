@@ -59,7 +59,8 @@ const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4',
 const STATUS_FILTERS = ['all','uploaded','processing','processed','verified','failed','needs_review','duplicates','credit_notes'] as const;
 type StatusFilter = typeof STATUS_FILTERS[number];
 type SortMode = 'newest'|'oldest'|'amountDesc'|'amountAsc'|'merchant';
-type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all';
+type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all'|'custom';
+type VerifyFilter = 'all'|'verified'|'unverified';
 type UploadStage = 'uploading'|'digitizing'|'extracting'|'done'|'error';
 type UploadJob = {
   id: string;
