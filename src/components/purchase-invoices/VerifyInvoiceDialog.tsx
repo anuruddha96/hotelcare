@@ -192,6 +192,27 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
     }
   };
 
+  const unverify = async () => {
+    if (!invoiceId) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('purchase_invoices').update({
+        is_verified: false,
+        verified_by: null,
+        verified_at: null,
+        status: 'processed',
+      }).eq('id', invoiceId);
+      if (error) throw error;
+      toast.success('Sent back to review');
+      onSaved?.();
+      onClose();
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   useEffect(() => { if (open) { setZoom(1); setRotation(0); } }, [open, invoiceId]);
