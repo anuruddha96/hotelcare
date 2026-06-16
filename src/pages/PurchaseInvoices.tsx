@@ -843,7 +843,7 @@ export default function PurchaseInvoices() {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {t('pi.analytics.range.' + range)} · {rangedInvoices.length} {t('pi.queue.count').replace('{n}','').trim()}
+                    {range === 'custom' ? `${customFrom || '—'} → ${customTo || '—'}` : t('pi.analytics.range.' + range)} · {rangedInvoices.length} {t('pi.queue.count').replace('{n}','').trim()}
                   </p>
                 </CardContent>
               </Card>
