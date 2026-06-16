@@ -192,12 +192,12 @@ export default function PurchaseInvoices() {
         await reload();
         if (res.ok) {
           patch({ status: 'done', progress: 100 });
-          toast.success(t('pi.upload.autoOpening') || 'Opening review…');
+          toast.success(t('pi.upload.autoOpening') || 'Ready to review — please verify');
           // Auto-open the verify dialog so the user can review the extracted
-          // data against the original document before saving.
+          // data against the original document and explicitly save/verify.
+          // The processing card stays visible until the user dismisses it or
+          // verifies the invoice — no auto-dismiss.
           setVerifyId(tid);
-          // Auto-remove completed stepper after a brief celebration
-          setTimeout(() => setUploadJobs(prev => prev.filter(j => j.id !== tid)), 2500);
         } else {
           const code = res.errorCode || 'unknown';
           patch({ status: 'error', progress: 100, error: code, errorCode: code });
