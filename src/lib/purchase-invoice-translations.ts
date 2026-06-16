@@ -2,10 +2,10 @@
 type Bundle = Record<string, string>;
 
 const en: Bundle = {
-  'pi.title': 'Purchase Invoices',
+  'pi.title': 'Invoices Management',
   'pi.subtitle': 'Upload, digitize and analyze invoices',
   'pi.tab.upload': 'Upload',
-  'pi.tab.queue': 'Inbox',
+  'pi.tab.queue': 'Review Queue',
   'pi.tab.analytics': 'Analytics',
   'pi.tab.export': 'Export',
   'pi.status.unverified': 'Unverified',
@@ -170,10 +170,10 @@ const en: Bundle = {
 };
 
 const hu: Bundle = {
-  'pi.title': 'Beszerzési számlák',
+  'pi.title': 'Számlakezelés',
   'pi.subtitle': 'Számlák feltöltése, digitalizálása és elemzése',
   'pi.tab.upload': 'Feltöltés',
-  'pi.tab.queue': 'Bejövő',
+  'pi.tab.queue': 'Ellenőrzési sor',
   'pi.tab.analytics': 'Elemzés',
   'pi.tab.export': 'Exportálás',
   'pi.status.unverified': 'Jóváhagyatlan',
@@ -337,10 +337,10 @@ const hu: Bundle = {
 };
 
 const es: Bundle = {
-  'pi.title': 'Facturas de compra',
+  'pi.title': 'Gestión de facturas',
   'pi.subtitle': 'Sube, digitaliza y analiza facturas',
   'pi.tab.upload': 'Subir',
-  'pi.tab.queue': 'Bandeja',
+  'pi.tab.queue': 'Cola de revisión',
   'pi.tab.analytics': 'Analítica',
   'pi.tab.export': 'Exportar',
   'pi.status.unverified': 'Sin verificar',
@@ -361,10 +361,10 @@ const es: Bundle = {
 };
 
 const vi: Bundle = {
-  'pi.title': 'Hóa đơn mua hàng',
+  'pi.title': 'Quản lý hóa đơn',
   'pi.subtitle': 'Tải lên, số hóa và phân tích hóa đơn',
   'pi.tab.upload': 'Tải lên',
-  'pi.tab.queue': 'Hộp thư',
+  'pi.tab.queue': 'Hàng đợi duyệt',
   'pi.tab.analytics': 'Phân tích',
   'pi.tab.export': 'Xuất',
   'pi.status.unverified': 'Chưa xác minh',
@@ -384,10 +384,10 @@ const vi: Bundle = {
 };
 
 const mn: Bundle = {
-  'pi.title': 'Худалдан авалтын нэхэмжлэх',
+  'pi.title': 'Нэхэмжлэхийн удирдлага',
   'pi.subtitle': 'Нэхэмжлэхийг оруулах, дижиталчилах, шинжлэх',
   'pi.tab.upload': 'Оруулах',
-  'pi.tab.queue': 'Ирсэн',
+  'pi.tab.queue': 'Хянах дараалал',
   'pi.tab.analytics': 'Шинжилгээ',
   'pi.tab.export': 'Татах',
   'pi.status.unverified': 'Баталгаажаагүй',
@@ -407,10 +407,10 @@ const mn: Bundle = {
 };
 
 const tl: Bundle = {
-  'pi.title': 'Mga Purchase Invoice',
+  'pi.title': 'Pamamahala ng Invoice',
   'pi.subtitle': 'Mag-upload, i-digitize at suriin ang mga invoice',
   'pi.tab.upload': 'Upload',
-  'pi.tab.queue': 'Inbox',
+  'pi.tab.queue': 'Review Queue',
   'pi.queue.filter.duplicates': 'Mga duplicate',
   'pi.queue.filter.credit_notes': 'Credit notes',
   'pi.tab.analytics': 'Analytics',
