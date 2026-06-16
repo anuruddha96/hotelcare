@@ -279,7 +279,21 @@ export default function PurchaseInvoices() {
     return sorted;
   }, [invoices, search, statusFilter, sortMode]);
 
-  const rangedInvoices = useMemo(() => filterByRange(invoices, range), [invoices, range]);
+  const rangedInvoices = useMemo(() => {
+    let list = filterByRange(invoices, range, customFrom, customTo);
+    if (verifyFilter === 'verified') list = list.filter(i => i.is_verified === true);
+    else if (verifyFilter === 'unverified') list = list.filter(i => !i.is_verified);
+    if (merchantFilter !== 'all') list = list.filter(i => (i.merchant_name || 'Unknown') === merchantFilter);
+    const min = Number(minAmount);
+    if (!isNaN(min) && min > 0) list = list.filter(i => Number(i.total_amount || 0) >= min);
+    return list;
+  }, [invoices, range, customFrom, customTo, verifyFilter, merchantFilter, minAmount]);
+
+  const merchantOptions = useMemo(() => {
+    const set = new Set<string>();
+    invoices.forEach(i => { if (i.merchant_name) set.add(i.merchant_name); });
+    return Array.from(set).sort();
+  }, [invoices]);
 
   const stats = useMemo(() => computeStats(invoices, rangedInvoices), [invoices, rangedInvoices]);
   const anomalies = useMemo(() => detectAnomalies(invoices), [invoices]);
