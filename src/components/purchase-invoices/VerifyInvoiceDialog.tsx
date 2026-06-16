@@ -5,13 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Trash2, CheckCircle2, FileText } from 'lucide-react';
+import { Loader2, Plus, Trash2, CheckCircle2, FileText, ZoomIn, ZoomOut, RotateCw, Download, Maximize2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
 
-const EDIT_ROLES = ['admin', 'top_management', 'control_finance', 'back_office_manager', 'control_manager'];
+const EDIT_ROLES = ['admin', 'top_management', 'top_management_manager', 'manager', 'control_finance', 'back_office_manager', 'control_manager'];
 
 const VAT_KINDS = [
   'standard_27', 'reduced_18', 'reduced_5', 'zero',
