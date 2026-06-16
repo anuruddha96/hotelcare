@@ -842,8 +842,20 @@ function Kpi({ label, value, sub, icon, small }: { label: string; value: string;
   );
 }
 
-function filterByRange(invoices: any[], range: RangeKey): any[] {
+function filterByRange(invoices: any[], range: RangeKey, customFrom?: string, customTo?: string): any[] {
   if (range === 'all') return invoices;
+  if (range === 'custom') {
+    const from = customFrom ? new Date(customFrom) : null;
+    const to = customTo ? new Date(customTo + 'T23:59:59') : null;
+    return invoices.filter(i => {
+      const d = i.invoice_date || i.created_at;
+      if (!d) return false;
+      const dt = new Date(d);
+      if (from && dt < from) return false;
+      if (to && dt > to) return false;
+      return true;
+    });
+  }
   const now = new Date();
   let start: Date;
   if (range === '7d') start = new Date(now.getTime() - 7*864e5);
