@@ -59,7 +59,8 @@ const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4',
 const STATUS_FILTERS = ['all','uploaded','processing','processed','verified','failed','needs_review','duplicates','credit_notes'] as const;
 type StatusFilter = typeof STATUS_FILTERS[number];
 type SortMode = 'newest'|'oldest'|'amountDesc'|'amountAsc'|'merchant';
-type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all';
+type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all'|'custom';
+type VerifyFilter = 'all'|'verified'|'unverified';
 type UploadStage = 'uploading'|'digitizing'|'extracting'|'done'|'error';
 type UploadJob = {
   id: string;
@@ -91,6 +92,11 @@ export default function PurchaseInvoices() {
   const [sortMode, setSortMode] = useState<SortMode>('newest');
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('30d');
+  const [customFrom, setCustomFrom] = useState<string>('');
+  const [customTo, setCustomTo] = useState<string>('');
+  const [verifyFilter, setVerifyFilter] = useState<VerifyFilter>('all');
+  const [merchantFilter, setMerchantFilter] = useState<string>('all');
+  const [minAmount, setMinAmount] = useState<string>('');
   const [activeTab, setActiveTab] = useState<string>('upload');
   // Keep errored jobs visible so the user can preview/fix or dismiss them.
   const visibleJobs = uploadJobs.filter(j => j.status !== 'done');
@@ -192,12 +198,12 @@ export default function PurchaseInvoices() {
         await reload();
         if (res.ok) {
           patch({ status: 'done', progress: 100 });
-          toast.success(t('pi.upload.autoOpening') || 'Opening review…');
+          toast.success(t('pi.upload.autoOpening') || 'Ready to review — please verify');
           // Auto-open the verify dialog so the user can review the extracted
-          // data against the original document before saving.
+          // data against the original document and explicitly save/verify.
+          // The processing card stays visible until the user dismisses it or
+          // verifies the invoice — no auto-dismiss.
           setVerifyId(tid);
-          // Auto-remove completed stepper after a brief celebration
-          setTimeout(() => setUploadJobs(prev => prev.filter(j => j.id !== tid)), 2500);
         } else {
           const code = res.errorCode || 'unknown';
           patch({ status: 'error', progress: 100, error: code, errorCode: code });
@@ -273,7 +279,21 @@ export default function PurchaseInvoices() {
     return sorted;
   }, [invoices, search, statusFilter, sortMode]);
 
-  const rangedInvoices = useMemo(() => filterByRange(invoices, range), [invoices, range]);
+  const rangedInvoices = useMemo(() => {
+    let list = filterByRange(invoices, range, customFrom, customTo);
+    if (verifyFilter === 'verified') list = list.filter(i => i.is_verified === true);
+    else if (verifyFilter === 'unverified') list = list.filter(i => !i.is_verified);
+    if (merchantFilter !== 'all') list = list.filter(i => (i.merchant_name || 'Unknown') === merchantFilter);
+    const min = Number(minAmount);
+    if (!isNaN(min) && min > 0) list = list.filter(i => Number(i.total_amount || 0) >= min);
+    return list;
+  }, [invoices, range, customFrom, customTo, verifyFilter, merchantFilter, minAmount]);
+
+  const merchantOptions = useMemo(() => {
+    const set = new Set<string>();
+    invoices.forEach(i => { if (i.merchant_name) set.add(i.merchant_name); });
+    return Array.from(set).sort();
+  }, [invoices]);
 
   const stats = useMemo(() => computeStats(invoices, rangedInvoices), [invoices, rangedInvoices]);
   const anomalies = useMemo(() => detectAnomalies(invoices), [invoices]);
@@ -579,18 +599,75 @@ export default function PurchaseInvoices() {
 
           {canSeeAnalytics && (
             <TabsContent value="analytics" className="space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
-                  <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7d">{t('pi.analytics.range.7d')}</SelectItem>
-                    <SelectItem value="30d">{t('pi.analytics.range.30d')}</SelectItem>
-                    <SelectItem value="90d">{t('pi.analytics.range.90d')}</SelectItem>
-                    <SelectItem value="ytd">{t('pi.analytics.range.ytd')}</SelectItem>
-                    <SelectItem value="all">{t('pi.analytics.range.all')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Card>
+                <CardContent className="p-3 flex flex-wrap items-end gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Date range</label>
+                    <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
+                      <SelectTrigger className="w-[160px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="7d">{t('pi.analytics.range.7d')}</SelectItem>
+                        <SelectItem value="30d">{t('pi.analytics.range.30d')}</SelectItem>
+                        <SelectItem value="90d">{t('pi.analytics.range.90d')}</SelectItem>
+                        <SelectItem value="ytd">{t('pi.analytics.range.ytd')}</SelectItem>
+                        <SelectItem value="all">{t('pi.analytics.range.all')}</SelectItem>
+                        <SelectItem value="custom">Custom…</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {range === 'custom' && (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">From</label>
+                        <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="h-9 w-[150px]" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">To</label>
+                        <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="h-9 w-[150px]" />
+                      </div>
+                    </>
+                  )}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Verification</label>
+                    <Select value={verifyFilter} onValueChange={(v) => setVerifyFilter(v as VerifyFilter)}>
+                      <SelectTrigger className="w-[140px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="verified">Verified only</SelectItem>
+                        <SelectItem value="unverified">Unverified only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Merchant</label>
+                    <Select value={merchantFilter} onValueChange={setMerchantFilter}>
+                      <SelectTrigger className="w-[200px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All merchants</SelectItem>
+                        {merchantOptions.map(m => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Min amount</label>
+                    <Input type="number" placeholder="0" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} className="h-9 w-[120px]" />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => { setRange('30d'); setCustomFrom(''); setCustomTo(''); setVerifyFilter('all'); setMerchantFilter('all'); setMinAmount(''); }}
+                  >
+                    Reset
+                  </Button>
+                  <div className="ml-auto text-xs text-muted-foreground self-center">
+                    {rangedInvoices.length} matching invoices
+                  </div>
+                </CardContent>
+              </Card>
+
 
               <div data-tour="pi-kpis" className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Kpi label={t('pi.analytics.thisMonth')} value={`${stats.total.toLocaleString()} HUF`} sub={`${stats.count} ${t('pi.queue.count').replace('{n}','').trim()}`} />
@@ -766,7 +843,7 @@ export default function PurchaseInvoices() {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {t('pi.analytics.range.' + range)} · {rangedInvoices.length} {t('pi.queue.count').replace('{n}','').trim()}
+                    {range === 'custom' ? `${customFrom || '—'} → ${customTo || '—'}` : t('pi.analytics.range.' + range)} · {rangedInvoices.length} {t('pi.queue.count').replace('{n}','').trim()}
                   </p>
                 </CardContent>
               </Card>
@@ -822,8 +899,20 @@ function Kpi({ label, value, sub, icon, small }: { label: string; value: string;
   );
 }
 
-function filterByRange(invoices: any[], range: RangeKey): any[] {
+function filterByRange(invoices: any[], range: RangeKey, customFrom?: string, customTo?: string): any[] {
   if (range === 'all') return invoices;
+  if (range === 'custom') {
+    const from = customFrom ? new Date(customFrom) : null;
+    const to = customTo ? new Date(customTo + 'T23:59:59') : null;
+    return invoices.filter(i => {
+      const d = i.invoice_date || i.created_at;
+      if (!d) return false;
+      const dt = new Date(d);
+      if (from && dt < from) return false;
+      if (to && dt > to) return false;
+      return true;
+    });
+  }
   const now = new Date();
   let start: Date;
   if (range === '7d') start = new Date(now.getTime() - 7*864e5);

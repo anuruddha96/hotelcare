@@ -1,45 +1,80 @@
-## Purchase Invoices — review, preview & polish
+# Purchase Invoices — Overhaul
 
-### 1. Verify-before-save workflow
-- After OCR completes, instead of silently marking the invoice as `processed`, automatically open the **Verify extracted data** dialog so the user can compare against the original file and edit fields before committing.
-- New invoice state model in the list:
-  - `unverified` (default after OCR) — yellow "Unverified" badge + prominent **Review & verify** button.
-  - `verified` — green badge (only set when user clicks Save & verify in the dialog).
-- "Save draft" stays available for partial edits; the row remains `unverified` until explicit verification.
-- Failed/needs-manual invoices keep the existing manual-edit path but flow through the same dialog.
+## 1. Verify-before-save (no auto-save)
+- Remove the `setTimeout(...)` that drops the job after 2.5s in `PurchaseInvoices.tsx` (line ~200). Processing card stays until user opens & saves.
+- After OCR completes, status stays `processed` + `is_verified=false` → row shows amber **Unverified** badge.
+- Open `VerifyInvoiceDialog` automatically once, but nothing is persisted as "verified" until user clicks **Save & verify**.
+- Add two buttons in the dialog footer:
+  - **Save draft** (current Save) — keeps `is_verified=false`.
+  - **Save & verify** — sets `is_verified=true`, `verified_by=auth.uid()`, `verified_at=now()`.
+- Eligible roles for verifying & editing: `admin`, `top_management`, `top_management_manager`, `manager`. Others see read-only view.
+- Add **Unverify** action (eligible roles only) on already-verified invoices to send them back to review.
 
-### 2. Live preview fix (the blank left pane in the screenshot)
-- Root cause: signed URL `<iframe src>` for PDFs is being blocked / not rendering inline in some browsers.
-- Switch `VerifyInvoiceDialog` to download the file via `supabase.storage.from('purchase-invoices').download(file_path)` and render from a `Blob` object URL:
-  - PDFs → `<iframe src={blobUrl}>` (blob URLs render reliably inline).
-  - Images → `<img src={blobUrl}>` with zoom/fit-to-width.
-  - Revoke the object URL on dialog close.
-- Keep "Open in new tab" as a fallback using the signed URL.
+## 2. Live preview on the left (no link click)
+Current dialog shows only filename + "Open in new tab". Rebuild layout:
 
-### 3. Better animated "AI is working" processing card
-Redesign `UploadJobRow` into a richer stepper card:
-- Animated gradient header with a pulsing AI sparkle icon and rotating copy:
-  - "Uploading your invoice…" → "Digitizing the document…" → "AI is reading the fields, sit back & relax ☕" → "Almost there…" → "Ready to review ✨".
-- Step pills (Upload → Digitize → Extract → Ready) with a moving shimmer on the active step and a check-mark pop animation on completion.
-- Subtle progress bar with indeterminate shimmer while the OCR call is in flight.
-- Success state morphs into a "Review & verify" CTA that opens the dialog directly.
-- Error state shows a friendly retry card with the failure reason.
+```text
+┌─────────────────────────────┬──────────────────────────┐
+│  LIVE PREVIEW (60% width)   │  EXTRACTED DATA (40%)    │
+│  • PDF → <iframe blob>      │  Merchant / VAT / Lines  │
+│  • Image → <img blob> +     │  Editable inputs         │
+│    zoom / rotate controls   │  [Save draft][Verify]    │
+│  • Fallback: Open in tab    │                          │
+└─────────────────────────────┴──────────────────────────┘
+```
 
-### 4. Rename "Queue" → "Inbox"
-- Update tab label and tour copy: `pi.tab.queue` becomes "Inbox" (HU: "Beérkezett", ES: "Bandeja", VI: "Hộp thư", MN: "Ирсэн").
-- Update the page subheading + empty state copy accordingly.
+- Make dialog wider (`max-w-6xl`, `h-[90vh]`).
+- Preview pane is always rendered (no click needed). Already downloads blob — just surface it as the main left column.
+- Add toolbar: zoom in/out, rotate, fit-to-width, download original.
 
-### 5. Fix missing translation keys
-Add for every locale (en/hu/es/vi/mn):
-- `pi.queue.filter.duplicates` ("Duplicates")
-- `pi.queue.filter.credit_notes` ("Credit notes")
-- Any other `pi.*` keys currently rendering as raw IDs will be audited and filled in the same pass.
+## 3. Rename tabs & labels
+- **"Inbox" → "Invoice Queue"** (tab key stays `queue` to avoid breaking tours). Update `pi.tab.queue` translations across 5 languages.
+- **Page title "Purchase Invoices" → "Invoices Management"** (user typo "invocies"). Update across translations.
+- Tour copy updated where needed.
 
-### Files to touch
-- `src/pages/PurchaseInvoices.tsx` — auto-open verify after OCR, unverified badge, new stepper card, rename tab.
-- `src/components/purchase-invoices/VerifyInvoiceDialog.tsx` — blob-based live preview, cleanup on close.
-- `src/lib/purchase-invoice-translations.ts` — add missing keys for all 5 languages, rename Queue→Inbox.
+## 4. Analytics — custom filter controls
+Replace the single "All time" preset with a control bar:
+- Date range: presets (Today / 7d / 30d / 90d / This month / Last month / This year / All time) **+ custom date picker** (from–to).
+- Merchant multi-select.
+- Expense category multi-select.
+- Payment method filter.
+- Verification status filter (All / Verified / Unverified).
+- Min/Max amount.
+- "Reset filters" button.
+- All KPIs, daily-spend chart, top-merchants chart recompute from the filtered set.
+- Persist last-used filters to `localStorage`.
 
-### Out of scope
-- No database/schema changes (uses existing `is_verified` / `status` columns).
-- No edge-function changes.
+## 5. Better Upload / Queue / Export UX
+- **Upload tab:** drag-and-drop full-screen overlay, multi-file picker, per-file progress with the existing animated "AI is reading…" card; show queue summary (X processing, Y unverified).
+- **Queue tab:**
+  - Quick stats strip on top (Total / Unverified / Verified / Failed / Duplicates).
+  - Bulk actions: select rows → bulk verify, bulk delete (admins), bulk export.
+  - Inline preview thumbnail in each row (first page rendered from blob, cached).
+  - Sort + filter chips remain, plus merchant search autocomplete.
+- **Export tab:**
+  - Choose columns to include (checkbox list).
+  - Format: CSV / XLSX / JSON.
+  - Apply same custom filters as Analytics.
+  - "Export filtered" vs "Export all" buttons.
+
+## 6. Translations
+Add/update keys in `purchase-invoice-translations.ts` for 5 languages:
+- `pi.title` ("Invoices Management" etc.)
+- `pi.tab.queue` ("Invoice Queue")
+- `pi.verify.saveDraft`, `pi.verify.saveAndVerify`, `pi.verify.unverify`, `pi.verify.readOnly`
+- `pi.analytics.filters.*` (custom range, merchant, category, reset…)
+- `pi.export.columns`, `pi.export.format`, `pi.export.filtered`, `pi.export.all`
+- `pi.upload.bulk.*`, `pi.queue.bulk.*`
+
+## Technical details
+
+**Files to edit (no DB schema changes needed — `is_verified`, `verified_by`, `verified_at` already exist):**
+- `src/pages/PurchaseInvoices.tsx` — remove auto-dismiss timer, add role gate, custom analytics filters, bulk actions, export controls, rename labels.
+- `src/components/purchase-invoices/VerifyInvoiceDialog.tsx` — two-column layout, persistent preview, zoom/rotate toolbar, Save draft vs Save & verify, role-based read-only mode.
+- `src/lib/purchase-invoice-translations.ts` — new keys × 5 languages.
+- New `src/components/purchase-invoices/AnalyticsFilters.tsx` — filter bar (date range, merchant, category, amount).
+- New `src/components/purchase-invoices/ExportPanel.tsx` — column picker + format selector.
+
+**Role check helper:** reuse `profile.role` from `useAuth()`; gate verify/edit/delete behind `['admin','top_management','top_management_manager','manager'].includes(role)`.
+
+**No backend changes.** Edge function `process-purchase-invoice` already sets `status='processed'` and leaves `is_verified=false`.
