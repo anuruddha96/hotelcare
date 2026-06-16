@@ -92,6 +92,11 @@ export default function PurchaseInvoices() {
   const [sortMode, setSortMode] = useState<SortMode>('newest');
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>('30d');
+  const [customFrom, setCustomFrom] = useState<string>('');
+  const [customTo, setCustomTo] = useState<string>('');
+  const [verifyFilter, setVerifyFilter] = useState<VerifyFilter>('all');
+  const [merchantFilter, setMerchantFilter] = useState<string>('all');
+  const [minAmount, setMinAmount] = useState<string>('');
   const [activeTab, setActiveTab] = useState<string>('upload');
   // Keep errored jobs visible so the user can preview/fix or dismiss them.
   const visibleJobs = uploadJobs.filter(j => j.status !== 'done');
