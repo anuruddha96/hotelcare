@@ -430,21 +430,30 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
                 </TabsContent>
               </Tabs>
 
-              <div className="border-t px-4 py-3 flex items-center justify-end gap-2 shrink-0 bg-background">
+              <div className="border-t px-4 py-3 flex items-center justify-end gap-2 shrink-0 bg-background flex-wrap">
                 <Button variant="ghost" onClick={onClose} disabled={saving}>Close</Button>
+                {canEdit && invoice?.is_verified && (
+                  <Button variant="outline" onClick={() => unverify()} disabled={saving}
+                    className="border-amber-500/60 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10">
+                    {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                    Unverify
+                  </Button>
+                )}
                 {canEdit && (
                   <>
                     <Button variant="outline" onClick={() => save(false)} disabled={saving}>
                       {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                       {t('pi.upload.saveDraft')}
                     </Button>
-                    <Button onClick={() => save(true)} disabled={saving}>
+                    <Button onClick={() => save(true)} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700">
                       {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                      <CheckCircle2 className="h-4 w-4 mr-1" />
                       {t('pi.upload.save')}
                     </Button>
                   </>
                 )}
               </div>
+
             </div>
           </div>
         )}
