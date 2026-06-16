@@ -599,18 +599,75 @@ export default function PurchaseInvoices() {
 
           {canSeeAnalytics && (
             <TabsContent value="analytics" className="space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
-                  <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7d">{t('pi.analytics.range.7d')}</SelectItem>
-                    <SelectItem value="30d">{t('pi.analytics.range.30d')}</SelectItem>
-                    <SelectItem value="90d">{t('pi.analytics.range.90d')}</SelectItem>
-                    <SelectItem value="ytd">{t('pi.analytics.range.ytd')}</SelectItem>
-                    <SelectItem value="all">{t('pi.analytics.range.all')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Card>
+                <CardContent className="p-3 flex flex-wrap items-end gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Date range</label>
+                    <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
+                      <SelectTrigger className="w-[160px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="7d">{t('pi.analytics.range.7d')}</SelectItem>
+                        <SelectItem value="30d">{t('pi.analytics.range.30d')}</SelectItem>
+                        <SelectItem value="90d">{t('pi.analytics.range.90d')}</SelectItem>
+                        <SelectItem value="ytd">{t('pi.analytics.range.ytd')}</SelectItem>
+                        <SelectItem value="all">{t('pi.analytics.range.all')}</SelectItem>
+                        <SelectItem value="custom">Custom…</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {range === 'custom' && (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">From</label>
+                        <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="h-9 w-[150px]" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">To</label>
+                        <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="h-9 w-[150px]" />
+                      </div>
+                    </>
+                  )}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Verification</label>
+                    <Select value={verifyFilter} onValueChange={(v) => setVerifyFilter(v as VerifyFilter)}>
+                      <SelectTrigger className="w-[140px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="verified">Verified only</SelectItem>
+                        <SelectItem value="unverified">Unverified only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Merchant</label>
+                    <Select value={merchantFilter} onValueChange={setMerchantFilter}>
+                      <SelectTrigger className="w-[200px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All merchants</SelectItem>
+                        {merchantOptions.map(m => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Min amount</label>
+                    <Input type="number" placeholder="0" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} className="h-9 w-[120px]" />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9"
+                    onClick={() => { setRange('30d'); setCustomFrom(''); setCustomTo(''); setVerifyFilter('all'); setMerchantFilter('all'); setMinAmount(''); }}
+                  >
+                    Reset
+                  </Button>
+                  <div className="ml-auto text-xs text-muted-foreground self-center">
+                    {rangedInvoices.length} matching invoices
+                  </div>
+                </CardContent>
+              </Card>
+
 
               <div data-tour="pi-kpis" className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Kpi label={t('pi.analytics.thisMonth')} value={`${stats.total.toLocaleString()} HUF`} sub={`${stats.count} ${t('pi.queue.count').replace('{n}','').trim()}`} />
