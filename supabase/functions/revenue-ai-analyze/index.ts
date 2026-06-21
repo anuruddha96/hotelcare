@@ -81,7 +81,7 @@ ${focus_date ? `Focus your analysis on ${focus_date}.` : ""}`;
     };
 
     const aiBody = {
-      model: "google/gemini-2.5-flash",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: "Analyze this data and return structured findings:\n" + JSON.stringify(userPayload).slice(0, 60000) },
