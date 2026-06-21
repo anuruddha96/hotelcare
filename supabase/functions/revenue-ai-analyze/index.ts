@@ -139,9 +139,9 @@ ${focus_date ? `Focus your analysis on ${focus_date}.` : ""}`;
       tool_choice: { type: "function", function: { name: "submit_analysis" } },
     };
 
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify(aiBody),
     });
 
