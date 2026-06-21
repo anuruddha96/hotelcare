@@ -62,8 +62,8 @@ serve(async (req) => {
         supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotel_id).maybeSingle(),
       ]);
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
     const systemPrompt = `You are a hotel revenue management analyst for ${hotel?.hotel_name ?? hotel_id}.
 You are given recent pickup snapshots (bookings for each stay date over time), the current rate history, the engine settings, and any pending rate recommendations.
