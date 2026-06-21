@@ -28,11 +28,11 @@ serve(async (req) => {
     const today = new Date().toISOString().slice(0, 10);
     const horizon = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10);
 
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
+        model: "gpt-4o",
         messages: [
           { role: "system", content: "You are a Budapest hotel-market analyst. Return real, well-known upcoming events that drive hotel demand: major concerts, festivals, conferences, sports, public holidays, school breaks. Only include events you are confident actually happen. Do not invent." },
           { role: "user", content: `List demand-driving events in Budapest, Hungary between ${today} and ${horizon}. Include: concerts at MVM Dome / Papp László Aréna / Puskás Aréna, Sziget Festival, Budapest Wine Festival, F1 Hungarian GP at Hungaroring, major conferences at Hungexpo, Hungarian public holidays, school breaks. For each, give date (and end_date for multi-day), title, category, venue, expected_impact (low/medium/high), confidence (0-1).` },
