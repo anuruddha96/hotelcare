@@ -62,8 +62,8 @@ serve(async (req) => {
         supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotel_id).maybeSingle(),
       ]);
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
 
     const systemPrompt = `You are a hotel revenue management analyst for ${hotel?.hotel_name ?? hotel_id}.
 You are given recent pickup snapshots (bookings for each stay date over time), the current rate history, the engine settings, and any pending rate recommendations.
@@ -81,7 +81,7 @@ ${focus_date ? `Focus your analysis on ${focus_date}.` : ""}`;
     };
 
     const aiBody = {
-      model: "google/gemini-2.5-flash",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: "Analyze this data and return structured findings:\n" + JSON.stringify(userPayload).slice(0, 60000) },
@@ -139,9 +139,9 @@ ${focus_date ? `Focus your analysis on ${focus_date}.` : ""}`;
       tool_choice: { type: "function", function: { name: "submit_analysis" } },
     };
 
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify(aiBody),
     });
 
