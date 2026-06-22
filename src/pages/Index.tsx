@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
+import { isReceptionRole } from '@/lib/roleAccess';
 
 const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager'];
 
@@ -22,6 +23,12 @@ const Index = () => {
       window.location.replace('/bb');
     }
   }, [profile?.role]);
+
+  // Reception / front-office: dedicated landing page focused on Daily
+  // Overview upload. Browsing the rest of the app is opt-in via links.
+  if (profile && isReceptionRole(profile.role)) {
+    return <Navigate to={`/${organizationSlug || 'rdhotels'}/reception`} replace />;
+  }
 
   if (loading) {
     return (

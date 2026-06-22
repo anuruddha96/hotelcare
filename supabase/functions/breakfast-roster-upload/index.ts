@@ -23,10 +23,11 @@ function paxFromText(text: string | null): number {
   return m ? parseInt(m[1], 10) : 0;
 }
 
-// Normalize raw room values like "66EC.QRP216", "QRP-216", "Room 216" → "216".
-// Strategy: take the LAST contiguous run of digits (>=2 digits). Fallback to trimmed input.
+// Normalize raw room values like "66EC.QRP216", "QRP-216", "64TWIN-214SH",
+// "Room 216" → "216" / "214". Strategy: take the LAST contiguous run of digits
+// (>=2 digits), ignoring any trailing SH suffix. Fallback to trimmed input.
 function normalizeRoomNumber(raw: string): string {
-  const trimmed = String(raw ?? "").trim();
+  const trimmed = String(raw ?? "").trim().replace(/SH$/i, "");
   if (!trimmed) return "";
   const matches = trimmed.match(/\d{2,}/g);
   if (matches && matches.length > 0) return matches[matches.length - 1];

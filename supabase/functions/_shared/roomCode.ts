@@ -33,10 +33,21 @@ export function parseRoomCode(raw: unknown, hotelId: string): ParsedRoomCode | n
     case "memories-budapest": {
       // ^\d+<TYPE>-<ROOM>(SH)?$ — e.g. 70SNG-306, 19SYN.DOUBLE-107SH
       const m = s.match(/^(\d+)([A-Z.]+)-(.+)$/i);
-      if (!m) return null;
-      const { num, suffix } = stripSh(m[3].trim());
-      if (!num) return null;
-      return { room_number: num, room_type_code: m[2].toUpperCase(), room_suffix: suffix };
+      if (m) {
+        const { num, suffix } = stripSh(m[3].trim());
+        if (!num) return null;
+        return { room_number: num, room_type_code: m[2].toUpperCase(), room_suffix: suffix };
+      }
+      // Dash-less fallback — e.g. 66EC.QRP216, 70SNG306SH
+      const m2 = s.match(/^(\d+)([A-Z.]+?)(\d{2,})(SH)?$/i);
+      if (m2) {
+        return {
+          room_number: m2[3],
+          room_type_code: m2[2].toUpperCase(),
+          room_suffix: m2[4] ? "SH" : null,
+        };
+      }
+      return null;
     }
     case "mika-downtown": {
       // ^<TYPE>\s*-\s*<ROOM>$ — e.g. "DB - 101", "SUITE - 1/2"
