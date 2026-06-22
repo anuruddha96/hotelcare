@@ -23,6 +23,8 @@ const VISIBLE_ROLES = [
   'admin',
   'top_management',
   'top_management_manager',
+  'reception',
+  'front_office',
 ];
 
 const EXEC_ROLES = ['admin', 'top_management', 'top_management_manager'];
