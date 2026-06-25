@@ -267,9 +267,10 @@ serve(async (req) => {
     }
 
     const { error: e1 } = await supabase.from("daily_overview_snapshots").insert(inserts);
-    if (e1) return errResp(`DB insert failed: ${e1.message}`);
+    if (e1) return errResp(`DB insert failed: ${e1.message}${e1.details ? ` — ${e1.details}` : ""}${e1.hint ? ` (${e1.hint})` : ""}`);
     if (mealsInserts.length) {
-      await supabase.from("daily_overview_meal_totals").insert(mealsInserts);
+      const { error: e2 } = await supabase.from("daily_overview_meal_totals").insert(mealsInserts);
+      if (e2) return errResp(`Meals insert failed: ${e2.message}${e2.details ? ` — ${e2.details}` : ""}`);
     }
 
     return new Response(JSON.stringify({
@@ -278,7 +279,9 @@ serve(async (req) => {
       business_date: businessDate,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
-    console.error(e);
-    return errResp(e?.message ?? String(e));
+    console.error("revenue-overview-upload error", e);
+    const msg = e?.message ?? String(e);
+    const details = e?.details || e?.hint || e?.code || "";
+    return errResp(details ? `${msg} (${details})` : msg);
   }
 });

@@ -123,11 +123,22 @@ export default function ReceptionHome() {
     );
     setBusy(false);
     if (error) {
-      toast.error(error.message);
+      // Try to read the real error body — supabase-js hides it behind a
+      // generic "non-2xx status code" message.
+      let msg = error.message;
+      try {
+        const ctx = (error as any).context;
+        if (ctx && typeof ctx.text === "function") {
+          const txt = await ctx.text();
+          try { const j = JSON.parse(txt); msg = j.error || j.message || txt || msg; }
+          catch { msg = txt || msg; }
+        }
+      } catch { /* ignore */ }
+      toast.error(msg);
       return;
     }
-    if (data?.error) {
-      toast.error(data.error);
+    if (data?.error || data?.success === false) {
+      toast.error(data.error ?? "Upload failed");
       return;
     }
     setLast({
