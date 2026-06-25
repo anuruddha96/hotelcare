@@ -155,11 +155,21 @@ serve(async (req) => {
       }
 
       if (upserts.length) {
+        // Dedupe by (hotel_id, stay_date, room_number) — Postgres' ON CONFLICT
+        // can't touch the same row twice in one statement, and Previo sheets
+        // sometimes list a room twice (e.g. SH + non-SH variant collapsing to
+        // the same number). Last occurrence wins.
+        const dedup = new Map<string, any>();
+        for (const u of upserts) {
+          const key = `${u.hotel_id}|${u.stay_date}|${u.room_number}`;
+          dedup.set(key, u);
+        }
+        const finalRows = Array.from(dedup.values());
         const { error } = await supabase
           .from("breakfast_roster")
-          .upsert(upserts, { onConflict: "hotel_id,stay_date,room_number" });
+          .upsert(finalRows, { onConflict: "hotel_id,stay_date,room_number" });
         if (error) throw error;
-        totalRows += upserts.length;
+        totalRows += finalRows.length;
         datesProcessed.add(stayDate);
       }
     }
@@ -170,8 +180,11 @@ serve(async (req) => {
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     console.error("breakfast-roster-upload error", e);
-    return new Response(JSON.stringify({ error: e.message ?? String(e) }), {
-      status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    const msg = e?.message ?? String(e);
+    const details = e?.details || e?.hint || e?.code || "";
+    return new Response(
+      JSON.stringify({ success: false, error: details ? `${msg} (${details})` : msg }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });
