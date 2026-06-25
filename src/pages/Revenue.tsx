@@ -565,7 +565,18 @@ function HotelUploadDialog({ hotel, onClose, jobs, setJobs, onComplete }: {
       fd.append("file", jobs[i].file);
       fd.append("hotel_id", hotel.id);
       const { data, error } = await supabase.functions.invoke(fnName[kind], { body: fd });
-      const apiErr = (data && data.ok === false && data.error) ? data.error : (data?.error || error?.message);
+      let apiErr: string | undefined = (data && data.ok === false && data.error) ? data.error : (data?.error || error?.message);
+      if (error && (!data || !data.error)) {
+        // supabase-js hides the real body behind "non-2xx status code".
+        try {
+          const ctx = (error as any).context;
+          if (ctx && typeof ctx.text === "function") {
+            const txt = await ctx.text();
+            try { const j = JSON.parse(txt); apiErr = j.error || j.message || txt || apiErr; }
+            catch { apiErr = txt || apiErr; }
+          }
+        } catch { /* ignore */ }
+      }
       if (apiErr) {
         setJobs((arr) => arr.map((j, idx) => idx === i ? { ...j, status: "err", message: apiErr } : j));
       } else {
