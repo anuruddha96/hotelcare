@@ -1199,7 +1199,7 @@ export function HousekeepingStaffManagement() {
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
                 <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>{t('staff.noHousekeepingStaff', 'No housekeeping staff yet. Click "Add New Staff" to create the first account.')}</p>
+                <p>No housekeeping staff yet. Click "Add New Staff" to create the first account.</p>
               </CardContent>
             </Card>
           )}
