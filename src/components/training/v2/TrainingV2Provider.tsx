@@ -75,7 +75,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const lang = (language as LangCode) || 'en';
 
-  const role = (profile?.role as string) || 'housekeeping';
+  // IMPORTANT: do NOT default role to 'housekeeping'. If profile hasn't loaded
+  // yet, role is null and auto-start is gated below — otherwise managers would
+  // briefly receive the housekeeper tour during the first render.
+  const role = (profile?.role as string) || null;
   const assignedHotel = (profile as any)?.assigned_hotel || null;
 
   const [active, setActive] = useState<TrainingCurriculum | null>(null);
@@ -225,7 +228,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
   // Initial: load + auto-start
   useEffect(() => {
-    if (!user || autoStartedRef.current) return;
+    // Wait until profile (and therefore role) is loaded — otherwise the
+    // housekeeper curriculum would auto-start for every role.
+    if (!user || !role || autoStartedRef.current) return;
     autoStartedRef.current = true;
 
     (async () => {
@@ -272,6 +277,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     })();
   }, [user, role, refreshStatuses]);
 
+  // Guard-context role: when profile hasn't loaded yet, fall back to a neutral
+  // value so guards like `is_manager` don't accidentally evaluate true/false
+  // based on the old housekeeping default.
+  const guardRole = role || 'unknown';
+
   // Step lifecycle: navigate, locate selector, gate on precondition, poll waitFor
   useEffect(() => {
     if (!active || !step || !user) return;
@@ -282,7 +292,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
     const guardCtx = {
       userId: user.id,
-      role,
+      role: guardRole,
       assignedHotel,
       switchingHotel,
       dataReady: dataReadyRef.current,
