@@ -1,4 +1,17 @@
-// Housekeeper "Your First Day" curriculum — comprehensive, plain language
+// Housekeeper "Your First Day" curriculum.
+//
+// Designed so a brand-new housekeeper can follow it on their phone with no
+// prior coaching. The flow mirrors the real work order:
+//   1. Grant location access  →  2. Sign in (slider / button)
+//   3. Take a break / end a break (so they know how)
+//   4. Open My Tasks  →  5. (proactive) Start the first room when one is
+//      actually assigned and waiting  →  6. In-room tools  →
+//   7. Complete the room  →  8. Sign out at end of shift.
+//
+// Steps 5–7 are gated on `has_active_assignment` / `has_in_progress_cleaning`
+// so they appear PROACTIVELY only when the housekeeper actually has work,
+// instead of being shown as abstract slides. Selectors point at real anchors
+// (`data-training="…"`) that already exist in the dashboard components.
 import type { TrainingCurriculum } from '../types';
 
 export const housekeeperCurriculum: TrainingCurriculum = {
@@ -31,108 +44,142 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         mn: 'Hotel Care-д тавтай морил 👋',
       },
       body: {
-        en: 'This short tour shows you how to sign in, find your rooms, clean them, and finish your shift. It only takes 2 minutes.',
-        hu: 'Ez a rövid bemutató megmutatja, hogyan jelentkezz be, találd meg a szobáidat, takarítsd ki őket és fejezd be a műszakod. Csak 2 percet vesz igénybe.',
-        es: 'Este breve recorrido te muestra cómo iniciar sesión, encontrar tus habitaciones, limpiarlas y terminar tu turno. Solo toma 2 minutos.',
-        vi: 'Hướng dẫn ngắn này chỉ cho bạn cách đăng nhập, tìm phòng, dọn dẹp và kết thúc ca làm. Chỉ mất 2 phút.',
-        mn: 'Энэ богино заавар нь нэвтрэх, өрөөгөө олох, цэвэрлэх, ээлжээ дуусгахыг заана. Ердөө 2 минут.',
+        en: 'This short tour shows you how to sign in, find your rooms, clean them, and finish your shift. We will pause and wait for you at each step.',
+        hu: 'Ez a rövid bemutató megmutatja, hogyan jelentkezz be, találd meg a szobáidat, takarítsd ki őket és fejezd be a műszakod.',
+        es: 'Este breve recorrido te muestra cómo iniciar sesión, encontrar tus habitaciones, limpiarlas y terminar tu turno.',
+        vi: 'Hướng dẫn ngắn này chỉ cho bạn cách đăng nhập, tìm phòng, dọn dẹp và kết thúc ca làm.',
+        mn: 'Энэ богино заавар нь нэвтрэх, өрөөгөө олох, цэвэрлэх, ээлжээ дуусгахыг заана.',
       },
     },
+
+    // ── 1. Attendance: grant location access first ─────────────────────────
+    {
+      key: 'grant_location',
+      title: {
+        en: 'Allow location access',
+        hu: 'Engedélyezd a helymeghatározást',
+        es: 'Permite acceso a la ubicación',
+        vi: 'Cho phép truy cập vị trí',
+        mn: 'Байршил руу хандах зөвшөөрөл',
+      },
+      body: {
+        en: 'Sign-in needs your location so the hotel knows you are on site. When the phone asks, tap Allow. If you already denied it, open the Location help link on the Attendance tab.',
+        hu: 'A bejelentkezéshez szükség van a helyzetedre. Amikor a telefon kérdezi, koppints az Engedélyezés gombra.',
+        es: 'El registro necesita tu ubicación. Cuando el teléfono pregunte, toca Permitir.',
+        vi: 'Đăng nhập cần vị trí của bạn. Khi điện thoại hỏi, hãy bấm Cho phép.',
+        mn: 'Бүртгүүлэхэд таны байршил хэрэгтэй. Утас асуухад "Зөвшөөрөх" дар.',
+      },
+      tab: 'attendance',
+      selector: '[data-training="check-in-button"]',
+    },
+
+    // ── 2. Sign in (slider / button) ───────────────────────────────────────
     {
       key: 'signin',
       title: {
-        en: 'Sign in for your shift',
-        hu: 'Jelentkezz be a műszakodra',
-        es: 'Inicia sesión para tu turno',
-        vi: 'Đăng nhập ca làm',
-        mn: 'Ээлжээ эхлүүлэх',
+        en: 'Slide / tap to sign in',
+        hu: 'Húzd / koppints a bejelentkezéshez',
+        es: 'Desliza / toca para iniciar sesión',
+        vi: 'Trượt / chạm để đăng nhập',
+        mn: 'Гүйлгэж / товшиж бүртгүүл',
       },
       body: {
-        en: 'Before you can start any room you must be signed in. Tap the Attendance tab and press Sign In. We will wait here until you do.',
-        hu: 'Mielőtt bármelyik szobához hozzákezdenél, be kell jelentkezned. Koppints a Jelenlét fülre és nyomd meg a Bejelentkezés gombot. Megvárjuk.',
-        es: 'Antes de empezar una habitación debes estar registrado. Toca la pestaña Asistencia y pulsa Iniciar Sesión. Esperaremos.',
-        vi: 'Bạn phải đăng nhập trước khi dọn phòng. Bấm tab Chấm công và Đăng nhập. Chúng tôi sẽ chờ.',
-        mn: 'Өрөө цэвэрлэхээс өмнө бүртгүүлсэн байх ёстой. Ирц таб дээр дарж Бүртгүүлэх товчийг дар. Бид хүлээнэ.',
+        en: 'On the Attendance tab use the Sign In control to start your shift. We will wait here until you are signed in.',
+        hu: 'A Jelenlét fülön használd a Bejelentkezés vezérlőt. Megvárjuk.',
+        es: 'En la pestaña Asistencia usa el control Iniciar Sesión. Esperaremos.',
+        vi: 'Tại tab Chấm công, dùng nút Đăng nhập. Chúng tôi sẽ chờ.',
+        mn: 'Ирц табд Бүртгүүлэх товчийг ашиглан ээлжээ эхлүүл.',
       },
       tab: 'attendance',
-      selector: '[data-tour="signin-btn"]',
+      selector: '[data-training="check-in-button"]',
       waitFor: 'is_signed_in',
     },
+
+    // ── 3. Breaks ──────────────────────────────────────────────────────────
     {
-      key: 'open_housekeeping',
+      key: 'breaks',
       title: {
-        en: 'Your daily rooms',
-        hu: 'Napi szobáid',
-        es: 'Tus habitaciones diarias',
-        vi: 'Phòng hàng ngày',
-        mn: 'Өнөөдрийн өрөөнүүд',
-      },
-      body: {
-        en: 'The Housekeeping tab shows the rooms assigned to you today. Open it to see your list.',
-        hu: 'A Takarítás fül mutatja a ma rád osztott szobákat. Nyisd meg.',
-        es: 'La pestaña Limpieza muestra tus habitaciones de hoy. Ábrela.',
-        vi: 'Tab Dọn phòng hiển thị các phòng được giao hôm nay. Mở ra để xem.',
-        mn: 'Уборка таб өнөөдөр танд хуваарилсан өрөөнүүдийг харуулна. Үзэхийн тулд нээ.',
-      },
-      tab: 'housekeeping',
-      selector: '[data-tour="tab-housekeeping"]',
-    },
-    {
-      key: 'read_room_card',
-      title: {
-        en: 'Reading a room card',
-        hu: 'Szobakártya olvasása',
-        es: 'Leer una tarjeta de habitación',
-        vi: 'Đọc thẻ phòng',
-        mn: 'Өрөөний картыг унших',
-      },
-      body: {
-        en: 'Each card shows the room number, type (Daily or Checkout), priority and any guest notes. Green = ready, yellow = working, blue ring = in progress.',
-        hu: 'Minden kártya mutatja a szobaszámot, típust (Napi vagy Kijelentkezés), prioritást és vendégjegyzeteket. Zöld = kész, sárga = folyamatban, kék gyűrű = aktív.',
-        es: 'Cada tarjeta muestra número, tipo (Diaria o Salida), prioridad y notas. Verde = listo, amarillo = trabajando, anillo azul = en progreso.',
-        vi: 'Mỗi thẻ hiển thị số phòng, loại (Hàng ngày hoặc Trả phòng), độ ưu tiên và ghi chú. Xanh = sẵn sàng, vàng = đang làm.',
-        mn: 'Карт бүр өрөөний дугаар, төрөл, тэргүүлэх ач холбогдол, тэмдэглэлийг харуулна. Ногоон = бэлэн, шар = ажиллаж байна.',
-      },
-      selector: '[data-tour="my-rooms"]',
-      precondition: 'has_active_assignment',
-      optional: true,
-    },
-    {
-      key: 'start_cleaning',
-      title: {
-        en: 'Start cleaning a room',
-        hu: 'Szoba takarításának kezdése',
-        es: 'Comenzar a limpiar',
-        vi: 'Bắt đầu dọn phòng',
-        mn: 'Цэвэрлэж эхлэх',
-      },
-      body: {
-        en: 'Tap Start Cleaning on a card to begin. The card opens with all the tools you need. Press the button now — we will continue when you do.',
-        hu: 'Koppints a Takarítás kezdése gombra. A kártya kinyílik a szükséges eszközökkel. Nyomd meg most.',
-        es: 'Toca Comenzar Limpieza. La tarjeta se abre con todas las herramientas. Pulsa ahora.',
-        vi: 'Bấm Bắt đầu Dọn để mở thẻ với đầy đủ công cụ. Bấm bây giờ.',
-        mn: 'Цэвэрлэж эхлэх товчийг дар. Бүх хэрэгсэлтэйгээр карт нээгдэнэ.',
-      },
-      selector: '[data-tour="start-cleaning"]',
-      precondition: 'has_active_assignment',
-      waitFor: 'has_in_progress_cleaning',
-    },
-    {
-      key: 'in_session_pause',
-      title: {
-        en: 'Take a break safely',
+        en: 'Take a break',
         hu: 'Tarts szünetet',
         es: 'Toma un descanso',
         vi: 'Nghỉ giải lao',
         mn: 'Завсарлах',
       },
       body: {
-        en: 'Use the Pause button inside the room to take a break. Your time stops and resumes when you return.',
-        hu: 'Használd a szobán belüli Szünet gombot. Az időd megáll és újraindul.',
-        es: 'Usa el botón Pausa dentro de la habitación. Tu tiempo se detiene y se reanuda.',
-        vi: 'Dùng nút Tạm dừng trong phòng. Thời gian sẽ dừng và tiếp tục khi trở lại.',
-        mn: 'Өрөөн доторх Завсар товчийг ашигла. Цаг чинь зогсож, эргэн ирэхэд үргэлжилнэ.',
+        en: 'When you need a break, pick the type (lunch, rest, personal) and press Start Break. Press End Break to come back. Your shift time stops and resumes automatically.',
+        hu: 'Ha szünetet szeretnél, válaszd ki a típust és nyomd meg a Szünet Indítása gombot.',
+        es: 'Cuando necesites un descanso, elige el tipo y pulsa Iniciar Descanso.',
+        vi: 'Khi cần nghỉ, chọn loại và bấm Bắt đầu nghỉ.',
+        mn: 'Завсарлахдаа төрлийг сонгож "Завсар эхлүүлэх" дар.',
       },
+      tab: 'attendance',
+      selector: '[data-training="break-button"]',
+      precondition: 'is_signed_in',
+      optional: true,
+    },
+
+    // ── 4. Open the My Tasks list ──────────────────────────────────────────
+    {
+      key: 'my_tasks',
+      title: {
+        en: 'Your rooms for today',
+        hu: 'Mai szobáid',
+        es: 'Tus habitaciones de hoy',
+        vi: 'Phòng hôm nay',
+        mn: 'Өнөөдрийн өрөөнүүд',
+      },
+      body: {
+        en: 'My Tasks shows the rooms assigned to you. Each card has the room number, type (Daily / Checkout), priority and any guest notes.',
+        hu: 'A Feladataim a rád osztott szobákat mutatja.',
+        es: 'Mis Tareas muestra tus habitaciones asignadas.',
+        vi: 'Nhiệm vụ của tôi hiển thị các phòng được giao.',
+        mn: '"Миний даалгавар" танд хуваарилсан өрөөг харуулна.',
+      },
+      tab: 'housekeeping',
+      selector: '[data-training="my-tasks-tab"]',
+      precondition: 'is_signed_in',
+    },
+
+    // ── 5. PROACTIVE: only fires when an active room is assigned & waiting ─
+    {
+      key: 'start_cleaning',
+      title: {
+        en: 'Start your first room',
+        hu: 'Kezdd el az első szobát',
+        es: 'Comienza tu primera habitación',
+        vi: 'Bắt đầu phòng đầu tiên',
+        mn: 'Эхний өрөөгөө эхлүүл',
+      },
+      body: {
+        en: 'You have a room waiting. Tap Start Cleaning on the card to open the in-room tools. We will continue once you start.',
+        hu: 'Vár rád egy szoba. Koppints a Takarítás kezdése gombra.',
+        es: 'Tienes una habitación esperando. Toca Comenzar Limpieza.',
+        vi: 'Bạn có phòng đang chờ. Bấm Bắt đầu Dọn.',
+        mn: 'Танд өрөө хүлээж байна. "Цэвэрлэж эхлэх" дар.',
+      },
+      selector: '[data-training="start-room-button"]',
+      precondition: 'has_active_assignment',
+      waitFor: 'has_in_progress_cleaning',
+    },
+
+    // ── 6. In-room tools (only relevant once a room is in progress) ────────
+    {
+      key: 'in_session_photos',
+      title: {
+        en: 'Add the required photos',
+        hu: 'Készítsd el a kötelező fotókat',
+        es: 'Toma las fotos requeridas',
+        vi: 'Chụp ảnh bắt buộc',
+        mn: 'Шаардлагатай зургуудыг ав',
+      },
+      body: {
+        en: 'Tap Photos and capture bathroom, bed and floor. You cannot complete the room without them.',
+        hu: 'Koppints a Fotók gombra és készíts fotót a fürdőről, ágyról, padlóról.',
+        es: 'Toca Fotos y captura baño, cama y suelo.',
+        vi: 'Bấm Ảnh và chụp phòng tắm, giường, sàn.',
+        mn: '"Зураг" товч дээр дарж угаалгын өрөө, ор, шалыг ав.',
+      },
+      selector: '[data-training="room-photos-button"]',
       precondition: 'has_in_progress_cleaning',
     },
     {
@@ -141,71 +188,101 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         en: 'Found something broken?',
         hu: 'Találtál valami hibásat?',
         es: '¿Algo está roto?',
-        vi: 'Tìm thấy gì hỏng?',
+        vi: 'Có gì hỏng?',
         mn: 'Эвдэрсэн зүйл байна уу?',
       },
       body: {
-        en: 'Inside the room, tap Maintenance to create a ticket with a photo. The maintenance team gets it instantly.',
-        hu: 'A szobán belül koppints a Karbantartás gombra, hogy jegyet készíts fényképpel.',
-        es: 'Dentro de la habitación, toca Mantenimiento para crear un ticket con foto.',
-        vi: 'Trong phòng, bấm Bảo trì để tạo phiếu kèm ảnh.',
-        mn: 'Өрөөн дотроос Засвар үйлчилгээ дээр дарж зураг хавсаргасан тасалбар үүсгэ.',
+        en: 'Tap Maintenance to create a ticket with a photo. The maintenance team gets it instantly.',
+        hu: 'Koppints a Karbantartás gombra, hogy jegyet készíts fényképpel.',
+        es: 'Toca Mantenimiento para crear un ticket con foto.',
+        vi: 'Bấm Bảo trì để tạo phiếu kèm ảnh.',
+        mn: 'Засвар үйлчилгээ дээр дарж зураг хавсаргасан тасалбар үүсгэ.',
       },
+      selector: '[data-training="maintenance-button"]',
       precondition: 'has_in_progress_cleaning',
+      optional: true,
     },
     {
-      key: 'in_session_minibar',
+      key: 'in_session_linen',
       title: {
-        en: 'Minibar consumption',
-        hu: 'Minibár fogyasztás',
-        es: 'Consumo del minibar',
-        vi: 'Tiêu thụ minibar',
-        mn: 'Минибарын хэрэглээ',
+        en: 'Log dirty linen',
+        hu: 'Rögzítsd a piszkos ágyneműt',
+        es: 'Registra ropa sucia',
+        vi: 'Ghi nhận khăn bẩn',
+        mn: 'Бохир даавууг бүртгэ',
       },
       body: {
-        en: 'If the guest used anything from the minibar, add it before you finish. Perishables (milk, fruit) must always be checked.',
-        hu: 'Ha a vendég használta a minibárt, add hozzá. A romlandó tételeket mindig ellenőrizd.',
-        es: 'Si el huésped consumió del minibar, agrégalo. Los perecederos siempre se revisan.',
-        vi: 'Nếu khách đã dùng minibar, thêm vào trước khi xong. Đồ tươi phải kiểm tra.',
-        mn: 'Хэрэв зочин минибараас хэрэглэсэн бол нэмж бичээрэй.',
+        en: 'Use Dirty Linen to count what you removed. Laundry uses this for the next delivery.',
+        hu: 'A Piszkos Ágynemű gombbal számold meg a kivett tételeket.',
+        es: 'Usa Ropa Sucia para contar lo que retiraste.',
+        vi: 'Dùng Khăn Bẩn để đếm những gì bạn đã lấy ra.',
+        mn: '"Бохир даавуу" товчоор хассан зүйлээ тоол.',
       },
+      selector: '[data-training="dirty-linen-button"]',
       precondition: 'has_in_progress_cleaning',
+      optional: true,
+    },
+    {
+      key: 'in_session_lostfound',
+      title: {
+        en: 'Lost & found',
+        hu: 'Elveszett és talált',
+        es: 'Objetos perdidos',
+        vi: 'Mất & tìm',
+        mn: 'Олдсон зүйл',
+      },
+      body: {
+        en: 'Found something a guest left? Tap Lost & Found and log it with a photo so reception can return it.',
+        hu: 'Találtál valamit? Koppints az Elveszett és Talált gombra.',
+        es: '¿Encontraste algo? Toca Perdidos y Encontrados.',
+        vi: 'Tìm thấy gì? Bấm Mất & Tìm.',
+        mn: 'Олсон зүйлийг "Олдсон зүйл" дээр бүртгэ.',
+      },
+      selector: '[data-training="lost-found-button"]',
+      precondition: 'has_in_progress_cleaning',
+      optional: true,
+    },
+    {
+      key: 'in_session_dnd',
+      title: {
+        en: 'DND or refused service',
+        hu: 'Ne zavarj / elutasított',
+        es: 'No molestar / rechazado',
+        vi: 'DND / từ chối',
+        mn: 'Бүү саатуул / татгалзсан',
+      },
+      body: {
+        en: 'If the guest has DND or refuses cleaning, tap the orange No Service / DND button instead of completing the room.',
+        hu: 'Ha DND vagy elutasítás van, használd a narancssárga gombot.',
+        es: 'Si hay DND o rechazo, usa el botón naranja.',
+        vi: 'Nếu DND hoặc bị từ chối, dùng nút cam.',
+        mn: 'DND эсвэл татгалзвал улбар шар товчийг ашигла.',
+      },
+      selector: '[data-training="dnd-button"]',
+      precondition: 'has_in_progress_cleaning',
+      optional: true,
     },
     {
       key: 'in_session_complete',
       title: {
-        en: 'Finishing the room',
-        hu: 'Szoba befejezése',
+        en: 'Finish the room',
+        hu: 'Fejezd be a szobát',
         es: 'Terminar la habitación',
         vi: 'Hoàn tất phòng',
         mn: 'Өрөөг дуусгах',
       },
       body: {
-        en: 'Take the required photos (bathroom, bed, floor) and tap Mark Complete. The room becomes ready for inspection.',
-        hu: 'Készítsd el a kötelező fotókat (fürdő, ágy, padló) és koppints a Kész jelölésre.',
-        es: 'Toma las fotos requeridas (baño, cama, piso) y pulsa Marcar Completo.',
-        vi: 'Chụp ảnh bắt buộc (phòng tắm, giường, sàn) rồi bấm Hoàn tất.',
-        mn: 'Шаардлагатай зургуудыг авч "Дуусгах" дарна уу.',
+        en: 'When the photos are in and the room is ready, tap Mark Complete. It becomes ready for inspection.',
+        hu: 'Ha kész vagy, koppints a Kész jelölésre.',
+        es: 'Cuando termines, pulsa Marcar Completo.',
+        vi: 'Khi xong, bấm Hoàn tất.',
+        mn: 'Дууссан үед "Дуусгах" дар.',
       },
+      selector: '[data-training="complete-room-button"]',
       precondition: 'has_in_progress_cleaning',
     },
-    {
-      key: 'special_situations',
-      title: {
-        en: 'DND, refused, lost & found',
-        hu: 'Ne zavarj, visszautasított, talált tárgy',
-        es: 'No molestar, rechazado, objetos perdidos',
-        vi: 'DND, từ chối, mất & tìm',
-        mn: 'Бүү саатуул, татгалзсан, олдсон зүйл',
-      },
-      body: {
-        en: 'If the guest has DND or refuses service, use the orange No Service button. For lost items, open Lost & Found and log them with a photo.',
-        hu: 'Ha DND vagy elutasítás van, használd a narancssárga Nincs Szolgáltatás gombot. Talált tárgyhoz nyisd meg az Elveszett és Talált fület.',
-        es: 'Si hay DND o rechazo, usa el botón naranja Sin Servicio. Para objetos perdidos abre Perdidos y Encontrados.',
-        vi: 'Nếu DND hoặc bị từ chối, dùng nút cam Không Dịch Vụ. Đồ thất lạc thì mở Mất & Tìm.',
-        mn: 'DND эсвэл татгалзвал улбар шар "Үйлчилгээгүй" товчийг ашигла.',
-      },
-    },
+
+    // ── 7. End of shift ────────────────────────────────────────────────────
     {
       key: 'signout',
       title: {
@@ -216,13 +293,15 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         mn: 'Ээлжээ дуусгах',
       },
       body: {
-        en: 'When all rooms are done, open Attendance and tap Sign Out. Your manager sees your finish time automatically.',
+        en: 'When all rooms are done, go back to Attendance and tap Sign Out. Your manager sees your finish time automatically.',
         hu: 'Ha minden szoba kész, nyisd meg a Jelenlét fület és koppints a Kijelentkezés gombra.',
         es: 'Cuando termines, abre Asistencia y toca Cerrar Sesión.',
         vi: 'Khi xong, mở Chấm công và bấm Đăng xuất.',
         mn: 'Бүх өрөө дууссан үед Ирц рүү ороод "Гарах" дарна уу.',
       },
       tab: 'attendance',
+      selector: '[data-training="sign-out-button"]',
+      precondition: 'is_signed_in',
     },
   ],
 };
