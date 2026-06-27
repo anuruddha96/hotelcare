@@ -513,6 +513,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
               <Button
                 variant="default"
                 data-tour="auto-assign-btn"
+                data-training="auto-assign-btn"
                 onClick={() => setAutoAssignDialogOpen(true)}
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
