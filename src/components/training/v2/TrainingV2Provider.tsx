@@ -259,7 +259,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
         };
       });
 
-      const candidates = curriculaForRole(role);
+      // Only auto-start curricula in the 'core' category. Manager
+      // feature-promo modules (team, tickets, revenue, …) appear in the
+      // Training Center as recommended next steps but never auto-fire.
+      const candidates = curriculaForRole(role).filter((c) => c.category === 'core');
       const target = candidates.find((c) => progressBySlug[c.slug]?.status !== 'completed');
       if (!target) return;
       const resumeIdx = progressBySlug[target.slug]?.idx ?? 0;
