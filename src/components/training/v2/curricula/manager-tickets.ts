@@ -1,0 +1,99 @@
+// Manager — Tickets & SLA module
+import type { TrainingCurriculum } from '../types';
+
+export const managerTicketsCurriculum: TrainingCurriculum = {
+  slug: 'v2_manager_tickets_and_sla',
+  name: {
+    en: 'Tickets & SLA',
+    hu: 'Hibajegyek és SLA',
+    es: 'Tickets y SLA',
+    vi: 'Phiếu & SLA',
+    mn: 'Тасалбар ба SLA',
+  },
+  description: {
+    en: 'Maintenance queue, SLA timers, photo evidence, assignment and hold/approval workflow.',
+    hu: 'Karbantartási sor, SLA, fotók, hozzárendelés és tartás/jóváhagyás.',
+    es: 'Cola de mantenimiento, SLA, fotos, asignación y retención/aprobación.',
+    vi: 'Hàng đợi bảo trì, SLA, ảnh, phân công và giữ/phê duyệt.',
+    mn: 'Засварын дараалал, SLA, зураг, хуваарилалт ба зөвшөөрөл.',
+  },
+  roles: ['manager', 'maintenance_manager', 'admin', 'top_management_manager'],
+  category: 'feature_promo',
+  priority: 22,
+  steps: [
+    {
+      key: 'ticket_list',
+      title: {
+        en: 'The maintenance queue',
+        hu: 'A karbantartási sor',
+        es: 'La cola de mantenimiento',
+        vi: 'Hàng đợi bảo trì',
+        mn: 'Засварын дараалал',
+      },
+      body: {
+        en: 'Every issue raised by housekeepers, reception or guests lands here with photos and SLA timer. Filter by room, status, department or priority.',
+        hu: 'Minden bejelentés ide kerül fotókkal és SLA-időzítővel.',
+        es: 'Cada incidencia llega aquí con fotos y temporizador SLA.',
+        vi: 'Mọi vấn đề về đây với ảnh và bộ đếm SLA.',
+        mn: 'Бүх асуудал зураг, SLA-тай эндээс харагдана.',
+      },
+      tab: 'tickets',
+      selector: '[data-training="tickets-tab"]',
+    },
+    {
+      key: 'ticket_row',
+      title: {
+        en: 'Reading a ticket card',
+        hu: 'Hibajegy kártya olvasása',
+        es: 'Cómo leer una tarjeta',
+        vi: 'Đọc thẻ phiếu',
+        mn: 'Тасалбарын картыг унших',
+      },
+      body: {
+        en: 'Title · room · SLA color · assignee · age. Green = within SLA, amber = approaching breach, red = breached. Tap to open full detail and history.',
+        hu: 'Cím · szoba · SLA szín · felelős · kor. Zöld = rendben, sárga = lejár, piros = lejárt.',
+        es: 'Título · habitación · color SLA · responsable. Verde/ámbar/rojo según SLA.',
+        vi: 'Tiêu đề · phòng · màu SLA · người phụ trách. Xanh/vàng/đỏ theo SLA.',
+        mn: 'Гарчиг · өрөө · SLA өнгө · хариуцагч. Ногоон/шар/улаан өнгө.',
+      },
+      tab: 'tickets',
+      selector: '[data-training="ticket-row"]',
+      precondition: 'hotel_selected',
+      optional: true,
+    },
+    {
+      key: 'assign',
+      title: {
+        en: 'Assigning to maintenance',
+        hu: 'Hozzárendelés karbantartóhoz',
+        es: 'Asignar a mantenimiento',
+        vi: 'Phân công cho bảo trì',
+        mn: 'Засварчинд хуваарилах',
+      },
+      body: {
+        en: 'Open a ticket and pick the assignee from the dropdown. They get a push notification immediately and the SLA timer starts counting against them.',
+        hu: 'Nyisd meg a jegyet és válassz felelőst — azonnal értesítést kap.',
+        es: 'Abre el ticket y elige responsable — recibe notificación al instante.',
+        vi: 'Mở phiếu, chọn người — họ nhận thông báo ngay.',
+        mn: 'Тасалбарыг нээж хариуцагчийг сонгоход тэр шууд мэдэгдэл авна.',
+      },
+    },
+    {
+      key: 'hold_approval',
+      title: {
+        en: 'Hold & approval for expensive repairs',
+        hu: 'Tartás és jóváhagyás drága javításokhoz',
+        es: 'Retener y aprobar reparaciones costosas',
+        vi: 'Tạm giữ & phê duyệt sửa chữa lớn',
+        mn: 'Үнэтэй засварт зөвшөөрөл авах',
+      },
+      body: {
+        en: 'Maintenance can put a ticket on Hold with an estimate. It pauses the SLA and flags it for your approval before work continues. Approve or reject from the ticket detail.',
+        hu: 'A karbantartó Tartásra teheti a jegyet becsléssel — SLA megáll, vár a jóváhagyásodra.',
+        es: 'Mantenimiento puede poner el ticket en Espera con presupuesto para tu aprobación.',
+        vi: 'Bảo trì có thể Tạm giữ phiếu kèm dự toán chờ bạn duyệt.',
+        mn: 'Засварчин үнийн саналтай "Хүлээлгэх" болгоход таны зөвшөөрөл шаардана.',
+      },
+    },
+  ],
+};
