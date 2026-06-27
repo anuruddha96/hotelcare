@@ -460,12 +460,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     <Tabs defaultValue="team" className="space-y-6" onValueChange={(val) => onActiveInnerTabChange?.(val)}>
       {!isReception && (
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="team" className="text-xs sm:text-sm truncate">{t('manager.teamView')}</TabsTrigger>
-          <TabsTrigger value="early-signout" className="text-xs sm:text-sm truncate">{t('manager.earlySignOutApprovals')}</TabsTrigger>
+          <TabsTrigger value="team" className="text-xs sm:text-sm truncate" data-training="team-view-tab">{t('manager.teamView')}</TabsTrigger>
+          <TabsTrigger value="early-signout" className="text-xs sm:text-sm truncate" data-training="pending-approvals">{t('manager.earlySignOutApprovals')}</TabsTrigger>
         </TabsList>
       )}
 
-      <TabsContent value="team" className="space-y-6">
+      <TabsContent value="team" className="space-y-6" data-training="team-view">
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-4">
