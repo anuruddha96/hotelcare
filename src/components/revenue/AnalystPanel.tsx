@@ -72,7 +72,7 @@ export default function AnalystPanel({ hotelId, onAfterRun }: { hotelId: string;
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-training="ai-analyst-card">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5 text-primary" />

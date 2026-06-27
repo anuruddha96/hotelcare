@@ -460,12 +460,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     <Tabs defaultValue="team" className="space-y-6" onValueChange={(val) => onActiveInnerTabChange?.(val)}>
       {!isReception && (
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="team" className="text-xs sm:text-sm truncate">{t('manager.teamView')}</TabsTrigger>
-          <TabsTrigger value="early-signout" className="text-xs sm:text-sm truncate">{t('manager.earlySignOutApprovals')}</TabsTrigger>
+          <TabsTrigger value="team" className="text-xs sm:text-sm truncate" data-training="team-view-tab">{t('manager.teamView')}</TabsTrigger>
+          <TabsTrigger value="early-signout" className="text-xs sm:text-sm truncate" data-training="pending-approvals">{t('manager.earlySignOutApprovals')}</TabsTrigger>
         </TabsList>
       )}
 
-      <TabsContent value="team" className="space-y-6">
+      <TabsContent value="team" className="space-y-6" data-training="team-view">
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-4">
@@ -513,6 +513,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
               <Button
                 variant="default"
                 data-tour="auto-assign-btn"
+                data-training="auto-assign-btn"
                 onClick={() => setAutoAssignDialogOpen(true)}
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >

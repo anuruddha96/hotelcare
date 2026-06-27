@@ -1,11 +1,23 @@
 import type { TrainingCurriculum, RoleKey } from '../types';
 import { housekeeperCurriculum } from './housekeeper';
-import { managerCurriculum } from './manager';
+import { managerOrientationCurriculum } from './manager';
+import { managerTeamCurriculum } from './manager-team';
+import { managerTicketsCurriculum } from './manager-tickets';
+import { managerReceptionCurriculum } from './manager-reception';
+import { managerAttendanceCurriculum } from './manager-attendance';
+import { managerRevenueCurriculum } from './manager-revenue';
+import { managerInvoicesCurriculum } from './manager-invoices';
 import { autoAssignPromo } from './autoAssignPromo';
 
 export const ALL_CURRICULA: TrainingCurriculum[] = [
   housekeeperCurriculum,
-  managerCurriculum,
+  managerOrientationCurriculum,
+  managerTeamCurriculum,
+  managerTicketsCurriculum,
+  managerReceptionCurriculum,
+  managerAttendanceCurriculum,
+  managerRevenueCurriculum,
+  managerInvoicesCurriculum,
   autoAssignPromo,
 ];
 

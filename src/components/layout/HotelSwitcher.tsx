@@ -69,6 +69,7 @@ export function HotelSwitcher() {
           variant="outline"
           size="sm"
           data-tour="hotel-switcher"
+          data-training="hotel-switcher"
           aria-label={currentHotelName}
           className="shrink-0 gap-2 h-9 w-9 sm:w-auto sm:px-3 p-0 justify-center"
         >

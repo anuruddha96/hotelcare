@@ -1,0 +1,93 @@
+// Manager — Reception handover module
+import type { TrainingCurriculum } from '../types';
+
+export const managerReceptionCurriculum: TrainingCurriculum = {
+  slug: 'v2_manager_reception_handover',
+  name: {
+    en: 'Reception Handover',
+    hu: 'Recepciós Átadás',
+    es: 'Entrega de Recepción',
+    vi: 'Bàn giao Lễ tân',
+    mn: 'Ресепшнээс хүлээн авах',
+  },
+  description: {
+    en: 'Daily Overview upload, /bb breakfast lookup, check-in/out and guest minibar.',
+    hu: 'Napi áttekintés feltöltése, reggeli keresés, ki/bejelentkezés és minibár.',
+    es: 'Carga del resumen diario, búsqueda de desayuno, check-in/out y minibar.',
+    vi: 'Tải tổng quan ngày, tra cứu bữa sáng, check-in/out, minibar.',
+    mn: 'Өдрийн тойм оруулах, өглөөний хайлт, бүртгэл, мини-бар.',
+  },
+  roles: ['manager', 'reception_manager', 'admin', 'top_management_manager'],
+  category: 'feature_promo',
+  priority: 24,
+  steps: [
+    {
+      key: 'daily_overview',
+      title: {
+        en: 'Nightly Daily Overview upload',
+        hu: 'Éjszakai Napi Áttekintés feltöltés',
+        es: 'Carga nocturna del Resumen Diario',
+        vi: 'Tải Tổng quan ngày hàng đêm',
+        mn: 'Шөнийн Өдрийн тойм оруулах',
+      },
+      body: {
+        en: 'Night reception exports the Previo Daily Overview XLSX and uploads it from their landing page. This powers the next morning\'s breakfast lookup at /bb.',
+        hu: 'Az éjszakás recepciós feltölti a Previo Daily Overview XLSX-et a saját kezdőlapjáról.',
+        es: 'La recepción nocturna sube el XLSX del Daily Overview de Previo.',
+        vi: 'Lễ tân ca đêm tải file XLSX Daily Overview của Previo.',
+        mn: 'Шөнийн ресепшн Previo Daily Overview XLSX оруулна.',
+      },
+    },
+    {
+      key: 'breakfast_lookup',
+      title: {
+        en: 'Breakfast lookup (/bb)',
+        hu: 'Reggeli keresés (/bb)',
+        es: 'Búsqueda de desayuno (/bb)',
+        vi: 'Tra cứu bữa sáng (/bb)',
+        mn: 'Өглөөний хайлт (/bb)',
+      },
+      body: {
+        en: 'Public page — staff at the breakfast door type the room number and instantly see name, package and adults/children, then mark "served".',
+        hu: 'Nyilvános oldal — a reggelinél beírják a szobaszámot és látják a csomagot.',
+        es: 'Página pública — escriben el número de habitación y ven el paquete.',
+        vi: 'Trang công khai — nhập số phòng để xem gói bữa sáng.',
+        mn: 'Олон нийтэд нээлттэй — өрөөний дугаар оруулж багц харна.',
+      },
+    },
+    {
+      key: 'frontdesk',
+      title: {
+        en: 'Check-in / check-out',
+        hu: 'Be- és kijelentkezés',
+        es: 'Check-in / check-out',
+        vi: 'Nhận / trả phòng',
+        mn: 'Бүртгэл / гарах',
+      },
+      body: {
+        en: 'FrontDesk shows today\'s arrivals and departures from Previo. Check-in writes back to Previo and unlocks the room for housekeeping prep.',
+        hu: 'A FrontDesk a mai érkezéseket és távozásokat mutatja a Previo-ból.',
+        es: 'FrontDesk muestra llegadas y salidas de hoy desde Previo.',
+        vi: 'FrontDesk hiển thị đến/đi hôm nay từ Previo.',
+        mn: 'FrontDesk нь Previo-оос өнөөдрийн ирэх/гарахыг харуулна.',
+      },
+    },
+    {
+      key: 'minibar',
+      title: {
+        en: 'Guest minibar reconciliation',
+        hu: 'Vendég minibár egyeztetés',
+        es: 'Conciliación del minibar',
+        vi: 'Đối soát minibar',
+        mn: 'Зочны мини-бар тооцоо',
+      },
+      body: {
+        en: 'Guests self-report consumption via the in-room QR. Reception confirms or edits at check-out; the line items push to the Previo folio automatically.',
+        hu: 'A vendég QR-en jelenti, a recepció megerősíti — a tételek mennek a Previo-ba.',
+        es: 'El huésped reporta por QR; recepción confirma y se envía al folio en Previo.',
+        vi: 'Khách báo qua QR; lễ tân xác nhận và đẩy về hóa đơn Previo.',
+        mn: 'Зочин QR-аар мэдээлэх — ресепшн баталгаажуулж Previo руу илгээнэ.',
+      },
+    },
+  ],
+};

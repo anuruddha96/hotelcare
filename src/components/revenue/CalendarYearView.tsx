@@ -86,7 +86,7 @@ export function CalendarYearView({ monthsAhead = 12, startMonth, rowsByDate, onS
   }, [startMonth, monthsAhead]);
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-training="revenue-grid">
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-500/70" /> Increase</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-500/70" /> Decrease</span>

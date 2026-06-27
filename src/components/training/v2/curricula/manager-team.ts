@@ -1,0 +1,102 @@
+// Manager — Team & Assignments module
+import type { TrainingCurriculum } from '../types';
+
+export const managerTeamCurriculum: TrainingCurriculum = {
+  slug: 'v2_manager_team_and_assignments',
+  name: {
+    en: 'Team & Assignments',
+    hu: 'Csapat és Hozzárendelések',
+    es: 'Equipo y Asignaciones',
+    vi: 'Đội & Phân công',
+    mn: 'Баг ба Хуваарилалт',
+  },
+  description: {
+    en: 'Team View, Auto-Assign, manual overrides and pending approvals.',
+    hu: 'Csapat nézet, Auto-Hozzárendelés, kézi felülbírálás és jóváhagyások.',
+    es: 'Vista del equipo, Auto-Asignar, anulación manual y aprobaciones.',
+    vi: 'Xem nhóm, Tự động phân công, ghi đè thủ công, phê duyệt.',
+    mn: 'Багийн харагдац, Авто-хуваарилалт, гар хуваарилалт, зөвшөөрөл.',
+  },
+  roles: ['manager', 'housekeeping_manager', 'admin', 'top_management_manager'],
+  category: 'feature_promo',
+  priority: 20,
+  steps: [
+    {
+      key: 'team_view',
+      title: {
+        en: 'Team View — live housekeeper cards',
+        hu: 'Csapat nézet — élő szobaasszony kártyák',
+        es: 'Vista del Equipo — tarjetas en vivo',
+        vi: 'Xem nhóm — thẻ thời gian thực',
+        mn: 'Багийн харагдац — шууд карт',
+      },
+      body: {
+        en: 'One tile per housekeeper. You see done / in progress / pending rooms, current status (working / on break / signed out) and progress against capacity — all in real time.',
+        hu: 'Egy csempe szobaasszonyonként: kész / folyamatban / hátralévő szobák valós időben.',
+        es: 'Una tarjeta por camarera: hechas / en curso / pendientes en tiempo real.',
+        vi: 'Mỗi nhân viên một thẻ: xong / đang làm / chờ — thời gian thực.',
+        mn: 'Цэвэрлэгч бүрт нэг карт: дууссан / явагдаж буй / хүлээгдэж буй.',
+      },
+      tab: 'housekeeping',
+      selector: '[data-training="team-view"]',
+      precondition: 'hotel_selected',
+    },
+    {
+      key: 'auto_assign',
+      title: {
+        en: 'Auto-Assign — one-click distribution',
+        hu: 'Auto-Hozzárendelés — egy kattintásos elosztás',
+        es: 'Auto-Asignar — distribución de un clic',
+        vi: 'Tự động phân công — một cú nhấp',
+        mn: 'Автомат хуваарилалт — нэг товшилт',
+      },
+      body: {
+        en: 'Distributes today\'s rooms across your team based on capacity, priority tier, language match and No-Service rules. You can re-run it after edits — existing in-progress rooms are preserved.',
+        hu: 'Egy kattintással szétosztja a mai szobákat kapacitás és prioritás szerint.',
+        es: 'Distribuye las habitaciones de hoy según capacidad y prioridad.',
+        vi: 'Phân chia phòng hôm nay theo năng lực và ưu tiên.',
+        mn: 'Өнөөдрийн өрөөг чадавхи, ач холбогдлоор хуваарилна.',
+      },
+      tab: 'housekeeping',
+      selector: '[data-training="auto-assign-btn"]',
+      precondition: 'hotel_selected',
+    },
+    {
+      key: 'manual_override',
+      title: {
+        en: 'Manual override is always available',
+        hu: 'Kézi felülbírálás bármikor',
+        es: 'Anulación manual siempre disponible',
+        vi: 'Luôn có thể ghi đè thủ công',
+        mn: 'Гар хуваарилалт үргэлж боломжтой',
+      },
+      body: {
+        en: 'Drag any room between housekeepers, change priority, or mark No Service / DND from the room card. Auto-Assign respects your manual locks on the next run.',
+        hu: 'Bármikor mozgathatsz szobát, módosíthatsz prioritást, jelölhetsz No Service-t.',
+        es: 'Mueve habitaciones, cambia prioridad o marca No Service cuando quieras.',
+        vi: 'Di chuyển phòng, đổi ưu tiên, đặt No Service bất cứ lúc nào.',
+        mn: 'Өрөө шилжүүлэх, ач холбогдол өөрчлөх, No Service тэмдэглэх боломжтой.',
+      },
+      tab: 'housekeeping',
+    },
+    {
+      key: 'pending_approvals',
+      title: {
+        en: 'Pending Approvals',
+        hu: 'Függő jóváhagyások',
+        es: 'Aprobaciones Pendientes',
+        vi: 'Chờ phê duyệt',
+        mn: 'Хүлээгдэж буй зөвшөөрөл',
+      },
+      body: {
+        en: 'Early sign-out requests, time corrections and No-Service approvals land here. Approve or reject in one tap — the housekeeper sees the result instantly.',
+        hu: 'Korai kijelentkezés és időkorrekció kérések ide érkeznek.',
+        es: 'Solicitudes de salida anticipada y correcciones de hora aparecen aquí.',
+        vi: 'Yêu cầu kết ca sớm và chỉnh giờ hiện ở đây.',
+        mn: 'Эрт гарах хүсэлт болон цаг засварлалт энд харагдана.',
+      },
+      tab: 'housekeeping',
+      selector: '[data-training="pending-approvals"]',
+    },
+  ],
+};

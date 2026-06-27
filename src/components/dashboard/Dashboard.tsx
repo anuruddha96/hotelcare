@@ -763,12 +763,13 @@ export function Dashboard() {
               </div>
             ) : (
               <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                {filteredTickets.map((ticket) => (
-                  <TicketCard
-                    key={ticket.id}
-                    ticket={ticket}
-                    onClick={() => setSelectedTicket(ticket)}
-                  />
+                {filteredTickets.map((ticket, idx) => (
+                  <div key={ticket.id} data-training={idx === 0 ? 'ticket-row' : undefined}>
+                    <TicketCard
+                      ticket={ticket}
+                      onClick={() => setSelectedTicket(ticket)}
+                    />
+                  </div>
                 ))}
               </div>
             )}

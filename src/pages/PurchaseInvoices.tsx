@@ -356,7 +356,7 @@ export default function PurchaseInvoices() {
           </TabsList>
 
           <TabsContent value="upload" className="space-y-4">
-            <Card data-tour="pi-upload">
+            <Card data-tour="pi-upload" data-training="invoice-upload">
               <CardHeader><CardTitle className="text-base">{t('pi.upload.heading')}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">{t('pi.upload.dropHint')}</p>
