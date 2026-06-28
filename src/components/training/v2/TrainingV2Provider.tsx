@@ -448,8 +448,23 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     run();
     persist(active.slug, stepIndex, 'in_progress', step.key);
 
+    // Poll waitFor: advance automatically once the user completes the action.
+    let waitInterval: ReturnType<typeof setInterval> | null = null;
+    if (step.waitFor) {
+      waitInterval = setInterval(async () => {
+        const ok = await evaluateGuard(step.waitFor!, guardCtx);
+        if (ok && !cancelled) {
+          if (waitInterval) clearInterval(waitInterval);
+          // Use the same debounced next() path.
+          if (stepIndex < active.steps.length - 1) setStepIndex(stepIndex + 1);
+          else finishInternal();
+        }
+      }, 3000);
+    }
+
     return () => {
       cancelled = true;
+      if (waitInterval) clearInterval(waitInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.slug, stepIndex, switchingHotel, assignedHotel]);
