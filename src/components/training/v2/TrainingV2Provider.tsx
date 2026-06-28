@@ -8,7 +8,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -28,6 +29,12 @@ export interface CurriculumStatus {
   updatedAt?: string | null;
 }
 
+interface DeferredStep {
+  slug: string;
+  stepKey: string;
+  deferredAt: string;
+}
+
 interface TrainingV2ContextValue {
   active: TrainingCurriculum | null;
   step: TrainingStepV2 | null;
@@ -37,10 +44,11 @@ interface TrainingV2ContextValue {
   waiting: boolean;
   reducedMotion: boolean;
   lang: LangCode;
-  start: (slug: string, opts?: { restart?: boolean; manual?: boolean }) => Promise<void>;
+  start: (slug: string, opts?: { restart?: boolean; manual?: boolean; startAtKey?: string }) => Promise<void>;
   next: () => void;
   prev: () => void;
   skip: () => void;
+  skipForNow: () => void;
   finish: () => void;
   dismissCurriculum: (slug: string, days?: number) => Promise<void>;
   markComplete: (slug: string) => Promise<void>;
@@ -49,7 +57,6 @@ interface TrainingV2ContextValue {
   availableCurricula: TrainingCurriculum[];
   completion: Record<string, CompletionStatus>;
   statuses: Record<string, CurriculumStatus>;
-  /** Surfaces a help-button anchor for focus return. */
   registerLauncher: (el: HTMLElement | null) => void;
 }
 
@@ -65,19 +72,37 @@ const MANAGER_ROLES = [
   'top_management_manager',
 ];
 
+const AUTO_START_THROTTLE_MS = 4 * 60 * 60 * 1000; // 4 hours
+const SELECTOR_TIMEOUT_MS = 8000; // give up locating after 8s
+
 function tx(text: import('./types').I18nText, lang: LangCode): string {
   return ((text as unknown as Record<string, string | undefined>)[lang]) || text.en;
 }
+
+const SKIP_TOAST_LABELS: Record<LangCode, string> = {
+  en: 'Skipped — we will show this when it is relevant.',
+  hu: 'Kihagyva — akkor mutatjuk, amikor releváns lesz.',
+  es: 'Omitido — lo mostraremos cuando sea relevante.',
+  vi: 'Đã bỏ qua — sẽ hiển thị khi liên quan.',
+  mn: 'Алгасав — холбогдох үед үзүүлнэ.',
+};
+
+const RESUME_TOAST_LABELS: Record<LangCode, { title: string; action: string }> = {
+  en: { title: 'Ready to continue your training?', action: 'Resume' },
+  hu: { title: 'Folytatod a tananyagot?', action: 'Folytatás' },
+  es: { title: '¿Listo para continuar tu formación?', action: 'Continuar' },
+  vi: { title: 'Tiếp tục đào tạo?', action: 'Tiếp tục' },
+  mn: { title: 'Сургалтаа үргэлжлүүлэх үү?', action: 'Үргэлжлүүлэх' },
+};
 
 export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
   const { language } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const lang = (language as LangCode) || 'en';
 
-  // IMPORTANT: do NOT default role to 'housekeeping'. If profile hasn't loaded
-  // yet, role is null and auto-start is gated below — otherwise managers would
-  // briefly receive the housekeeper tour during the first render.
+  // Do NOT default role to 'housekeeping'. Wait until profile loads.
   const role = (profile?.role as string) || null;
   const assignedHotel = (profile as any)?.assigned_hotel || null;
 
@@ -90,10 +115,12 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const [switchingHotel, setSwitchingHotel] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const autoStartedRef = useRef(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dataReadyRef = useRef<Set<string>>(new Set());
   const launcherRef = useRef<HTMLElement | null>(null);
   const prevHotelRef = useRef<string | null>(assignedHotel);
+  const deferredRef = useRef<DeferredStep[]>([]);
+  const resumePromptedRef = useRef<Set<string>>(new Set());
+  const lastNextAtRef = useRef<number>(0);
 
   const step = active ? active.steps[stepIndex] : null;
   const totalSteps = active?.steps.length || 0;
@@ -123,24 +150,15 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       window.removeEventListener('training:data-ready', handler as EventListener);
   }, []);
 
-  // Online / offline
-  useEffect(() => {
-    const onOff = () => setWaiting((w) => (active && step?.precondition === 'is_online' ? true : w));
-    window.addEventListener('offline', onOff);
-    return () => window.removeEventListener('offline', onOff);
-  }, [active, step?.precondition]);
-
-  // Hotel switch detection — pause active tour, re-resolve
+  // Hotel switch detection — pause active tour
   useEffect(() => {
     if (prevHotelRef.current !== assignedHotel) {
       const wasSwitch = prevHotelRef.current !== null;
       prevHotelRef.current = assignedHotel;
       if (wasSwitch && active) {
         setSwitchingHotel(true);
-        // Clear data-ready cache: new hotel may not have those data points loaded yet
         dataReadyRef.current = new Set();
         setRect(null);
-        // Mark paused
         if (user) {
           supabase
             .from('user_training_state')
@@ -193,6 +211,21 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const persistDeferred = useCallback(
+    async (queue: DeferredStep[]) => {
+      if (!user) return;
+      await supabase.from('user_training_state').upsert(
+        {
+          user_id: user.id,
+          deferred_steps: queue as any,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' },
+      );
+    },
+    [user],
+  );
+
   const refreshStatuses = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase
@@ -226,10 +259,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     setStatuses(stMap);
   }, [user]);
 
-  // Initial: load + auto-start
+  // Initial: load + auto-start (core curricula only, throttled to 4h)
   useEffect(() => {
-    // Wait until profile (and therefore role) is loaded — otherwise the
-    // housekeeper curriculum would auto-start for every role.
     if (!user || !role || autoStartedRef.current) return;
     autoStartedRef.current = true;
 
@@ -238,14 +269,26 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
       const { data: stateRow } = await supabase
         .from('user_training_state')
-        .select('dismissed_until, auto_start_pending')
+        .select('dismissed_until, auto_start_pending, deferred_steps, last_auto_start_at')
         .eq('user_id', user.id)
         .maybeSingle();
+
+      // Hydrate deferred queue
+      try {
+        const ds = (stateRow as any)?.deferred_steps;
+        if (Array.isArray(ds)) deferredRef.current = ds as DeferredStep[];
+      } catch {
+        deferredRef.current = [];
+      }
 
       const dismissed =
         stateRow?.dismissed_until && new Date(stateRow.dismissed_until) > new Date();
       const forced = stateRow?.auto_start_pending === true;
-      if (dismissed && !forced) return;
+      const lastAuto = (stateRow as any)?.last_auto_start_at as string | null;
+      const tooRecent =
+        lastAuto && Date.now() - new Date(lastAuto).getTime() < AUTO_START_THROTTLE_MS;
+
+      if ((dismissed || tooRecent) && !forced) return;
 
       const { data: progressData } = await supabase
         .from('user_tour_progress')
@@ -259,33 +302,48 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
         };
       });
 
-      // Only auto-start curricula in the 'core' category. Manager
-      // feature-promo modules (team, tickets, revenue, …) appear in the
-      // Training Center as recommended next steps but never auto-fire.
-      const candidates = curriculaForRole(role).filter((c) => c.category === 'core');
+      const candidates = curriculaForRole(role).filter(
+        (c) => c.category === 'core' && c.roles.includes(role as any),
+      );
       const target = candidates.find((c) => progressBySlug[c.slug]?.status !== 'completed');
       if (!target) return;
+
+      // Sanity check (catch curriculum config regressions)
+      if (!target.roles.includes(role as any)) {
+        console.warn('[training] core curriculum auto-start skipped — role mismatch', {
+          slug: target.slug,
+          role,
+        });
+        return;
+      }
+
       const resumeIdx = progressBySlug[target.slug]?.idx ?? 0;
       setTimeout(() => {
         setActive(target);
         setStepIndex(Math.min(resumeIdx, target.steps.length - 1));
       }, 1200);
 
-      if (forced) {
-        await supabase
-          .from('user_training_state')
-          .update({ auto_start_pending: false, updated_at: new Date().toISOString() })
-          .eq('user_id', user.id);
-      }
+      await supabase
+        .from('user_training_state')
+        .upsert(
+          {
+            user_id: user.id,
+            last_auto_start_at: new Date().toISOString(),
+            auto_start_pending: false,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' },
+        );
     })();
   }, [user, role, refreshStatuses]);
 
-  // Guard-context role: when profile hasn't loaded yet, fall back to a neutral
-  // value so guards like `is_manager` don't accidentally evaluate true/false
-  // based on the old housekeeping default.
   const guardRole = role || 'unknown';
 
-  // Step lifecycle: navigate, locate selector, gate on precondition, poll waitFor
+  // Step lifecycle: navigate, locate selector, gate on precondition
+  //
+  // CRITICAL: do NOT auto-call next() for optional steps whose precondition
+  // fails. Instead, defer the step and advance ONCE per user click. Auto-skip
+  // chains were the cause of "Next jumps two steps".
   useEffect(() => {
     if (!active || !step || !user) return;
 
@@ -301,27 +359,62 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       dataReady: dataReadyRef.current,
     };
 
+    const deferCurrent = async () => {
+      const entry: DeferredStep = {
+        slug: active.slug,
+        stepKey: step.key,
+        deferredAt: new Date().toISOString(),
+      };
+      const queue = [
+        ...deferredRef.current.filter(
+          (d) => !(d.slug === entry.slug && d.stepKey === entry.stepKey),
+        ),
+        entry,
+      ];
+      deferredRef.current = queue;
+      await persistDeferred(queue);
+      try {
+        toast(SKIP_TOAST_LABELS[lang] || SKIP_TOAST_LABELS.en, { duration: 2500 });
+      } catch {}
+    };
+
     const run = async () => {
-      if (step.route) navigate(step.route);
+      if (step.route && location.pathname !== step.route) navigate(step.route);
       if (step.tab) {
         window.dispatchEvent(
           new CustomEvent('tour:navigate', { detail: { tab: step.tab, tourKey: active.slug } }),
         );
       }
 
+      // Precondition check
       if (step.precondition) {
         const ok = await evaluateGuard(step.precondition, guardCtx);
         if (!ok) {
           if (step.optional) {
-            if (!cancelled) setTimeout(() => next(), 200);
+            // Defer this step + advance once (single visible jump, not a chain).
+            await deferCurrent();
+            if (!cancelled) {
+              // Use timeout so the React state update from this effect completes.
+              setTimeout(() => {
+                if (cancelled) return;
+                if (stepIndex < active.steps.length - 1) {
+                  setStepIndex(stepIndex + 1);
+                } else {
+                  finishInternal();
+                }
+              }, 50);
+            }
             return;
           }
+          // Non-optional precondition fail ⇒ wait (user can use "Skip for now").
           if (!cancelled) setWaiting(true);
+          return;
         }
       }
 
+      // Locate selector (with bounded retries)
       if (step.selector) {
-        let attempts = 0;
+        const startedAt = Date.now();
         const tryLocate = () => {
           if (cancelled) return;
           const el = document.querySelector(step.selector!) as HTMLElement | null;
@@ -332,44 +425,46 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
             setTimeout(() => {
               if (!cancelled) setRect(el.getBoundingClientRect());
             }, 250);
-          } else if (attempts++ < 40) {
-            setTimeout(tryLocate, 200);
+            return;
+          }
+          if (Date.now() - startedAt < SELECTOR_TIMEOUT_MS) {
+            setTimeout(tryLocate, 250);
+          } else if (step.optional) {
+            // Element never appeared → defer + advance once.
+            deferCurrent().then(() => {
+              if (cancelled) return;
+              if (stepIndex < active.steps.length - 1) setStepIndex(stepIndex + 1);
+              else finishInternal();
+            });
+          } else if (!cancelled) {
+            // Show waiting card so user can choose to skip-for-now.
+            setWaiting(true);
           }
         };
         tryLocate();
       }
     };
-    run();
 
-    // Persist current step key for resume
+    run();
     persist(active.slug, stepIndex, 'in_progress', step.key);
 
+    // Poll waitFor: advance automatically once the user completes the action.
+    let waitInterval: ReturnType<typeof setInterval> | null = null;
     if (step.waitFor) {
-      pollRef.current = setInterval(async () => {
+      waitInterval = setInterval(async () => {
         const ok = await evaluateGuard(step.waitFor!, guardCtx);
         if (ok && !cancelled) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          next();
-        }
-      }, 3000);
-    }
-
-    let preInterval: ReturnType<typeof setInterval> | null = null;
-    if (step.precondition && !step.waitFor) {
-      preInterval = setInterval(async () => {
-        const ok = await evaluateGuard(step.precondition!, guardCtx);
-        if (ok && !cancelled) {
-          if (preInterval) clearInterval(preInterval);
-          setWaiting(false);
-          run();
+          if (waitInterval) clearInterval(waitInterval);
+          // Use the same debounced next() path.
+          if (stepIndex < active.steps.length - 1) setStepIndex(stepIndex + 1);
+          else finishInternal();
         }
       }, 3000);
     }
 
     return () => {
       cancelled = true;
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (preInterval) clearInterval(preInterval);
+      if (waitInterval) clearInterval(waitInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.slug, stepIndex, switchingHotel, assignedHotel]);
@@ -396,7 +491,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     };
   }, [step?.selector, stepIndex]);
 
-  const finish = useCallback(() => {
+  const finishInternal = useCallback(() => {
     if (active) {
       persist(active.slug, active.steps.length, 'completed', step?.key);
       setCompletion((m) => ({ ...m, [active.slug]: 'done' }));
@@ -405,26 +500,31 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     setStepIndex(0);
     setRect(null);
     setWaiting(false);
-    // Restore focus
     setTimeout(() => {
       launcherRef.current?.focus();
     }, 50);
   }, [active, persist, step?.key]);
 
+  const finish = finishInternal;
+
   const next = useCallback(() => {
     if (!active) return;
+    // Debounce against double-click / event bubbling.
+    const now = Date.now();
+    if (now - lastNextAtRef.current < 220) return;
+    lastNextAtRef.current = now;
     if (stepIndex < active.steps.length - 1) {
       setStepIndex(stepIndex + 1);
     } else {
-      finish();
+      finishInternal();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, stepIndex, finish]);
+  }, [active, stepIndex, finishInternal]);
 
   const prev = useCallback(() => {
     if (stepIndex > 0) setStepIndex(stepIndex - 1);
   }, [stepIndex]);
 
+  // Skip the whole curriculum (dismiss for 30 days)
   const skip = useCallback(async () => {
     if (active && user) {
       await persist(active.slug, stepIndex, 'completed');
@@ -444,8 +544,30 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     setTimeout(() => launcherRef.current?.focus(), 50);
   }, [active, stepIndex, user, persist]);
 
+  // Skip this step for now → push to deferred queue, advance once.
+  const skipForNow = useCallback(async () => {
+    if (!active || !step) return;
+    const entry: DeferredStep = {
+      slug: active.slug,
+      stepKey: step.key,
+      deferredAt: new Date().toISOString(),
+    };
+    const queue = [
+      ...deferredRef.current.filter(
+        (d) => !(d.slug === entry.slug && d.stepKey === entry.stepKey),
+      ),
+      entry,
+    ];
+    deferredRef.current = queue;
+    await persistDeferred(queue);
+    try {
+      toast(SKIP_TOAST_LABELS[lang] || SKIP_TOAST_LABELS.en, { duration: 2500 });
+    } catch {}
+    next();
+  }, [active, step, lang, persistDeferred, next]);
+
   const start = useCallback(
-    async (slug: string, opts?: { restart?: boolean; manual?: boolean }) => {
+    async (slug: string, opts?: { restart?: boolean; manual?: boolean; startAtKey?: string }) => {
       const c = findCurriculum(slug);
       if (!c) return;
       let resumeIdx = 0;
@@ -457,6 +579,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           .eq('tour_key', slug)
           .maybeSingle();
         if (data && data.status !== 'completed') resumeIdx = data.current_step || 0;
+      }
+      if (opts?.startAtKey) {
+        const idx = c.steps.findIndex((s) => s.key === opts.startAtKey);
+        if (idx >= 0) resumeIdx = idx;
       }
       if (opts?.restart && user) {
         await supabase
@@ -528,7 +654,82 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     [user, refreshStatuses],
   );
 
-  const availableCurricula = useMemo(() => curriculaForRole(role), [role]);
+  // ── Deferred-step watcher: when a previously-deferred step becomes
+  //    relevant (selector visible AND precondition true), surface a one-tap
+  //    resume toast. Runs on route changes + body MutationObserver (debounced).
+  useEffect(() => {
+    if (!user || !role) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const check = async () => {
+      if (cancelled || active) return; // don't disrupt an active tour
+      const queue = deferredRef.current;
+      if (!queue.length) return;
+
+      for (const entry of queue) {
+        const key = `${entry.slug}::${entry.stepKey}`;
+        if (resumePromptedRef.current.has(key)) continue;
+        const cur = findCurriculum(entry.slug);
+        if (!cur) continue;
+        const s = cur.steps.find((st) => st.key === entry.stepKey);
+        if (!s) continue;
+        // Selector must resolve right now
+        if (s.selector && !document.querySelector(s.selector)) continue;
+        // Precondition must pass
+        if (s.precondition) {
+          const ok = await evaluateGuard(s.precondition, {
+            userId: user.id,
+            role: guardRole,
+            assignedHotel,
+            switchingHotel: false,
+            dataReady: dataReadyRef.current,
+          });
+          if (!ok) continue;
+        }
+        resumePromptedRef.current.add(key);
+        const labels = RESUME_TOAST_LABELS[lang] || RESUME_TOAST_LABELS.en;
+        toast(`${labels.title} — ${tx(cur.name, lang)}`, {
+          duration: 20000,
+          action: {
+            label: labels.action,
+            onClick: () => {
+              // remove from queue and start at this step
+              const next = deferredRef.current.filter(
+                (d) => !(d.slug === entry.slug && d.stepKey === entry.stepKey),
+              );
+              deferredRef.current = next;
+              persistDeferred(next);
+              start(entry.slug, { startAtKey: entry.stepKey });
+            },
+          },
+        });
+        break; // only one resume toast at a time
+      }
+    };
+
+    const debouncedCheck = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(check, 400);
+    };
+
+    // Initial + route-change check
+    debouncedCheck();
+
+    // MutationObserver on body
+    let observer: MutationObserver | null = null;
+    if (typeof document !== 'undefined') {
+      observer = new MutationObserver(debouncedCheck);
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+    return () => {
+      cancelled = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      observer?.disconnect();
+    };
+  }, [user, role, location.pathname, lang, active, assignedHotel, guardRole, start, persistDeferred]);
+
+  const availableCurricula = useMemo(() => curriculaForRole(role || ''), [role]);
 
   const value: TrainingV2ContextValue = {
     active,
@@ -543,6 +744,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     next,
     prev,
     skip,
+    skipForNow,
     finish,
     dismissCurriculum,
     markComplete,

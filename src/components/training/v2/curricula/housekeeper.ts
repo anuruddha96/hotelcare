@@ -160,6 +160,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       selector: '[data-training="start-room-button"]',
       precondition: 'has_active_assignment',
       waitFor: 'has_in_progress_cleaning',
+      optional: true,
     },
 
     // ── 6. In-room tools (only relevant once a room is in progress) ────────
@@ -181,6 +182,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       },
       selector: '[data-training="room-photos-button"]',
       precondition: 'has_in_progress_cleaning',
+      optional: true,
     },
     {
       key: 'in_session_maintenance',
@@ -280,6 +282,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       },
       selector: '[data-training="complete-room-button"]',
       precondition: 'has_in_progress_cleaning',
+      optional: true,
     },
 
     // ── 7. End of shift ────────────────────────────────────────────────────
@@ -302,6 +305,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       tab: 'attendance',
       selector: '[data-training="sign-out-button"]',
       precondition: 'is_signed_in',
+      optional: true,
     },
   ],
 };

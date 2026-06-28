@@ -9,13 +9,20 @@ const LABELS = {
   next: { en: 'Next', hu: 'Tovább', es: 'Siguiente', vi: 'Tiếp', mn: 'Дараах' },
   back: { en: 'Back', hu: 'Vissza', es: 'Atrás', vi: 'Lùi', mn: 'Буцах' },
   skip: { en: 'Skip', hu: 'Kihagyás', es: 'Omitir', vi: 'Bỏ qua', mn: 'Алгасах' },
+  skipForNow: {
+    en: 'Skip for now',
+    hu: 'Most kihagyom',
+    es: 'Omitir por ahora',
+    vi: 'Bỏ qua hiện tại',
+    mn: 'Одоохондоо алгасах',
+  },
   done: { en: 'Got it', hu: 'Értem', es: 'Listo', vi: 'Đã hiểu', mn: 'Ойлголоо' },
   waiting: {
-    en: 'Waiting for you to complete this action…',
-    hu: 'Várjuk, hogy elvégezd ezt a műveletet…',
-    es: 'Esperando a que completes esta acción…',
-    vi: 'Đang chờ bạn thực hiện…',
-    mn: 'Энэ үйлдлийг хийхийг хүлээж байна…',
+    en: 'Waiting for the right screen — we will continue automatically.',
+    hu: 'Várjuk a megfelelő képernyőt — automatikusan folytatjuk.',
+    es: 'Esperando la pantalla correcta — continuaremos automáticamente.',
+    vi: 'Đang chờ màn hình phù hợp — sẽ tự tiếp tục.',
+    mn: 'Тохирох дэлгэцийг хүлээж байна — автоматаар үргэлжилнэ.',
   },
   close: { en: 'Close training', hu: 'Bezárás', es: 'Cerrar', vi: 'Đóng', mn: 'Хаах' },
 };
@@ -32,6 +39,7 @@ export function TrainingOverlayV2() {
     next,
     prev,
     skip,
+    skipForNow,
     finish,
     lang,
   } = useTrainingV2();
@@ -242,9 +250,18 @@ export function TrainingOverlayV2() {
           </p>
 
           {waiting && (
-            <div className="flex items-center gap-2 text-xs text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 mb-3">
-              <Clock3 className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
-              <span>{txt(LABELS.waiting, lang)}</span>
+            <div className="flex items-start gap-2 text-xs text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 mb-3">
+              <Clock3 className="h-3.5 w-3.5 animate-pulse mt-0.5 shrink-0" aria-hidden="true" />
+              <div className="flex-1">
+                <p>{txt(LABELS.waiting, lang)}</p>
+                <button
+                  type="button"
+                  onClick={skipForNow}
+                  className="mt-1 underline underline-offset-2 hover:no-underline text-primary font-medium"
+                >
+                  {txt(LABELS.skipForNow, lang)}
+                </button>
+              </div>
             </div>
           )}
 
