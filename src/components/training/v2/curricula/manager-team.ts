@@ -40,6 +40,7 @@ export const managerTeamCurriculum: TrainingCurriculum = {
       tab: 'housekeeping',
       selector: '[data-training="team-view"]',
       precondition: 'hotel_selected',
+      optional: true,
     },
     {
       key: 'auto_assign',
@@ -60,6 +61,7 @@ export const managerTeamCurriculum: TrainingCurriculum = {
       tab: 'housekeeping',
       selector: '[data-training="auto-assign-btn"]',
       precondition: 'hotel_selected',
+      optional: true,
     },
     {
       key: 'manual_override',
@@ -97,6 +99,7 @@ export const managerTeamCurriculum: TrainingCurriculum = {
       },
       tab: 'housekeeping',
       selector: '[data-training="pending-approvals"]',
+      optional: true,
     },
   ],
 };
