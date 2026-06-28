@@ -282,6 +282,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       },
       selector: '[data-training="complete-room-button"]',
       precondition: 'has_in_progress_cleaning',
+      optional: true,
     },
 
     // ── 7. End of shift ────────────────────────────────────────────────────
