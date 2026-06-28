@@ -160,6 +160,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       selector: '[data-training="start-room-button"]',
       precondition: 'has_active_assignment',
       waitFor: 'has_in_progress_cleaning',
+      optional: true,
     },
 
     // ── 6. In-room tools (only relevant once a room is in progress) ────────
