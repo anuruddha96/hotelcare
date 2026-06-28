@@ -250,9 +250,18 @@ export function TrainingOverlayV2() {
           </p>
 
           {waiting && (
-            <div className="flex items-center gap-2 text-xs text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 mb-3">
-              <Clock3 className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
-              <span>{txt(LABELS.waiting, lang)}</span>
+            <div className="flex items-start gap-2 text-xs text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 mb-3">
+              <Clock3 className="h-3.5 w-3.5 animate-pulse mt-0.5 shrink-0" aria-hidden="true" />
+              <div className="flex-1">
+                <p>{txt(LABELS.waiting, lang)}</p>
+                <button
+                  type="button"
+                  onClick={skipForNow}
+                  className="mt-1 underline underline-offset-2 hover:no-underline text-primary font-medium"
+                >
+                  {txt(LABELS.skipForNow, lang)}
+                </button>
+              </div>
             </div>
           )}
 
