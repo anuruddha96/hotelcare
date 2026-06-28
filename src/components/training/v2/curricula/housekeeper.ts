@@ -305,6 +305,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       tab: 'attendance',
       selector: '[data-training="sign-out-button"]',
       precondition: 'is_signed_in',
+      optional: true,
     },
   ],
 };
