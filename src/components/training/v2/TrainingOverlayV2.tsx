@@ -39,6 +39,7 @@ export function TrainingOverlayV2() {
     next,
     prev,
     skip,
+    skipForNow,
     finish,
     lang,
   } = useTrainingV2();
