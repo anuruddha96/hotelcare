@@ -182,6 +182,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       },
       selector: '[data-training="room-photos-button"]',
       precondition: 'has_in_progress_cleaning',
+      optional: true,
     },
     {
       key: 'in_session_maintenance',
