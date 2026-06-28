@@ -4757,8 +4757,10 @@ export type Database = {
       user_training_state: {
         Row: {
           auto_start_pending: boolean
+          deferred_steps: Json
           dismissed_until: string | null
           last_active_step_key: string | null
+          last_auto_start_at: string | null
           last_guide_slug: string | null
           last_step: number
           paused_at: string | null
@@ -4768,8 +4770,10 @@ export type Database = {
         }
         Insert: {
           auto_start_pending?: boolean
+          deferred_steps?: Json
           dismissed_until?: string | null
           last_active_step_key?: string | null
+          last_auto_start_at?: string | null
           last_guide_slug?: string | null
           last_step?: number
           paused_at?: string | null
@@ -4779,8 +4783,10 @@ export type Database = {
         }
         Update: {
           auto_start_pending?: boolean
+          deferred_steps?: Json
           dismissed_until?: string | null
           last_active_step_key?: string | null
+          last_auto_start_at?: string | null
           last_guide_slug?: string | null
           last_step?: number
           paused_at?: string | null
