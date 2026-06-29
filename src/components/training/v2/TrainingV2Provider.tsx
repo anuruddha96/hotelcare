@@ -274,6 +274,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   // Initial: load + auto-start (core curricula only, throttled to 4h)
   useEffect(() => {
     if (!user || !role || autoStartedRef.current) return;
+    // Don't auto-start on transient routes — wait until the user lands on
+    // a real screen so the first step's anchor (e.g. hotel-switcher) is
+    // actually in the DOM.
+    const path = location.pathname;
+    if (path === '/' || path === '/index' || path.startsWith('/auth')) return;
     autoStartedRef.current = true;
 
     (async () => {
@@ -330,10 +335,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       }
 
       const resumeIdx = progressBySlug[target.slug]?.idx ?? 0;
+      // Give the landing page another beat to paint its anchors.
       setTimeout(() => {
         setActive(target);
         setStepIndex(Math.min(resumeIdx, target.steps.length - 1));
-      }, 1200);
+      }, 1600);
 
       await supabase
         .from('user_training_state')
@@ -347,7 +353,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           { onConflict: 'user_id' },
         );
     })();
-  }, [user, role, refreshStatuses]);
+  }, [user, role, location.pathname, refreshStatuses]);
 
   const guardRole = role || 'unknown';
 
