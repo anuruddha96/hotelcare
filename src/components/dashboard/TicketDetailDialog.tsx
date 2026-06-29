@@ -494,7 +494,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
             {/* Attachments */}
             {ticket.attachment_urls && ticket.attachment_urls.length > 0 && (
-              <div className="mt-4">
+              <div className="mt-4" data-training="ticket-photos">
                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                   <Paperclip className="h-4 w-4" />
                   {t('ticketDetail.attachments')}
