@@ -532,7 +532,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                   onValueChange={handleAssignment}
                   disabled={loading}
                 >
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-[180px]" data-training="ticket-assign-select">
                     <SelectValue placeholder={t('ticketDetail.assignTo')} />
                   </SelectTrigger>
                   <SelectContent>
