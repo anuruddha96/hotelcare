@@ -50,6 +50,7 @@ export const managerOrientationCurriculum: TrainingCurriculum = {
         vi: 'Tham quan ngắn. Sau đó Trung tâm đào tạo sẽ hiển thị các mô-đun tùy chọn.',
         mn: 'Богино танилцуулга. Үүний дараа Сургалтын төв нэмэлт модулиудыг харуулна.',
       },
+      route: '/:org',
     },
     {
       key: 'hotel_switcher',
@@ -67,7 +68,9 @@ export const managerOrientationCurriculum: TrainingCurriculum = {
         vi: 'Trên cùng bên phải. Mọi màn hình lọc theo khách sạn đã chọn.',
         mn: 'Баруун дээд. Бүх дэлгэц сонгосон буудлаар шүүгдэнэ.',
       },
+      route: '/:org',
       selector: '[data-training="hotel-switcher"]',
+      optional: true,
     },
     {
       key: 'language_switch',
@@ -85,7 +88,9 @@ export const managerOrientationCurriculum: TrainingCurriculum = {
         vi: 'Mọi màn hình đều được dịch. Nhân viên vẫn thấy ngôn ngữ của họ.',
         mn: 'Бүх дэлгэц орчуулагдсан. Ажилчид өөрийн хэл дээрээ харна.',
       },
+      route: '/:org',
       selector: '[data-training="language-switch"]',
+      optional: true,
     },
     {
       key: 'help_button',
@@ -103,7 +108,9 @@ export const managerOrientationCurriculum: TrainingCurriculum = {
         vi: 'Nút Trợ giúp mở Trung tâm đào tạo với mọi mô-đun.',
         mn: 'Тусламж товч нь Сургалтын төвийг нээж, бүх модулийг үзүүлнэ.',
       },
+      route: '/:org',
       selector: '[data-training="help-button"]',
+      optional: true,
     },
   ],
 };
