@@ -45,6 +45,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         vi: 'Lưới thời gian thực — ai đang vào / nghỉ / ra ca.',
         mn: 'Шууд хүснэгт — хэн нэвтэрсэн, амарч буй, гарсан.',
       },
+      route: '/:org',
       tab: 'attendance',
       selector: '[data-training="attendance-tab"]',
     },
@@ -64,6 +65,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         vi: 'Theo nhân viên: vào, nghỉ, ra, tổng giờ.',
         mn: 'Ажилтан тус бүрийн орох, амрах, гарах, нийт цаг.',
       },
+      route: '/:org',
       tab: 'attendance',
     },
     {
@@ -82,6 +84,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         vi: 'Yêu cầu ra sớm hoặc chỉnh giờ hiện ở đây — một chạm để duyệt.',
         mn: 'Эрт гарах эсвэл цаг засах хүсэлт энд гарна — нэг товшилтоор зөвшөөрнө.',
       },
+      route: '/:org',
       tab: 'housekeeping',
       selector: '[data-training="pending-approvals"]',
       optional: true,
