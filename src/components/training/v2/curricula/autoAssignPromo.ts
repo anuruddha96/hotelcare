@@ -60,8 +60,10 @@ export const autoAssignPromo: TrainingCurriculum = {
         vi: 'Nút Tự động phân công ở đầu Xem nhóm.',
         mn: 'Автомат хуваарилалт товч Багийн харагдацын дээд талд.',
       },
+      route: '/:org',
       tab: 'housekeeping',
-      selector: '[data-tour="team-view"]',
+      selector: '[data-training="team-view"]',
+      optional: true,
     },
     {
       key: 'spotlight_button',
@@ -79,7 +81,10 @@ export const autoAssignPromo: TrainingCurriculum = {
         vi: 'Bấm bất cứ lúc nào. Bạn vẫn có thể di chuyển phòng sau.',
         mn: 'Хүссэн үедээ дар. Дараа нь өөрчилж болно.',
       },
-      selector: '[data-tour="auto-assign-btn"]',
+      route: '/:org',
+      tab: 'housekeeping',
+      selector: '[data-training="auto-assign-btn"]',
+      optional: true,
     },
     {
       key: 'done',

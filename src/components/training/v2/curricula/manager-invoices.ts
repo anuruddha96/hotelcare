@@ -37,7 +37,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         vi: 'Tab Invoices mở giao diện tải, hàng đợi và phân tích.',
         mn: '"Invoices" таб оруулах, дараалал, аналитик нээнэ.',
       },
-      route: '/rdhotels/purchase-invoices',
+      route: '/:org/purchase-invoices',
     },
     {
       key: 'upload',
@@ -55,7 +55,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         vi: 'Thả hóa đơn vào — AI trích xuất nhà cung cấp, ngày, tổng, dòng.',
         mn: 'Нэхэмжлэхээ оруулахад AI нийлүүлэгч, огноо, дүн, мөрийг гаргана.',
       },
-      route: '/rdhotels/purchase-invoices',
+      route: '/:org/purchase-invoices',
       selector: '[data-training="invoice-upload"]',
     },
     {

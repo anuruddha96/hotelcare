@@ -102,6 +102,18 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const lang = (language as LangCode) || 'en';
 
+  // Resolve `:org` and `:orgSlug` placeholders in step routes from the
+  // current URL so curricula stay tenant-agnostic.
+  const resolveRoute = useCallback(
+    (raw?: string): string | undefined => {
+      if (!raw) return raw;
+      const seg = location.pathname.split('/').filter(Boolean);
+      const orgSlug = seg[0] || (profile as any)?.organization_slug || 'rdhotels';
+      return raw.replace(/:orgSlug/g, orgSlug).replace(/:org\b/g, orgSlug);
+    },
+    [location.pathname, profile],
+  );
+
   // Do NOT default role to 'housekeeping'. Wait until profile loads.
   const role = (profile?.role as string) || null;
   const assignedHotel = (profile as any)?.assigned_hotel || null;
@@ -262,6 +274,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   // Initial: load + auto-start (core curricula only, throttled to 4h)
   useEffect(() => {
     if (!user || !role || autoStartedRef.current) return;
+    // Don't auto-start on transient routes — wait until the user lands on
+    // a real screen so the first step's anchor (e.g. hotel-switcher) is
+    // actually in the DOM.
+    const path = location.pathname;
+    if (path === '/' || path === '/index' || path.startsWith('/auth')) return;
     autoStartedRef.current = true;
 
     (async () => {
@@ -318,10 +335,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       }
 
       const resumeIdx = progressBySlug[target.slug]?.idx ?? 0;
+      // Give the landing page another beat to paint its anchors.
       setTimeout(() => {
         setActive(target);
         setStepIndex(Math.min(resumeIdx, target.steps.length - 1));
-      }, 1200);
+      }, 1600);
 
       await supabase
         .from('user_training_state')
@@ -335,7 +353,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           { onConflict: 'user_id' },
         );
     })();
-  }, [user, role, refreshStatuses]);
+  }, [user, role, location.pathname, refreshStatuses]);
 
   const guardRole = role || 'unknown';
 
@@ -379,11 +397,32 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     };
 
     const run = async () => {
-      if (step.route && location.pathname !== step.route) navigate(step.route);
+      // Resolve any :org placeholder and navigate first. CRITICAL: bail out
+      // of this run() and wait for the next effect tick (triggered by
+      // location.pathname change) before trying to locate. Otherwise we
+      // query the previous page's DOM and the step appears stuck.
+      const targetRoute = resolveRoute(step.route);
+      if (targetRoute && location.pathname !== targetRoute) {
+        navigate(targetRoute);
+        if (!cancelled) setWaiting(true);
+        return;
+      }
       if (step.tab) {
+        // Dispatch BOTH event names — the v1 dashboard listens for
+        // `training-navigate { mainTab, subTab }` while pages outside the
+        // dashboard listen for `tour:navigate { tab }`.
         window.dispatchEvent(
-          new CustomEvent('tour:navigate', { detail: { tab: step.tab, tourKey: active.slug } }),
+          new CustomEvent('tour:navigate', {
+            detail: { tab: step.tab, subTab: (step as any).subTab, tourKey: active.slug },
+          }),
         );
+        window.dispatchEvent(
+          new CustomEvent('training-navigate', {
+            detail: { mainTab: step.tab, subTab: (step as any).subTab },
+          }),
+        );
+        // Wait one frame so the tab switch has flushed before we locate.
+        await new Promise((r) => requestAnimationFrame(() => r(null)));
       }
 
       // Precondition check
@@ -419,6 +458,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           if (cancelled) return;
           const el = document.querySelector(step.selector!) as HTMLElement | null;
           if (el) {
+            setWaiting(false);
             try {
               el.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
             } catch {}
@@ -442,6 +482,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           }
         };
         tryLocate();
+      } else {
+        // Text-only step: no selector to locate, just clear waiting.
+        if (!cancelled) setWaiting(false);
       }
     };
 
@@ -467,7 +510,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       if (waitInterval) clearInterval(waitInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.slug, stepIndex, switchingHotel, assignedHotel]);
+  }, [active?.slug, stepIndex, switchingHotel, assignedHotel, location.pathname]);
 
   // Reposition on resize/scroll/orientation
   useEffect(() => {

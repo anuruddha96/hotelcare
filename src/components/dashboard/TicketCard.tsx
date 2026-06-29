@@ -88,6 +88,8 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
     <Card 
       className="cursor-pointer hover:shadow-md transition-shadow duration-200"
       onClick={onClick}
+      data-training="ticket-card"
+      data-training-priority={ticket.priority}
     >
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">

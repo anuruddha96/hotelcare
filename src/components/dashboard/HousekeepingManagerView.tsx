@@ -455,9 +455,26 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const isReception = profile?.role === 'reception';
 
+  // Allow training to switch sub-tabs (team / early-signout) via the
+  // `tour:navigate { subTab }` event.
+  const [innerTab, setInnerTab] = React.useState<string>('team');
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const sub = detail.subTab;
+      if (sub === 'team' || sub === 'early-signout') setInnerTab(sub);
+    };
+    window.addEventListener('tour:navigate', handler);
+    window.addEventListener('training-navigate', handler);
+    return () => {
+      window.removeEventListener('tour:navigate', handler);
+      window.removeEventListener('training-navigate', handler);
+    };
+  }, []);
+
   return (
     <>
-    <Tabs defaultValue="team" className="space-y-6" onValueChange={(val) => onActiveInnerTabChange?.(val)}>
+    <Tabs value={innerTab} onValueChange={(val) => { setInnerTab(val); onActiveInnerTabChange?.(val); }} className="space-y-6">
       {!isReception && (
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="team" className="text-xs sm:text-sm truncate" data-training="team-view-tab">{t('manager.teamView')}</TabsTrigger>

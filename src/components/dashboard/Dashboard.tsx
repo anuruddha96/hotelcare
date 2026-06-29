@@ -369,18 +369,21 @@ export function Dashboard() {
     'early-signout': t('manager.earlySignOutApprovals'),
   }), [t]);
 
-  // Listen for training navigation events
+  // Listen for training navigation events (v1 = `training-navigate`,
+  // v2 = `tour:navigate`). Both can carry mainTab/subTab so a training
+  // step can switch the dashboard's top tab from any module.
   useEffect(() => {
-    const handleTrainingNavigate = (event: CustomEvent<{ mainTab: string; subTab?: string }>) => {
-      const { mainTab } = event.detail;
-      if (mainTab) {
-        setActiveTab(mainTab);
-      }
+    const handleTrainingNavigate = (event: CustomEvent<{ mainTab?: string; tab?: string; subTab?: string }>) => {
+      const detail = event.detail || {};
+      const mainTab = detail.mainTab || detail.tab;
+      if (mainTab) setActiveTab(mainTab);
     };
 
     window.addEventListener('training-navigate', handleTrainingNavigate as EventListener);
+    window.addEventListener('tour:navigate', handleTrainingNavigate as EventListener);
     return () => {
       window.removeEventListener('training-navigate', handleTrainingNavigate as EventListener);
+      window.removeEventListener('tour:navigate', handleTrainingNavigate as EventListener);
     };
   }, []);
 
