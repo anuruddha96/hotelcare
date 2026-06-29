@@ -57,9 +57,10 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         vi: 'Mỗi ô là một ngày. Xanh = tăng, đỏ = giảm, xám = giữ.',
         mn: 'Нэг нүд = нэг өдөр. Ногоон = өсгөх, улаан = бууруулах, саарал = барих.',
       },
-      route: '/rdhotels/revenue',
+      route: '/:org/revenue',
       selector: '[data-training="revenue-grid"]',
       precondition: 'hotel_selected',
+      optional: true,
     },
     {
       key: 'pickup_adr_revpar',
