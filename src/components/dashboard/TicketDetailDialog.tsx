@@ -429,7 +429,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
             {(() => {
               const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
               return (
-                <div className={`p-3 rounded-lg mb-4 ${slaInfo.isOverdue ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'}`}>
+                <div data-training="ticket-sla-badge" className={`p-3 rounded-lg mb-4 ${slaInfo.isOverdue ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'}`}>
                   <div className="flex items-center gap-2 mb-2">
                     {slaInfo.isOverdue ? (
                       <AlertTriangle className="h-4 w-4 text-red-600" />
