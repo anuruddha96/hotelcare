@@ -1,92 +1,94 @@
-# Training overhaul — manager & housekeeper modules
+## Goal
 
-Scope of this plan: training only. Airbnb-style multi-property org onboarding and the maintenance section audit will each get their own plan after this ships.
+Make the manager + housekeeper training modules actually walk through the app: navigate across routes/tabs, highlight the right element on each step, advance one step at a time, and defer/resume cleanly when an element isn't available. Add the missing `data-training` anchors in the maintenance UI and ship a regression checklist.
 
-## Problems to fix
+## Root causes (from code read)
 
-1. **Steps jump when you click Next.** In `TrainingV2Provider.tsx` the step lifecycle effect calls `setTimeout(() => next(), 200)` whenever a step is `optional` AND its precondition fails. Several manager steps are marked optional with preconditions like `is_signed_in` / `has_active_assignment` that aren't true for managers — so the user clicks Next once and the next 2–3 steps silently auto-skip in 200ms ticks.
-2. **Manager modules try to highlight elements that aren't on screen yet** (e.g. "Pending Approvals" tab when there are none, "Ticket row" when the list is empty) and either get stuck on "waiting…" or skip past silently.
-3. **Housekeeper module has the same pacing problem** — optional steps gated on `has_active_assignment` / `has_in_progress_cleaning` skip in a chain when the housekeeper has no work yet.
-4. **Auto-start runs before role is known in some edge cases** and feature-promo modules never re-surface once the relevant feature appears.
-5. **Several `data-training` anchors referenced by the manager curricula don't exist in the DOM** (need verification per module).
-6. **Manager copy** still mixes housekeeper-tone phrasing in places and is not consistently translated to hu/es/vi/mn with the ops vocabulary preserved (ADR/RevPAR/pickup/SLA stay in English).
+1. **Manager Orientation "shows step 1 then jumps".** Orientation auto-starts 1.2s after login on whatever route the user lands on (often `/index` → redirect to dashboard). Step 1 (`hotel_switcher`) targets `[data-training="hotel-switcher"]` but has **no `route`**. If the dashboard hasn't mounted the switcher yet, the selector loop runs for 8s and — because step is not `optional` — shows the Waiting card while React state churn from the auth redirect re-renders the provider effect, which restarts the step. User perceives "back to slide 1, then forward".
+2. **Tour doesn't cross tabs/pages.** Manager-team/-tickets/-revenue/-invoices/-attendance steps set `tab` (a `tour:navigate` CustomEvent) but **most steps don't set `route`**. So when training runs from `/dashboard`, steps that need `/maintenance` or `/revenue` never get there — selector times out and step gets deferred or stalls.
+3. **`tour:navigate` listeners are inconsistent.** Some screens (HousekeepingManagerView) listen and switch tab; others (PurchaseInvoices, Revenue subtabs, Maintenance ticket detail) don't, so the `tab` field is a no-op.
+4. **Missing data-training anchors in the Maintenance UI** — every maintenance ticket step targets selectors that don't exist on the maintenance page (`tickets-tab`, `ticket-row`, ticket-detail assign dropdown, hold/approval card).
+5. **Auto-start race vs role load.** `autoStartedRef` flips on the first render after `user && role` are present, but `assignedHotel` may still be null → orientation kicks off before the dashboard renders the switcher.
 
-## Solution
+## Plan
 
-### 1. Pacing fix (root cause of the "double next") — `TrainingV2Provider.tsx`
+### 1. Provider fixes — `src/components/training/v2/TrainingV2Provider.tsx`
 
-- Remove the silent `setTimeout(() => next(), 200)` auto-skip for optional steps when a precondition fails.
-- Replace with a **deferred step queue** on the curriculum status:
-  - When the current step's precondition fails:
-    - If `optional` ⇒ push `{slug, stepKey}` into a `deferred_steps` array stored in `user_training_state` and advance once (single, user-visible jump with a small toast: "Skipped — we'll show this when it's relevant").
-    - If not `optional` ⇒ show the existing "Waiting…" card (unchanged), but also offer a "Skip this step for now" button that does the same deferral.
-- Remove the 3-second polling re-run of `run()` inside the same effect — replace with a single MutationObserver + visibility-change listener that re-evaluates only when the DOM actually changes or the tab becomes visible. Avoids the silent re-trigger that compounds the jump.
-- Debounce `next()` (200ms) so a stray double-click can't advance two steps.
+- Gate auto-start on **`assignedHotel` being set** (or user is admin with no hotel) AND the current route being a "stable" landing route (not `/`, `/auth`, `/index` redirector). Add a 600ms post-mount idle check (`requestIdleCallback` fallback to `setTimeout`) before activating, so the dashboard has time to paint anchors.
+- When a step has a `route`, navigate first, then **wait until `location.pathname === step.route`** before starting the selector loop. Currently the effect fires `navigate()` and immediately starts polling — but `location` from `useLocation` is stale in the same tick, causing the locator to query the previous page's DOM.
+- When a step has `tab`, dispatch the `tour:navigate` event AND wait 1 frame before polling. Add a tiny helper `waitForSelector(selector, { timeout, signal })` returning a promise so the run() function reads top-to-bottom.
+- Re-running effect: today the effect depends on `[active?.slug, stepIndex, switchingHotel, assignedHotel]`. Add `location.pathname` so a route change triggered by the step itself re-runs locate. Also debounce the effect body with a 100ms leading guard to absorb React StrictMode double-mounts.
+- Don't restart from step 0 on selector failure: if the run() locator can't find the element AND the step is `optional`, defer + advance; if not optional, show Waiting card and **don't reset stepIndex**. (Already mostly true — verify and add a regression test.)
 
-### 2. Pause + auto-resume for deferred steps
+### 2. Curriculum routing — give every step an explicit destination
 
-- New table column / row shape in `user_training_state`: `deferred_steps jsonb default '[]'` (array of `{slug, stepKey, deferredAt}`).
-- New `useDeferredStepsWatcher` hook mounted by the provider:
-  - On every route change AND on a global MutationObserver (scoped to `document.body`, debounced 400ms), look up curricula+steps in `deferred_steps`, evaluate their `precondition`, and check if `selector` resolves.
-  - When both pass for a deferred step, show a non-blocking toast: **"Ready to continue your <module> training? — Resume"**. Clicking Resume calls `start(slug)` and jumps to that step. Auto-dismiss after 20s; never more than one toast at a time.
-- This gives the user the "pause + auto-resume later" behavior they asked for, for both manager and housekeeper modules.
+For every step in `manager.ts`, `manager-team.ts`, `manager-tickets.ts`, `manager-attendance.ts`, `manager-reception.ts`, `manager-revenue.ts`, `manager-invoices.ts`, `housekeeper.ts`:
 
-### 3. Auto-start hardening
+- Add `route: '/...'` on the first step of each sub-section (don't repeat on consecutive steps on the same route).
+- Add `tab: '<tabKey>'` only where the destination route actually has a tabbed sub-nav, and make sure the destination page **listens for `tour:navigate`** and switches the tab. Audit and add the listener to: `PurchaseInvoices.tsx`, `Revenue.tsx` (year vs strategy), `Maintenance` tickets page.
+- Mark steps whose target is data-dependent (`pending-approvals`, `ticket-row`, `invoice-row`, `revenue-grid:hot-day`) as `optional: true` so they defer cleanly when empty.
+- Tighten `roles` arrays: `manager-revenue` → `admin, top_management, top_management_manager`. `manager-invoices` → `admin, top_management_manager, manager` (only).
 
-- Keep the existing `role` gate (don't auto-start until `profile.role` is loaded).
-- Add a second gate: only auto-start `core` curricula whose `roles` array includes the actual role (the current `curriculaForRole` filter already does this; add a unit-style assertion + console warning if a `core` curriculum has no role match for current user, to catch future regressions).
-- Persist `last_auto_start_at` in `user_training_state` and skip auto-start if it ran in the last 4 hours, so refreshes don't re-trigger the welcome.
-- Existing `dismissed_until` + `auto_start_pending` flow is preserved.
+### 3. Maintenance UI — add the missing `data-training` anchors
 
-### 4. Missing `data-training` anchors
+Audit `src/pages/Maintenance*.tsx`, `src/components/maintenance/*` (read first; some files may not exist with that exact name — search for the maintenance ticket list, detail, hold/approval components). Add anchors at:
 
-Audit each manager module and add the anchor at the exact element. Verify in build mode by reading the file before editing. Anchors expected (per plan-manager-training.md):
+| Anchor                   | Element                                                       |
+| ------------------------ | ------------------------------------------------------------- |
+| `maintenance-tab`        | Top-level Maintenance nav button in MainTabsBar               |
+| `tickets-list`           | The tickets queue container                                   |
+| `ticket-row`             | First ticket card (use `[data-training="ticket-row"]:first-of-type`) |
+| `ticket-filters`         | The filter pill row (status/priority/department)              |
+| `ticket-detail`          | The ticket detail drawer/page root                            |
+| `ticket-assignee-select` | Assignee dropdown trigger                                     |
+| `ticket-hold-btn`        | "Put on Hold" action                                          |
+| `ticket-approve-btn`     | Manager Approve / Reject buttons in the hold card             |
+| `ticket-sla-badge`       | SLA color badge on the row + on the detail                    |
+| `ticket-photos`          | Photo gallery section                                         |
 
-| Anchor                                | File to instrument                                                  |
-| ------------------------------------- | ------------------------------------------------------------------- |
-| `hotel-switcher`                      | `src/components/layout/HotelSwitcher.tsx` (verify present)          |
-| `language-switch`                     | `src/components/dashboard/LanguageSwitcher.tsx` (verify present)    |
-| `main-tabs`                           | `src/components/layout/MainTabsBar.tsx` (add to root nav)           |
-| `team-view`, `team-view-tab`          | `src/components/dashboard/HousekeepingManagerView.tsx`              |
-| `auto-assign-btn`                     | Auto-Assign button in the team view (verify selector)               |
-| `pending-approvals`                   | Pending approvals sub-tab                                           |
-| `ticket-row`                          | First row in tickets list (use `:first-child` selector)             |
-| `revenue-grid`, `ai-analyst-card`     | `CalendarYearView.tsx`, `AnalystPanel.tsx` (verify present)         |
-| `invoice-upload`                      | `PurchaseInvoices.tsx` upload zone (verify present)                 |
-| `help-button`                         | already present                                                     |
+For each: read the file, add `data-training="..."` to the outermost meaningful element, and add a Storybook-style verification by running the matching training step.
 
-Each anchor will be added with `data-training="<key>"` on the outermost meaningful element and verified with a Playwright screenshot of the relevant route after the change.
+### 4. Cross-tab/page navigation listeners
 
-### 5. Curriculum content + i18n pass
+- `src/pages/PurchaseInvoices.tsx`: add a `useEffect` listening for `tour:navigate` and switching local tab state for keys like `invoices-upload`, `invoices-verify`.
+- `src/pages/Revenue.tsx`: same for `revenue-year`, `revenue-strategy`, `revenue-analyst`.
+- Maintenance page (whichever route hosts it): same for `tickets`, `tickets-detail` (open first ticket).
+- `MainTabsBar.tsx`: ensure it also listens for `tour:navigate` with a `mainTab` key to switch top-level nav (housekeeping / reception / maintenance / revenue / invoices). Add a `data-training="main-tabs"` on the bar root.
 
-For each of `manager.ts`, `manager-team.ts`, `manager-tickets.ts`, `manager-reception.ts`, `manager-attendance.ts`, `manager-revenue.ts`, `manager-invoices.ts`, `housekeeper.ts`:
+### 5. Regression checklist + lightweight automated test
 
-- Re-write step copy in manager tone (terse, desktop-aware) — keep ops vocabulary (ADR, RevPAR, pickup, SLA) untranslated.
-- Verify every step has `en, hu, es, vi, mn` for title + body.
-- Mark steps that depend on data as `optional: true` so they get deferred (instead of blocking) when nothing is on screen.
-- Tighten `roles` arrays so `manager-revenue` / `manager-invoices` only target `top_management*` + `admin`.
+Create `.lovable/training-regression-checklist.md` covering, for each module, a manual pass:
 
-### 6. Housekeeper module same treatment
+- Auto-start gate (does it wait for role + hotel?)
+- First-step highlight resolves on the correct route
+- Click Next once → advance exactly one step (no double-jump)
+- Cross-route step: confirm browser URL changes before highlight appears
+- Empty-state step: confirm deferral toast appears, no stall, module completes
+- After deferral, seed the data and confirm the resume toast surfaces
 
-- Same optional+deferred behaviour applied to "Start Room", "In-room tools", "Sign out", etc.
-- Keep linear flow when work IS present; defer when not.
+Add an automated Vitest test `src/components/training/v2/__tests__/curricula.test.ts`:
 
-## Verification
+- Every curriculum step has either `selector` or is text-only.
+- Every `selector` step has a matching `route` OR `tab` OR is anchored to a global element (`hotel-switcher`, `help-button`, `language-switch`, `main-tabs`).
+- Every step that targets a data-dependent element is `optional: true`.
+- All step copy has `en` + `hu` + `es` + `vi` + `mn`.
+- `roles` arrays are non-empty and each role is a valid `RoleKey`.
 
-- Playwright run on `/rdhotels` while signed in as a manager:
-  1. Trigger orientation via help button → step through, screenshot every step, confirm spotlight lands on a real element and no step auto-skips on click Next.
-  2. Open `manager-team` from Training Center on a hotel with no pending approvals → confirm those steps defer + a resume toast appears after we seed a pending approval.
-- Re-run for housekeeper account with no active assignment → confirm steps after "Sign in" defer until an assignment is seeded.
-- Verify `tsgo` typecheck passes.
-- Check `user_tour_progress` rows reflect the resumed step indexes.
+Add a second test for the provider's `next()` debounce: simulate two `next()` calls within 200ms → assert only one step advance.
+
+### 6. Verification
+
+- `tsgo` typecheck.
+- Vitest run for the two new test files.
+- Playwright (already used by Lovable browser-use): sign in as a manager, trigger Orientation from help, screenshot each of the 4 steps, confirm highlight rect lands on each anchor. Repeat for `manager-team` (with a seeded auto-assign result), `manager-tickets` (with a seeded open ticket), and the housekeeper tour with a seeded assignment.
+
+## Out of scope
+
+- Airbnb-style multi-property orgs and the broader maintenance feature audit (those keep their own plans).
+- Any visual redesign of the training overlay itself.
 
 ## Technical details
 
-- New migration: `ALTER TABLE public.user_training_state ADD COLUMN IF NOT EXISTS deferred_steps jsonb NOT NULL DEFAULT '[]'::jsonb, ADD COLUMN IF NOT EXISTS last_auto_start_at timestamptz;` — no GRANT changes needed (table already exposed to authenticated).
+- Files touched: `TrainingV2Provider.tsx`, all 7 manager curricula + housekeeper, `MainTabsBar.tsx`, `PurchaseInvoices.tsx`, `Revenue.tsx`, maintenance page + ticket-detail components, new test file, regression checklist doc.
+- No DB migration needed (the `deferred_steps` + `last_auto_start_at` columns already exist from the last pass).
 - No edge-function changes.
-- No UI changes outside training overlay + the anchor additions.
-
-## Out of scope (separate plans next)
-
-- Airbnb-style multi-property organization onboarding — will produce a discovery doc covering: `organizations.type` ('hotel' | 'str_network'), introducing a `properties` entity (address, coords, listing IDs), consolidated manager dashboard across properties, housekeeper routing across addresses, and how the existing `hotel_configurations` rows map to "properties" without breaking PMS sync. Will return with clarifying questions.
-- Maintenance section audit — full walkthrough of tickets, SLA, photos, hold/approval, manager close-out + edge-function logs. Separate plan once training ships.
