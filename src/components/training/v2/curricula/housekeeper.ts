@@ -161,6 +161,8 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         vi: 'Bạn có phòng đang chờ. Bấm Bắt đầu Dọn.',
         mn: 'Танд өрөө хүлээж байна. "Цэвэрлэж эхлэх" дар.',
       },
+      route: '/:org',
+      tab: 'housekeeping',
       selector: '[data-training="start-room-button"]',
       precondition: 'has_active_assignment',
       waitFor: 'has_in_progress_cleaning',
