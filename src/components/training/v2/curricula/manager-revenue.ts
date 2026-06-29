@@ -39,7 +39,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         vi: 'Tab Revenue Management mở lưới chiến lược 120 ngày.',
         mn: '"Revenue Management" таб 120 хоногийн хүснэгтийг нээнэ.',
       },
-      route: '/rdhotels/revenue',
+      route: '/:org/revenue',
     },
     {
       key: 'grid',
@@ -95,7 +95,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         vi: 'Phân tích liệt kê các thay đổi giá đề xuất kèm lý do — có thể ghi đè.',
         mn: 'Шинжээч санал бүрийг шалтгаантай харуулна — Previo руу илгээхээс өмнө засаж болно.',
       },
-      route: '/rdhotels/revenue',
+      route: '/:org/revenue',
       selector: '[data-training="ai-analyst-card"]',
       optional: true,
     },
