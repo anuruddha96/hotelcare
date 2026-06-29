@@ -102,6 +102,18 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const lang = (language as LangCode) || 'en';
 
+  // Resolve `:org` and `:orgSlug` placeholders in step routes from the
+  // current URL so curricula stay tenant-agnostic.
+  const resolveRoute = useCallback(
+    (raw?: string): string | undefined => {
+      if (!raw) return raw;
+      const seg = location.pathname.split('/').filter(Boolean);
+      const orgSlug = seg[0] || (profile as any)?.organization_slug || 'rdhotels';
+      return raw.replace(/:orgSlug/g, orgSlug).replace(/:org\b/g, orgSlug);
+    },
+    [location.pathname, profile],
+  );
+
   // Do NOT default role to 'housekeeping'. Wait until profile loads.
   const role = (profile?.role as string) || null;
   const assignedHotel = (profile as any)?.assigned_hotel || null;
