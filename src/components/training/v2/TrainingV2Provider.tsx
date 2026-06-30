@@ -122,6 +122,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [waiting, setWaiting] = useState(false);
+  // Gate the overlay until the current step has finished resolving
+  // (navigation done, selector located OR confirmed text-only OR an
+  // explicit waiting state). Prevents the "flash step 1 then jump to
+  // step 2" bug caused by auto-defer chains.
+  const [stepReady, setStepReady] = useState(false);
   const [completion, setCompletion] = useState<Record<string, CompletionStatus>>({});
   const [statuses, setStatuses] = useState<Record<string, CurriculumStatus>>({});
   const [switchingHotel, setSwitchingHotel] = useState(false);
@@ -368,6 +373,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     let cancelled = false;
     setRect(null);
     setWaiting(false);
+    // Hide overlay until this step has resolved.
+    setStepReady(false);
 
     const guardCtx = {
       userId: user.id,
@@ -377,6 +384,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       dataReady: dataReadyRef.current,
     };
 
+    // Silently defer the current step (no toast — user asked for skips to
+    // happen in the background). The deferred queue still drives the
+    // "Resume" toast when the step's element + precondition later become
+    // available.
     const deferCurrent = async () => {
       const entry: DeferredStep = {
         slug: active.slug,
@@ -391,26 +402,17 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       ];
       deferredRef.current = queue;
       await persistDeferred(queue);
-      try {
-        toast(SKIP_TOAST_LABELS[lang] || SKIP_TOAST_LABELS.en, { duration: 2500 });
-      } catch {}
     };
 
     const run = async () => {
-      // Resolve any :org placeholder and navigate first. CRITICAL: bail out
-      // of this run() and wait for the next effect tick (triggered by
-      // location.pathname change) before trying to locate. Otherwise we
-      // query the previous page's DOM and the step appears stuck.
       const targetRoute = resolveRoute(step.route);
       if (targetRoute && location.pathname !== targetRoute) {
         navigate(targetRoute);
-        if (!cancelled) setWaiting(true);
+        // Stay hidden while we wait for the route to change — the effect
+        // re-runs on location.pathname.
         return;
       }
       if (step.tab) {
-        // Dispatch BOTH event names — the v1 dashboard listens for
-        // `training-navigate { mainTab, subTab }` while pages outside the
-        // dashboard listen for `tour:navigate { tab }`.
         window.dispatchEvent(
           new CustomEvent('tour:navigate', {
             detail: { tab: step.tab, subTab: (step as any).subTab, tourKey: active.slug },
@@ -421,19 +423,16 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
             detail: { mainTab: step.tab, subTab: (step as any).subTab },
           }),
         );
-        // Wait one frame so the tab switch has flushed before we locate.
         await new Promise((r) => requestAnimationFrame(() => r(null)));
       }
 
-      // Precondition check
       if (step.precondition) {
         const ok = await evaluateGuard(step.precondition, guardCtx);
         if (!ok) {
           if (step.optional) {
-            // Defer this step + advance once (single visible jump, not a chain).
+            // Silently defer + advance. Overlay stays hidden the whole time.
             await deferCurrent();
             if (!cancelled) {
-              // Use timeout so the React state update from this effect completes.
               setTimeout(() => {
                 if (cancelled) return;
                 if (stepIndex < active.steps.length - 1) {
@@ -441,17 +440,19 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
                 } else {
                   finishInternal();
                 }
-              }, 50);
+              }, 30);
             }
             return;
           }
-          // Non-optional precondition fail ⇒ wait (user can use "Skip for now").
-          if (!cancelled) setWaiting(true);
+          // Non-optional precondition fail ⇒ surface the waiting card.
+          if (!cancelled) {
+            setWaiting(true);
+            setStepReady(true);
+          }
           return;
         }
       }
 
-      // Locate selector (with bounded retries)
       if (step.selector) {
         const startedAt = Date.now();
         const tryLocate = () => {
@@ -463,42 +464,45 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
               el.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
             } catch {}
             setTimeout(() => {
-              if (!cancelled) setRect(el.getBoundingClientRect());
+              if (cancelled) return;
+              setRect(el.getBoundingClientRect());
+              setStepReady(true);
             }, 250);
             return;
           }
           if (Date.now() - startedAt < SELECTOR_TIMEOUT_MS) {
             setTimeout(tryLocate, 250);
           } else if (step.optional) {
-            // Element never appeared → defer + advance once.
+            // Element never appeared → silently defer + advance.
             deferCurrent().then(() => {
               if (cancelled) return;
               if (stepIndex < active.steps.length - 1) setStepIndex(stepIndex + 1);
               else finishInternal();
             });
           } else if (!cancelled) {
-            // Show waiting card so user can choose to skip-for-now.
             setWaiting(true);
+            setStepReady(true);
           }
         };
         tryLocate();
       } else {
-        // Text-only step: no selector to locate, just clear waiting.
-        if (!cancelled) setWaiting(false);
+        // Text-only step: ready immediately.
+        if (!cancelled) {
+          setWaiting(false);
+          setStepReady(true);
+        }
       }
     };
 
     run();
     persist(active.slug, stepIndex, 'in_progress', step.key);
 
-    // Poll waitFor: advance automatically once the user completes the action.
     let waitInterval: ReturnType<typeof setInterval> | null = null;
     if (step.waitFor) {
       waitInterval = setInterval(async () => {
         const ok = await evaluateGuard(step.waitFor!, guardCtx);
         if (ok && !cancelled) {
           if (waitInterval) clearInterval(waitInterval);
-          // Use the same debounced next() path.
           if (stepIndex < active.steps.length - 1) setStepIndex(stepIndex + 1);
           else finishInternal();
         }
@@ -587,7 +591,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     setTimeout(() => launcherRef.current?.focus(), 50);
   }, [active, stepIndex, user, persist]);
 
-  // Skip this step for now → push to deferred queue, advance once.
+  // Skip this step for now → push to deferred queue, advance once. Silent.
   const skipForNow = useCallback(async () => {
     if (!active || !step) return;
     const entry: DeferredStep = {
@@ -603,11 +607,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     ];
     deferredRef.current = queue;
     await persistDeferred(queue);
-    try {
-      toast(SKIP_TOAST_LABELS[lang] || SKIP_TOAST_LABELS.en, { duration: 2500 });
-    } catch {}
     next();
-  }, [active, step, lang, persistDeferred, next]);
+  }, [active, step, persistDeferred, next]);
 
   const start = useCallback(
     async (slug: string, opts?: { restart?: boolean; manual?: boolean; startAtKey?: string }) => {
@@ -802,7 +803,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   return (
     <TrainingV2Context.Provider value={value}>
       {children}
-      {active && step && <TrainingOverlayV2 />}
+      {active && step && stepReady && <TrainingOverlayV2 />}
     </TrainingV2Context.Provider>
   );
 }
