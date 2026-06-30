@@ -591,7 +591,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     setTimeout(() => launcherRef.current?.focus(), 50);
   }, [active, stepIndex, user, persist]);
 
-  // Skip this step for now → push to deferred queue, advance once.
+  // Skip this step for now → push to deferred queue, advance once. Silent.
   const skipForNow = useCallback(async () => {
     if (!active || !step) return;
     const entry: DeferredStep = {
@@ -607,11 +607,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     ];
     deferredRef.current = queue;
     await persistDeferred(queue);
-    try {
-      toast(SKIP_TOAST_LABELS[lang] || SKIP_TOAST_LABELS.en, { duration: 2500 });
-    } catch {}
     next();
-  }, [active, step, lang, persistDeferred, next]);
+  }, [active, step, persistDeferred, next]);
 
   const start = useCallback(
     async (slug: string, opts?: { restart?: boolean; manual?: boolean; startAtKey?: string }) => {
