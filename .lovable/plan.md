@@ -1,94 +1,107 @@
-## Goal
+## Scope
 
-Make the manager + housekeeper training modules actually walk through the app: navigate across routes/tabs, highlight the right element on each step, advance one step at a time, and defer/resume cleanly when an element isn't available. Add the missing `data-training` anchors in the maintenance UI and ship a regression checklist.
+Three separate workstreams the user raised today:
 
-## Root causes (from code read)
+1. **Bug** — Ottofiori rooms 302 & 303 weren't auto-marked as no-show / empty yesterday even though the PMS file had no guests.
+2. **Training UX** — Housekeeper training behaves poorly (visible skips, no cross-page navigation, "flash next module" bug, weak module ordering), and needs voice-over in each user's locale.
+3. **Notifications** — Logged-in users on phones should reliably receive relevant in-app notifications.
 
-1. **Manager Orientation "shows step 1 then jumps".** Orientation auto-starts 1.2s after login on whatever route the user lands on (often `/index` → redirect to dashboard). Step 1 (`hotel_switcher`) targets `[data-training="hotel-switcher"]` but has **no `route`**. If the dashboard hasn't mounted the switcher yet, the selector loop runs for 8s and — because step is not `optional` — shows the Waiting card while React state churn from the auth redirect re-renders the provider effect, which restarts the step. User perceives "back to slide 1, then forward".
-2. **Tour doesn't cross tabs/pages.** Manager-team/-tickets/-revenue/-invoices/-attendance steps set `tab` (a `tour:navigate` CustomEvent) but **most steps don't set `route`**. So when training runs from `/dashboard`, steps that need `/maintenance` or `/revenue` never get there — selector times out and step gets deferred or stalls.
-3. **`tour:navigate` listeners are inconsistent.** Some screens (HousekeepingManagerView) listen and switch tab; others (PurchaseInvoices, Revenue subtabs, Maintenance ticket detail) don't, so the `tab` field is a no-op.
-4. **Missing data-training anchors in the Maintenance UI** — every maintenance ticket step targets selectors that don't exist on the maintenance page (`tickets-tab`, `ticket-row`, ticket-detail assign dropdown, hold/approval card).
-5. **Auto-start race vs role load.** `autoStartedRef` flips on the first render after `user && role` are present, but `assignedHotel` may still be null → orientation kicks off before the dashboard renders the switcher.
+---
 
-## Plan
+## 1. Ottofiori 302 / 303 no-show detection
 
-### 1. Provider fixes — `src/components/training/v2/TrainingV2Provider.tsx`
+### Investigate
+- Query `rooms`, `reservations`, `pms_change_events`, and `daily_overview_snapshots` for Ottofiori 302/303 for yesterday's date to see what PMS actually delivered and what status each row carried.
+- Check `previo-poll-checkouts` and `previo-sync-daily-overview` edge function logs for that window.
+- Review the auto-assignment / "empty room" logic in `roomAssignmentAlgorithm.ts` and the nightly sync to find where a missing-guest signal should flip a room to "no service" or "empty".
 
-- Gate auto-start on **`assignedHotel` being set** (or user is admin with no hotel) AND the current route being a "stable" landing route (not `/`, `/auth`, `/index` redirector). Add a 600ms post-mount idle check (`requestIdleCallback` fallback to `setTimeout`) before activating, so the dashboard has time to paint anchors.
-- When a step has a `route`, navigate first, then **wait until `location.pathname === step.route`** before starting the selector loop. Currently the effect fires `navigate()` and immediately starts polling — but `location` from `useLocation` is stale in the same tick, causing the locator to query the previous page's DOM.
-- When a step has `tab`, dispatch the `tour:navigate` event AND wait 1 frame before polling. Add a tiny helper `waitForSelector(selector, { timeout, signal })` returning a promise so the run() function reads top-to-bottom.
-- Re-running effect: today the effect depends on `[active?.slug, stepIndex, switchingHotel, assignedHotel]`. Add `location.pathname` so a route change triggered by the step itself re-runs locate. Also debounce the effect body with a 100ms leading guard to absorb React StrictMode double-mounts.
-- Don't restart from step 0 on selector failure: if the run() locator can't find the element AND the step is `optional`, defer + advance; if not optional, show Waiting card and **don't reset stepIndex**. (Already mostly true — verify and add a regression test.)
+### Fix
+- If the PMS payload was correct but our classifier ignored it: tighten the rule (room has no active reservation on date → mark `no_service` / `empty` automatically before assignment runs).
+- If the PMS payload was missing those rooms: add a reconciliation pass that, for any room not present in the daily overview, defaults to `empty` instead of carrying over yesterday's status.
+- Add a one-time backfill for the two specific rooms so today's view is correct.
+- Add a small audit log entry whenever auto-classification flips a room, so this is debuggable next time.
 
-### 2. Curriculum routing — give every step an explicit destination
+---
 
-For every step in `manager.ts`, `manager-team.ts`, `manager-tickets.ts`, `manager-attendance.ts`, `manager-reception.ts`, `manager-revenue.ts`, `manager-invoices.ts`, `housekeeper.ts`:
+## 2. Housekeeper training overhaul
 
-- Add `route: '/...'` on the first step of each sub-section (don't repeat on consecutive steps on the same route).
-- Add `tab: '<tabKey>'` only where the destination route actually has a tabbed sub-nav, and make sure the destination page **listens for `tour:navigate`** and switches the tab. Audit and add the listener to: `PurchaseInvoices.tsx`, `Revenue.tsx` (year vs strategy), `Maintenance` tickets page.
-- Mark steps whose target is data-dependent (`pending-approvals`, `ticket-row`, `invoice-row`, `revenue-grid:hot-day`) as `optional: true` so they defer cleanly when empty.
-- Tighten `roles` arrays: `manager-revenue` → `admin, top_management, top_management_manager`. `manager-invoices` → `admin, top_management_manager, manager` (only).
+### A. Fix the pacing / navigation engine (`TrainingV2Provider.tsx`)
+- **Silent skip**: when a step is deferred or its precondition fails, do NOT mount the overlay or show a toast — push to `deferred_steps` and advance internally. Only surface UI when the *next visible* step is ready.
+- **"Flash first slide then jump"**: stop re-running the start effect on `stepIndex` change. Compute the first eligible step once on start, then render. Debounce `next()` more strictly (single in-flight guarantee).
+- **Cross-page navigation**: every step declares `route` + `tab`. On `next()`, if target route ≠ current route, `navigate()` first, then wait for `location.pathname` match AND target selector to mount (MutationObserver) before revealing the spotlight. Never reveal the overlay until the element is in the viewport — scroll it into view.
+- **Element-aware spotlight**: if the element is off-screen, `scrollIntoView({block:'center'})` then highlight. If it never appears within timeout, silently defer (no "Skipped" toast).
 
-### 3. Maintenance UI — add the missing `data-training` anchors
+### B. Rebuild the housekeeper curriculum
+Rewrite `housekeeper.ts` into clear ordered modules with proper `route`/`tab`/`selector` on every step:
+1. Orientation (welcome, language, help button)
+2. Sign in for shift (attendance)
+3. My Assignments list
+4. Start a room (deferred until an assignment exists — resumes proactively)
+5. In-room: photos, minibar, DND, dirty linen
+6. Finish & request approval
+7. Break request flow
+8. End of shift / sign out
 
-Audit `src/pages/Maintenance*.tsx`, `src/components/maintenance/*` (read first; some files may not exist with that exact name — search for the maintenance ticket list, detail, hold/approval components). Add anchors at:
+Mark data-gated steps `optional: true` so the engine defers instead of skipping visibly.
 
-| Anchor                   | Element                                                       |
-| ------------------------ | ------------------------------------------------------------- |
-| `maintenance-tab`        | Top-level Maintenance nav button in MainTabsBar               |
-| `tickets-list`           | The tickets queue container                                   |
-| `ticket-row`             | First ticket card (use `[data-training="ticket-row"]:first-of-type`) |
-| `ticket-filters`         | The filter pill row (status/priority/department)              |
-| `ticket-detail`          | The ticket detail drawer/page root                            |
-| `ticket-assignee-select` | Assignee dropdown trigger                                     |
-| `ticket-hold-btn`        | "Put on Hold" action                                          |
-| `ticket-approve-btn`     | Manager Approve / Reject buttons in the hold card             |
-| `ticket-sla-badge`       | SLA color badge on the row + on the detail                    |
-| `ticket-photos`          | Photo gallery section                                         |
+### C. Voice-over in user locale
+- Add an optional `voice` field per step (or auto-generate from `body[lang]`).
+- Use the ElevenLabs `openai/gpt-4o-mini-tts` model (available via Lovable AI Gateway) through a new `training-tts` edge function. Cache generated audio in Supabase Storage keyed by `(stepKey, lang, version)` so each clip is generated once per language.
+- Overlay gets a small play/pause + mute toggle; respects `prefers-reduced-motion` and a per-user "voice off" preference saved on `user_training_state`.
+- Pick voice per locale (en/hu/es/vi/mn) with a sensible default.
 
-For each: read the file, add `data-training="..."` to the outermost meaningful element, and add a Storybook-style verification by running the matching training step.
+### D. Housekeeper UI tidy-up (minimal)
+- Add any missing `data-training` anchors the new curriculum needs (sign-in button, assignments list, start-room, photo-uploader, minibar tab, dirty-linen tab, finish button, break-request button).
+- No business-logic changes to the housekeeper screens.
 
-### 4. Cross-tab/page navigation listeners
+### E. Verify
+- Extend `__tests__/curricula.test.ts`: every step has `route`, every selector-based step is either `optional` or has a globally-mounted anchor, no two consecutive steps share the same key.
+- Playwright run as a housekeeper: orientation → sign-in → assignments → defer start-room → resume after assignment appears. Screenshot each step.
 
-- `src/pages/PurchaseInvoices.tsx`: add a `useEffect` listening for `tour:navigate` and switching local tab state for keys like `invoices-upload`, `invoices-verify`.
-- `src/pages/Revenue.tsx`: same for `revenue-year`, `revenue-strategy`, `revenue-analyst`.
-- Maintenance page (whichever route hosts it): same for `tickets`, `tickets-detail` (open first ticket).
-- `MainTabsBar.tsx`: ensure it also listens for `tour:navigate` with a `mainTab` key to switch top-level nav (housekeeping / reception / maintenance / revenue / invoices). Add a `data-training="main-tabs"` on the bar root.
+---
 
-### 5. Regression checklist + lightweight automated test
+## 3. Smarter mobile notifications for logged-in users
 
-Create `.lovable/training-regression-checklist.md` covering, for each module, a manual pass:
+### Investigate
+- Audit `useNotifications`, `RealtimeNotificationProvider`, `EnhancedNotificationOverlay`, `serviceWorkerManager`, and `public/service-worker.js`.
+- Confirm SW is registered on mobile Safari/Chrome after login, and that `Notification.permission` is requested at the right moment (not on cold load — on first relevant in-app event).
 
-- Auto-start gate (does it wait for role + hotel?)
-- First-step highlight resolves on the correct route
-- Click Next once → advance exactly one step (no double-jump)
-- Cross-route step: confirm browser URL changes before highlight appears
-- Empty-state step: confirm deferral toast appears, no stall, module completes
-- After deferral, seed the data and confirm the resume toast surfaces
+### Improve
+- **Permission prompt timing**: ask once, contextually (e.g. right after a housekeeper signs in for shift, or a manager opens Tickets) instead of on first paint.
+- **Relevance filter**: server-side via Realtime filters already partly done — extend to drop notifications for hotels other than `assigned_hotel` and for roles that don't care (e.g. don't show break-request toasts to housekeepers).
+- **Foreground vs background**: when tab is visible → Sonner toast only; when hidden → SW `showNotification` with `tag` collapsing so the same event doesn't stack.
+- **Re-validation on resume**: console logs show "Session expired while tab was backgrounded" → silently refresh the Supabase session before re-subscribing Realtime channels so notifications resume without a manual reload.
+- **Persistent subscription**: keep one shared Realtime channel per user (not per provider mount) to avoid the duplicate-subscription cost noted in the Supabase guidance.
+- **Per-user preferences UI**: use existing `notification_preferences` table — add a simple toggle group in profile (assignments, approvals, tickets, breaks).
 
-Add an automated Vitest test `src/components/training/v2/__tests__/curricula.test.ts`:
+### Verify
+- Manual mobile test on iOS Safari + Android Chrome: install PWA, lock screen, fire a test event from an edge function, confirm banner.
+- Add an edge function `notification-test` (admin-only) that fires a notification to a chosen user for QA.
 
-- Every curriculum step has either `selector` or is text-only.
-- Every `selector` step has a matching `route` OR `tab` OR is anchored to a global element (`hotel-switcher`, `help-button`, `language-switch`, `main-tabs`).
-- Every step that targets a data-dependent element is `optional: true`.
-- All step copy has `en` + `hu` + `es` + `vi` + `mn`.
-- `roles` arrays are non-empty and each role is a valid `RoleKey`.
+---
 
-Add a second test for the provider's `next()` debounce: simulate two `next()` calls within 200ms → assert only one step advance.
+## Technical notes
 
-### 6. Verification
+- No schema changes required for #2 beyond a `voice_enabled boolean` and `voice_lang text` on `user_training_state` (already has `deferred_steps`).
+- Voice-over generation uses Lovable AI Gateway (`openai/gpt-4o-mini-tts`) — no extra secret needed.
+- Notifications work continues to use the existing `public/service-worker.js`; no new SW file.
+- All work stays inside existing files plus: `supabase/functions/training-tts/`, `supabase/functions/notification-test/`, and one migration.
 
-- `tsgo` typecheck.
-- Vitest run for the two new test files.
-- Playwright (already used by Lovable browser-use): sign in as a manager, trigger Orientation from help, screenshot each of the 4 steps, confirm highlight rect lands on each anchor. Repeat for `manager-team` (with a seeded auto-assign result), `manager-tickets` (with a seeded open ticket), and the housekeeper tour with a seeded assignment.
+---
 
-## Out of scope
+## Out of scope (for this round)
 
-- Airbnb-style multi-property orgs and the broader maintenance feature audit (those keep their own plans).
-- Any visual redesign of the training overlay itself.
+- Airbnb-style multi-property org research (deferred earlier, still deferred).
+- Manager training rewrite — only the engine fixes from §2A flow through to managers automatically; the manager curriculum copy stays as-is.
+- Native push (FCM/APNs) — staying on Web Push via existing SW.
 
-## Technical details
+---
 
-- Files touched: `TrainingV2Provider.tsx`, all 7 manager curricula + housekeeper, `MainTabsBar.tsx`, `PurchaseInvoices.tsx`, `Revenue.tsx`, maintenance page + ticket-detail components, new test file, regression checklist doc.
-- No DB migration needed (the `deferred_steps` + `last_auto_start_at` columns already exist from the last pass).
-- No edge-function changes.
+## Order of execution
+
+1. Investigate 302/303 (read-only queries + log check) — fix or backfill.
+2. Training engine fixes (§2A) — these also fix the manager "flash next module" bug.
+3. Housekeeper curriculum rewrite + anchors (§2B, §2D).
+4. Voice-over (§2C).
+5. Notification improvements (§3).
+6. Tests + Playwright verification.
