@@ -803,7 +803,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   return (
     <TrainingV2Context.Provider value={value}>
       {children}
-      {active && step && <TrainingOverlayV2 />}
+      {active && step && stepReady && <TrainingOverlayV2 />}
     </TrainingV2Context.Provider>
   );
 }
