@@ -122,6 +122,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [waiting, setWaiting] = useState(false);
+  // Gate the overlay until the current step has finished resolving
+  // (navigation done, selector located OR confirmed text-only OR an
+  // explicit waiting state). Prevents the "flash step 1 then jump to
+  // step 2" bug caused by auto-defer chains.
+  const [stepReady, setStepReady] = useState(false);
   const [completion, setCompletion] = useState<Record<string, CompletionStatus>>({});
   const [statuses, setStatuses] = useState<Record<string, CurriculumStatus>>({});
   const [switchingHotel, setSwitchingHotel] = useState(false);
