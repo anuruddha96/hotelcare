@@ -57,4 +57,11 @@ export interface TrainingCurriculum {
   category: 'core' | 'feature_promo';
   priority: number;
   steps: TrainingStepV2[];
+  /**
+   * Optional ordered list of curriculum slugs to auto-play once this one
+   * finishes. Lets us stitch small modules into one continuous walkthrough
+   * without duplicating steps. Each linked curriculum remains independently
+   * launchable from the Training Center.
+   */
+  chain?: string[];
 }
