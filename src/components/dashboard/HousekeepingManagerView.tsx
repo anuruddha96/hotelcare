@@ -449,12 +449,6 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     return total > 0 ? Math.round((completed / total) * 100) : 0;
   };
 
-  if (loading) {
-    return <div className="flex justify-center p-8">{t('common.loading')}</div>;
-  }
-
-  const isReception = profile?.role === 'reception';
-
   // Allow training to switch sub-tabs (team / early-signout) via the
   // `tour:navigate { subTab }` event.
   const [innerTab, setInnerTab] = React.useState<string>('team');
@@ -471,6 +465,13 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       window.removeEventListener('training-navigate', handler);
     };
   }, []);
+
+  if (loading) {
+    return <div className="flex justify-center p-8">{t('common.loading')}</div>;
+  }
+
+  const isReception = profile?.role === 'reception';
+
 
   return (
     <>
