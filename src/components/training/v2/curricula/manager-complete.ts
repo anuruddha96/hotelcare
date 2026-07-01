@@ -39,7 +39,7 @@ export const managerCompleteCurriculum: TrainingCurriculum = {
   chain: [
     'v2_manager_attendance_and_payroll',
     'v2_manager_reception_handover',
-    'v2_manager_run_your_day_team',
+    'v2_manager_team_and_assignments',
     'v2_manager_tickets_and_sla',
     'v2_manager_revenue',
     'v2_manager_purchase_invoices',
