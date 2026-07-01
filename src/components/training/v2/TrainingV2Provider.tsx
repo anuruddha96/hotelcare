@@ -538,11 +538,33 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     };
   }, [step?.selector, stepIndex]);
 
+  // Track the remaining chain of curricula to auto-play after the current
+  // one finishes. Populated when `start()` opens a curriculum that declares
+  // `chain: [...]`. When empty, finish behaves normally.
+  const chainQueueRef = useRef<string[]>([]);
+
   const finishInternal = useCallback(() => {
+    const finishedSlug = active?.slug;
     if (active) {
       persist(active.slug, active.steps.length, 'completed', step?.key);
       setCompletion((m) => ({ ...m, [active.slug]: 'done' }));
     }
+
+    // If a chain is queued, auto-advance to the next child curriculum
+    // instead of closing the overlay.
+    const nextSlug = chainQueueRef.current.shift();
+    if (nextSlug) {
+      const nextCur = findCurriculum(nextSlug);
+      if (nextCur) {
+        setActive(nextCur);
+        setStepIndex(0);
+        setRect(null);
+        setWaiting(false);
+        setStepReady(false);
+        return;
+      }
+    }
+
     setActive(null);
     setStepIndex(0);
     setRect(null);
@@ -643,6 +665,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
             { onConflict: 'user_id,tour_key' },
           );
       }
+      // Seed the chain queue from the curriculum definition. Manual restart
+      // or explicit start replaces any prior in-flight chain.
+      chainQueueRef.current = Array.isArray(c.chain) ? [...c.chain] : [];
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
     },

@@ -31,7 +31,7 @@ export const managerOrientationCurriculum: TrainingCurriculum = {
     'top_management',
     'top_management_manager',
   ],
-  category: 'core',
+  category: 'feature_promo',
   priority: 5,
   steps: [
     {
