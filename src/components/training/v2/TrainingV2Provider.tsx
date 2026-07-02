@@ -342,11 +342,13 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       }
 
       const resumeIdx = progressBySlug[target.slug]?.idx ?? 0;
-      // Give the landing page another beat to paint its anchors.
+      // Show the first-login prompt instead of auto-launching the tour so
+      // the user can Start, snooze, or skip. Chain seeding happens when
+      // they accept.
       setTimeout(() => {
-        setActive(target);
-        setStepIndex(Math.min(resumeIdx, target.steps.length - 1));
-      }, 1600);
+        pendingResumeIdxRef.current = Math.min(resumeIdx, target.steps.length - 1);
+        setPendingAutoStart(target);
+      }, 1200);
 
       await supabase
         .from('user_training_state')
