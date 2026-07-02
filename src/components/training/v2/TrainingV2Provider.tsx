@@ -17,6 +17,7 @@ import type { LangCode, TrainingCurriculum, TrainingStepV2 } from './types';
 import { evaluateGuard } from './guards';
 import { ALL_CURRICULA, curriculaForRole, findCurriculum } from './curricula';
 import { TrainingOverlayV2 } from './TrainingOverlayV2';
+import { TrainingFirstLoginPrompt } from './TrainingFirstLoginPrompt';
 
 type CompletionStatus = 'done' | 'in_progress' | 'available';
 
@@ -58,6 +59,11 @@ interface TrainingV2ContextValue {
   completion: Record<string, CompletionStatus>;
   statuses: Record<string, CurriculumStatus>;
   registerLauncher: (el: HTMLElement | null) => void;
+  /** First-login walkthrough prompt (null when hidden). */
+  pendingAutoStart: TrainingCurriculum | null;
+  acceptAutoStart: () => void;
+  snoozeAutoStart: () => Promise<void>;
+  skipAutoStart: () => Promise<void>;
 }
 
 const TrainingV2Context = createContext<TrainingV2ContextValue | null>(null);
@@ -122,15 +128,12 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [waiting, setWaiting] = useState(false);
-  // Gate the overlay until the current step has finished resolving
-  // (navigation done, selector located OR confirmed text-only OR an
-  // explicit waiting state). Prevents the "flash step 1 then jump to
-  // step 2" bug caused by auto-defer chains.
   const [stepReady, setStepReady] = useState(false);
   const [completion, setCompletion] = useState<Record<string, CompletionStatus>>({});
   const [statuses, setStatuses] = useState<Record<string, CurriculumStatus>>({});
   const [switchingHotel, setSwitchingHotel] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [pendingAutoStart, setPendingAutoStart] = useState<TrainingCurriculum | null>(null);
   const autoStartedRef = useRef(false);
   const dataReadyRef = useRef<Set<string>>(new Set());
   const launcherRef = useRef<HTMLElement | null>(null);
@@ -138,6 +141,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const deferredRef = useRef<DeferredStep[]>([]);
   const resumePromptedRef = useRef<Set<string>>(new Set());
   const lastNextAtRef = useRef<number>(0);
+  const pendingResumeIdxRef = useRef<number>(0);
 
   const step = active ? active.steps[stepIndex] : null;
   const totalSteps = active?.steps.length || 0;
@@ -340,11 +344,13 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       }
 
       const resumeIdx = progressBySlug[target.slug]?.idx ?? 0;
-      // Give the landing page another beat to paint its anchors.
+      // Show the first-login prompt instead of auto-launching the tour so
+      // the user can Start, snooze, or skip. Chain seeding happens when
+      // they accept.
       setTimeout(() => {
-        setActive(target);
-        setStepIndex(Math.min(resumeIdx, target.steps.length - 1));
-      }, 1600);
+        pendingResumeIdxRef.current = Math.min(resumeIdx, target.steps.length - 1);
+        setPendingAutoStart(target);
+      }, 1200);
 
       await supabase
         .from('user_training_state')
@@ -800,6 +806,59 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
   const availableCurricula = useMemo(() => curriculaForRole(role || ''), [role]);
 
+  // First-login prompt actions
+  const acceptAutoStart = useCallback(() => {
+    const target = pendingAutoStart;
+    if (!target) return;
+    chainQueueRef.current = Array.isArray(target.chain) ? [...target.chain] : [];
+    setPendingAutoStart(null);
+    setActive(target);
+    setStepIndex(pendingResumeIdxRef.current || 0);
+  }, [pendingAutoStart]);
+
+  const snoozeAutoStart = useCallback(async () => {
+    setPendingAutoStart(null);
+    if (!user) return;
+    await supabase.from('user_training_state').upsert(
+      {
+        user_id: user.id,
+        dismissed_until: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    );
+  }, [user]);
+
+  const skipAutoStart = useCallback(async () => {
+    const target = pendingAutoStart;
+    setPendingAutoStart(null);
+    if (!user) return;
+    await supabase.from('user_training_state').upsert(
+      {
+        user_id: user.id,
+        dismissed_until: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    );
+    if (target) {
+      // Mark the walkthrough as completed so we don't re-offer it.
+      await supabase.from('user_tour_progress').upsert(
+        {
+          user_id: user.id,
+          tour_key: target.slug,
+          current_step: target.steps.length,
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,tour_key' },
+      );
+      await refreshStatuses();
+    }
+  }, [user, pendingAutoStart, refreshStatuses]);
+
+
   const value: TrainingV2ContextValue = {
     active,
     step,
@@ -823,12 +882,17 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     completion,
     statuses,
     registerLauncher,
+    pendingAutoStart,
+    acceptAutoStart,
+    snoozeAutoStart,
+    skipAutoStart,
   };
 
   return (
     <TrainingV2Context.Provider value={value}>
       {children}
       {active && step && stepReady && <TrainingOverlayV2 />}
+      {pendingAutoStart && !active && <TrainingFirstLoginPrompt />}
     </TrainingV2Context.Provider>
   );
 }
