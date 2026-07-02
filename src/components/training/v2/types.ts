@@ -64,4 +64,15 @@ export interface TrainingCurriculum {
    * launchable from the Training Center.
    */
   chain?: string[];
+  /**
+   * Optional module label used in the Training Center to group related
+   * curricula (e.g. all Housekeeping units under "Housekeeping"). Purely a
+   * UI concern — engine logic does not depend on it.
+   */
+  module?: I18nText;
+  /**
+   * If true, this curriculum is treated as the "full walkthrough" entry
+   * point for its role in the Training Center and is featured at the top.
+   */
+  isFullWalkthrough?: boolean;
 }
