@@ -805,6 +805,59 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
   const availableCurricula = useMemo(() => curriculaForRole(role || ''), [role]);
 
+  // First-login prompt actions
+  const acceptAutoStart = useCallback(() => {
+    const target = pendingAutoStart;
+    if (!target) return;
+    chainQueueRef.current = Array.isArray(target.chain) ? [...target.chain] : [];
+    setPendingAutoStart(null);
+    setActive(target);
+    setStepIndex(pendingResumeIdxRef.current || 0);
+  }, [pendingAutoStart]);
+
+  const snoozeAutoStart = useCallback(async () => {
+    setPendingAutoStart(null);
+    if (!user) return;
+    await supabase.from('user_training_state').upsert(
+      {
+        user_id: user.id,
+        dismissed_until: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    );
+  }, [user]);
+
+  const skipAutoStart = useCallback(async () => {
+    const target = pendingAutoStart;
+    setPendingAutoStart(null);
+    if (!user) return;
+    await supabase.from('user_training_state').upsert(
+      {
+        user_id: user.id,
+        dismissed_until: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    );
+    if (target) {
+      // Mark the walkthrough as completed so we don't re-offer it.
+      await supabase.from('user_tour_progress').upsert(
+        {
+          user_id: user.id,
+          tour_key: target.slug,
+          current_step: target.steps.length,
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,tour_key' },
+      );
+      await refreshStatuses();
+    }
+  }, [user, pendingAutoStart, refreshStatuses]);
+
+
   const value: TrainingV2ContextValue = {
     active,
     step,
