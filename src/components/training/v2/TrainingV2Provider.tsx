@@ -13,11 +13,14 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useTenant } from '@/contexts/TenantContext';
+import { propertyTermsFor } from '@/lib/propertyTerminology';
 import type { LangCode, TrainingCurriculum, TrainingStepV2 } from './types';
 import { evaluateGuard } from './guards';
 import { ALL_CURRICULA, curriculaForRole, findCurriculum } from './curricula';
 import { TrainingOverlayV2 } from './TrainingOverlayV2';
 import { TrainingFirstLoginPrompt } from './TrainingFirstLoginPrompt';
+
 
 type CompletionStatus = 'done' | 'in_progress' | 'available';
 
@@ -804,7 +807,14 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     };
   }, [user, role, location.pathname, lang, active, assignedHotel, guardRole, start, persistDeferred]);
 
-  const availableCurricula = useMemo(() => curriculaForRole(role || ''), [role]);
+  const { organization } = useTenant();
+  const isPropertyOrg = propertyTermsFor(organization?.slug).isProperty;
+  const availableCurricula = useMemo(() => {
+    const base = curriculaForRole(role || '');
+    // Property-style orgs (SLNT) don't use Revenue Management — hide its module.
+    return isPropertyOrg ? base.filter((c) => c.slug !== 'v2_manager_revenue') : base;
+  }, [role, isPropertyOrg]);
+
 
   // First-login prompt actions
   const acceptAutoStart = useCallback(() => {
