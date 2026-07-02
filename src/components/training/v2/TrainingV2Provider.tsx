@@ -17,6 +17,7 @@ import type { LangCode, TrainingCurriculum, TrainingStepV2 } from './types';
 import { evaluateGuard } from './guards';
 import { ALL_CURRICULA, curriculaForRole, findCurriculum } from './curricula';
 import { TrainingOverlayV2 } from './TrainingOverlayV2';
+import { TrainingFirstLoginPrompt } from './TrainingFirstLoginPrompt';
 
 type CompletionStatus = 'done' | 'in_progress' | 'available';
 
