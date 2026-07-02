@@ -107,7 +107,14 @@ const RESUME_TOAST_LABELS: Record<LangCode, { title: string; action: string }> =
 export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
   const { language } = useTranslation();
-  const { organization } = useTenant();
+  // TrainingV2Provider mounts above the tenant router, so useTenant may throw
+  // on routes without a TenantProvider (e.g. /auth). Fall back safely.
+  let organization: { slug?: string } | null = null;
+  try {
+    organization = useTenant().organization;
+  } catch {
+    organization = null;
+  }
   const isPropertyOrg = propertyTermsFor(organization?.slug).isProperty;
   const navigate = useNavigate();
   const location = useLocation();
