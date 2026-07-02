@@ -46,9 +46,13 @@ export function propertyTermsFor(orgSlug: string | null | undefined, lang: LangC
 }
 
 export function usePropertyTerms(lang: LangCode = 'en'): PropertyTerms {
-  const { organization } = useTenant();
-  return useMemo(
-    () => propertyTermsFor(organization?.slug, lang),
-    [organization?.slug, lang],
-  );
+  // Safe outside a TenantProvider (e.g. TrainingV2Provider mounts above the
+  // tenant router). Fall back to hotel terminology when no tenant context.
+  let slug: string | undefined;
+  try {
+    slug = useTenant().organization?.slug;
+  } catch {
+    slug = undefined;
+  }
+  return useMemo(() => propertyTermsFor(slug, lang), [slug, lang]);
 }
