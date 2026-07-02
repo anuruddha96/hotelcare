@@ -817,7 +817,6 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
   // organization/isPropertyOrg computed above
 
-  const isPropertyOrg = propertyTermsFor(organization?.slug).isProperty;
   const availableCurricula = useMemo(() => {
     const base = curriculaForRole(role || '');
     // Property-style orgs (SLNT) don't use Revenue Management — hide its module.
