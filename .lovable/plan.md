@@ -10,22 +10,27 @@ Comparing the two files you uploaded (morning vs. afternoon of 2026‑07‑02, b
   - Room **302** in the afternoon screenshot shows a **manual** entry (green "1 manual" pill) on top of the PMS row that says `Status=Clean, Occupied=No, Arrival 14:30`. 302 is a **stayover/arrival**, not a checkout — a manual override slipped it into the checkout bucket.
 - Room 302 also shows "between daily/checkout" ambiguity because we mark it both `Clean` and add a manual departure.
 
-### Fix
-- Reclassify importer rules for Previo/manual "Cleaning" XLSX (`previo-pms-sync` + `pms-upload` path):
-  - `Checkout today` ⇢ ONLY if `Departure` time is present AND `Occupied=No`. No‑departure/no‑arrival empty rooms become `Out of order / Empty (no PMS activity)`, not checkouts.
-  - `Stayover` ⇢ `Occupied=Yes` and no `Departure`.
-  - `Arrival only` ⇢ `Occupied=No` + `Arrival` time + no `Departure` → next day's arrival, do not count as today's checkout.
-  - `Manual override` never promotes a room to Checkout unless the manager explicitly picks "Checkout" in the override dialog — today the merge logic clobbered PMS status.
-- Show a small tag on each room card explaining the source: `PMS`, `Manual`, or `Empty (AC)` with a tooltip listing why the room is in that bucket. That will let Petra self‑verify instead of messaging.
-- Add a "Reconciliation drawer" (admin/manager only) that lists rows the importer skipped or reclassified between two consecutive uploads, so the end‑of‑day check you promised takes 10 seconds.
+### Fix — SHIPPED (Ottofiori miscount)
+- Importer reclassification live in `PMSUpload.tsx`: `Occupied=No + Arrival + no Departure` no longer promotes to checkout (fixes Room 201). Manual overrides no longer force-add to the checkout bucket (fixes Room 302).
+- Still TODO: source tag ("PMS / Manual / Empty (AC)") on each room card + reconciliation drawer.
 
-## 2. SLNT — dual PMS sync (API + manual fallback)
+## 2. SLNT — dual PMS sync (API + manual fallback) — SCOPED TO SLNT ONLY
 
-- Add `pms_configurations.sync_mode` enum: `api_only | manual_only | api_with_manual_fallback` (default `api_only` for new SLNT hotels).
-- New edge function `slnt-pms-sync` (skeleton) with per‑hotel credentials, retry, and structured error → falls back to manual upload if 3 consecutive failures or `last_success_at > 2h`.
-- Admin UI: PMS Configuration screen gains a "Sync Mode" selector + a health badge (Green API / Yellow degraded / Red manual‑only) and a "Force manual upload" button.
-- Manual upload for SLNT reuses the same importer but with SLNT column mapping (properties/units vs hotel/rooms).
-- I'll stub the API client until you share the endpoint spec — one clarifying question below.
+- SHIPPED: `pms_configurations` gained `sync_mode` (default `manual_only` so no non-SLNT hotel changes behaviour), `last_sync_success_at`, `consecutive_sync_failures`, `api_base_url`, `api_auth_type`.
+- SHIPPED: `supabase/functions/slnt-pms-sync/index.ts` — org-guard (only runs for `organizations.slug='slnt'`), reads sync_mode + credentials secret, records `not_configured` until super admin wires live API. Live API call site is a clearly-marked TODO with the exact behaviour spec inline.
+- SHIPPED: `src/lib/propertyTerminology.ts` — `usePropertyTerms()` returns "Property/Properties" for SLNT and "Hotel/Hotels" for every other org, all 5 UI languages.
+- NEXT PASS:
+  - Admin UI: PMS Configuration screen (SLNT hotels only) — Sync Mode selector, API base URL + auth type inputs, credentials secret name, health badge (Green API / Yellow degraded / Red manual-only), "Sync Now" and "Force manual upload" buttons.
+  - Manual XLSX upload for SLNT reuses `previo-pms-sync` importer (layout is identical Previo output; only room codes differ).
+  - Wire `Header`, `HotelSwitcher`, admin screens, training strings to `usePropertyTerms()` — only SLNT users see the wording change.
+
+### Handover when the live SLNT API is ready
+1. Super admin opens Admin → PMS Configuration → SLNT property, sets:
+   - `sync_mode = api_with_manual_fallback`
+   - `api_base_url` (SLNT Previo tenant URL)
+   - `credentials_secret_name` (e.g. `SLNT_PREVIO_API_KEY`) — the secret itself is stored via `add_secret`, never in the DB.
+2. Click "Test connection" → then "Sync Now". A green health badge + non-null `last_sync_success_at` confirms it works.
+3. Turn on `auto_sync_enabled`. From then on, XLSX upload is only needed if the API fails 3× in a row or is silent for >2h — the UI will prompt automatically.
 
 ## 3. Training Center — full rebuild (FAQ, module → unit, mobile first)
 
