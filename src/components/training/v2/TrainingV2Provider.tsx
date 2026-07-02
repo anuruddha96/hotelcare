@@ -58,6 +58,11 @@ interface TrainingV2ContextValue {
   completion: Record<string, CompletionStatus>;
   statuses: Record<string, CurriculumStatus>;
   registerLauncher: (el: HTMLElement | null) => void;
+  /** First-login walkthrough prompt (null when hidden). */
+  pendingAutoStart: TrainingCurriculum | null;
+  acceptAutoStart: () => void;
+  snoozeAutoStart: () => Promise<void>;
+  skipAutoStart: () => Promise<void>;
 }
 
 const TrainingV2Context = createContext<TrainingV2ContextValue | null>(null);
