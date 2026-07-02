@@ -676,7 +676,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       }
       // Seed the chain queue from the curriculum definition. Manual restart
       // or explicit start replaces any prior in-flight chain.
-      chainQueueRef.current = Array.isArray(c.chain) ? [...c.chain] : [];
+      const rawChain = Array.isArray(c.chain) ? c.chain : [];
+      chainQueueRef.current = isPropertyOrg
+        ? rawChain.filter((s) => s !== 'v2_manager_revenue')
+        : [...rawChain];
+
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
     },
