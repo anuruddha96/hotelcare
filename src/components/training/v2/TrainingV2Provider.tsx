@@ -140,6 +140,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const deferredRef = useRef<DeferredStep[]>([]);
   const resumePromptedRef = useRef<Set<string>>(new Set());
   const lastNextAtRef = useRef<number>(0);
+  const pendingResumeIdxRef = useRef<number>(0);
 
   const step = active ? active.steps[stepIndex] : null;
   const totalSteps = active?.steps.length || 0;
