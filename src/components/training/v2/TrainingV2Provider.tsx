@@ -13,11 +13,14 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useTenant } from '@/contexts/TenantContext';
+import { propertyTermsFor } from '@/lib/propertyTerminology';
 import type { LangCode, TrainingCurriculum, TrainingStepV2 } from './types';
 import { evaluateGuard } from './guards';
 import { ALL_CURRICULA, curriculaForRole, findCurriculum } from './curricula';
 import { TrainingOverlayV2 } from './TrainingOverlayV2';
 import { TrainingFirstLoginPrompt } from './TrainingFirstLoginPrompt';
+
 
 type CompletionStatus = 'done' | 'in_progress' | 'available';
 
@@ -104,9 +107,12 @@ const RESUME_TOAST_LABELS: Record<LangCode, { title: string; action: string }> =
 export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
   const { language } = useTranslation();
+  const { organization } = useTenant();
+  const isPropertyOrg = propertyTermsFor(organization?.slug).isProperty;
   const navigate = useNavigate();
   const location = useLocation();
   const lang = (language as LangCode) || 'en';
+
 
   // Resolve `:org` and `:orgSlug` placeholders in step routes from the
   // current URL so curricula stay tenant-agnostic.
@@ -673,12 +679,17 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       }
       // Seed the chain queue from the curriculum definition. Manual restart
       // or explicit start replaces any prior in-flight chain.
-      chainQueueRef.current = Array.isArray(c.chain) ? [...c.chain] : [];
+      const rawChain = Array.isArray(c.chain) ? c.chain : [];
+      chainQueueRef.current = isPropertyOrg
+        ? rawChain.filter((s) => s !== 'v2_manager_revenue')
+        : [...rawChain];
+
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
     },
-    [user],
+    [user, isPropertyOrg],
   );
+
 
   const dismissCurriculum = useCallback(
     async (_slug: string, days = 30) => {
@@ -804,7 +815,14 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     };
   }, [user, role, location.pathname, lang, active, assignedHotel, guardRole, start, persistDeferred]);
 
-  const availableCurricula = useMemo(() => curriculaForRole(role || ''), [role]);
+  // organization/isPropertyOrg computed above
+
+  const availableCurricula = useMemo(() => {
+    const base = curriculaForRole(role || '');
+    // Property-style orgs (SLNT) don't use Revenue Management — hide its module.
+    return isPropertyOrg ? base.filter((c) => c.slug !== 'v2_manager_revenue') : base;
+  }, [role, isPropertyOrg]);
+
 
   // First-login prompt actions
   const acceptAutoStart = useCallback(() => {

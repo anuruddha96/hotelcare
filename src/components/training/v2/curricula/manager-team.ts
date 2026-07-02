@@ -83,6 +83,8 @@ export const managerTeamCurriculum: TrainingCurriculum = {
       },
       route: '/:org',
       tab: 'housekeeping',
+      selector: '[data-training="team-view"]',
+      optional: true,
     },
     {
       key: 'pending_approvals',
