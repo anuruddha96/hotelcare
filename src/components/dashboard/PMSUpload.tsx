@@ -699,19 +699,22 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             // PMS explicitly says room is Untidy/Dirty — always mark dirty regardless of occupancy
             newStatus = 'dirty';
             needsCleaning = true;
-            // If unoccupied with arrival and untidy, it's a checkout room (previous guest left, new one coming)
+            // Unoccupied + arrival + untidy WITHOUT a departure time is an "arrival prep"
+            // (previous guest may or may not have departed today). We do NOT count it as
+            // a checkout — that produced miscounts like Ottofiori 201 today (11 vs actual 10).
+            // Only a real departure time promotes a room to checkout.
             if (isOccupiedNo(occupiedVal) && arrivalVal) {
-              isCheckout = true;
-              checkoutRoomsList.push({
+              dailyCleaningRoomsList.push({
                 roomNumber,
                 roomType: room.room_type,
                 guestCount: peopleVal || 0,
-                status: 'checkout',
-                departureTime: null,
-                isEarlyCheckout: false,
-                notes: noteVal
+                status: 'arrival_prep',
+                currentNight: null,
+                totalNights: null,
+                nightTotal: nightTotalRaw,
+                notes: [noteVal, 'Arrival prep (no departure time in PMS)'].filter(Boolean).join(' - '),
               });
-              console.log(`[PMS] Room ${roomNumber}: Untidy + unoccupied + arrival → checkout room (previous guest left, new guest arriving)`);
+              console.log(`[PMS] Room ${roomNumber}: Untidy + unoccupied + arrival → arrival prep (NOT counted as checkout)`);
             } else {
               console.log(`[PMS] Room ${roomNumber}: Setting to dirty (PMS status: ${statusVal})`);
             }
