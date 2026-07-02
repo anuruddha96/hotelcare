@@ -2594,8 +2594,11 @@ export type Database = {
       }
       pms_configurations: {
         Row: {
+          api_auth_type: string | null
+          api_base_url: string | null
           auto_sync_enabled: boolean
           connection_mode: string
+          consecutive_sync_failures: number
           created_at: string
           credentials_secret_name: string | null
           hotel_id: string
@@ -2604,6 +2607,7 @@ export type Database = {
           last_sync_at: string | null
           last_sync_error: string | null
           last_sync_status: string | null
+          last_sync_success_at: string | null
           last_test_at: string | null
           last_test_error: string | null
           last_test_status: string | null
@@ -2611,11 +2615,15 @@ export type Database = {
           pms_type: string
           settings: Json | null
           sync_enabled: boolean
+          sync_mode: string
           updated_at: string
         }
         Insert: {
+          api_auth_type?: string | null
+          api_base_url?: string | null
           auto_sync_enabled?: boolean
           connection_mode?: string
+          consecutive_sync_failures?: number
           created_at?: string
           credentials_secret_name?: string | null
           hotel_id: string
@@ -2624,6 +2632,7 @@ export type Database = {
           last_sync_at?: string | null
           last_sync_error?: string | null
           last_sync_status?: string | null
+          last_sync_success_at?: string | null
           last_test_at?: string | null
           last_test_error?: string | null
           last_test_status?: string | null
@@ -2631,11 +2640,15 @@ export type Database = {
           pms_type?: string
           settings?: Json | null
           sync_enabled?: boolean
+          sync_mode?: string
           updated_at?: string
         }
         Update: {
+          api_auth_type?: string | null
+          api_base_url?: string | null
           auto_sync_enabled?: boolean
           connection_mode?: string
+          consecutive_sync_failures?: number
           created_at?: string
           credentials_secret_name?: string | null
           hotel_id?: string
@@ -2644,6 +2657,7 @@ export type Database = {
           last_sync_at?: string | null
           last_sync_error?: string | null
           last_sync_status?: string | null
+          last_sync_success_at?: string | null
           last_test_at?: string | null
           last_test_error?: string | null
           last_test_status?: string | null
@@ -2651,6 +2665,7 @@ export type Database = {
           pms_type?: string
           settings?: Json | null
           sync_enabled?: boolean
+          sync_mode?: string
           updated_at?: string
         }
         Relationships: [
