@@ -3,6 +3,8 @@ import { Ticket, Home, Users, Clock, TrendingUp, Receipt } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { cn } from '@/lib/utils';
+import { usePropertyTerms } from '@/lib/propertyTerminology';
+
 
 type Current =
   | 'tickets'
@@ -40,12 +42,16 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const propertyTerms = usePropertyTerms();
 
   const role = profile?.role || '';
   if (!VISIBLE_ROLES.includes(role)) return null;
 
   const orgPath = `/${organizationSlug || 'rdhotels'}`;
   const isExec = EXEC_ROLES.includes(role);
+  // Revenue Management is hidden for property-style orgs (e.g. SLNT airbnbs)
+  const showRevenue = isExec && !propertyTerms.isProperty;
+
 
   const goDashboard = (tab: string) => navigate(`${orgPath}?tab=${tab}`);
 
@@ -78,14 +84,16 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
         </button>
         {isExec && (
           <>
-            <button
-              type="button"
-              className={btn('revenue')}
-              onClick={() => navigate(`${orgPath}/revenue`)}
-            >
-              <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-              <span>Revenue Management</span>
-            </button>
+            {showRevenue && (
+              <button
+                type="button"
+                className={btn('revenue')}
+                onClick={() => navigate(`${orgPath}/revenue`)}
+              >
+                <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                <span>Revenue Management</span>
+              </button>
+            )}
             <button
               type="button"
               className={btn('purchase-invoices')}
@@ -96,6 +104,7 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
             </button>
           </>
         )}
+
       </div>
     </div>
   );
