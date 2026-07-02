@@ -107,9 +107,12 @@ const RESUME_TOAST_LABELS: Record<LangCode, { title: string; action: string }> =
 export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
   const { language } = useTranslation();
+  const { organization } = useTenant();
+  const isPropertyOrg = propertyTermsFor(organization?.slug).isProperty;
   const navigate = useNavigate();
   const location = useLocation();
   const lang = (language as LangCode) || 'en';
+
 
   // Resolve `:org` and `:orgSlug` placeholders in step routes from the
   // current URL so curricula stay tenant-agnostic.
@@ -812,7 +815,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     };
   }, [user, role, location.pathname, lang, active, assignedHotel, guardRole, start, persistDeferred]);
 
-  const { organization } = useTenant();
+  // organization/isPropertyOrg computed above
+
   const isPropertyOrg = propertyTermsFor(organization?.slug).isProperty;
   const availableCurricula = useMemo(() => {
     const base = curriculaForRole(role || '');
