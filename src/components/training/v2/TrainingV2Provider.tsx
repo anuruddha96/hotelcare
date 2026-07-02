@@ -881,12 +881,17 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     completion,
     statuses,
     registerLauncher,
+    pendingAutoStart,
+    acceptAutoStart,
+    snoozeAutoStart,
+    skipAutoStart,
   };
 
   return (
     <TrainingV2Context.Provider value={value}>
       {children}
       {active && step && stepReady && <TrainingOverlayV2 />}
+      {pendingAutoStart && !active && <TrainingFirstLoginPrompt />}
     </TrainingV2Context.Provider>
   );
 }
