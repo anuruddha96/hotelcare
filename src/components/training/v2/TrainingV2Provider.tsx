@@ -684,8 +684,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
     },
-    [user],
+    [user, isPropertyOrg],
   );
+
 
   const dismissCurriculum = useCallback(
     async (_slug: string, days = 30) => {
