@@ -1,6 +1,8 @@
 import { useLocation, useParams, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { usePropertyTerms } from '@/lib/propertyTerminology';
+
 import {
   LayoutDashboard,
   CalendarDays,
@@ -34,11 +36,16 @@ export function PMSNavigation() {
   // Show to finance/back-office in addition to admin/top-management
   if (!profile || !NAV_GATE_ROLES.includes(profile.role)) return null;
 
+  const propertyTerms = usePropertyTerms();
+
   const visibleItems = PMS_NAV_ITEMS.filter(
     (item) => profile && item.roles.includes(profile.role)
+      // Hide Revenue Management for property-style orgs (e.g. SLNT airbnbs)
+      && !(item.key === 'revenue' && propertyTerms.isProperty)
   );
 
   if (visibleItems.length === 0) return null;
+
 
   return (
     <nav className="w-full bg-card border-b border-border">
