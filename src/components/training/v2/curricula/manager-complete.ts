@@ -31,6 +31,14 @@ export const managerCompleteCurriculum: TrainingCurriculum = {
   ],
   category: 'core',
   priority: 3,
+  isFullWalkthrough: true,
+  module: {
+    en: 'Full Walkthrough',
+    hu: 'Teljes bemutató',
+    es: 'Recorrido completo',
+    vi: 'Toàn bộ hướng dẫn',
+    mn: 'Бүрэн танилцуулга',
+  },
   // Order matches the request: HR & Attendance → PMS Upload → Team →
   // Pending Approvals → Staff (via Tickets which is the closest existing
   // module) → Performance/DND/Maintenance/Lost & Found/Dirty Linen live
