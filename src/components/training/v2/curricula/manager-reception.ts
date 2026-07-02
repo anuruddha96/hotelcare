@@ -37,6 +37,10 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         vi: 'Lễ tân ca đêm tải file XLSX Daily Overview của Previo.',
         mn: 'Шөнийн ресепшн Previo Daily Overview XLSX оруулна.',
       },
+      route: '/:org',
+      tab: 'housekeeping',
+      selector: '[data-training="housekeeping-tab"]',
+      optional: true,
     },
     {
       key: 'breakfast_lookup',
@@ -71,6 +75,10 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         vi: 'FrontDesk hiển thị đến/đi hôm nay từ Previo.',
         mn: 'FrontDesk нь Previo-оос өнөөдрийн ирэх/гарахыг харуулна.',
       },
+      route: '/:org',
+      tab: 'rooms',
+      selector: '[data-training="rooms-tab"]',
+      optional: true,
     },
     {
       key: 'minibar',
@@ -88,6 +96,10 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         vi: 'Khách báo qua QR; lễ tân xác nhận và đẩy về hóa đơn Previo.',
         mn: 'Зочин QR-аар мэдээлэх — ресепшн баталгаажуулж Previo руу илгээнэ.',
       },
+      route: '/:org',
+      tab: 'rooms',
+      selector: '[data-training="rooms-tab"]',
+      optional: true,
     },
   ],
 };

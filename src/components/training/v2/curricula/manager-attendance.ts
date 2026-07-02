@@ -67,6 +67,8 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
       },
       route: '/:org',
       tab: 'attendance',
+      selector: '[data-training="attendance-tab"]',
+      optional: true,
     },
     {
       key: 'approvals',
@@ -105,6 +107,10 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         vi: 'Chọn khoảng ngày và tải CSV — tổng giờ, nghỉ, OT.',
         mn: 'Огнооны муж сонгож CSV татах — нийт цаг, амралт, нэмэлт цаг.',
       },
+      route: '/:org',
+      tab: 'attendance',
+      selector: '[data-training="attendance-tab"]',
+      optional: true,
     },
   ],
 };

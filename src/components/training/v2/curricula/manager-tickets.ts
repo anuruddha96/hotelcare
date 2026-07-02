@@ -79,6 +79,11 @@ export const managerTicketsCurriculum: TrainingCurriculum = {
         vi: 'Mở phiếu, chọn người — họ nhận thông báo ngay.',
         mn: 'Тасалбарыг нээж хариуцагчийг сонгоход тэр шууд мэдэгдэл авна.',
       },
+      route: '/:org',
+      tab: 'tickets',
+      selector: '[data-training="ticket-assign-select"]',
+      precondition: 'hotel_selected',
+      optional: true,
     },
     {
       key: 'hold_approval',
@@ -96,6 +101,11 @@ export const managerTicketsCurriculum: TrainingCurriculum = {
         vi: 'Bảo trì có thể Tạm giữ phiếu kèm dự toán chờ bạn duyệt.',
         mn: 'Засварчин үнийн саналтай "Хүлээлгэх" болгоход таны зөвшөөрөл шаардана.',
       },
+      route: '/:org',
+      tab: 'tickets',
+      selector: '[data-training="ticket-card"]',
+      precondition: 'hotel_selected',
+      optional: true,
     },
   ],
 };
