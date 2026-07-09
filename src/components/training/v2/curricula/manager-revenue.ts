@@ -22,6 +22,8 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
   roles: ['top_management', 'top_management_manager', 'admin'],
   category: 'feature_promo',
   priority: 28,
+  moduleKey: 'revenue',
+  estMinutes: 2,
   steps: [
     {
       key: 'open_revenue',

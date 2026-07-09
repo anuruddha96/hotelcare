@@ -26,6 +26,8 @@ export const autoAssignPromo: TrainingCurriculum = {
   ],
   category: 'feature_promo',
   priority: 5,
+  moduleKey: 'housekeeping',
+  estMinutes: 1,
   steps: [
     {
       key: 'pitch',

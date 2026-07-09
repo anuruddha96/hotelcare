@@ -28,6 +28,8 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
   ],
   category: 'feature_promo',
   priority: 26,
+  moduleKey: 'hr_attendance',
+  estMinutes: 2,
   steps: [
     {
       key: 'live_attendance',

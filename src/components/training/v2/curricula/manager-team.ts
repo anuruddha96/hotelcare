@@ -20,6 +20,8 @@ export const managerTeamCurriculum: TrainingCurriculum = {
   roles: ['manager', 'housekeeping_manager', 'admin', 'top_management_manager'],
   category: 'feature_promo',
   priority: 20,
+  moduleKey: 'housekeeping',
+  estMinutes: 2,
   steps: [
     {
       key: 'team_view',

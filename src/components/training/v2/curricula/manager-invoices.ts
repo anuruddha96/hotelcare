@@ -20,6 +20,8 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
   roles: ['top_management', 'top_management_manager', 'admin'],
   category: 'feature_promo',
   priority: 30,
+  moduleKey: 'invoices',
+  estMinutes: 2,
   steps: [
     {
       key: 'open_invoices',
