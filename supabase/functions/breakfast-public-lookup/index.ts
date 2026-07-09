@@ -74,11 +74,18 @@ serve(async (req) => {
         const allInc = r.all_inclusive ?? 0;
         const eligible = breakfast > 0 || allInc > 0;
         let chipStatus: string;
-        if (r.status === "arriving") chipStatus = "arriving";
-        else if (!eligible) chipStatus = "no_breakfast";
-        else if (servedTotal >= breakfast) chipStatus = "served";
-        else if (servedTotal > 0) chipStatus = "partial";
-        else chipStatus = "pending";
+        // Eligibility wins over row status: if the room has breakfast/AI
+        // entitlement it must appear as pending/partial/served so staff can
+        // mark it, even when Previo still lists it as arriving.
+        if (eligible) {
+          if (servedTotal >= breakfast && breakfast > 0) chipStatus = "served";
+          else if (servedTotal > 0) chipStatus = "partial";
+          else chipStatus = "pending";
+        } else if (r.status === "arriving") {
+          chipStatus = "arriving";
+        } else {
+          chipStatus = "no_breakfast";
+        }
         return {
           room: r.room_number,
           room_label: r.room_label,
