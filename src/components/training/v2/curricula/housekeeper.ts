@@ -33,6 +33,8 @@ export const housekeeperCurriculum: TrainingCurriculum = {
   roles: ['housekeeping'],
   category: 'core',
   priority: 10,
+  moduleKey: 'housekeeping',
+  estMinutes: 3,
   steps: [
     {
       key: 'welcome',

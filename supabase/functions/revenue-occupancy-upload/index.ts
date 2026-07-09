@@ -14,10 +14,29 @@ const HOTEL_NAME_TO_ID: Record<string, string> = {
   "hotel memories budapest": "memories-budapest",
   "memories budapest": "memories-budapest",
   "hotel ottofiori": "ottofiori",
-  "ottofiori": "ottofiori",
+  "otto fiori": "ottofiori",
   "gozsdu court budapest": "gozsdu-court",
   "gozsdu court": "gozsdu-court",
 };
+
+type HotelSource = "filename" | "sheet" | "cell";
+function detectHotelId(filename: string, sheetNames: string[], cellHay: string): { id: string; source: HotelSource | null } {
+  const sources: Array<{ hay: string; source: HotelSource; weight: number }> = [
+    { hay: filename.toLowerCase(), source: "filename", weight: 3 },
+    { hay: sheetNames.join(" | ").toLowerCase(), source: "sheet", weight: 2 },
+    { hay: cellHay.toLowerCase(), source: "cell", weight: 1 },
+  ];
+  const hits: Array<{ id: string; source: HotelSource; score: number }> = [];
+  for (const { hay, source, weight } of sources) {
+    if (!hay) continue;
+    for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
+      if (hay.includes(name)) hits.push({ id, source, score: name.length * weight });
+    }
+  }
+  if (!hits.length) return { id: "", source: null };
+  hits.sort((a, b) => b.score - a.score);
+  return { id: hits[0].id, source: hits[0].source };
+}
 
 const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
@@ -96,17 +115,16 @@ serve(async (req) => {
     const wb = XLSX.read(buf, { type: "array", cellDates: true });
     const baseYear = new Date().getUTCFullYear();
     let detectedHotelId = "";
-    const fileHay = (file.name || "").toLowerCase();
+    let detectedSource: "filename" | "sheet" | "cell" | null = null;
+    const fileHay = file.name || "";
+    const cellHayParts: string[] = [];
     const parsed: { stay_date: string; occupancy_pct: number; rooms_sold: number }[] = [];
 
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: null, raw: false });
-      if (!detectedHotelId) {
-        const hay = [sheetName, fileHay, ...rows.slice(0, 8).map((r) => r.join(" "))].join(" | ").toLowerCase();
-        for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
-          if (hay.includes(name)) { detectedHotelId = id; break; }
-        }
+      for (let i = 0; i < Math.min(rows.length, 8); i++) {
+        cellHayParts.push((rows[i] || []).map((c) => String(c ?? "")).join(" "));
       }
       // Find header row containing "term" or "date"; pick "%" col and "pcs"/"db" col
       let headerIdx = -1, dateCol = -1, pctCol = -1, pcsCol = -1;
@@ -133,7 +151,16 @@ serve(async (req) => {
       if (parsed.length) break;
     }
 
-    if (hotelOverride && detectedHotelId && detectedHotelId !== hotelOverride) {
+    ({ id: detectedHotelId, source: detectedSource } = detectHotelId(
+      fileHay, wb.SheetNames, cellHayParts.join(" | ")
+    ));
+
+    if (
+      hotelOverride &&
+      detectedHotelId &&
+      detectedHotelId !== hotelOverride &&
+      (detectedSource === "filename" || detectedSource === "sheet")
+    ) {
       const { data: hotels } = await supabase.from("hotel_configurations")
         .select("hotel_id, hotel_name").in("hotel_id", [hotelOverride, detectedHotelId]);
       const nameOf = (id: string) => hotels?.find((h) => h.hotel_id === id)?.hotel_name ?? id;

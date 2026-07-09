@@ -8,22 +8,47 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Hotel-name aliases. Keep entries specific — short/generic tokens like "mika"
+// or "memories" produced false positives when they appeared elsewhere in the
+// workbook (filenames, footers, other sheets). We now score every match by
+// length AND source weight (filename > sheet name > cell content) and only
+// reject on strong signals.
 const HOTEL_NAME_TO_ID: Record<string, string> = {
   "hotel mika downtown": "mika-downtown",
   "mika downtown": "mika-downtown",
-  "mika": "mika-downtown",
   "hotel memories budapest": "memories-budapest",
   "memories budapest": "memories-budapest",
-  "memories": "memories-budapest",
   "hotel ottofiori": "ottofiori",
-  "ottofiori": "ottofiori",
   "otto fiori": "ottofiori",
   "gozsdu court budapest": "gozsdu-court",
   "gozsdu court": "gozsdu-court",
-  "gozsdu": "gozsdu-court",
   "hotelcare.app testing environment": "hotelcare-testing",
   "hotelcare testing": "hotelcare-testing",
 };
+
+interface HotelHit { id: string; score: number; source: "filename" | "sheet" | "cell" }
+
+function detectHotelId(
+  filename: string,
+  sheetNames: string[],
+  cellHay: string,
+): { id: string; source: HotelHit["source"] | null } {
+  const sources: Array<{ hay: string; source: HotelHit["source"]; weight: number }> = [
+    { hay: filename.toLowerCase(), source: "filename", weight: 3 },
+    { hay: sheetNames.join(" | ").toLowerCase(), source: "sheet", weight: 2 },
+    { hay: cellHay.toLowerCase(), source: "cell", weight: 1 },
+  ];
+  const hits: HotelHit[] = [];
+  for (const { hay, source, weight } of sources) {
+    if (!hay) continue;
+    for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
+      if (hay.includes(name)) hits.push({ id, source, score: name.length * weight });
+    }
+  }
+  if (!hits.length) return { id: "", source: null };
+  hits.sort((a, b) => b.score - a.score);
+  return { id: hits[0].id, source: hits[0].source };
+}
 
 function safeInt(v: any): number {
   if (v == null || v === "") return 0;
@@ -103,21 +128,27 @@ serve(async (req) => {
     const baseYear = new Date().getUTCFullYear();
 
     // Hotel name verification: scan filename + sheet names + first cells.
-    let detectedHotelId = "";
-    const fileHay = (file.name || "").toLowerCase();
-    const haystack = [fileHay, wb.SheetNames.join(" ").toLowerCase()];
+    const cellHayParts: string[] = [];
     for (const s of wb.SheetNames) {
       const ws = wb.Sheets[s];
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: null, raw: false });
       for (let i = 0; i < Math.min(rows.length, 6); i++) {
-        haystack.push((rows[i] || []).map((c) => String(c ?? "").toLowerCase()).join(" "));
+        cellHayParts.push((rows[i] || []).map((c) => String(c ?? "").toLowerCase()).join(" "));
       }
     }
-    const hay = haystack.join(" | ");
-    for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
-      if (hay.includes(name)) { detectedHotelId = id; break; }
-    }
-    if (detectedHotelId && detectedHotelId !== hotelOverride) {
+    const { id: detectedHotelId, source: detectedSource } = detectHotelId(
+      file.name || "",
+      wb.SheetNames,
+      cellHayParts.join(" | "),
+    );
+    // Only reject when the winning match came from the filename or a sheet
+    // name — cell hits (footers, legends, other-hotel references embedded in
+    // the sheet) are too noisy to block an upload.
+    if (
+      detectedHotelId &&
+      detectedHotelId !== hotelOverride &&
+      (detectedSource === "filename" || detectedSource === "sheet")
+    ) {
       const { data: hotels } = await supabase.from("hotel_configurations")
         .select("hotel_id, hotel_name").in("hotel_id", [hotelOverride, detectedHotelId]);
       const nameOf = (id: string) => hotels?.find((h) => h.hotel_id === id)?.hotel_name ?? id;
@@ -160,11 +191,20 @@ serve(async (req) => {
     const cDeparture = findCol(exactAny(["departure"]));
     const cArrival = findCol(exactAny(["arrival"]));
     const cOngoing = findCol(exactAny(["ongoing"]));
-    const cBre = findCol(includesAny(["bre"]));
-    const cLun = findCol(includesAny(["lun"]));
-    const cDin = findCol(includesAny(["din"]));
-    const cAll = findCol(includesAny(["all"]));
-    const cSta = findCol(includesAny(["sta"]));
+    // Meal columns. Prefer exact matches then fall back to specific prefixes.
+    // Include Hungarian aliases (Reggeli / Ebéd / Vacsora / All Inclusive) and
+    // never let "arr" (Arrival) accidentally hit any meal column.
+    const isMealCol = (needles: string[], exclude: string[] = []) => (i: number) => {
+      const h = hdr[i];
+      if (!h) return false;
+      if (exclude.some((x) => h === x || h.includes(x))) return false;
+      return needles.some((n) => h === n || h.startsWith(n));
+    };
+    const cBre = findCol(isMealCol(["breakfast", "bre", "reggeli", "regg"]));
+    const cLun = findCol(isMealCol(["lunch", "lun", "ebéd", "ebed"]));
+    const cDin = findCol(isMealCol(["dinner", "din", "vacsora"]));
+    const cAll = findCol(isMealCol(["all-inclusive", "all inclusive", "allinclusive", "all incl", "all", "ai"], ["arrival"]));
+    const cSta = findCol(isMealCol(["stay", "sta", "housekeeping stay", "hk stay"], ["status"]));
     const cDep2 = (() => {
       for (let i = hdr.length - 1; i >= 0; i--) {
         if (hdr[i] === "dep") return i;

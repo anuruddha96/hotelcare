@@ -20,6 +20,8 @@ export const managerTicketsCurriculum: TrainingCurriculum = {
   roles: ['manager', 'maintenance_manager', 'admin', 'top_management_manager'],
   category: 'feature_promo',
   priority: 22,
+  moduleKey: 'maintenance',
+  estMinutes: 2,
   steps: [
     {
       key: 'ticket_list',

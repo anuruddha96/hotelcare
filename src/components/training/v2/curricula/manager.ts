@@ -33,6 +33,8 @@ export const managerOrientationCurriculum: TrainingCurriculum = {
   ],
   category: 'feature_promo',
   priority: 5,
+  moduleKey: 'admin',
+  estMinutes: 1,
   steps: [
     {
       key: 'welcome',

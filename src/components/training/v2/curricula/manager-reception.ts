@@ -20,6 +20,8 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
   roles: ['manager', 'reception_manager', 'admin', 'top_management_manager'],
   category: 'feature_promo',
   priority: 24,
+  moduleKey: 'reception',
+  estMinutes: 2,
   steps: [
     {
       key: 'daily_overview',

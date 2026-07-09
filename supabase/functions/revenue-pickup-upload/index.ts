@@ -11,19 +11,34 @@ const corsHeaders = {
 const HOTEL_NAME_TO_ID: Record<string, string> = {
   "hotel mika downtown": "mika-downtown",
   "mika downtown": "mika-downtown",
-  "mika": "mika-downtown",
   "hotel memories budapest": "memories-budapest",
   "memories budapest": "memories-budapest",
-  "memories": "memories-budapest",
   "hotel ottofiori": "ottofiori",
-  "ottofiori": "ottofiori",
   "otto fiori": "ottofiori",
   "gozsdu court budapest": "gozsdu-court",
   "gozsdu court": "gozsdu-court",
-  "gozsdu": "gozsdu-court",
   "hotelcare.app testing environment": "hotelcare-testing",
   "hotelcare testing": "hotelcare-testing",
 };
+
+type HotelSource = "filename" | "sheet" | "cell";
+function detectHotelId(filename: string, sheetNames: string[], cellHay: string): { id: string; source: HotelSource | null } {
+  const sources: Array<{ hay: string; source: HotelSource; weight: number }> = [
+    { hay: filename.toLowerCase(), source: "filename", weight: 3 },
+    { hay: sheetNames.join(" | ").toLowerCase(), source: "sheet", weight: 2 },
+    { hay: cellHay.toLowerCase(), source: "cell", weight: 1 },
+  ];
+  const hits: Array<{ id: string; source: HotelSource; score: number }> = [];
+  for (const { hay, source, weight } of sources) {
+    if (!hay) continue;
+    for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
+      if (hay.includes(name)) hits.push({ id, source, score: name.length * weight });
+    }
+  }
+  if (!hits.length) return { id: "", source: null };
+  hits.sort((a, b) => b.score - a.score);
+  return { id: hits[0].id, source: hits[0].source };
+}
 
 const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
@@ -385,11 +400,10 @@ serve(async (req) => {
 
     let bestParsed: ParsedRow[] = [];
     let detectedHotelId = "";
+    let detectedSource: "filename" | "sheet" | "cell" | null = null;
     const warnings: string[] = [];
     const debugSnippets: any[] = [];
-
-    // Build full-file haystack including filename for hotel detection
-    const fileHay = (file.name || "").toLowerCase();
+    const cellHayParts: string[] = [];
 
     for (const sheetName of wb.SheetNames) {
       const ws = wb.Sheets[sheetName];
@@ -397,16 +411,8 @@ serve(async (req) => {
         header: 1, blankrows: false, defval: null, raw: false,
       });
       if (rows.length === 0) continue;
-
-      if (!detectedHotelId) {
-        const hayParts: string[] = [sheetName.toLowerCase(), fileHay];
-        for (let i = 0; i < Math.min(rows.length, 8); i++) {
-          hayParts.push((rows[i] || []).map((c) => String(c ?? "")).join(" ").toLowerCase());
-        }
-        const hay = hayParts.join(" | ");
-        for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
-          if (hay.includes(name)) { detectedHotelId = id; break; }
-        }
+      for (let i = 0; i < Math.min(rows.length, 8); i++) {
+        cellHayParts.push((rows[i] || []).map((c) => String(c ?? "")).join(" "));
       }
 
       const previo = parsePrevioWide(rows);
@@ -427,8 +433,17 @@ serve(async (req) => {
       debugSnippets.push({ sheet: sheetName, sample: rows.slice(0, 8) });
     }
 
-    // Hotel name verification: if file embeds a hotel name AND user picked a different one → reject.
-    if (hotelOverride && detectedHotelId && detectedHotelId !== hotelOverride) {
+    ({ id: detectedHotelId, source: detectedSource } = detectHotelId(
+      file.name || "", wb.SheetNames, cellHayParts.join(" | ")
+    ));
+
+    // Only reject on strong signals: filename or sheet name.
+    if (
+      hotelOverride &&
+      detectedHotelId &&
+      detectedHotelId !== hotelOverride &&
+      (detectedSource === "filename" || detectedSource === "sheet")
+    ) {
       const { data: hotels } = await supabase.from("hotel_configurations")
         .select("hotel_id, hotel_name").in("hotel_id", [hotelOverride, detectedHotelId]);
       const nameOf = (id: string) => hotels?.find((h) => h.hotel_id === id)?.hotel_name ?? id;
