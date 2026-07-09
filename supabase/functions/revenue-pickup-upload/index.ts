@@ -400,19 +400,6 @@ serve(async (req) => {
 
     let bestParsed: ParsedRow[] = [];
     let detectedHotelId = "";
-    const warnings: string[] = [];
-    const debugSnippets: any[] = [];
-
-    // Build full-file haystack including filename for hotel detection
-    const fileHay = (file.name || "").toLowerCase();
-
-    for (const sheetName of wb.SheetNames) {
-      const ws = wb.Sheets[sheetName];
-      const rows: any[][] = XLSX.utils.sheet_to_json(ws, {
-        header: 1, blankrows: false, defval: null, raw: false,
-      });
-    let bestParsed: ParsedRow[] = [];
-    let detectedHotelId = "";
     let detectedSource: "filename" | "sheet" | "cell" | null = null;
     const warnings: string[] = [];
     const debugSnippets: any[] = [];
