@@ -49,6 +49,15 @@ export interface TrainingStepV2 {
   analyticsEvent?: string;
 }
 
+export type TrainingModuleKey =
+  | 'housekeeping'
+  | 'hr_attendance'
+  | 'reception'
+  | 'maintenance'
+  | 'revenue'
+  | 'invoices'
+  | 'admin';
+
 export interface TrainingCurriculum {
   slug: string;
   name: I18nText;
@@ -70,6 +79,10 @@ export interface TrainingCurriculum {
    * UI concern — engine logic does not depend on it.
    */
   module?: I18nText;
+  /** Module key drives the module→unit grouping in the Training Center. */
+  moduleKey?: TrainingModuleKey;
+  /** Rough duration hint shown as "~N min" on each unit card. */
+  estMinutes?: number;
   /**
    * If true, this curriculum is treated as the "full walkthrough" entry
    * point for its role in the Training Center and is featured at the top.

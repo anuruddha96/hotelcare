@@ -755,21 +755,28 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
+    // Never surface a resume toast on transient/public routes.
+    const isBlockedRoute = () => {
+      const p = location.pathname;
+      return p.startsWith('/auth') || p.startsWith('/bb') || p.startsWith('/breakfast');
+    };
+
     const check = async () => {
       if (cancelled || active) return; // don't disrupt an active tour
+      if (pendingAutoStart) return; // don't stack on top of the first-login prompt
+      if (isBlockedRoute()) return;
       const queue = deferredRef.current;
       if (!queue.length) return;
 
+      // Dedupe by slug — only surface one resume prompt per curriculum per
+      // session even if multiple steps in the same unit were deferred.
       for (const entry of queue) {
-        const key = `${entry.slug}::${entry.stepKey}`;
-        if (resumePromptedRef.current.has(key)) continue;
+        if (resumePromptedRef.current.has(entry.slug)) continue;
         const cur = findCurriculum(entry.slug);
         if (!cur) continue;
         const s = cur.steps.find((st) => st.key === entry.stepKey);
         if (!s) continue;
-        // Selector must resolve right now
         if (s.selector && !document.querySelector(s.selector)) continue;
-        // Precondition must pass
         if (s.precondition) {
           const ok = await evaluateGuard(s.precondition, {
             userId: user.id,
@@ -780,24 +787,50 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           });
           if (!ok) continue;
         }
-        resumePromptedRef.current.add(key);
+        resumePromptedRef.current.add(entry.slug);
         const labels = RESUME_TOAST_LABELS[lang] || RESUME_TOAST_LABELS.en;
+        const notNowLabel: Record<LangCode, string> = {
+          en: 'Not now',
+          hu: 'Most nem',
+          es: 'Ahora no',
+          vi: 'Để sau',
+          mn: 'Одоохондоо үгүй',
+        };
         toast(`${labels.title} — ${tx(cur.name, lang)}`, {
+          id: `training-resume-${entry.slug}`,
           duration: 20000,
           action: {
             label: labels.action,
             onClick: () => {
-              // remove from queue and start at this step
-              const next = deferredRef.current.filter(
+              const nextQ = deferredRef.current.filter(
                 (d) => !(d.slug === entry.slug && d.stepKey === entry.stepKey),
               );
-              deferredRef.current = next;
-              persistDeferred(next);
+              deferredRef.current = nextQ;
+              persistDeferred(nextQ);
               start(entry.slug, { startAtKey: entry.stepKey });
             },
           },
+          cancel: {
+            label: notNowLabel[lang] || notNowLabel.en,
+            onClick: () => {
+              // Drop every deferred step for this curriculum + snooze 24h.
+              const nextQ = deferredRef.current.filter((d) => d.slug !== entry.slug);
+              deferredRef.current = nextQ;
+              persistDeferred(nextQ);
+              if (user) {
+                supabase.from('user_training_state').upsert(
+                  {
+                    user_id: user.id,
+                    dismissed_until: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+                    updated_at: new Date().toISOString(),
+                  },
+                  { onConflict: 'user_id' },
+                ).then(() => undefined);
+              }
+            },
+          },
         });
-        break; // only one resume toast at a time
+        break;
       }
     };
 
@@ -806,10 +839,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       debounceTimer = setTimeout(check, 400);
     };
 
-    // Initial + route-change check
     debouncedCheck();
 
-    // MutationObserver on body
     let observer: MutationObserver | null = null;
     if (typeof document !== 'undefined') {
       observer = new MutationObserver(debouncedCheck);
@@ -820,7 +851,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       if (debounceTimer) clearTimeout(debounceTimer);
       observer?.disconnect();
     };
-  }, [user, role, location.pathname, lang, active, assignedHotel, guardRole, start, persistDeferred]);
+  }, [user, role, location.pathname, lang, active, pendingAutoStart, assignedHotel, guardRole, start, persistDeferred]);
 
   // organization/isPropertyOrg computed above
 
