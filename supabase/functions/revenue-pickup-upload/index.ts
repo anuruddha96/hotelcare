@@ -411,17 +411,21 @@ serve(async (req) => {
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, {
         header: 1, blankrows: false, defval: null, raw: false,
       });
-      if (rows.length === 0) continue;
+    let bestParsed: ParsedRow[] = [];
+    let detectedHotelId = "";
+    let detectedSource: "filename" | "sheet" | "cell" | null = null;
+    const warnings: string[] = [];
+    const debugSnippets: any[] = [];
+    const cellHayParts: string[] = [];
 
-      if (!detectedHotelId) {
-        const hayParts: string[] = [sheetName.toLowerCase(), fileHay];
-        for (let i = 0; i < Math.min(rows.length, 8); i++) {
-          hayParts.push((rows[i] || []).map((c) => String(c ?? "")).join(" ").toLowerCase());
-        }
-        const hay = hayParts.join(" | ");
-        for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
-          if (hay.includes(name)) { detectedHotelId = id; break; }
-        }
+    for (const sheetName of wb.SheetNames) {
+      const ws = wb.Sheets[sheetName];
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, {
+        header: 1, blankrows: false, defval: null, raw: false,
+      });
+      if (rows.length === 0) continue;
+      for (let i = 0; i < Math.min(rows.length, 8); i++) {
+        cellHayParts.push((rows[i] || []).map((c) => String(c ?? "")).join(" "));
       }
 
       const previo = parsePrevioWide(rows);
@@ -442,8 +446,17 @@ serve(async (req) => {
       debugSnippets.push({ sheet: sheetName, sample: rows.slice(0, 8) });
     }
 
-    // Hotel name verification: if file embeds a hotel name AND user picked a different one → reject.
-    if (hotelOverride && detectedHotelId && detectedHotelId !== hotelOverride) {
+    ({ id: detectedHotelId, source: detectedSource } = detectHotelId(
+      file.name || "", wb.SheetNames, cellHayParts.join(" | ")
+    ));
+
+    // Only reject on strong signals: filename or sheet name.
+    if (
+      hotelOverride &&
+      detectedHotelId &&
+      detectedHotelId !== hotelOverride &&
+      (detectedSource === "filename" || detectedSource === "sheet")
+    ) {
       const { data: hotels } = await supabase.from("hotel_configurations")
         .select("hotel_id, hotel_name").in("hotel_id", [hotelOverride, detectedHotelId]);
       const nameOf = (id: string) => hotels?.find((h) => h.hotel_id === id)?.hotel_name ?? id;
