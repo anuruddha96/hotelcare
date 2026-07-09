@@ -8,22 +8,47 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Hotel-name aliases. Keep entries specific — short/generic tokens like "mika"
+// or "memories" produced false positives when they appeared elsewhere in the
+// workbook (filenames, footers, other sheets). We now score every match by
+// length AND source weight (filename > sheet name > cell content) and only
+// reject on strong signals.
 const HOTEL_NAME_TO_ID: Record<string, string> = {
   "hotel mika downtown": "mika-downtown",
   "mika downtown": "mika-downtown",
-  "mika": "mika-downtown",
   "hotel memories budapest": "memories-budapest",
   "memories budapest": "memories-budapest",
-  "memories": "memories-budapest",
   "hotel ottofiori": "ottofiori",
-  "ottofiori": "ottofiori",
   "otto fiori": "ottofiori",
   "gozsdu court budapest": "gozsdu-court",
   "gozsdu court": "gozsdu-court",
-  "gozsdu": "gozsdu-court",
   "hotelcare.app testing environment": "hotelcare-testing",
   "hotelcare testing": "hotelcare-testing",
 };
+
+interface HotelHit { id: string; score: number; source: "filename" | "sheet" | "cell" }
+
+function detectHotelId(
+  filename: string,
+  sheetNames: string[],
+  cellHay: string,
+): { id: string; source: HotelHit["source"] | null } {
+  const sources: Array<{ hay: string; source: HotelHit["source"]; weight: number }> = [
+    { hay: filename.toLowerCase(), source: "filename", weight: 3 },
+    { hay: sheetNames.join(" | ").toLowerCase(), source: "sheet", weight: 2 },
+    { hay: cellHay.toLowerCase(), source: "cell", weight: 1 },
+  ];
+  const hits: HotelHit[] = [];
+  for (const { hay, source, weight } of sources) {
+    if (!hay) continue;
+    for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
+      if (hay.includes(name)) hits.push({ id, source, score: name.length * weight });
+    }
+  }
+  if (!hits.length) return { id: "", source: null };
+  hits.sort((a, b) => b.score - a.score);
+  return { id: hits[0].id, source: hits[0].source };
+}
 
 function safeInt(v: any): number {
   if (v == null || v === "") return 0;
@@ -103,21 +128,27 @@ serve(async (req) => {
     const baseYear = new Date().getUTCFullYear();
 
     // Hotel name verification: scan filename + sheet names + first cells.
-    let detectedHotelId = "";
-    const fileHay = (file.name || "").toLowerCase();
-    const haystack = [fileHay, wb.SheetNames.join(" ").toLowerCase()];
+    const cellHayParts: string[] = [];
     for (const s of wb.SheetNames) {
       const ws = wb.Sheets[s];
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: null, raw: false });
       for (let i = 0; i < Math.min(rows.length, 6); i++) {
-        haystack.push((rows[i] || []).map((c) => String(c ?? "").toLowerCase()).join(" "));
+        cellHayParts.push((rows[i] || []).map((c) => String(c ?? "").toLowerCase()).join(" "));
       }
     }
-    const hay = haystack.join(" | ");
-    for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
-      if (hay.includes(name)) { detectedHotelId = id; break; }
-    }
-    if (detectedHotelId && detectedHotelId !== hotelOverride) {
+    const { id: detectedHotelId, source: detectedSource } = detectHotelId(
+      file.name || "",
+      wb.SheetNames,
+      cellHayParts.join(" | "),
+    );
+    // Only reject when the winning match came from the filename or a sheet
+    // name — cell hits (footers, legends, other-hotel references embedded in
+    // the sheet) are too noisy to block an upload.
+    if (
+      detectedHotelId &&
+      detectedHotelId !== hotelOverride &&
+      (detectedSource === "filename" || detectedSource === "sheet")
+    ) {
       const { data: hotels } = await supabase.from("hotel_configurations")
         .select("hotel_id, hotel_name").in("hotel_id", [hotelOverride, detectedHotelId]);
       const nameOf = (id: string) => hotels?.find((h) => h.hotel_id === id)?.hotel_name ?? id;
