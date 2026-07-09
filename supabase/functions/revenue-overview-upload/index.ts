@@ -191,11 +191,20 @@ serve(async (req) => {
     const cDeparture = findCol(exactAny(["departure"]));
     const cArrival = findCol(exactAny(["arrival"]));
     const cOngoing = findCol(exactAny(["ongoing"]));
-    const cBre = findCol(includesAny(["bre"]));
-    const cLun = findCol(includesAny(["lun"]));
-    const cDin = findCol(includesAny(["din"]));
-    const cAll = findCol(includesAny(["all"]));
-    const cSta = findCol(includesAny(["sta"]));
+    // Meal columns. Prefer exact matches then fall back to specific prefixes.
+    // Include Hungarian aliases (Reggeli / Ebéd / Vacsora / All Inclusive) and
+    // never let "arr" (Arrival) accidentally hit any meal column.
+    const isMealCol = (needles: string[], exclude: string[] = []) => (i: number) => {
+      const h = hdr[i];
+      if (!h) return false;
+      if (exclude.some((x) => h === x || h.includes(x))) return false;
+      return needles.some((n) => h === n || h.startsWith(n));
+    };
+    const cBre = findCol(isMealCol(["breakfast", "bre", "reggeli", "regg"]));
+    const cLun = findCol(isMealCol(["lunch", "lun", "ebéd", "ebed"]));
+    const cDin = findCol(isMealCol(["dinner", "din", "vacsora"]));
+    const cAll = findCol(isMealCol(["all-inclusive", "all inclusive", "allinclusive", "all incl", "all", "ai"], ["arrival"]));
+    const cSta = findCol(isMealCol(["stay", "sta", "housekeeping stay", "hk stay"], ["status"]));
     const cDep2 = (() => {
       for (let i = hdr.length - 1; i >= 0; i--) {
         if (hdr[i] === "dep") return i;

@@ -11,19 +11,34 @@ const corsHeaders = {
 const HOTEL_NAME_TO_ID: Record<string, string> = {
   "hotel mika downtown": "mika-downtown",
   "mika downtown": "mika-downtown",
-  "mika": "mika-downtown",
   "hotel memories budapest": "memories-budapest",
   "memories budapest": "memories-budapest",
-  "memories": "memories-budapest",
   "hotel ottofiori": "ottofiori",
-  "ottofiori": "ottofiori",
   "otto fiori": "ottofiori",
   "gozsdu court budapest": "gozsdu-court",
   "gozsdu court": "gozsdu-court",
-  "gozsdu": "gozsdu-court",
   "hotelcare.app testing environment": "hotelcare-testing",
   "hotelcare testing": "hotelcare-testing",
 };
+
+type HotelSource = "filename" | "sheet" | "cell";
+function detectHotelId(filename: string, sheetNames: string[], cellHay: string): { id: string; source: HotelSource | null } {
+  const sources: Array<{ hay: string; source: HotelSource; weight: number }> = [
+    { hay: filename.toLowerCase(), source: "filename", weight: 3 },
+    { hay: sheetNames.join(" | ").toLowerCase(), source: "sheet", weight: 2 },
+    { hay: cellHay.toLowerCase(), source: "cell", weight: 1 },
+  ];
+  const hits: Array<{ id: string; source: HotelSource; score: number }> = [];
+  for (const { hay, source, weight } of sources) {
+    if (!hay) continue;
+    for (const [name, id] of Object.entries(HOTEL_NAME_TO_ID)) {
+      if (hay.includes(name)) hits.push({ id, source, score: name.length * weight });
+    }
+  }
+  if (!hits.length) return { id: "", source: null };
+  hits.sort((a, b) => b.score - a.score);
+  return { id: hits[0].id, source: hits[0].source };
+}
 
 const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
