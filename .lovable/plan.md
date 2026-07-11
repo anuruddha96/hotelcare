@@ -1,129 +1,93 @@
+## Goal
+Enable the live **Ottofiori** hotel on the existing Previo integration safely, without any code or DB changes yet. This plan is a rollout/runbook plus a list of pre-existing code issues to be aware of. Implementation would happen in a later, approved pass.
 
-## 1. Duplicate/undismissable training resume toasts
+## What already works (verified from code)
 
-**Problem** (screenshot 1): two identical "Ready to continue your training? — Team & Assignments" toasts with only a Resume button — no way to dismiss.
+- `_shared/previoAuth.ts` handles per-hotel credentials via `pms_configurations.credentials_secret_name` and Basic auth against `https://api.previo.app`, sending `X-Previo-Hotel-ID`. Multiple secret formats accepted (`user:pass`, JSON, name/value pairs).
+- `previo-test-connection` — read-only ping to `/rest/rooms`, updates `last_test_status` on the config row. Admin or hotel-assigned only. Safe for Ottofiori.
+- `previo-sync-rooms` **import branch** (`importLocal:true`) — pulls `/rest/rooms`, upserts into `rooms` and `pms_room_mappings` using the **physical** `roomId` (correct) and stores full metadata in `rooms.pms_metadata`.
+- `previo-update-room-status` — pushes clean/dirty to `PUT /rest/rooms/{pms_room_id}/clean-status`, using `pms_room_mappings.pms_room_id`. Since the import writes the **physical** roomId there, the push targets the right room.
 
-**Fix** in `src/components/training/v2/TrainingV2Provider.tsx` (deferred-step watcher, ~L750–823):
-- Deduplicate by `stepKey` across the queue (right now `resumePromptedRef` is only per session; if the queue has the same step twice, or two steps in the same curriculum share a selector, both fire). Guard once per `slug` per session, not per `slug::stepKey`.
-- Give the sonner toast an explicit `id: 'training-resume'` so re-firing replaces instead of stacks.
-- Add a second action "Not now" that calls `dismissCurriculum(slug, 1)` (24h snooze) and clears the queue entry — so the user can close it.
-- Skip firing entirely if a `pendingAutoStart` prompt is visible or if the user is on `/auth`, `/bb`, `/breakfast`.
+## Pre-existing issues to flag (do NOT fix in this pass)
 
-## 2. PMS "Daily Overview" false hotel mismatch
+1. **Hard gates on `hotel_id === 'previo-test'`** in two places:
+   - `previo-sync-rooms/index.ts` line 119: import branch refuses any hotel other than `previo-test`.
+   - `previo-update-room-status/index.ts` lines 62–68: silently no-ops the push for every hotel except `previo-test`.
+   Ottofiori cannot go live until these gates are widened. Recommended future change: allow-list driven by a new `pms_configurations.push_enabled` flag (or an explicit slug set) rather than a hard-coded id.
 
-**Problem** (screenshot 2): uploading a Hotel Memories Budapest file into Hotel Memories Budapest returns *"Hotel mismatch: this file is for Hotel Mika Downtown"*.
+2. **Broken non-import branch of `previo-sync-rooms`** (lines 297–367). It matches `pms_room_mappings.pms_room_id` against `roomData.roomKindId.toString()` — i.e. the **room-kind (type) ID**, not the physical `roomId` that the import branch actually writes. These two branches disagree on what `pms_room_id` means, so status-pull-back will silently "no mapping" for every row on any hotel imported via the import branch. Ottofiori should never call this branch until it is corrected. Use `previo-update-room-status` (push) + `previo-poll-checkouts` / `previo-nightly-sync` instead, or the import branch's own status seeding.
 
-**Root cause** in `supabase/functions/revenue-overview-upload/index.ts` (L105–125) and the sibling `revenue-occupancy-upload`, `revenue-pickup-upload`: the detector scans filename + every sheet's first 6 rows and matches on `hay.includes(name)`. The alias `"mika"` (4 chars) matches any text containing the substring "mika" (e.g. filenames with `memories-budapest-…mika…` or a footer/legend). First hit wins; no scoring.
+3. `previo-clean-status-probe` is a brute-force endpoint tryer — useful for diagnosis, but must not be run against a live tenant except in a read-only spirit; several candidates are `PUT`/`PATCH`.
 
-**Fix** across the three edge functions:
-- Score every alias by (a) length and (b) source weight (filename = 3, sheet name = 2, cell content = 1). Pick the highest-scoring hotel, not the first match.
-- Remove the too-short aliases (`"mika"`, `"memories"`, `"ottofiori"`, `"gozsdu"` alone) — require the full hotel name or its distinctive multi-word form.
-- Only enforce mismatch when the winning score is ≥ 4 AND the winner comes from the filename or a sheet name (not a random cell).
-- If detection is ambiguous, log a warning and trust the user's selected hotel instead of blocking.
+## Prerequisites (config only, no code)
 
-## 3. `/bb` breakfast board — 115, 216, 210 anomalies
+- Confirm the Previo hotel ID and API credentials for Ottofiori with the customer.
+- Super admin creates a **per-hotel** Edge Function secret, e.g. `PREVIO_CREDS_OTTOFIORI`, value in one of the supported formats (`user:pass` is simplest).
+- In `pms_configurations` for `hotel_id = 'ottofiori'` (create if missing):
+  - `pms_type = 'previo'`
+  - `pms_hotel_id = <numeric Previo hotel id>`
+  - `credentials_secret_name = 'PREVIO_CREDS_OTTOFIORI'`
+  - `is_active = true`
+  - `sync_enabled = false` (kept off during read-only phases)
+  - Any `auto_sync_enabled`, cron, or push flags left **off**.
+- Ensure no `pms_room_mappings` rows exist yet for Ottofiori (fresh slate) — or export/backup existing ones.
+- Announce a short maintenance window with reception + housekeeping leads; they should not manually flip room statuses while validation is running.
 
-**What's happening** in `supabase/functions/breakfast-public-lookup/index.ts` (`mode: "list"`):
-- **115 red (no_breakfast)** — snapshot row exists (parses fine as `27SYN.TWIN-115`), but `breakfast`/`all_inclusive` are stored as `0` because the overview upload's `findCol(includesAny(["bre"|"lun"|"din"|"all"]))` matches the wrong column (e.g. "Arrival" contains `arr`, "All-Inclusive" not present). Result: eligible guests marked "no breakfast".
-- **216 red** — `66EC.QRP216` (no dash). Memories fallback regex parses it, but only for the current uploader. Older snapshots stored before the fallback was added produced no row for 216, so it comes in via the master-rooms union and is red.
-- **210 grey (arriving)** — `60QUEEN-210` parses fine, row is `arriving` because only the Arrival column is filled. UI treats every "arriving" row as grey even when breakfast>0.
+## Staged rollout
 
-**Fixes**:
-- `revenue-overview-upload/index.ts`: tighten meal-column detection. Use exact header matches (`"breakfast"`, `"lunch"`, `"dinner"`, `"all-inclusive"`, `"all inclusive"`, `"ai"`) and fall back to positional (columns after "Ongoing"). Never match `"arr"` for breakfast.
-- `breakfast-public-lookup/index.ts` (list mode): recompute `chipStatus` so that if `breakfast > 0 || all_inclusive > 0`, the room shows `pending`/`partial`/`served` even when `row_status === "arriving"`. Only mark `arriving` grey when there's no breakfast entitlement.
-- `_shared/roomCode.ts`: keep the memories dash-less fallback; add a comment/test note that both `70SNG-306` and `66EC.QRP216` must parse.
-- Ask the user to re-upload today's Daily Overview once deployed so historical snapshots refresh.
+### Stage 0 — Preflight (read-only)
+- Call `previo-test-connection` with `{ hotelId: 'ottofiori' }`. Expect `ok:true`, non-zero `roomCount`, latency reasonable, `last_test_status='ok'`.
+- If it fails: inspect `last_test_error` and the function logs. Do not proceed.
 
-## 4. Training Center — modular organization with per-unit deep-link
+### Stage 1 — Preview room list (read-only, no writes)
+- Call `previo-sync-rooms` with `{ hotelId: 'ottofiori', previewOnly: true }`.
+- Verify:
+  - Room count matches Ottofiori's physical inventory.
+  - Each row has a unique `roomId` (physical), plus `roomKindId`/`roomKindName`.
+  - `name` values match HotelCare's expected room-number scheme (e.g. no "Onity 101" vs "101" collisions). If they don't, agree on a naming rule with ops before importing.
 
-**Goal**: turn `/training` into a mobile-friendly *Modules → Units* directory. Each unit navigates to the right page/tab and spotlights the right element.
+### Stage 2 — Import rooms + mappings (writes to HotelCare only, not Previo)
+- This requires temporarily widening the `previo-test` gate in `previo-sync-rooms` (that's the one code change this rollout ultimately needs — flag it, but do not make it in this pass). Two safe options for the eventual patch: (a) allow-list `['previo-test','ottofiori']`, or (b) drive by a new `pms_configurations.import_enabled` flag.
+- Once the gate is widened, call `previo-sync-rooms` with `{ hotelId: 'ottofiori', importLocal: true }`.
+- Validate in DB:
+  - `rooms` rows created with correct `hotel='ottofiori'`, `room_number`, `room_type`, `organization_slug`, and `pms_metadata.roomId` populated.
+  - `pms_room_mappings` rows created; `pms_room_id` equals the **physical** `roomId` (not `roomKindId`). Spot-check ≥5 rows against `/rest/rooms` preview output.
+  - Count of rows in `pms_room_mappings` for this config == count from Stage 1.
+  - `pms_sync_history` row for this run has `sync_status='success'` (or 'partial' with a small, understandable error list).
+- Roll-back plan if wrong: `DELETE FROM pms_room_mappings WHERE pms_config_id = <ottofiori cfg id>` and remove any brand-new `rooms` rows (identify by created_at within the import window and `pms_metadata->>roomId IS NOT NULL`).
 
-### New shape (add fields, don't break existing engine)
-`src/components/training/v2/types.ts`:
-```ts
-export type TrainingModuleKey =
-  | 'housekeeping' | 'hr_attendance' | 'reception' | 'maintenance'
-  | 'revenue' | 'invoices' | 'admin';
+### Stage 3 — Mapping validation (read-only, no Previo writes)
+- For each mapping, verify round-trip in HotelCare:
+  - Housekeeping status page shows every Ottofiori room.
+  - No duplicate room numbers.
+  - Random 5 sample: HotelCare `pms_metadata.roomId` == `pms_room_mappings.pms_room_id` == Previo `/rest/rooms[*].roomId`.
+- Do **not** yet enable status push. Manually toggling statuses in HotelCare during this stage is safe because the push function is still gated to `previo-test`.
 
-export interface TrainingCurriculum {
-  // …existing fields…
-  moduleKey?: TrainingModuleKey;   // grouping in the Training Center
-  icon?: string;                   // lucide icon name
-  estMinutes?: number;             // "~2 min"
-}
-```
+### Stage 4 — Single-room live write test (narrow, controlled)
+- Prerequisite: widen the `previo-test-only` guard in `previo-update-room-status` — future one-line change; flag now, do not make it in this pass.
+- Pick a single out-of-service / test room in Ottofiori (agreed with ops).
+- Use `previo-clean-status-probe` first with `targetStatus:'clean'` and a single `pmsRoomId` (that one test room) if there is any doubt about the endpoint shape — the probe is exploratory but useful for a first-time hotel.
+- Then trigger a real status change on that one room in HotelCare and confirm:
+  - `previo-update-room-status` returns `success:true`, non-skipped.
+  - `pms_sync_history` row `sync_type='room_status_update'`, `sync_status='success'`.
+  - Ottofiori's Previo web UI shows the new status within seconds.
+- Flip it back (dirty ↔ clean) once and verify again.
 
-### Units to author (each = a small curriculum, 2–5 steps)
-Files under `src/components/training/v2/curricula/units/`:
+### Stage 5 — Controlled ramp
+- Enable push for a single floor (10–15 rooms) for one full housekeeping shift. Monitor `pms_sync_history` for failures and Previo dashboard for drift.
+- If clean for a shift, enable house-wide push. Leave `sync_enabled=true` only after 24 hours of quiet logs.
+- Do not enable `previo-nightly-sync` or `previo-poll-checkouts` for Ottofiori until push is stable; those broaden the surface area.
 
-**Housekeeping (Manager)**
-- `hk-assign-rooms.ts` — Team View → Auto-Assign → Assign Room
-- `hk-room-overview.ts` — Hotel Room Overview cards / Map / Refresh
-- `hk-progress.ts` — Team View progress bars + status filters
-- `hk-approve-cleaned.ts` — Pending Approvals tab, approve/reject flow
-- `hk-performance.ts` — Performance Leaderboard
-- `hk-lost-found.ts` — Lost & Found tab
-- `hk-dnd-daily-photos.ts` — Daily Photos + DND Photos
-- `hk-dirty-linen.ts` — Dirty Linen (mobile view)
+## Monitoring & rollback
 
-**HR & Attendance**
-- `hr-staff-management.ts` — Staff Management tab (create HK, roles)
-- `hr-attendance-daily.ts` — Attendance daily timesheet
-- `hr-early-signout-approvals.ts` — Early Sign-Out Approvals
-- `hr-payroll-monthly.ts` — Monthly payroll export
+- Dashboards to watch: `pms_sync_history` failures per hour, `pms_configurations.last_sync_error`, Edge Function logs for `previo-update-room-status` and `previo-sync-rooms`.
+- Kill switch: set `pms_configurations.is_active = false` (or `sync_enabled=false`) for `ottofiori`. Every function reads these and short-circuits.
+- Emergency rollback: revert the gate widening in the two files above; Ottofiori falls back to no-op push, matching today's behaviour.
 
-**Reception**
-- `rec-daily-overview-upload.ts` — Revenue → Upload → Daily Overview (with new UI)
-- `rec-bb-lookup.ts` — `/bb` breakfast lookup, room grid legend
-- `rec-check-in-out.ts` — FrontDesk check-in / check-out dialogs
-- `rec-guest-minibar.ts` — Guest QR + minibar reconciliation
-- `rec-reservations.ts` — Reservations calendar create/edit
+## Deliverables from this plan (later passes)
 
-**Maintenance**
-- `mnt-open-ticket.ts` — Create Ticket dialog, photo requirement
-- `mnt-assign-hold-approve.ts` — Assign, Hold → Approval flow
-- `mnt-sla-close.ts` — SLA badges, close with completion photo
+1. Small code change to widen the `previo-test`-only gates in `previo-sync-rooms` (import branch) and `previo-update-room-status`, driven by a config flag rather than a hard-coded slug.
+2. Fix or removal of the broken non-import status-pull branch in `previo-sync-rooms` so it uses physical `roomId`, not `roomKindId`.
+3. Optional: admin UI surface to run Stages 0/1/2/4 with a single click per hotel.
 
-**Housekeeper (self-serve)** kept separate but grouped as its own module for HK staff logins.
-
-Each unit is registered in `curricula/index.ts` with the correct `moduleKey`, `roles`, `route`, `tab`, and `selector` per step, reusing selectors already added in the earlier training pass.
-
-### New Training Center UI
-`src/components/training/v2/TrainingCenter.tsx` rebuild:
-- Mobile-first single column, `max-w-3xl`.
-- Search input at the top (`Search modules and units…`).
-- Four module cards → tap expands (accordion) → grid of unit cards.
-- Each unit card: icon, title, 1-line description, `~N min`, status badge (Not started / In progress N/M / Done), primary button `Start` / `Resume` / `Restart`, secondary `Mark done` in overflow menu.
-- Featured card at the top: "Full manager walkthrough" (existing `manager-complete`), untouched behaviorally.
-- Sticky bottom bar on mobile with a Close button so it works when opened from Help & Training.
-
-### Nav wiring
-- `TrainingHelpButtonV2` dropdown lists modules (not raw curricula) with "Open Training Center" as the primary CTA.
-- Add a `?unit=<slug>` query param support so we can deep-link directly from other help buttons.
-
-### Guards / anchors
-For every unit step, add `data-tour="…"` anchors where missing (Auto-Assign button, Public Areas, Bulk Unassign, Pending Approvals row, Lost & Found tab, DND grid, Daily Photos grid, Attendance timesheet row, Early Sign-Out row, Revenue Upload dialog tabs, /bb Check button, FrontDesk Check-In/Out buttons, Ticket card Assign/Hold/Approve/Close buttons). Anchors are additive; no logic change.
-
-### SLNT-only hiding
-Keep the existing `isPropertyOrg` filter and extend it: hide the whole `revenue` module for SLNT (already hidden), and hide `invoices` if `!hasInvoicesFeature(org)` (already handled elsewhere).
-
-## 5. Files to change
-
-- `src/components/training/v2/TrainingV2Provider.tsx` (dedupe toasts, add "Not now", route blocklist)
-- `src/components/training/v2/TrainingCenter.tsx` (rebuild modular UI)
-- `src/components/training/v2/TrainingHelpButtonV2.tsx` (module-first menu, deep-link support)
-- `src/components/training/v2/types.ts` (new fields)
-- `src/components/training/v2/curricula/index.ts` (register new units, tag `moduleKey`)
-- New: `src/components/training/v2/curricula/units/*.ts` (~15 unit files as listed)
-- `supabase/functions/revenue-overview-upload/index.ts` (scored detector + meal-column fix)
-- `supabase/functions/revenue-occupancy-upload/index.ts` (scored detector)
-- `supabase/functions/revenue-pickup-upload/index.ts` (scored detector)
-- `supabase/functions/breakfast-public-lookup/index.ts` (chipStatus: breakfast entitlement wins over `arriving`)
-- Small anchor additions across dashboard/reception/maintenance components (no behavior change)
-
-## 6. Verification
-- Manual: upload the same Memories daily-overview file → expect success + snapshot rows for 115/216/210 with correct breakfast counts.
-- Manual: `/bb` grid — 115 pending/served, 216 pending or no-breakfast per actual PMS entitlement, 210 pending (not grey) when breakfast>0.
-- Manual: log in as manager on a fresh browser → single first-login prompt; if snoozed the resume toast appears with a Not-now button and does not duplicate.
-- Manual: `/training` shows 4 module accordions + featured walkthrough; each unit starts, navigates, spotlights the intended element, and marks complete.
-- Typecheck via project build.
+No files are edited in this pass.
