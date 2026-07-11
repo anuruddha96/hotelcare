@@ -2594,16 +2594,24 @@ export type Database = {
       }
       pms_configurations: {
         Row: {
+          activated_at: string | null
+          activated_by: string | null
           api_auth_type: string | null
           api_base_url: string | null
           auto_sync_enabled: boolean
+          checkout_poll_enabled: boolean
           connection_mode: string
+          connection_test_enabled: boolean
           consecutive_sync_failures: number
           created_at: string
           credentials_secret_name: string | null
+          environment: string
           hotel_id: string
           id: string
           is_active: boolean
+          last_connection_test_at: string | null
+          last_connection_test_error: string | null
+          last_connection_test_status: string | null
           last_sync_at: string | null
           last_sync_error: string | null
           last_sync_status: string | null
@@ -2611,24 +2619,40 @@ export type Database = {
           last_test_at: string | null
           last_test_error: string | null
           last_test_status: string | null
+          nightly_sync_enabled: boolean
+          outbound_kill_switch: boolean
+          outbound_room_allowlist: string[] | null
           pms_hotel_id: string
           pms_type: string
+          room_discovery_enabled: boolean
+          room_import_enabled: boolean
           settings: Json | null
+          snapshot_read_enabled: boolean
+          snapshot_shadow_mode: boolean
+          status_push_enabled: boolean
           sync_enabled: boolean
           sync_mode: string
           updated_at: string
         }
         Insert: {
+          activated_at?: string | null
+          activated_by?: string | null
           api_auth_type?: string | null
           api_base_url?: string | null
           auto_sync_enabled?: boolean
+          checkout_poll_enabled?: boolean
           connection_mode?: string
+          connection_test_enabled?: boolean
           consecutive_sync_failures?: number
           created_at?: string
           credentials_secret_name?: string | null
+          environment?: string
           hotel_id: string
           id?: string
           is_active?: boolean
+          last_connection_test_at?: string | null
+          last_connection_test_error?: string | null
+          last_connection_test_status?: string | null
           last_sync_at?: string | null
           last_sync_error?: string | null
           last_sync_status?: string | null
@@ -2636,24 +2660,40 @@ export type Database = {
           last_test_at?: string | null
           last_test_error?: string | null
           last_test_status?: string | null
+          nightly_sync_enabled?: boolean
+          outbound_kill_switch?: boolean
+          outbound_room_allowlist?: string[] | null
           pms_hotel_id: string
           pms_type?: string
+          room_discovery_enabled?: boolean
+          room_import_enabled?: boolean
           settings?: Json | null
+          snapshot_read_enabled?: boolean
+          snapshot_shadow_mode?: boolean
+          status_push_enabled?: boolean
           sync_enabled?: boolean
           sync_mode?: string
           updated_at?: string
         }
         Update: {
+          activated_at?: string | null
+          activated_by?: string | null
           api_auth_type?: string | null
           api_base_url?: string | null
           auto_sync_enabled?: boolean
+          checkout_poll_enabled?: boolean
           connection_mode?: string
+          connection_test_enabled?: boolean
           consecutive_sync_failures?: number
           created_at?: string
           credentials_secret_name?: string | null
+          environment?: string
           hotel_id?: string
           id?: string
           is_active?: boolean
+          last_connection_test_at?: string | null
+          last_connection_test_error?: string | null
+          last_connection_test_status?: string | null
           last_sync_at?: string | null
           last_sync_error?: string | null
           last_sync_status?: string | null
@@ -2661,9 +2701,17 @@ export type Database = {
           last_test_at?: string | null
           last_test_error?: string | null
           last_test_status?: string | null
+          nightly_sync_enabled?: boolean
+          outbound_kill_switch?: boolean
+          outbound_room_allowlist?: string[] | null
           pms_hotel_id?: string
           pms_type?: string
+          room_discovery_enabled?: boolean
+          room_import_enabled?: boolean
           settings?: Json | null
+          snapshot_read_enabled?: boolean
+          snapshot_shadow_mode?: boolean
+          status_push_enabled?: boolean
           sync_enabled?: boolean
           sync_mode?: string
           updated_at?: string
@@ -2721,36 +2769,58 @@ export type Database = {
       }
       pms_room_mappings: {
         Row: {
+          confidence: number | null
           created_at: string
+          hotelcare_room_id: string | null
           hotelcare_room_number: string
           id: string
           is_active: boolean
+          last_verified_at: string | null
+          mapping_status: string
+          notes: string | null
           pms_config_id: string
           pms_room_id: string
           pms_room_name: string | null
           updated_at: string
         }
         Insert: {
+          confidence?: number | null
           created_at?: string
+          hotelcare_room_id?: string | null
           hotelcare_room_number: string
           id?: string
           is_active?: boolean
+          last_verified_at?: string | null
+          mapping_status?: string
+          notes?: string | null
           pms_config_id: string
           pms_room_id: string
           pms_room_name?: string | null
           updated_at?: string
         }
         Update: {
+          confidence?: number | null
           created_at?: string
+          hotelcare_room_id?: string | null
           hotelcare_room_number?: string
           id?: string
           is_active?: boolean
+          last_verified_at?: string | null
+          mapping_status?: string
+          notes?: string | null
           pms_config_id?: string
           pms_room_id?: string
           pms_room_name?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "pms_room_mappings_hotelcare_room_id_fkey"
+            columns: ["hotelcare_room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "pms_room_mappings_pms_config_id_fkey"
             columns: ["pms_config_id"]
