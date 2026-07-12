@@ -7,6 +7,7 @@ import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
 import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
 import { PMSUpload } from './PMSUpload';
+import { PmsSyncControls } from '@/components/pms/PmsSyncControls';
 import { EasyRoomAssignment } from './EasyRoomAssignment';
 import { PerformanceLeaderboard } from './PerformanceLeaderboard';
 import { MinibarTrackingView } from './MinibarTrackingView';
