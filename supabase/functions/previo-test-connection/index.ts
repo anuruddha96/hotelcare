@@ -119,17 +119,18 @@ serve(async (req) => {
         });
       }
 
-      // Read-only permitted method: Hotel.getRooms
+      // Read-only permitted method: Hotel.getRoomKinds (on Ottofiori's enabled list)
       const result = await callPrevioXml({
-        method: "getRooms",
+        method: "getRoomKinds",
         creds,
         pmsHotelId,
       });
 
+
       const latencyMs = Date.now() - startedAt;
 
       if (!result.ok) {
-        const msg = `Previo XML rooms failed (status=${result.status})${result.errorMessage ? `: ${result.errorMessage}` : ""}`;
+        const msg = `Previo XML getRoomKinds failed (status=${result.status})${result.errorMessage ? `: ${result.errorMessage}` : ""}`;
         await recordResult("error", msg);
         return new Response(JSON.stringify({ ok: false, error: msg, latencyMs, protocol: "xml" }), {
           status: 200,
@@ -137,9 +138,7 @@ serve(async (req) => {
         });
       }
 
-      // Confirm the response is scoped to the configured hotId. Previo echoes
-      // hotId in the response envelope on most methods; also count rooms.
-      const roomCount = (result.text.match(/<room[\s>]/g) || []).length;
+      const roomKindCount = (result.text.match(/<roomKind[\s>]/g) || []).length;
       const hotIdMatch = result.text.match(/<hotId>(\d+)<\/hotId>/i);
       const returnedHotId = hotIdMatch ? hotIdMatch[1] : null;
       if (returnedHotId && returnedHotId !== pmsHotelId) {
@@ -156,14 +155,15 @@ serve(async (req) => {
         JSON.stringify({
           ok: true,
           protocol: "xml",
-          method: "Hotel.getRooms",
-          roomCount,
+          method: "Hotel.getRoomKinds",
+          roomKindCount,
           hotIdConfirmed: returnedHotId ?? pmsHotelId,
           latencyMs,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
 
     // -------- REST protocol (legacy Basic Auth) ---------------------------
     const { response: resp, source } = await fetchPrevioWithAuth({
