@@ -77,16 +77,6 @@ serve(async (req) => {
     const { hotelId } = await req.json().catch(() => ({}));
     const targetHotel = hotelId || ALLOWED_HOTEL_ID;
 
-    // SAFETY: hard-gate to previo-test
-    if (targetHotel !== ALLOWED_HOTEL_ID) {
-      return new Response(
-        JSON.stringify({
-          error: `previo-pms-sync is restricted to hotel '${ALLOWED_HOTEL_ID}'. Got '${targetHotel}'.`,
-        }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
     // Authorization: must be admin/manager assigned to the hotel (or admin/top_management)
     const { data: profile } = await service
       .from("profiles")
@@ -115,23 +105,41 @@ serve(async (req) => {
       );
     }
 
-    const { response: resp } = await fetchPrevioWithAuth({
-      credentialsSecretName: cfg.credentials_secret_name,
-      path: "/rest/rooms",
-      pmsHotelId: String(cfg.pms_hotel_id || ""),
-    });
-
-    if (!resp.ok) {
-      const txt = await resp.text();
-      console.error(`Previo /rest/rooms ${resp.status}:`, txt.slice(0, 500));
+    // Detect protocol from stored credential (xml = single ApiKey, rest = user/pass).
+    let credsProtocol: "xml" | "rest" = "rest";
+    try {
+      const c = loadPrevioCredentials(cfg.credentials_secret_name);
+      credsProtocol = c.protocol;
+    } catch (e: any) {
       return new Response(
-        JSON.stringify({ error: `Previo ${resp.status}: ${txt.slice(0, 300)}` }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({ ok: false, error: e?.message || "Credential load failed" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
+    // rooms[] is populated only for REST tenants (legacy previo-test). For
+    // XML tenants (Ottofiori et al.) we skip /rest/rooms — the XML API key
+    // isn't valid there — and derive rows purely from searchReservations.
+    let rooms: PrevioRoom[] = [];
+    if (credsProtocol === "rest") {
+      const { response: resp } = await fetchPrevioWithAuth({
+        credentialsSecretName: cfg.credentials_secret_name,
+        path: "/rest/rooms",
+        pmsHotelId: String(cfg.pms_hotel_id || ""),
+      });
+
+      if (!resp.ok) {
+        const txt = await resp.text();
+        console.error(`Previo /rest/rooms ${resp.status}:`, txt.slice(0, 500));
+        return new Response(
+          JSON.stringify({ error: `Previo ${resp.status}: ${txt.slice(0, 300)}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
+    }
     const today = todayUtcDate();
+
 
     // Pull today's reservations via the Previo XML API. The REST API has no
     // list endpoint for reservations, but the XML `searchReservations` method
