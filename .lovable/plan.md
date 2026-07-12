@@ -1,76 +1,58 @@
-## Goal
+## Problem
 
-Make Ottofiori's PMS refresh behave the same as an XLSX upload does today, but for **every** room the property has — including rooms with no reservation today (like 305 today+empty tomorrow). Read clean status from Previo, decide "checkout tomorrow" correctly, and log a per-refresh snapshot so managers can review what changed before applying it.
-
-## What breaks today for room 305
-
-- `previo-pms-sync` for XML tenants only builds rows from reservations returned in a `[today, today+2)` window. If 305 has a guest tonight (arrival ≤ today, departure = today+1) it will appear, but any room without a reservation in that window is dropped — the app never sees it, so its dirty/clean flag is never reconciled.
-- The row builder treats `isDeparture` as "departure date == today". A guest checking out **tomorrow** is currently `Occupied=Yes / Departure=null`, so the room isn't marked as a checkout room ahead of time.
-- Clean status comes from `roomCleanStatusId` on `/rest/rooms`, which XML tenants skip. Result: 305 stays "dirty" in the app regardless of what reception sets in Previo.
+- Ottofiori's `pms_room_mappings` table is empty, so `previo-sync-rooms` (non-import branch) can't translate Previo's physical `roomId` (e.g. `2301497`) into an app `room_number` and emits *"No mapping for physical room …"* for every room.
+- Previo names its rooms with a category prefix like `DB/TW-102`, `TRP-305`, `Q-101` (see the screenshot from Previo). HotelCare's `rooms.room_number` is just `102`, `305`, `101`. Even if the auto-import branch ran, it inserts `r.name` verbatim as `room_number`, which would never match the existing HotelCare rooms and would produce duplicates.
+- "Team View → PMS Refresh" and "PMS Upload → Sync overview / Refresh rooms…" don't behave the same. Team View reports success with no changes because it only fetches the reservation snapshot; it never invokes `previo-sync-rooms` and never applies mappings.
+- Ottofiori has `room_import_enabled = false`, so the import branch would 403 even if triggered. The gate was added to protect other hotels, but the mapping/discovery step is safe and must be always available.
 
 ## Fix
 
-### 1) Full room roster from Previo XML (all rooms, every refresh)
+### 1. `previo-sync-rooms` — safer, auto-mapping import
 
-- Add a shared helper `fetchPrevioRoomsXml()` that calls `Hotel.getRoomKinds` + `Hotel.rooms` (XML) and returns `{ objId, name, roomKindName, capacity, cleanStatusId }` for every room in the hotel.
-- In `previo-pms-sync`: when protocol is `xml`, use this helper as the canonical `rooms[]` source instead of synthesising rooms from reservations. Reservations are still fetched and merged in by `objId` / `name`.
-- Fallback: if the XML rooms call fails, keep today's synthesised-from-reservations behaviour so we never regress to zero rows.
+- Add a helper `extractRoomNumber(name)` that pulls the trailing numeric token (`DB/TW-102` → `102`, `TRP-305` → `305`, `Q-101` → `101`, falls back to the raw name if none).
+- Split the import branch into two phases so the second phase runs even when `room_import_enabled = false`:
+  - **Phase A — Room upsert (unchanged gate):** only when `room_import_enabled = true`; upserts into `public.rooms` using the extracted number.
+  - **Phase B — Mapping upsert (always allowed):** for every Previo room, look up an existing HotelCare row by extracted number; if found, upsert `pms_room_mappings` with `pms_room_id = physical roomId`, `pms_room_name = r.name`. Unmatched rows are reported back as `unmapped[]` for the admin UI, never as errors.
+- The non-import branch keeps working, but the "No mapping" errors become rare because Phase B has already populated mappings.
+- Return richer payload: `{ mapped, unmapped: [{ pms_room_id, pms_room_name, room_kind_name }], upserted }`.
 
-### 2) Correct checkout-tomorrow handling
+### 2. `runPmsRefresh` (`src/lib/pmsRefresh.ts`)
 
-- Extend the reservation window to `[today, today+3)` so we can see tomorrow's departures.
-- Row builder gains:
-  - `DepartureTomorrow` (bool) — reservation with `departureDate = today+1`
-  - `IsCheckoutRoom` = `CheckedOut || Departure || DepartureTomorrow` — used by the manual-upload pipeline as the authoritative "checkout room" flag.
-- Clean status comes from the XML room roster's `cleanStatusId` using the existing map (`1/4/5→Untidy`, `2/3→Clean`). If Previo says clean, the app clears the dirty flag on next reconcile.
+- Always call `previo-sync-rooms` first (drop the `dryRun` gate for the mapping phase — mapping is read-safe). Ignore Phase A gate errors; surface Phase B `unmapped` in the returned result.
+- Add `unmapped` to `PmsSyncResult` and forward it to the preview dialog.
 
-### 3) Remove the last vestiges of the `previo-test` hard-gate
+### 3. Team View "PMS Refresh" parity
 
-- `PmsSyncControls` and `previo-pms-sync` already accept any hotel with a Previo config; audit the call sites to confirm no hard-coded `previo-test` remains in the refresh pipeline (checked; only comment references remain — remove them).
+- Point the Team View "PMS Refresh" button to the same `runPmsRefresh(hotelId)` used by "Refresh rooms…" so it applies status/checkout changes instead of just snapshotting.
+- Keep the existing daily-overview snapshot on a separate "Sync overview" button.
 
-### 4) "Before you apply" change preview (new UI)
+### 4. Admin mapping panel
 
-Before each refresh commits changes to `rooms` / room assignments, insert a `pms_change_events` batch describing the diff. Then surface it:
+New tab in **Admin → PMS Configuration → Previo** for each hotel:
 
-- New component `PmsRefreshPreviewDialog` opened by the existing "Sync from PMS" button.
-- Two-step flow:
-  1. **Dry run** — call `previo-pms-sync` with `dryRun: true`; render a table of changes grouped by room:
-     - Status change (Clean → Untidy, etc.)
-     - Occupancy change (Vacant → Occupied, Occupied → Checkout tomorrow…)
-     - Reservation added / removed / date-shifted
-     - Guest count change
-     Each row shows `PMS value` vs `App value` with a colored chip, plus a per-change checkbox (default checked).
-  2. **Apply selected** — call `previo-pms-sync` with the accepted change IDs; only those changes are written and the accepted batch is stamped `acknowledged_at = now()`.
+- Table of Previo rooms fetched live via `previo-sync-rooms` with `previewOnly: true`, joined with current `pms_room_mappings`.
+- Columns: Previo ID, Previo name, Room kind, Capacity, **HotelCare room** (Combobox of `rooms` for that hotel), status badge (Mapped / Unmapped / Manual override).
+- Actions: inline save per row, "Auto-map by number" button (runs the same extractor server-side), "Clear mapping".
+- Writes go straight to `pms_room_mappings` (upsert on `pms_config_id + pms_room_id`).
+- Visible to admins / top_management only (existing `hasRole` guard).
 
-- New tab in the same dialog: **History** — paginated list of prior refresh batches (timestamp, user, total/applied/skipped counts, expandable per-room diff). Uses existing `pms_change_events` + `pms_sync_history` tables.
+### 5. Preview dialog
 
-- Visibility: admins, top_management, and the hotel's manager. Housekeeper/reception see a read-only summary badge only.
+- Add an "Unmapped Previo rooms" section listing the returned `unmapped[]` with a "Open mapping panel" button so reception can hand off to an admin without leaving the screen.
 
-### 5) Safety
+## Files touched
 
-- `outbound_kill_switch` still blocks any write back to Previo (unchanged).
-- Applied changes are transactional per room — a failure on one room does not roll back the whole batch, and the failure is stored on the change event for retry.
-- All refreshes continue to log to `pms_sync_history` (`sync_type='pms_refresh'`) with counts of proposed vs applied vs skipped.
+- `supabase/functions/previo-sync-rooms/index.ts` — extractor + always-on Phase B.
+- `src/lib/pmsRefresh.ts` — surface `unmapped`, always trigger sync-rooms.
+- `src/components/pms/PmsRefreshPreviewDialog.tsx` — unmapped section.
+- `src/components/pms/PmsSyncControls.tsx` — wire Team View "PMS Refresh".
+- `src/components/dashboard/TeamManagement.tsx` (or wherever the Team View button lives) — same wire-up.
+- `src/components/admin/PmsRoomMappingPanel.tsx` (new) + integration into `PMSConfigurationManagement.tsx`.
 
-## Technical notes
+No database migration required — `pms_room_mappings` already has the shape we need.
 
-- Files touched:
-  - `supabase/functions/_shared/previoRooms.ts` (new) — XML rooms fetch + parse.
-  - `supabase/functions/previo-pms-sync/index.ts` — use full roster, add `dryRun`, emit `pms_change_events`, extend window, add `DepartureTomorrow`/`IsCheckoutRoom`.
-  - `supabase/functions/_shared/pmsDiff.ts` — extend diff to include clean status and checkout-tomorrow.
-  - `src/components/pms/PmsRefreshPreviewDialog.tsx` (new).
-  - `src/components/pms/PmsSyncControls.tsx` — wire the button to the new dialog instead of running sync immediately.
-  - `src/components/pms/PmsChangesDrawer.tsx` — reuse existing drawer for the History tab.
-- No schema changes required — `pms_change_events` already has `category`, `acknowledged_at`, `hotel_id`, and a JSON payload column. If the payload column is missing a field we need, we'll add a nullable column via a small migration.
+## Verification
 
-## Validation
-
-After deploy, on Ottofiori:
-1. Click **Sync from PMS** → preview should list room 305 with proposed `IsCheckoutRoom=true (tomorrow)` and its actual Previo clean status.
-2. Apply → the room card updates to "Checkout tomorrow" and the dirty/clean flag matches Previo.
-3. Open **History** → see the batch you just applied with per-room detail.
-
-## Out of scope
-
-- Any write-back to Previo (kill-switch stays on).
-- Rate/plan or breakfast changes (separate pipelines already exist).
+1. Run "Refresh rooms…" for Ottofiori → expect mappings populated automatically for all 21 rooms, sync applies status/checkout changes, no "No mapping" errors.
+2. Admin panel shows the 21 Previo rooms all mapped; changing a mapping and re-running refresh updates the correct HotelCare room.
+3. Team View "PMS Refresh" reflects the same room-status changes as "Refresh rooms…".

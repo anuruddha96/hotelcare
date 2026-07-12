@@ -15,6 +15,7 @@ export interface PmsSyncResult {
   checkouts: number;
   errors: string[];
   proposedChanges?: ProposedRoomChange[];
+  unmapped?: Array<{ pms_room_id: string; pms_room_name: string; room_kind_name: string; extracted_number: string }>;
 }
 
 /**
@@ -70,15 +71,20 @@ export async function runPmsRefresh(
 ): Promise<PmsSyncResult> {
   const dryRun = options.dryRun === true;
 
-  // Step 1 — sync rooms catalog (non-fatal, skipped in dry-run).
-  if (!dryRun) {
-    try {
-      await supabase.functions.invoke("previo-sync-rooms", {
-        body: { hotelId, importLocal: true },
-      });
-    } catch (e) {
-      console.warn("[pmsRefresh] catalog sync warning:", e);
-    }
+  // Step 1 — sync rooms catalog + mapping. Safe in dry-run because
+  // `mapOnly:true` never writes to public.rooms; it only heals
+  // pms_room_mappings and reports back any Previo rooms we couldn't
+  // auto-match. In apply-mode we send `importLocal:true` so hotels with
+  // room_import_enabled also get their room roster upserted.
+  let unmapped: PmsSyncResult["unmapped"] = [];
+  try {
+    const { data: mapData } = await supabase.functions.invoke("previo-sync-rooms", {
+      body: dryRun ? { hotelId, mapOnly: true } : { hotelId, importLocal: true },
+    });
+    const res = (mapData as any)?.results;
+    if (res && Array.isArray(res.unmapped)) unmapped = res.unmapped;
+  } catch (e) {
+    console.warn("[pmsRefresh] catalog sync warning:", e);
   }
 
   // Step 2 — pull today's PMS snapshot.
@@ -93,6 +99,7 @@ export async function runPmsRefresh(
     return {
       status: "success", updated: 0, total: 0, notFound: 0, checkouts: 0, errors: [],
       proposedChanges: dryRun ? [] : undefined,
+      unmapped,
     };
   }
 
@@ -366,5 +373,6 @@ export async function runPmsRefresh(
   return {
     status, updated, total: rows.length, notFound, checkouts, errors,
     proposedChanges: dryRun ? proposedChanges : undefined,
+    unmapped,
   };
 }
