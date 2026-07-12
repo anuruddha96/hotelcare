@@ -187,7 +187,7 @@ export function buildPrevioXmlAuth(creds: PrevioCredentials): string {
 }
 
 export interface PrevioXmlCallOptions {
-  method: "searchReservations" | "getRoomKinds" | "rooms";
+  method: "searchReservations" | "getRoomKinds" | "getRooms" | "rooms";
   creds: PrevioCredentials;
   pmsHotelId: string;
   /** Extra XML body appended AFTER auth + hotId. */
