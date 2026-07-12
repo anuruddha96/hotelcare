@@ -324,7 +324,10 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
             {!hidePmsUploadTab && (
               <TabsContent value="pms-upload" className="space-y-6">
-                <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
+                <PmsSyncControls hotelId={assignedHotel} uploadAnchorId="pms-xlsx-upload" />
+                <div id="pms-xlsx-upload">
+                  <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
+                </div>
               </TabsContent>
             )}
 
