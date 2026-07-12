@@ -119,10 +119,10 @@ serve(async (req) => {
         });
       }
 
-      // Try each XML auth variant in turn until one authenticates. Previo's
-      // single-key auth slot is not officially documented — we probe.
-      const variants: Array<"apiKey" | "login" | "password" | "loginPassword" | "header"> = [
-        "apiKey", "login", "password", "loginPassword", "header",
+      // Try the documented XML auth header first. Older body/header variants
+      // remain as fallbacks for legacy tenants.
+      const variants: Array<"authorizationApiKey" | "apiKey" | "login" | "password" | "loginPassword" | "header"> = [
+        "authorizationApiKey", "apiKey", "login", "password", "loginPassword", "header",
       ];
       const attempts: Array<{ variant: string; status: number; error: string | null }> = [];
       let winning: { variant: string; text: string } | null = null;
@@ -136,7 +136,7 @@ serve(async (req) => {
 
       if (!winning) {
         const summary = attempts.map((a) => `${a.variant}=${a.status}${a.error ? `(${a.error})` : ""}`).join("; ");
-        const msg = `Previo rejected every XML auth variant for getRoomKinds. Attempts: ${summary}. Confirm with Previo whether the key belongs in <login>, <password>, <apiKey>, or an HTTP header — and whether a matching hotel login is required.`;
+        const msg = `Previo rejected every XML auth variant for getRoomKinds. Attempts: ${summary}. The documented format Authorization: ApiKey was tried first; if it still returns 401, confirm with Previo that this API key is active for hotId ${pmsHotelId}.`;
         await recordResult("error", msg);
         return new Response(JSON.stringify({ ok: false, error: msg, latencyMs, protocol: "xml", attempts }), {
           status: 200,
@@ -166,7 +166,9 @@ serve(async (req) => {
           roomKindCount,
           hotIdConfirmed: returnedHotId ?? pmsHotelId,
           latencyMs,
-          note: `Save "authElement":"${winning.variant}" in the secret JSON to lock this in.`,
+          note: winning.variant === "authorizationApiKey"
+            ? `Using Previo's documented Authorization: ApiKey header.`
+            : `Legacy auth variant ${winning.variant} worked for this tenant.`,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
