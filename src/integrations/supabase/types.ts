@@ -5212,6 +5212,17 @@ export type Database = {
       pi_user_hotel: { Args: never; Returns: string }
       pi_user_org: { Args: never; Returns: string }
       pi_user_role: { Args: never; Returns: string }
+      pms_apply_change: {
+        Args: {
+          p_after: Json
+          p_before: Json
+          p_business_date: string
+          p_event_id?: string
+          p_hotel_id: string
+          p_room_id: string
+        }
+        Returns: Json
+      }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
       update_assignment_type: {
         Args: {
