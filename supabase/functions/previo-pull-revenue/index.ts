@@ -234,7 +234,7 @@ serve(async (req) => {
       }
       return "";
     };
-    const callPrevioXml = async (method: string, innerXml: string) => {
+    const callPrevioXmlMethod = async (method: string, innerXml: string) => {
       const response = await callPrevioXml({
         method,
         creds,
@@ -249,7 +249,7 @@ serve(async (req) => {
       const listMethods = ["pricelist/getList", "hotel/getPriceLists", "hotel/pricelist"];
       for (const m of listMethods) {
         try {
-          const r = await callPrevioXml(m, "");
+          const r = await callPrevioXmlMethod(m, "");
           if (!r.ok) { pricelistError = `${m}: ${r.status} ${r.text.slice(0,120)}`; continue; }
           const blocks = r.text.match(/<(?:priceList|pricelist)[\s>][\s\S]*?<\/(?:priceList|pricelist)>/gi) || [];
           if (!blocks.length) { pricelistError = `${m}: no <priceList> blocks`; continue; }
@@ -277,7 +277,7 @@ serve(async (req) => {
       for (const method of fetchMethods) {
         try {
           const inner = `<priceListId>${resolvedPricelistId}</priceListId>\n<term><from>${today}</from><to>${horizon}</to></term>`;
-          const r = await callPrevioXml(method, inner);
+          const r = await callPrevioXmlMethod(method, inner);
           if (!r.ok) { pricelistError = `${method}: ${r.status} ${r.text.slice(0,120)}`; continue; }
           // Each row is <price> with date, objTypeId/objId, persons, amount, currency, minStay
           const blocks = r.text.match(/<price[\s>][\s\S]*?<\/price>/gi)
