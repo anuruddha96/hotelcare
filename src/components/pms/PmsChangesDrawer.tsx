@@ -103,6 +103,7 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">
                 Room {evt.room_label || "?"} · {meta.label}
+                {evt.change_kind && <span className="text-muted-foreground font-normal"> · {evt.change_kind.replace(/_/g, " ")}</span>}
               </div>
               <div className="text-[11px] text-muted-foreground">
                 {formatDistanceToNow(new Date(evt.detected_at))} ago · {evt.source}
