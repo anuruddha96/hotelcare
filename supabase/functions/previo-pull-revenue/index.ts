@@ -14,6 +14,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
+import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -160,46 +161,17 @@ serve(async (req) => {
     const today = isoDate(new Date());
     const horizon = addDays(today, days);
 
-    const rawSecret = String(Deno.env.get(cfg.credentials_secret_name || "") || "").trim();
-    const stripQuotes = (s: string) =>
-      (s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))
-        ? s.slice(1, -1).trim() : s;
-    let xmlUser = ""; let xmlPass = "";
-    const cleaned = stripQuotes(rawSecret);
-    try {
-      const j = JSON.parse(cleaned);
-      if (j && typeof j === "object") {
-        xmlUser = stripQuotes(String(j.username ?? j.user ?? j.login ?? j.email ?? ""));
-        xmlPass = stripQuotes(String(j.password ?? j.pass ?? j.secret ?? ""));
-      }
-    } catch { /* fall through */ }
-    if (!xmlUser || !xmlPass) {
-      const m = cleaned.match(/^([^:\s]+):(.+)$/);
-      if (m) { xmlUser = stripQuotes(m[1]); xmlPass = stripQuotes(m[2]); }
-    }
-    if (!xmlUser || !xmlPass) {
-      return new Response(JSON.stringify({ ok: false, error: "Could not parse Previo credentials" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const xmlBody = `<?xml version="1.0"?>
-<request>
-<login>${xmlUser}</login>
-<password>${xmlPass}</password>
-<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
-<term><from>${today}</from><to>${horizon}</to></term>
-</request>`;
-    const xmlResp = await fetch("https://api.previo.cz/x1/hotel/searchReservations/", {
-      method: "POST",
-      headers: { "Content-Type": "text/xml; charset=UTF-8" },
-      body: xmlBody,
+    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    const xmlResult = await callPrevioXml({
+      method: "searchReservations",
+      creds,
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
+      extraXml: `<term><from>${today}</from><to>${horizon}</to></term>`,
     });
-    const xmlText = await xmlResp.text();
-    if (!xmlResp.ok || /<error>/i.test(xmlText)) {
-      const errMatch = xmlText.match(/<message>([^<]*)<\/message>/i);
+    const xmlText = xmlResult.text;
+    if (!xmlResult.ok) {
       return new Response(
-        JSON.stringify({ ok: false, error: `Previo XML ${xmlResp.status}: ${errMatch?.[1] || xmlText.slice(0, 200)}` }),
+        JSON.stringify({ ok: false, error: `Previo XML ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}` }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -263,14 +235,13 @@ serve(async (req) => {
       return "";
     };
     const callPrevioXml = async (method: string, innerXml: string) => {
-      const body = `<?xml version="1.0"?>\n<request>\n<login>${xmlUser}</login>\n<password>${xmlPass}</password>\n<hotId>${String(cfg.pms_hotel_id || "")}</hotId>\n${innerXml}\n</request>`;
-      const resp = await fetch(`https://api.previo.cz/x1/${method}/`, {
-        method: "POST",
-        headers: { "Content-Type": "text/xml; charset=UTF-8" },
-        body,
+      const response = await callPrevioXml({
+        method,
+        creds,
+        pmsHotelId: String(cfg.pms_hotel_id || ""),
+        extraXml: innerXml,
       });
-      const text = await resp.text();
-      return { ok: resp.ok && !/<error>/i.test(text), status: resp.status, text };
+      return { ok: response.ok, status: response.status, text: response.text };
     };
 
     // 1) Resolve a pricelist id when not pre-configured.
