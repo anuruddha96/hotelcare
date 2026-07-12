@@ -110,7 +110,13 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             </div>
           </div>
           {evt.is_conflict && !evt.acknowledged_at && (
-            <Badge variant="destructive" className="h-5 text-[10px]">Conflict</Badge>
+            <Badge variant="destructive" className="h-5 text-[10px]">Needs approval</Badge>
+          )}
+          {evt.category === "safe" && evt.auto_applied && (
+            <Badge variant="secondary" className="h-5 text-[10px]">Auto-applied</Badge>
+          )}
+          {evt.category === "safe" && !evt.auto_applied && !evt.acknowledged_at && (
+            <Badge variant="outline" className="h-5 text-[10px]">Safe</Badge>
           )}
           {evt.acknowledged_at && (
             <Badge variant="outline" className="h-5 text-[10px] gap-1">
