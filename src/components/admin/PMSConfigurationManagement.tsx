@@ -49,6 +49,7 @@ export default function PMSConfigurationManagement() {
   const [pmsConfig, setPmsConfig] = useState<PMSConfig | null>(null);
   const [roomMappings, setRoomMappings] = useState<RoomMapping[]>([]);
   const [loading, setLoading] = useState(false);
+  const [aiImportOpen, setAiImportOpen] = useState(false);
   
   // Form states
   const [pmsHotelId, setPmsHotelId] = useState('');
