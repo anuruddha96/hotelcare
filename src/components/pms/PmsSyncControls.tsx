@@ -6,7 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
-import { RefreshCw, Upload, Eye, ShieldOff, Loader2 } from "lucide-react";
+import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck } from "lucide-react";
+import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
 
 interface Props {
   /** Manager's assigned_hotel (may be hotel_id or hotel name — component
@@ -33,6 +34,7 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const [pendingRisky, setPendingRisky] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const loadCfg = async () => {
     if (!hotelId) return;
