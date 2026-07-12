@@ -150,6 +150,29 @@ export function PmsRefreshPreviewDialog({ hotelId, open, onOpenChange, onApplied
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-6 py-3 space-y-2">
+              {unmapped.length > 0 && (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                  <div className="font-semibold text-amber-900 dark:text-amber-200 mb-1">
+                    {unmapped.length} Previo room{unmapped.length === 1 ? "" : "s"} not yet linked to a HotelCare room
+                  </div>
+                  <div className="text-amber-900/80 dark:text-amber-200/80 mb-2">
+                    These rooms exist in Previo but couldn't be auto-matched by number. Ask an admin to map
+                    them in <strong>Admin → PMS Configuration → Room Mappings</strong> (use the Previo IDs below).
+                  </div>
+                  <div className="space-y-0.5 font-mono text-[11px]">
+                    {unmapped.slice(0, 12).map((u) => (
+                      <div key={u.pms_room_id} className="flex gap-2">
+                        <span className="text-muted-foreground">#{u.pms_room_id}</span>
+                        <span className="font-semibold">{u.pms_room_name}</span>
+                        <span className="text-muted-foreground truncate">{u.room_kind_name}</span>
+                      </div>
+                    ))}
+                    {unmapped.length > 12 && (
+                      <div className="text-muted-foreground">…and {unmapped.length - 12} more</div>
+                    )}
+                  </div>
+                </div>
+              )}
               {loading && (
                 <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin mr-2" /> Computing diff from Previo…
