@@ -18,6 +18,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
+import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,26 +37,6 @@ const extractNum = (raw: string) => {
   const m = String(raw ?? "").match(/\d+/);
   return m ? m[0] : String(raw ?? "").trim();
 };
-
-function parsePrevioCreds(rawSecret: string) {
-  const stripQuotes = (s: string) =>
-    (s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))
-      ? s.slice(1, -1).trim() : s;
-  const cleaned = stripQuotes(String(rawSecret || "").trim());
-  let user = "", pass = "";
-  try {
-    const j = JSON.parse(cleaned);
-    if (j && typeof j === "object") {
-      user = stripQuotes(String(j.username ?? j.user ?? j.login ?? j.email ?? ""));
-      pass = stripQuotes(String(j.password ?? j.pass ?? j.secret ?? ""));
-    }
-  } catch { /* not json */ }
-  if (!user || !pass) {
-    const m = cleaned.match(/^([^:\s]+):(.+)$/);
-    if (m) { user = stripQuotes(m[1]); pass = stripQuotes(m[2]); }
-  }
-  return { user, pass };
-}
 
 interface PollResult {
   hotel_id: string;
@@ -96,55 +77,42 @@ async function pollOneHotel(
 
   // 2. Pull today's reservations via XML to find statusId=5 (departed)
   const today = todayUtc();
-  const { user: xmlUser, pass: xmlPass } = parsePrevioCreds(
-    Deno.env.get(cfg.credentials_secret_name || "") || "",
-  );
   const checkedOutByName = new Map<string, string>(); // name -> reservationId
   const checkedOutByObjId = new Map<number, string>();
-  if (xmlUser && xmlPass) {
-    try {
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-      const xmlBody = `<?xml version="1.0"?>
-<request>
-<login>${xmlUser}</login>
-<password>${xmlPass}</password>
-<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
-<term><from>${today}</from><to>${tomorrow}</to></term>
-</request>`;
-      const xmlResp = await fetch("https://api.previo.cz/x1/hotel/searchReservations/", {
-        method: "POST",
-        headers: { "Content-Type": "text/xml; charset=UTF-8" },
-        body: xmlBody,
-      });
-      const xmlText = await xmlResp.text();
-      if (!xmlResp.ok || /<error>/i.test(xmlText)) {
-        const errMatch = xmlText.match(/<message>([^<]*)<\/message>/i);
-        result.reservationFetchError = `XML API ${xmlResp.status}: ${errMatch?.[1] || xmlText.slice(0, 200)}`;
-      } else {
-        const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
-        const grab = (s: string, tag: string) => {
-          const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
-          return m ? m[1].trim() : "";
-        };
-        for (const block of blocks) {
-          const statusId = parseInt(grab(block, "statusId") || "0", 10);
-          if (statusId !== 5) continue;
-          const toStr = grab(block, "to");
-          if (!toStr || toStr.slice(0, 10) !== today) continue;
-          const resId = grab(block, "id") || grab(block, "resId") || "";
-          const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
-          if (!objMatch) continue;
-          const objId = parseInt(objMatch[1], 10);
-          const roomName = objMatch[2].trim();
-          if (roomName) checkedOutByName.set(roomName, resId);
-          if (!isNaN(objId)) checkedOutByObjId.set(objId, resId);
-        }
+  try {
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    const xmlResult = await callPrevioXml({
+      method: "searchReservations",
+      creds,
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
+      extraXml: `<term><from>${today}</from><to>${tomorrow}</to></term>`,
+    });
+    const xmlText = xmlResult.text;
+    if (!xmlResult.ok) {
+      result.reservationFetchError = `XML API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
+    } else {
+      const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
+      const grab = (s: string, tag: string) => {
+        const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+        return m ? m[1].trim() : "";
+      };
+      for (const block of blocks) {
+        const statusId = parseInt(grab(block, "statusId") || "0", 10);
+        if (statusId !== 5) continue;
+        const toStr = grab(block, "to");
+        if (!toStr || toStr.slice(0, 10) !== today) continue;
+        const resId = grab(block, "id") || grab(block, "resId") || "";
+        const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
+        if (!objMatch) continue;
+        const objId = parseInt(objMatch[1], 10);
+        const roomName = objMatch[2].trim();
+        if (roomName) checkedOutByName.set(roomName, resId);
+        if (!isNaN(objId)) checkedOutByObjId.set(objId, resId);
       }
-    } catch (e: any) {
-      result.reservationFetchError = e?.message || String(e);
     }
-  } else {
-    result.reservationFetchError = "Could not parse Previo XML credentials";
+  } catch (e: any) {
+    result.reservationFetchError = e?.message || String(e);
   }
 
   const trueCheckoutRoomIds = new Set<string>();

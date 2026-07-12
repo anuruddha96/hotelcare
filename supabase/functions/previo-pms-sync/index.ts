@@ -9,6 +9,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
+import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -150,51 +151,21 @@ serve(async (req) => {
     const reservationsByObjId = new Map<number, ParsedReservation>();
     let reservationFetchError: string | null = null;
     try {
-      // Read raw credentials directly from the configured secret so we can
-      // embed login/password in the XML body (XML API uses inline auth, not
-      // Basic Auth headers).
-      const rawSecret = String(Deno.env.get(cfg.credentials_secret_name || "") || "").trim();
-      const stripQuotes = (s: string) =>
-        (s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))
-          ? s.slice(1, -1).trim() : s;
-      let xmlUser = ""; let xmlPass = "";
-      const cleaned = stripQuotes(rawSecret);
-      try {
-        const j = JSON.parse(cleaned);
-        if (j && typeof j === "object") {
-          xmlUser = stripQuotes(String(j.username ?? j.user ?? j.login ?? j.email ?? ""));
-          xmlPass = stripQuotes(String(j.password ?? j.pass ?? j.secret ?? ""));
-        }
-      } catch {}
-      if (!xmlUser || !xmlPass) {
-        const m = cleaned.match(/^([^:\s]+):(.+)$/);
-        if (m) { xmlUser = stripQuotes(m[1]); xmlPass = stripQuotes(m[2]); }
-      }
-
-      if (!xmlUser || !xmlPass) {
-        reservationFetchError = "Could not parse Previo XML credentials";
+      // XML API requires from < to. Use [today, today+2) to safely capture
+      // anything departing today (term.to date == today).
+      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const creds = loadPrevioCredentials(cfg.credentials_secret_name);
+      const xmlResult = await callPrevioXml({
+        method: "searchReservations",
+        creds,
+        pmsHotelId: String(cfg.pms_hotel_id || ""),
+        extraXml: `<term><from>${today}</from><to>${tomorrow}</to></term>`,
+      });
+      const xmlText = xmlResult.text;
+      if (!xmlResult.ok) {
+        reservationFetchError = `XML API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
+        console.warn(`[previo-pms-sync] XML reservations failed: ${reservationFetchError}`);
       } else {
-        // XML API requires from < to. Use [today, today+2) to safely capture
-        // anything departing today (term.to date == today).
-        const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-        const xmlBody = `<?xml version="1.0"?>
-<request>
-<login>${xmlUser}</login>
-<password>${xmlPass}</password>
-<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
-<term><from>${today}</from><to>${tomorrow}</to></term>
-</request>`;
-        const xmlResp = await fetch("https://api.previo.cz/x1/hotel/searchReservations/", {
-          method: "POST",
-          headers: { "Content-Type": "text/xml; charset=UTF-8" },
-          body: xmlBody,
-        });
-        const xmlText = await xmlResp.text();
-        if (!xmlResp.ok || /<error>/i.test(xmlText)) {
-          const errMatch = xmlText.match(/<message>([^<]*)<\/message>/i);
-          reservationFetchError = `XML API ${xmlResp.status}: ${errMatch?.[1] || xmlText.slice(0, 200)}`;
-          console.warn(`[previo-pms-sync] XML reservations failed: ${reservationFetchError}`);
-        } else {
           // Naive XML parse — extract each <reservation>...</reservation> block.
           const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
           const grab = (s: string, tag: string) => {
@@ -244,7 +215,6 @@ serve(async (req) => {
             }
           }
           console.log(`[previo-pms-sync] XML returned ${blocks.length} reservations, indexed ${reservationsByRoomName.size} rooms`);
-        }
       }
     } catch (e: any) {
       reservationFetchError = e?.message || String(e);

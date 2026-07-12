@@ -9,6 +9,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { parseRoomCode } from "../_shared/roomCode.ts";
+import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,24 +38,6 @@ interface ParsedReservation {
   hasLunch: boolean;
   hasDinner: boolean;
   isAllInclusive: boolean;
-}
-
-function parseCreds(rawSecret: string): { user: string; pass: string } {
-  const stripQuotes = (s: string) =>
-    (s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))
-      ? s.slice(1, -1).trim() : s;
-  const cleaned = stripQuotes(rawSecret.trim());
-  try {
-    const j = JSON.parse(cleaned);
-    if (j && typeof j === "object") {
-      const u = stripQuotes(String(j.username ?? j.user ?? j.login ?? j.email ?? ""));
-      const p = stripQuotes(String(j.password ?? j.pass ?? j.secret ?? ""));
-      if (u && p) return { user: u, pass: p };
-    }
-  } catch { /* noop */ }
-  const m = cleaned.match(/^([^:\s]+):(.+)$/);
-  if (m) return { user: stripQuotes(m[1]), pass: stripQuotes(m[2]) };
-  return { user: "", pass: "" };
 }
 
 serve(async (req) => {
@@ -137,31 +120,17 @@ serve(async (req) => {
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const rawSecret = String(Deno.env.get(cfg.credentials_secret_name || "") || "");
-    const { user: xmlUser, pass: xmlPass } = parseCreds(rawSecret);
-    if (!xmlUser || !xmlPass) {
-      return new Response(JSON.stringify({ ok: false, error: "Could not parse Previo credentials" }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     // Pull reservations XML for window
-    const xmlBody = `<?xml version="1.0"?>
-<request>
-<login>${xmlUser}</login>
-<password>${xmlPass}</password>
-<hotId>${String(cfg.pms_hotel_id || "")}</hotId>
-<term><from>${fromDate}</from><to>${toDate}</to></term>
-</request>`;
-    const xmlResp = await fetch("https://api.previo.cz/x1/hotel/searchReservations/", {
-      method: "POST",
-      headers: { "Content-Type": "text/xml; charset=UTF-8" },
-      body: xmlBody,
+    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    const xmlResult = await callPrevioXml({
+      method: "searchReservations",
+      creds,
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
+      extraXml: `<term><from>${fromDate}</from><to>${toDate}</to></term>`,
     });
-    const xmlText = await xmlResp.text();
-    if (!xmlResp.ok || /<error>/i.test(xmlText)) {
-      const errMatch = xmlText.match(/<message>([^<]*)<\/message>/i);
-      const errMsg = `Previo XML ${xmlResp.status}: ${errMatch?.[1] || xmlText.slice(0, 200)}`;
+    const xmlText = xmlResult.text;
+    if (!xmlResult.ok) {
+      const errMsg = `Previo XML ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
       return new Response(JSON.stringify({ ok: false, error: errMsg }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -1,6 +1,8 @@
 export interface PrevioCredentialCandidate {
-  user: string;
-  pass: string;
+  authType: "apiKey" | "basic";
+  apiKey?: string;
+  user?: string;
+  pass?: string;
   source: string;
 }
 
@@ -36,7 +38,23 @@ function pushCandidate(
   if (seen.has(key)) return;
 
   seen.add(key);
-  target.push({ user: safeUser, pass: safePass, source });
+  target.push({ authType: "basic", user: safeUser, pass: safePass, source });
+}
+
+function pushApiKeyCandidate(
+  target: PrevioCredentialCandidate[],
+  seen: Set<string>,
+  apiKey: string,
+  source: string,
+) {
+  const safeApiKey = clean(apiKey);
+  if (!safeApiKey) return;
+
+  const key = `apikey\u0000${safeApiKey}`;
+  if (seen.has(key)) return;
+
+  seen.add(key);
+  target.push({ authType: "apiKey", apiKey: safeApiKey, source });
 }
 
 function parseNamedPairs(raw: string): Record<string, string> {
@@ -61,8 +79,14 @@ function parseSecretCandidates(secretValue: string, source: string): PrevioCrede
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object") {
+      const apiKey = parsed.apiKey ?? parsed.api_key ?? parsed.key ?? parsed.token;
       const user = parsed.username ?? parsed.user ?? parsed.login ?? parsed.email;
       const pass = parsed.password ?? parsed.pass ?? parsed.secret;
+      pushApiKeyCandidate(candidates, seen, apiKey, source);
+      // Previo REST/XML docs authenticate with Authorization: ApiKey. If a
+      // user saved the API key as the "password" alongside the API user email,
+      // try that documented header before falling back to legacy Basic Auth.
+      pushApiKeyCandidate(candidates, seen, pass, source);
       pushCandidate(candidates, seen, user, pass, source);
     }
   } catch {
@@ -70,6 +94,18 @@ function parseSecretCandidates(secretValue: string, source: string): PrevioCrede
   }
 
   const named = parseNamedPairs(raw);
+  pushApiKeyCandidate(
+    candidates,
+    seen,
+    named.apikey ?? named.api_key ?? named.key ?? named.token,
+    source,
+  );
+  pushApiKeyCandidate(
+    candidates,
+    seen,
+    named.password ?? named.pass ?? named.secret,
+    source,
+  );
   pushCandidate(
     candidates,
     seen,
@@ -81,6 +117,10 @@ function parseSecretCandidates(secretValue: string, source: string): PrevioCrede
   const firstColon = raw.indexOf(":");
   if (firstColon > 0 && !/^https?:\/\//i.test(raw)) {
     pushCandidate(candidates, seen, raw.slice(0, firstColon), raw.slice(firstColon + 1), source);
+  }
+
+  if (/^[^\s:={}\[\]"']+$/.test(raw) && raw.length >= 8) {
+    pushApiKeyCandidate(candidates, seen, raw, source);
   }
 
   return candidates;
@@ -107,7 +147,11 @@ export function getPrevioCredentialCandidates(credentialsSecretName?: string | n
     }
 
     for (const candidate of secretCandidates) {
-      pushCandidate(candidates, seen, candidate.user, candidate.pass, candidate.source);
+      if (candidate.authType === "apiKey") {
+        pushApiKeyCandidate(candidates, seen, candidate.apiKey || "", candidate.source);
+      } else {
+        pushCandidate(candidates, seen, candidate.user || "", candidate.pass || "", candidate.source);
+      }
     }
 
     return candidates;
@@ -175,11 +219,15 @@ export async function fetchPrevioWithAuth(options: PrevioFetchOptions): Promise<
   for (const candidate of candidates) {
     console.log(`Trying Previo credentials from: ${candidate.source}`);
 
+    const authHeader = candidate.authType === "apiKey"
+      ? `ApiKey ${candidate.apiKey}`
+      : `Basic ${btoa(`${candidate.user}:${candidate.pass}`)}`;
+
     const response = await fetch(url, {
       method: options.method || "GET",
       redirect: "manual",
       headers: {
-        Authorization: `Basic ${btoa(`${candidate.user}:${candidate.pass}`)}`,
+        Authorization: authHeader,
         "X-Previo-Hotel-ID": String(options.pmsHotelId || ""),
         "Content-Type": "application/json",
         ...(options.headers || {}),
