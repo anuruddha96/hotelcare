@@ -319,21 +319,27 @@ serve(async (req) => {
     // Process each room
     for (const roomData of roomsData) {
       try {
-        const roomKindId = roomData.roomKindId.toString();
+        // IDENTITY FIX: pms_room_mappings.pms_room_id stores the PHYSICAL Previo roomId
+        // (see import branch above, line ~226). The previous code matched against
+        // roomKindId (the category / room type), which is a different concept and
+        // would collide across physical rooms sharing the same category. Always
+        // match on the physical roomId.
+        const physicalRoomId = String(roomData.roomId);
+        const roomKindId = String(roomData.roomKindId);
         const roomType = roomData.roomKindName || '';
         const status = mapPrevioStatus(roomData.roomCleanStatusId);
-        
-        // Find the mapping for this room kind
-        const mapping = roomMappings.find(m => m.pms_room_id === roomKindId);
-        
+
+        const mapping = roomMappings.find(m => m.pms_room_id === physicalRoomId);
+
         if (!mapping) {
-          console.warn(`No mapping found for roomKindId: ${roomKindId} (${roomType})`);
-          syncResults.errors.push(`No mapping for room kind: ${roomType}`);
+          console.warn(`No mapping found for physical roomId: ${physicalRoomId} (kind=${roomKindId}, type=${roomType})`);
+          syncResults.errors.push(`No mapping for physical room ${physicalRoomId} (${roomType})`);
           continue;
         }
 
         const roomNumber = mapping.hotelcare_room_number;
-        console.log(`Processing room: ${roomNumber} (PrevioKindId: ${roomKindId}, Type: ${roomType}, Status ID: ${roomData.roomCleanStatusId} -> ${status})`);
+        console.log(`Processing room: ${roomNumber} (PrevioRoomId: ${physicalRoomId}, kind: ${roomKindId}/${roomType}, statusId: ${roomData.roomCleanStatusId} -> ${status})`);
+
 
         // Check if room exists in Hotel Care using the HotelCare hotel_id
         const { data: existingRoom } = await supabase
