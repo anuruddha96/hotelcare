@@ -123,10 +123,19 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
               variant="default"
               onClick={runSync}
               disabled={!canSyncFromPms || syncing}
-              title={canSyncFromPms ? "Pull the latest snapshot from Previo" : "Enable Snapshot read in the admin activation checklist first"}
+              title={canSyncFromPms ? "Pull the latest daily overview from Previo" : "Enable Snapshot read in the admin activation checklist first"}
             >
               {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              Sync from PMS
+              Sync overview
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setPreviewOpen(true)}
+              disabled={killed}
+              title="Preview every room's PMS state (including tomorrow's checkouts) before applying"
+            >
+              <ClipboardCheck className="h-4 w-4 mr-1" /> Refresh rooms…
             </Button>
             {uploadAnchorId && (
               <Button size="sm" variant="outline" onClick={scrollToUpload}>
