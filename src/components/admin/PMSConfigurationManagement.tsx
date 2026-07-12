@@ -11,6 +11,8 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import PmsSyncStatus from './PmsSyncStatus';
 import { PMSActivationChecklist } from './PMSActivationChecklist';
+import { AIRoomImportDialog } from './AIRoomImportDialog';
+import { Sparkles } from 'lucide-react';
 
 interface PMSConfig {
   id: string;
