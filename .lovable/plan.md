@@ -1,134 +1,148 @@
-## Goal
-Enable Hotel Ottofiori's live Previo API for two flows only — **(1) morning PMS sync** (replacing/augmenting the manual XLSX upload) and **(2) room status write-back** on supervisor approval (dirty → clean) — without breaking any current functionality, and without resetting housekeeper assignments on re-sync.
+## Scope
+Deliver commits D1 → H1 from the approved rollout plan. All changes are additive and gated behind per-hotel flags. `previo-test` and current XLSX upload behavior remain 1:1 identical. Ottofiori stays at "kill-switch ON" until an admin flips flags in the new checklist UI.
 
-Minibar and other flows stay out of scope for this phase.
-
----
-
-## Phase B — Ottofiori credential + admin activation (no runtime behavior change yet)
-
-**B1. Store the live credential as a per-hotel Edge Function secret**
-- Secret name: `PREVIO_CREDS_OTTOFIORI` (format: `username:password` or JSON `{"username","password"}`).
-- The user will paste it into the Supabase secret form I open — never into chat.
-- `pms_configurations.credentials_secret_name` for Ottofiori will point to this secret. The existing `_shared/previoAuth.ts` already resolves per-hotel secrets, so no code change here.
-
-**B2. Admin "Activation Checklist" panel** in `PMSConfigurationManagement.tsx`
-Per-hotel toggles (all default OFF for Ottofiori, ON for `previo-test` unchanged):
-- Connection test
-- Room discovery (read `/rest/rooms`)
-- Room import (write to `pms_room_mappings` — draft only, requires human confirm)
-- Snapshot read (pull daily overview)
-- Snapshot **shadow mode** (compare to manual XLSX, do NOT write to `rooms`)
-- Status push (write-back to Previo)
-- Nightly sync
-- Outbound kill-switch + optional room allowlist
-
-Admin sees: last connection test result, unmapped rooms count, mapping confidence, sync health, activation state.
-
-**B3. Remove `previo-test`-only hardcoded gates** in edge functions, replaced by the per-hotel flags added in Phase A. `previo-test` behavior stays identical because its flags are pre-set ON.
+Constraints already decided:
+- Re-sync policy: **auto-apply safe changes, ask on risky**.
+- Pilot room: **305**.
+- Manual XLSX upload always remains available.
 
 ---
 
-## Phase C — Identity correctness (physical `roomId`, not `roomKindId`)
+## D1 — Shared PMS normalizer (server-side)
 
-- Fix `previo-sync-rooms` to import from `/rest/rooms` using the physical **room ID** (not category `roomKindId`). Verified against Previo REST docs.
-- Add a mapping audit query flagging any `pms_room_mappings.pms_room_id` that matches a known category ID.
-- `previo-update-room-status` already uses `roomMapping.pms_room_id` in the path — verify once mappings are corrected.
+**New file:** `supabase/functions/_shared/pmsNormalizer.ts`
 
----
+Exports a pure function:
+```
+normalize(input: RawXlsxRow[] | PrevioApiRow[], meta: { hotelId, businessDate, source: 'xlsx' | 'api' })
+  -> NormalizedSnapshot
+```
 
-## Phase D — Server-side normalizer (single source of truth)
+`NormalizedSnapshot` shape (canonical, one row per **physical Previo roomId**):
+- `previo_room_id`, `previo_room_kind_id`, `room_number`
+- `stay_kind`: `checkout | daily | arrival | vacant | ooo`
+- `guest_count`, `guest_nights_stayed`, `arrival_date`, `departure_date`
+- `linen_change_required`, `towel_change_required`
+- `notes`, `raw`
 
-Move Excel parsing logic from client into `supabase/functions/_shared/pmsNormalizer.ts`:
-- Input: either parsed XLSX rows OR Previo API snapshot.
-- Output: canonical `RoomDayState { room_number, status, is_checkout, is_stayover, guest_count, notes, linen_flags, towel_flags, departure_date, arrival_date, guest_nights }`.
-- Both `previo-pms-sync` (manual XLSX) and the new `previo-sync-daily-overview` (API) call this normalizer, guaranteeing identical downstream behavior.
-
----
-
-## Phase E — Non-destructive re-sync (the assignments-reset fix)
-
-Current bug: second XLSX upload wipes housekeeper assignments. New rule set applied to BOTH manual and API paths:
-
-1. **Diff, don't replace.** For each room compare incoming state vs current `rooms` row.
-2. **Preserve existing `room_assignments`** unless the room's PMS-derived nature actually changed (e.g. was `checkout`, now `daily`).
-3. **On meaningful change** (checkout↔daily, new arrival, guest count change, departure date shift, cancellation):
-   - Update `rooms` row.
-   - Emit a `pms_change_events` row (table already exists) with old/new snapshot.
-   - Reassign or unassign only the affected room's assignment; leave every other assignment untouched.
-   - Notify the hotel's manager(s) via the existing notifications system with a summary like "Room 207: checkout → daily stay (guest extended). Assignment updated."
-4. **Manager review drawer** (`PmsChangesDrawer.tsx` already exists) surfaces the diff before applying, or a "Auto-apply safe changes / Ask on risky changes" toggle.
-5. **Idempotency key** per snapshot (hotel_id + business_date + source) so accidental double-syncs are no-ops.
+The normalizer contains ALL the business rules currently duplicated across the client XLSX parser and `previo-pms-sync`. Nothing else in the app changes yet — `previo-pms-sync` is refactored to import from this module and produce byte-identical rows (verified with a snapshot test) so no existing hotel is impacted.
 
 ---
 
-## Phase F — Outbound queue for status write-back
+## E1/E2 — Non-destructive diff + PmsChangesDrawer
 
-Reliable dirty→clean push to Previo:
+**New file:** `supabase/functions/_shared/pmsDiff.ts`
 
-1. `pms_outbound_queue` table (added in Phase A migration): `{ id, hotel_id, room_id, previo_room_id, target_status, attempts, next_attempt_at, status, last_error, created_at }`.
-2. Trigger on `room_assignments` (when `supervisor_approved` flips true, same trigger that already sets `rooms.status='clean'`) inserts a queue row **only if** the hotel has `status_push_enabled=true` and `outbound_kill_switch=false` and (if allowlist set) room is in it.
-3. New edge function `previo-outbound-worker` (cron every 1 min) pops due rows, calls `/rest/rooms/{roomId}/clean-status`, retries with backoff, logs to `pms_sync_history`.
-4. Client-side best-effort call in `SupervisorApprovalView` becomes a no-op passthrough (the queue is authoritative). Approval remains decoupled from PMS success — no regression to existing behavior.
-5. Status mapping fetched once from Previo docs and stored as a constant (`clean|dirty|inspected|out_of_order`); mismatch → queue row failed + surfaced in admin sync health.
+```
+diffSnapshot(previous: NormalizedSnapshot, next: NormalizedSnapshot)
+  -> { safe: Change[], risky: Change[], unchanged: Change[] }
+```
 
----
+Classification:
+- **Safe** (auto-apply): new arrival on vacant room, guest-count update, notes/linen/towel flag update, departure date pushed later while `stay_kind` unchanged, room becomes clean/inspected in Previo.
+- **Risky** (needs approval): `stay_kind` transitions (checkout↔daily, checkout↔arrival), cancellations, room swaps, room reassigned to a different guest, `guest_nights_stayed` reset.
 
-## Phase G — Staged rollout for Ottofiori
+Applier rules:
+1. Update `rooms` row for the affected room only.
+2. **Never delete `room_assignments`** unless the room's `stay_kind` truly changes; even then, only touch the assignment for that room.
+3. Write a `pms_change_events` row (table already exists) recording old → new, category (safe/risky), applied vs pending, actor, source.
+4. Idempotency key `(hotel_id, business_date, source, content_hash)` → duplicate uploads are no-ops.
+5. Emit a notification to hotel managers via existing notifications system when risky changes are pending or when safe changes were auto-applied in bulk.
 
-Gate-by-gate, admin toggles each stage after verifying the previous:
+**PmsChangesDrawer** (`src/components/pms/PmsChangesDrawer.tsx` already exists; extend it):
+- Sections: **Auto-applied (safe)**, **Needs your approval (risky)**, **No change**.
+- Per-risky-row: Apply / Ignore / Snooze buttons; bulk Apply-all.
+- Live-updates via realtime on `pms_change_events`.
+- Shows source (Previo / XLSX / manager override) and diff details.
 
-1. **G1 Connection test** — `previo-test-connection` returns 200.
-2. **G2 Room discovery (read-only)** — list `/rest/rooms`, show side-by-side with HotelCare rooms.
-3. **G3 Draft mapping import** — write to `pms_room_mappings` with `mapping_status='draft'`; admin confirms per row to make it `active`.
-4. **G4 Snapshot read (shadow)** — pull daily overview; compare to manager's XLSX; show diff report; do NOT write to `rooms`.
-5. **G5 Snapshot apply (single-room allowlist)** — apply only for one pilot room (e.g. 207).
-6. **G6 One-floor pilot** — expand allowlist.
-7. **G7 Full snapshot apply** — Ottofiori-wide, XLSX upload still available as fallback.
-8. **G8 Status push (single room)** — enable write-back only for pilot room via `outbound_room_allowlist`.
-9. **G9 Full status push** — remove allowlist.
-10. **G10 Nightly sync** enabled.
-
-At every stage `outbound_kill_switch` and per-flag toggles allow instant rollback with zero code changes.
-
----
-
-## Phase H — UI: manager "Sync source" control
-
-On the housekeeping manager dashboard (existing PMS sync button area):
-- **Sync from Previo** (visible when `snapshot_read_enabled`)
-- **Upload XLSX** (always available)
-- **Preview differences** (opens `PmsChangesDrawer`)
-- Sync-health chip: last success time, source, unresolved changes count.
-
-Manual XLSX upload stays as the fallback per user requirement.
+Wiring:
+- `previo-pms-sync` (XLSX path) invokes normalize → diff → apply-safe → persist-risky-pending → notify.
+- The new `previo-sync-daily-overview` (added in G-stages) uses the same pipeline.
+- Assignment-preservation logic is enforced at the DB layer with a safeguard trigger: any row-level `room_assignments` DELETE originating from a PMS sync must go through `pms_apply_change()` SECURITY DEFINER, which checks that stay_kind actually changed.
 
 ---
 
-## What will NOT change in this phase
-- `previo-test` hotel behavior (all flags pre-enabled, identity fix aside).
-- Any minibar, reservations, or revenue flow.
-- The supervisor-approval → `rooms.status='clean'` trigger (already correct).
-- RLS policies, auth flows, or roles.
+## F1 — Outbound queue for dirty→clean write-back
+
+**Schema (new migration):**
+- Table `public.pms_outbound_queue`: `id, hotel_id, room_id, previo_room_id, target_status, source_assignment_id, attempts (int, default 0), next_attempt_at, status (pending|in_progress|succeeded|failed|cancelled), last_error, created_at, updated_at`.
+- GRANTs to `service_role`, RLS locked to service_role.
+- Index `(status, next_attempt_at)` for the worker.
+- Enqueue via `AFTER UPDATE` trigger on `room_assignments` when `supervisor_approved` flips true — **only** if the hotel's `pms_configurations` has `status_push_enabled=true`, `outbound_kill_switch=false`, and (when `outbound_room_allowlist` is non-empty) the `room_id` is in it. Guarded so `previo-test` behavior is unchanged.
+
+**New edge function:** `previo-outbound-worker`
+- Cron every 60 s (via existing pg_cron pattern).
+- Picks up to N due rows, marks `in_progress`, calls `/rest/rooms/{physicalRoomId}/clean-status`, updates row.
+- Backoff: 1 m, 5 m, 30 m, 2 h, 6 h; after 6 attempts → `failed`, alert surfaced in admin sync-health.
+- Logs to `pms_sync_history`.
+
+**Client change:** In `SupervisorApprovalView.tsx`, the existing best-effort `previo-update-room-status` invoke becomes a no-op fallback (the queue is authoritative). Approval remains fully decoupled from PMS success — no regression.
+
+**Previo status enum constant** (verified against Previo REST docs during implementation): mapped in one place inside the worker.
 
 ---
 
-## Deliverable order (small reviewable commits)
+## B2/B3 — Admin Activation Checklist UI + remove hardcoded gates
 
-Phase A (done). Then:
-- **C1** identity fix in `previo-sync-rooms` + mapping audit query.
-- **D1** shared normalizer module.
-- **E1** non-destructive diff for manual XLSX path (validates the diff engine using the flow we already have).
-- **E2** notifications + PmsChangesDrawer wiring.
-- **F1** outbound queue + worker + trigger.
-- **B2/B3** admin activation panel + remove hardcoded `previo-test` gates.
-- **G1–G2** wire Ottofiori through stages 1–2 (read-only, safe).
-- **H1** manager sync-source UI.
-- Stages **G3–G10** are admin-driven runtime actions, not code commits.
+**Extend `src/components/admin/PMSConfigurationManagement.tsx`:**
+
+Per-hotel activation panel showing an ordered checklist:
+1. Credential secret present ✔ / Configure…
+2. Connection test → button + last result badge.
+3. Room discovery → button, list Previo rooms side-by-side with HotelCare rooms, mapping confidence.
+4. Draft mapping import → confirms each mapping to `active`.
+5. Snapshot read (shadow) → toggle + last diff summary.
+6. Snapshot apply → toggle.
+7. Status push → toggle.
+8. Nightly sync → toggle.
+9. Global: environment (test/live), outbound kill-switch, pilot room allowlist (multi-select of `rooms` for that hotel), notes.
+10. Activate hotel button — sets `activated_at`, `activated_by`.
+
+Each toggle writes to the flag columns added in Phase A; UI shows current state and provides an "explain what this does" tooltip. Toggling a stage OFF is always safe (instant rollback).
+
+**Remove `previo-test`-only hardcoded gates** in:
+- `supabase/functions/previo-update-room-status/index.ts` (the `hotel_id !== 'previo-test'` short-circuit).
+- `supabase/functions/previo-sync-rooms/index.ts` (the `importLocal` restriction to `previo-test`).
+- Replace with flag checks: `status_push_enabled`, `room_import_enabled`, etc. `previo-test` config already has all flags ON, so its behavior is unchanged.
 
 ---
 
-## Open questions before I start C1
-1. Confirm the secret name **`PREVIO_CREDS_OTTOFIORI`** (I'll open the secure form when you approve — do not paste creds in chat).
-2. For Phase E non-destructive re-sync, do you want **auto-apply for safe changes** (new arrivals, guest count updates) and **manager approval for risky changes** (checkout→daily, cancellations, room swaps), or **manager approval for everything** initially?
-3. For the Ottofiori pilot room in G5/G8, is **207** the right room, or pick another?
+## H1 — Manager PMS Upload section (Sync / Upload / Preview)
+
+**Change:** the existing PMS upload UI block used by housekeeping managers.
+
+New three-button layout (visible per-hotel based on flags):
+- **Sync from Previo** — visible when `snapshot_read_enabled=true`; calls `previo-sync-daily-overview`.
+- **Upload XLSX file** — always visible (unchanged behavior at the parsing entry point; downstream now goes through normalize → diff → apply).
+- **Preview differences** — opens `PmsChangesDrawer`.
+
+Header status chip:
+- Last sync source + timestamp.
+- Pending-risky count badge; clicking opens the drawer.
+- Sync-health color (green/amber/red) driven by outbound queue + last sync status.
+
+The button appearance, spacing, and copy match existing shadcn tokens — no visual redesign.
+
+---
+
+## Order of commits (each independently reviewable)
+
+1. **D1** normalizer + refactor `previo-pms-sync` to use it (no behavior change; snapshot test proves parity).
+2. **E1** `pmsDiff.ts` + `pms_apply_change()` SECURITY DEFINER + wire XLSX path through diff engine. Add `pms_change_events.category` enum if missing.
+3. **E2** PmsChangesDrawer extension + notifications hook + realtime.
+4. **F1** migration for `pms_outbound_queue` + trigger + `previo-outbound-worker` + cron schedule (data insert not migration).
+5. **B2/B3** admin activation UI + remove hardcoded `previo-test` gates.
+6. **H1** manager Sync/Upload/Preview UI + status chip.
+
+---
+
+## Safety rules held throughout
+- No changes to auth, RLS on business tables, roles, revenue, breakfast, minibar, reservations, or ticket flows.
+- Every new code path is gated by a flag defaulting to OFF (except `previo-test`, whose flags are pre-ON).
+- Kill-switch on `pms_configurations` immediately stops both inbound diff-apply and outbound queue for that hotel.
+- Assignment-preservation invariant enforced by a DB safeguard trigger, not just by application code.
+
+---
+
+## What I need from you before implementing
+Nothing new — all prior questions are answered. On approval I'll ship D1 first (smallest, riskiest to get wrong) and check in before E1.
