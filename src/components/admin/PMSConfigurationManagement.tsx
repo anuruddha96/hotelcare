@@ -404,6 +404,10 @@ export default function PMSConfigurationManagement() {
               {/* Setup checklist + sync status */}
               <PmsSyncStatus hotelId={selectedHotelId} />
 
+              {/* Per-stage activation flags (kill-switch + 8 stage flags) */}
+              <PMSActivationChecklist hotelId={selectedHotelId} />
+
+
               {/* Room Mappings */}
               {pmsConfig && (
                 <div className="space-y-4 p-4 border rounded-lg">
