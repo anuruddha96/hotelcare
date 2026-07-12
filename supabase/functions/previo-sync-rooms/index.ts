@@ -114,22 +114,24 @@ serve(async (req) => {
     }
 
     // ---- Import-local branch: upsert into rooms + pms_room_mappings.
-    // Hard-gated to hotel_id = 'previo-test' so OttoFiori is never touched.
+    // FLAG-BASED GATE (replaces the previous hardcoded 'previo-test' allowlist):
+    // requires the hotel's pms_configurations.room_import_enabled = true.
+    // 'previo-test' has this flag pre-ON; every other hotel has it pre-OFF,
+    // so rollout behavior is byte-identical.
     if (importLocal) {
-      if (hotelCareHotelId !== 'previo-test') {
-        return new Response(
-          JSON.stringify({ success: false, error: `Import is restricted to 'previo-test'. Got '${hotelCareHotelId}'.` }),
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
       const { data: cfgRow } = await supabase
         .from('pms_configurations')
-        .select('id')
+        .select('id, room_import_enabled')
         .eq('hotel_id', hotelCareHotelId)
         .eq('pms_type', 'previo')
         .single();
       if (!cfgRow) throw new Error('PMS config row not found');
+      if ((cfgRow as any).room_import_enabled !== true) {
+        return new Response(
+          JSON.stringify({ success: false, error: `Room import disabled for '${hotelCareHotelId}'. Enable it in the Activation Checklist.` }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       // Pull org slug to populate on new room rows
       const { data: hotelRec } = await supabase
