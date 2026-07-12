@@ -259,6 +259,48 @@ export default function PMSConfigurationManagement() {
     setLoading(false);
   };
 
+  /**
+   * Backfill pms_room_mappings from rooms that already carry
+   * pms_metadata.roomId — happens when an earlier import populated the
+   * rooms table but skipped the mapping table (e.g. AI import in
+   * suggest-only mode). Idempotent: existing mappings are preserved.
+   */
+  const backfillMappingsFromMetadata = async () => {
+    if (!pmsConfig) return;
+    if (linkedRooms.length === 0) {
+      toast.info('No Previo-linked rooms found in the rooms table.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const existingByPmsId = new Map(roomMappings.map(m => [m.pms_room_id, m]));
+      const toInsert = linkedRooms
+        .filter(r => !existingByPmsId.has(r.pms_room_id))
+        .map(r => ({
+          pms_config_id: pmsConfig.id,
+          hotelcare_room_id: r.id,
+          hotelcare_room_number: r.room_number,
+          pms_room_id: r.pms_room_id,
+          pms_room_name: r.pms_room_name,
+          is_active: true,
+          mapping_status: 'active',
+          last_verified_at: new Date().toISOString(),
+        }));
+      if (toInsert.length === 0) {
+        toast.success('All linked rooms already have mappings.');
+      } else {
+        const { error } = await supabase.from('pms_room_mappings').insert(toInsert);
+        if (error) throw error;
+        toast.success(`Backfilled ${toInsert.length} room mapping(s).`);
+        await fetchPMSConfig();
+      }
+    } catch (e: any) {
+      toast.error(`Backfill failed: ${e?.message || 'unknown'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const testPrevioConnection = async () => {
     if (!pmsConfig) {
       toast.error('Please save PMS configuration first');
