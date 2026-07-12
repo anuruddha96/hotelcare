@@ -130,12 +130,20 @@ export function parsePrevioCredentialValue(
     }
   }
 
+  // 4) Bare token fallback — a single non-whitespace string with no colon,
+  //    no `=`, and no JSON braces is treated as an XML apiKey. This covers
+  //    the common case where the user pasted just the raw Previo secret.
+  if (/^[^\s:={}\[\]"']+$/.test(raw) && raw.length >= 8) {
+    return { protocol: "xml", apiKey: raw, authElement: "apiKey", source: sourceName };
+  }
+
   throw new PrevioCredentialParseError(
     `Previo credential "${sourceName}" could not be parsed. Supported formats: ` +
       `{"protocol":"xml","apiKey":"..."}, {"protocol":"rest","username":"...","password":"..."}, ` +
-      `username:password, or USERNAME/PASSWORD named pairs.`,
+      `username:password, USERNAME/PASSWORD named pairs, or a bare api key string.`,
   );
 }
+
 
 /** Read the configured secret from env and parse it. Never logs the value. */
 export function loadPrevioCredentials(secretName: string | null | undefined): PrevioCredentials {
