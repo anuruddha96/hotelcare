@@ -1,0 +1,1 @@
+UPDATE public.pms_configurations SET room_import_enabled = false, updated_at = now() WHERE hotel_id = 'ottofiori' AND pms_type = 'previo';
