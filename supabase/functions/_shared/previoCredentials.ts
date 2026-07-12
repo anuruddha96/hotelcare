@@ -220,11 +220,24 @@ export interface PrevioXmlCallResult {
   text: string;
   /** Parsed <error><message> if present, else null. */
   errorMessage: string | null;
+  /** XML auth variant used for this response. Useful when the tenant accepts a legacy body variant. */
+  usedAuthVariant?: PrevioXmlAuthVariant | null;
 }
 
-/** POST an XML method call. Never logs credentials. */
-export async function callPrevioXml(opts: PrevioXmlCallOptions): Promise<PrevioXmlCallResult> {
-  const auth = buildXmlAuthBlock(opts.creds, opts.authVariant);
+const XML_AUTH_FALLBACK_ORDER: PrevioXmlAuthVariant[] = [
+  "authorizationApiKey",
+  "apiKey",
+  "login",
+  "password",
+  "loginPassword",
+  "header",
+];
+
+async function callPrevioXmlOnce(
+  opts: PrevioXmlCallOptions,
+  authVariant?: PrevioXmlAuthVariant,
+): Promise<PrevioXmlCallResult> {
+  const auth = buildXmlAuthBlock(opts.creds, authVariant);
   const body = `<?xml version="1.0"?>
 <request>
 ${auth}
@@ -234,7 +247,7 @@ ${opts.extraXml ?? ""}
 
   const headers: Record<string, string> = { "Content-Type": "text/xml; charset=UTF-8" };
   const effectiveXmlAuthVariant = opts.creds.protocol === "xml"
-    ? opts.authVariant ?? (opts.creds.authElement === "apiKey" ? "authorizationApiKey" : opts.creds.authElement)
+    ? authVariant ?? (opts.creds.authElement === "apiKey" ? "authorizationApiKey" : opts.creds.authElement)
     : null;
   if (opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "authorizationApiKey") {
     headers["Authorization"] = `ApiKey ${opts.creds.apiKey}`;
@@ -254,5 +267,45 @@ ${opts.extraXml ?? ""}
     ?? text.match(/<message>([^<]*)<\/message>/i);
   const errorMessage = errMatch ? errMatch[1].trim() : null;
   const ok = resp.ok && !/<error>/i.test(text);
-  return { ok, status: resp.status, text, errorMessage };
+  return { ok, status: resp.status, text, errorMessage, usedAuthVariant: effectiveXmlAuthVariant };
+}
+
+/** POST an XML method call. Never logs credentials. */
+export async function callPrevioXml(opts: PrevioXmlCallOptions): Promise<PrevioXmlCallResult> {
+  if (opts.creds.protocol !== "xml" || opts.authVariant) {
+    return await callPrevioXmlOnce(opts, opts.authVariant);
+  }
+
+  const preferred = opts.creds.authElement === "apiKey"
+    ? "authorizationApiKey"
+    : opts.creds.authElement as PrevioXmlAuthVariant;
+  const variants = [
+    preferred,
+    ...XML_AUTH_FALLBACK_ORDER.filter((variant) => variant !== preferred),
+  ];
+  const attempts: string[] = [];
+  let last: PrevioXmlCallResult | null = null;
+
+  for (const variant of variants) {
+    const result = await callPrevioXmlOnce(opts, variant);
+    if (result.ok) return result;
+
+    attempts.push(`${variant}=${result.status}${result.errorMessage ? `(${result.errorMessage})` : ""}`);
+    last = result;
+
+    // Only authentication-style failures should fall through to other auth
+    // variants. For validation/rate-limit/server errors, return immediately so
+    // callers see the real Previo error instead of masking it with retries.
+    const authRejected = result.status === 401 || result.status === 403
+      || /invalid login|invalid password|unauthori[sz]ed|forbidden/i.test(result.errorMessage || result.text.slice(0, 500));
+    if (!authRejected) return result;
+  }
+
+  return {
+    ok: false,
+    status: last?.status ?? 0,
+    text: last?.text ?? "",
+    errorMessage: `Previo rejected every XML auth variant. Attempts: ${attempts.join("; ")}`,
+    usedAuthVariant: last?.usedAuthVariant ?? null,
+  };
 }
