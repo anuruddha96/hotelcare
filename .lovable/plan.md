@@ -189,3 +189,17 @@ Nothing new — all prior questions are answered. On approval I'll ship D1 first
 **Net operational effect right now:** none. Trigger + worker exist but the trigger cannot enqueue and no cron calls the worker.
 
 **Next: B2/B3** — admin Activation Checklist UI in PMSConfigurationManagement (per-hotel ordered steps) + remove hardcoded `previo-test`-only gates from `previo-update-room-status` and `previo-sync-rooms`, replacing them with flag checks that leave `previo-test` behavior unchanged.
+
+## B2/B3 shipped (this turn)
+- Removed the hardcoded `hotel_id === 'previo-test'` gates:
+  - `previo-update-room-status`: now gated by `status_push_enabled=true AND outbound_kill_switch=false`, plus optional `outbound_room_allowlist` enforcement when non-empty. Because `previo-test` already has these flags set the way the old gate implied (push on, kill off, allowlist null → allow all), behavior is byte-identical for previo-test and stays no-op for every other hotel.
+  - `previo-sync-rooms` (importLocal branch): now gated by `room_import_enabled=true`. Pre-ON for previo-test, pre-OFF elsewhere → identical behavior at rollout.
+- New component `src/components/admin/PMSActivationChecklist.tsx`:
+  - Kill-switch toggle at the top (independent of stage flags; when ON no outbound push is ever sent).
+  - Allowlist size read-out (no editor yet — allowlist edited via SQL or a follow-up UI).
+  - Eight ordered stage toggles mapped 1:1 to the existing `pms_configurations` columns: connection_test → room_discovery → room_import → snapshot_read → snapshot_shadow_mode → status_push → checkout_poll → nightly_sync. Risky stages (import / status_push / nightly_sync) are visually flagged.
+- Mounted the checklist inside `PMSConfigurationManagement` directly below `PmsSyncStatus`. Only admins already see this page, so no auth changes needed.
+
+**Net operational effect right now:** no functional change for `previo-test`. Every other hotel remains fully no-op until an admin flips flags in the checklist. Kill-switch and allowlist give a hard stop that overrides any accidental stage toggle.
+
+**Next: H1** — manager-side PMS Upload UI: three-button layout (Sync from Previo / Upload XLSX / Preview differences) driven by the same flags, plus a small status chip (last sync source/timestamp, pending-risky count, sync-health color). No changes to how the XLSX upload itself works — the button just triggers the existing pipeline.
