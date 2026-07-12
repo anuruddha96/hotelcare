@@ -33,6 +33,7 @@ export function PmsRefreshPreviewDialog({ hotelId, open, onOpenChange, onApplied
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [proposed, setProposed] = useState<ProposedRoomChange[]>([]);
+  const [unmapped, setUnmapped] = useState<Array<{ pms_room_id: string; pms_room_name: string; room_kind_name: string; extracted_number: string }>>([]);
   const [filter, setFilter] = useState("");
   const [showOnlyChanges, setShowOnlyChanges] = useState(true);
   const [history, setHistory] = useState<any[]>([]);
@@ -45,6 +46,7 @@ export function PmsRefreshPreviewDialog({ hotelId, open, onOpenChange, onApplied
     try {
       const res = await runPmsRefresh(hotelId, { dryRun: true });
       setProposed(res.proposedChanges ?? []);
+      setUnmapped(res.unmapped ?? []);
     } catch (e: any) {
       toast.error(`PMS preview failed: ${e?.message ?? e}`);
     } finally {
