@@ -119,12 +119,13 @@ serve(async (req) => {
         });
       }
 
-      // Read-only permitted method: Hotel.rooms
+      // Read-only permitted method: Hotel.getRooms
       const result = await callPrevioXml({
-        method: "rooms",
+        method: "getRooms",
         creds,
         pmsHotelId,
       });
+
       const latencyMs = Date.now() - startedAt;
 
       if (!result.ok) {
