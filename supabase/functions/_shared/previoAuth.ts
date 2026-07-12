@@ -83,6 +83,10 @@ function parseSecretCandidates(secretValue: string, source: string): PrevioCrede
       const user = parsed.username ?? parsed.user ?? parsed.login ?? parsed.email;
       const pass = parsed.password ?? parsed.pass ?? parsed.secret;
       pushApiKeyCandidate(candidates, seen, apiKey, source);
+      // Previo REST/XML docs authenticate with Authorization: ApiKey. If a
+      // user saved the API key as the "password" alongside the API user email,
+      // try that documented header before falling back to legacy Basic Auth.
+      pushApiKeyCandidate(candidates, seen, pass, source);
       pushCandidate(candidates, seen, user, pass, source);
     }
   } catch {
@@ -94,6 +98,12 @@ function parseSecretCandidates(secretValue: string, source: string): PrevioCrede
     candidates,
     seen,
     named.apikey ?? named.api_key ?? named.key ?? named.token,
+    source,
+  );
+  pushApiKeyCandidate(
+    candidates,
+    seen,
+    named.password ?? named.pass ?? named.secret,
     source,
   );
   pushCandidate(
