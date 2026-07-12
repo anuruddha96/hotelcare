@@ -203,3 +203,27 @@ Nothing new — all prior questions are answered. On approval I'll ship D1 first
 **Net operational effect right now:** no functional change for `previo-test`. Every other hotel remains fully no-op until an admin flips flags in the checklist. Kill-switch and allowlist give a hard stop that overrides any accidental stage toggle.
 
 **Next: H1** — manager-side PMS Upload UI: three-button layout (Sync from Previo / Upload XLSX / Preview differences) driven by the same flags, plus a small status chip (last sync source/timestamp, pending-risky count, sync-health color). No changes to how the XLSX upload itself works — the button just triggers the existing pipeline.
+
+## H1 shipped (this turn)
+- New component `src/components/pms/PmsSyncControls.tsx`:
+  - Renders nothing when no `pms_configurations` row exists for the manager's hotel (zero visual change for hotels without PMS).
+  - Status chip: sync-health dot (green/amber/red), environment badge, kill-switch badge when engaged, "N need approval" badge from `pms_change_events` where category='risky' and unacknowledged.
+  - "Sync from PMS" button — invokes `previo-sync-daily-overview`; disabled unless `snapshot_read_enabled=true`.
+  - "Upload XLSX" button — scrolls to the existing PMSUpload component (no logic change; the existing dropzone still handles the file).
+  - "Preview differences" button — opens the existing `PmsChangesDrawer` locally with the manager's hotel.
+- Mounted above `PMSUpload` inside the `pms-upload` tab of `HousekeepingTab`, wrapped in a `<div id="pms-xlsx-upload">` so the Upload button can scroll to it.
+- Because the controls short-circuit-return null when no PMS config exists, hotels without Previo see zero difference. For `previo-test`, the pms-upload tab is hidden entirely, so nothing changes there either. Ottofiori sees the panel but every action is either disabled (Sync — snapshot_read off) or safe (Preview shows empty drawer; Upload just scrolls). All existing workflows are untouched.
+
+## PMS integration plan status
+- D1 (normalizer) — done
+- E1 (diff engine + safeguard RPC) — done
+- E2 (shadow-diff wired) — done
+- F1 (outbound queue + worker) — done
+- B2/B3 (admin activation checklist + gate removal) — done
+- H1 (manager sync/upload/preview UI) — done
+
+**Remaining, on request:**
+- Cron schedule for `previo-outbound-worker` (one SQL insert using your project URL + anon key).
+- Outbound allowlist editor in the admin checklist (small dialog to add/remove `rooms.id` values).
+- Wiring `previo-sync-rooms` snapshot into `pms-shadow-diff` (API-side parity with XLSX).
+- Nightly-sync cron wiring after `nightly_sync_enabled` is used.

@@ -7,6 +7,7 @@ import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
 import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
 import { PMSUpload } from './PMSUpload';
+import { PmsSyncControls } from '@/components/pms/PmsSyncControls';
 import { EasyRoomAssignment } from './EasyRoomAssignment';
 import { PerformanceLeaderboard } from './PerformanceLeaderboard';
 import { MinibarTrackingView } from './MinibarTrackingView';
@@ -323,7 +324,10 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
             {!hidePmsUploadTab && (
               <TabsContent value="pms-upload" className="space-y-6">
-                <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
+                <PmsSyncControls hotelId={assignedHotel} uploadAnchorId="pms-xlsx-upload" />
+                <div id="pms-xlsx-upload">
+                  <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />
+                </div>
               </TabsContent>
             )}
 
