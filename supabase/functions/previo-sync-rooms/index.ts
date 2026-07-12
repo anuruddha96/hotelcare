@@ -477,7 +477,7 @@ serve(async (req) => {
         data: {
           error: error.message,
           requested_hotel_id: requestedHotelId ?? null,
-          operation: requestedImportLocal ? 'import_rooms' : requestedPreviewOnly ? 'preview_rooms' : 'sync_rooms',
+          operation: requestedMapOnly ? 'map_rooms' : requestedImportLocal ? 'import_rooms' : requestedPreviewOnly ? 'preview_rooms' : 'sync_rooms',
         },
         sync_status: 'failed',
         error_message: error.message
