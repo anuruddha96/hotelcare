@@ -262,6 +262,7 @@ export default function PMSConfigurationManagement() {
   };
 
   return (
+    <>
     <div className="space-y-6">
       <Card>
         <CardHeader>
