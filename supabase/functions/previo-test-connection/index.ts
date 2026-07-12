@@ -119,27 +119,33 @@ serve(async (req) => {
         });
       }
 
-      // Read-only permitted method: Hotel.getRoomKinds (on Ottofiori's enabled list)
-      const result = await callPrevioXml({
-        method: "getRoomKinds",
-        creds,
-        pmsHotelId,
-      });
+      // Try each XML auth variant in turn until one authenticates. Previo's
+      // single-key auth slot is not officially documented — we probe.
+      const variants: Array<"apiKey" | "login" | "password" | "loginPassword" | "header"> = [
+        "apiKey", "login", "password", "loginPassword", "header",
+      ];
+      const attempts: Array<{ variant: string; status: number; error: string | null }> = [];
+      let winning: { variant: string; text: string } | null = null;
 
-
+      for (const variant of variants) {
+        const r = await callPrevioXml({ method: "getRoomKinds", creds, pmsHotelId, authVariant: variant });
+        attempts.push({ variant, status: r.status, error: r.errorMessage });
+        if (r.ok) { winning = { variant, text: r.text }; break; }
+      }
       const latencyMs = Date.now() - startedAt;
 
-      if (!result.ok) {
-        const msg = `Previo XML getRoomKinds failed (status=${result.status})${result.errorMessage ? `: ${result.errorMessage}` : ""}`;
+      if (!winning) {
+        const summary = attempts.map((a) => `${a.variant}=${a.status}${a.error ? `(${a.error})` : ""}`).join("; ");
+        const msg = `Previo rejected every XML auth variant for getRoomKinds. Attempts: ${summary}. Confirm with Previo whether the key belongs in <login>, <password>, <apiKey>, or an HTTP header — and whether a matching hotel login is required.`;
         await recordResult("error", msg);
-        return new Response(JSON.stringify({ ok: false, error: msg, latencyMs, protocol: "xml" }), {
+        return new Response(JSON.stringify({ ok: false, error: msg, latencyMs, protocol: "xml", attempts }), {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const roomKindCount = (result.text.match(/<roomKind[\s>]/g) || []).length;
-      const hotIdMatch = result.text.match(/<hotId>(\d+)<\/hotId>/i);
+      const roomKindCount = (winning.text.match(/<roomKind[\s>]/g) || []).length;
+      const hotIdMatch = winning.text.match(/<hotId>(\d+)<\/hotId>/i);
       const returnedHotId = hotIdMatch ? hotIdMatch[1] : null;
       if (returnedHotId && returnedHotId !== pmsHotelId) {
         const msg = `Previo returned hotId=${returnedHotId} but configuration expects ${pmsHotelId}. Refusing to proceed.`;
@@ -156,13 +162,16 @@ serve(async (req) => {
           ok: true,
           protocol: "xml",
           method: "Hotel.getRoomKinds",
+          xmlAuthVariant: winning.variant,
           roomKindCount,
           hotIdConfirmed: returnedHotId ?? pmsHotelId,
           latencyMs,
+          note: `Save "authElement":"${winning.variant}" in the secret JSON to lock this in.`,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
 
 
     // -------- REST protocol (legacy Basic Auth) ---------------------------
