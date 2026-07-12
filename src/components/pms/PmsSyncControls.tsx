@@ -6,7 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
-import { RefreshCw, Upload, Eye, ShieldOff, Loader2 } from "lucide-react";
+import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck } from "lucide-react";
+import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
 
 interface Props {
   /** Manager's assigned_hotel (may be hotel_id or hotel name — component
@@ -33,6 +34,7 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const [pendingRisky, setPendingRisky] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const loadCfg = async () => {
     if (!hotelId) return;
@@ -121,10 +123,19 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
               variant="default"
               onClick={runSync}
               disabled={!canSyncFromPms || syncing}
-              title={canSyncFromPms ? "Pull the latest snapshot from Previo" : "Enable Snapshot read in the admin activation checklist first"}
+              title={canSyncFromPms ? "Pull the latest daily overview from Previo" : "Enable Snapshot read in the admin activation checklist first"}
             >
               {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              Sync from PMS
+              Sync overview
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setPreviewOpen(true)}
+              disabled={killed}
+              title="Preview every room's PMS state (including tomorrow's checkouts) before applying"
+            >
+              <ClipboardCheck className="h-4 w-4 mr-1" /> Refresh rooms…
             </Button>
             {uploadAnchorId && (
               <Button size="sm" variant="outline" onClick={scrollToUpload}>
@@ -144,6 +155,12 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
       </Card>
 
       <PmsChangesDrawer hotelId={cfg.hotel_id} open={drawerOpen} onOpenChange={setDrawerOpen} />
+      <PmsRefreshPreviewDialog
+        hotelId={cfg.hotel_id}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        onApplied={() => { void loadCfg(); void loadPending(cfg.hotel_id); }}
+      />
     </>
   );
 }

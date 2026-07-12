@@ -14,6 +14,31 @@ export interface PmsSyncResult {
   notFound: number;
   checkouts: number;
   errors: string[];
+  proposedChanges?: ProposedRoomChange[];
+}
+
+/**
+ * A per-room diff between the app's current state and what the PMS refresh
+ * would set. Used by the preview dialog so managers can review before
+ * applying. Populated for every fetched row (including "no change" rows so
+ * the UI can show a complete room-by-room summary).
+ */
+export interface ProposedRoomChange {
+  roomKey: string;                // stable id (local room id or PMS room name)
+  roomLabel: string;              // display room number
+  isNewChange: boolean;           // false => "no change" row
+  fields: Array<{
+    field: string;                // human label
+    before: any;
+    after: any;
+    category: "status" | "occupancy" | "checkout" | "guest" | "note" | "linen";
+  }>;
+  raw: {
+    row: any;
+    currentStatus?: string;
+    currentGuestCount?: number;
+    currentIsCheckoutRoom?: boolean;
+  };
 }
 
 const extractRoomNumber = (raw: string): string => {
@@ -34,26 +59,41 @@ const parseNightTotal = (val: any): { currentNight: number; totalNights: number 
   return { currentNight: parseInt(m[1], 10), totalNights: parseInt(m[2], 10) };
 };
 
-export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
-  // Step 1 — sync rooms catalog (non-fatal).
-  try {
-    await supabase.functions.invoke("previo-sync-rooms", {
-      body: { hotelId, importLocal: true },
-    });
-  } catch (e) {
-    console.warn("[pmsRefresh] catalog sync warning:", e);
+/**
+ * Fetch the PMS snapshot and (optionally) apply it to the `rooms` table.
+ * When `dryRun` is true, no writes are performed and `proposedChanges` is
+ * returned so the UI can render a preview.
+ */
+export async function runPmsRefresh(
+  hotelId: string,
+  options: { dryRun?: boolean } = {},
+): Promise<PmsSyncResult> {
+  const dryRun = options.dryRun === true;
+
+  // Step 1 — sync rooms catalog (non-fatal, skipped in dry-run).
+  if (!dryRun) {
+    try {
+      await supabase.functions.invoke("previo-sync-rooms", {
+        body: { hotelId, importLocal: true },
+      });
+    } catch (e) {
+      console.warn("[pmsRefresh] catalog sync warning:", e);
+    }
   }
 
   // Step 2 — pull today's PMS snapshot.
   const { data, error } = await supabase.functions.invoke("previo-pms-sync", {
-    body: { hotelId },
+    body: { hotelId, dryRun },
   });
   if (error || (data && (data as any).ok === false)) {
     throw new Error((data as any)?.error || error?.message || "PMS sync failed");
   }
   const rows: any[] = (data as any)?.rows || [];
   if (rows.length === 0) {
-    return { status: "success", updated: 0, total: 0, notFound: 0, checkouts: 0, errors: [] };
+    return {
+      status: "success", updated: 0, total: 0, notFound: 0, checkouts: 0, errors: [],
+      proposedChanges: dryRun ? [] : undefined,
+    };
   }
 
   const keys = await resolveHotelKeys(hotelId);
@@ -63,6 +103,7 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
   let notFound = 0;
   let checkouts = 0;
   const errors: string[] = [];
+  const proposedChanges: ProposedRoomChange[] = [];
   const today = new Date().toISOString().split("T")[0];
   const matchedRoomIds = new Set<string>();
 
@@ -74,38 +115,47 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
       const previoRoomId = row.RoomId != null ? String(row.RoomId) : "";
 
       const lookup = async (matcher: (q: any) => any) => {
-        const q = supabase.from("rooms").select("id, room_number, pms_metadata").in("hotel", hotelKeys);
+        const q = supabase.from("rooms")
+          .select("id, room_number, status, guest_count, is_checkout_room, pms_metadata")
+          .in("hotel", hotelKeys);
         return await matcher(q);
       };
 
-      let { data: rooms } = await lookup((q) => q.eq("room_number", rawRoomName));
-      if ((!rooms || rooms.length === 0) && rawRoomName !== roomNumber) {
-        ({ data: rooms } = await lookup((q) => q.ilike("room_number", rawRoomName)));
+      let { data: roomsFound } = await lookup((q) => q.eq("room_number", rawRoomName));
+      if ((!roomsFound || roomsFound.length === 0) && rawRoomName !== roomNumber) {
+        ({ data: roomsFound } = await lookup((q) => q.ilike("room_number", rawRoomName)));
       }
-      if ((!rooms || rooms.length === 0) && roomNumber && roomNumber !== rawRoomName) {
-        ({ data: rooms } = await lookup((q) => q.eq("room_number", roomNumber)));
+      if ((!roomsFound || roomsFound.length === 0) && roomNumber && roomNumber !== rawRoomName) {
+        ({ data: roomsFound } = await lookup((q) => q.eq("room_number", roomNumber)));
       }
-      // Final fallback: match against Previo numeric roomId stored in
-      // rooms.pms_metadata->>roomId. Catches rooms whose local number
-      // doesn't share a token with the Previo display name.
-      if ((!rooms || rooms.length === 0) && previoRoomId) {
-        ({ data: rooms } = await lookup((q) =>
+      if ((!roomsFound || roomsFound.length === 0) && previoRoomId) {
+        ({ data: roomsFound } = await lookup((q) =>
           q.filter("pms_metadata->>roomId", "eq", previoRoomId),
         ));
       }
-      if (!rooms || rooms.length === 0) {
+      if (!roomsFound || roomsFound.length === 0) {
         notFound++;
+        if (dryRun) {
+          proposedChanges.push({
+            roomKey: `pms:${rawRoomName}`,
+            roomLabel: rawRoomName,
+            isNewChange: true,
+            fields: [{ field: "Room match", before: "(not found in app)", after: "(unmapped)", category: "note" }],
+            raw: { row },
+          });
+        }
         continue;
       }
-      const room = rooms[0];
+      const room: any = roomsFound[0];
       matchedRoomIds.add(room.id);
 
       const departureParsed = excelTimeToString(row.Departure);
       const isScheduledDeparture = departureParsed !== null;
-      // Reception-confirmed checkout from Previo (statusId === 5).
-      // Only this should flip `is_checkout_room`; a scheduled departure
-      // alone does not mean the guest has actually left the hotel.
+      const isDepartureTomorrow = row.DepartureTomorrow === true;
       const isCheckedOut = row.CheckedOut === true;
+      // Authoritative checkout-room flag: real checkout, scheduled departure
+      // today, OR scheduled departure tomorrow (plan ahead).
+      const shouldBeCheckoutRoom = row.IsCheckoutRoom === true || isCheckedOut || isScheduledDeparture || isDepartureTomorrow;
 
       const existingMetadata = room.pms_metadata && typeof room.pms_metadata === "object"
         ? room.pms_metadata
@@ -130,8 +180,62 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
         : previoStatusRaw.startsWith("clean") ? "clean"
         : "dirty";
 
+      const nextGuestCount = Number(row.People ?? 0);
+
+      // Compute the diff for the preview.
+      const changeFields: ProposedRoomChange["fields"] = [];
+      if (mappedStatus && room.status && mappedStatus !== room.status) {
+        changeFields.push({
+          field: "Clean status", before: room.status, after: mappedStatus, category: "status",
+        });
+      }
+      if (typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
+        changeFields.push({
+          field: "Guests", before: room.guest_count, after: nextGuestCount, category: "guest",
+        });
+      }
+      const currentCheckoutFlag = !!room.is_checkout_room;
+      if (shouldBeCheckoutRoom !== currentCheckoutFlag) {
+        const label = isCheckedOut
+          ? "Checked out"
+          : isScheduledDeparture
+            ? "Departure today"
+            : isDepartureTomorrow
+              ? "Departure tomorrow"
+              : "No checkout";
+        changeFields.push({
+          field: "Checkout room", before: currentCheckoutFlag, after: `${shouldBeCheckoutRoom} (${label})`, category: "checkout",
+        });
+      }
+      if (towel || linen) {
+        changeFields.push({
+          field: "Linen/towel", before: "-", after: `${linen ? "linen" : ""}${towel && linen ? " + " : ""}${towel ? "towel" : ""}`, category: "linen",
+        });
+      }
+      if (row.Note) {
+        changeFields.push({ field: "PMS note", before: "-", after: String(row.Note), category: "note" });
+      }
+
+      proposedChanges.push({
+        roomKey: `id:${room.id}`,
+        roomLabel: room.room_number || rawRoomName,
+        isNewChange: changeFields.length > 0,
+        fields: changeFields,
+        raw: {
+          row,
+          currentStatus: room.status,
+          currentGuestCount: room.guest_count,
+          currentIsCheckoutRoom: currentCheckoutFlag,
+        },
+      });
+
+      // Dry-run: skip all writes.
+      if (dryRun) {
+        continue;
+      }
+
       const updateData: Record<string, any> = {
-        guest_count: row.People ?? 0,
+        guest_count: nextGuestCount,
         guest_nights_stayed: guestNightsStayed,
         towel_change_required: towel,
         linen_change_required: linen,
@@ -139,6 +243,7 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
         pms_metadata: {
           ...(existingMetadata ?? {}),
           scheduledDepartureToday: isScheduledDeparture,
+          scheduledDepartureTomorrow: isDepartureTomorrow,
           departureTime: departureParsed,
           checkedOutToday: isCheckedOut,
         },
@@ -149,45 +254,44 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
-      if (isCheckedOut) {
+      if (shouldBeCheckoutRoom) {
         updateData.is_checkout_room = true;
-        updateData.checkout_time = new Date().toISOString();
+        if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
       }
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
       if (row.Note) updateData.notes = String(row.Note);
 
-      // ---- Diff vs previous state and emit pms_change_events ---------------
-      const prevMeta = (room as any).pms_metadata && typeof (room as any).pms_metadata === "object"
-        ? (room as any).pms_metadata : {};
-      const prevStatus = (room as any).status as string | undefined;
-      const prevGuestCount = (room as any).guest_count as number | undefined;
-      const prevCheckout = !!(room as any).is_checkout_room;
+      // Emit pms_change_events for material changes.
       const eventInserts: any[] = [];
       const pushEvent = (event_type: string, before: any, after: any, is_conflict = false) => {
         eventInserts.push({
           hotel_id: hotelId,
           room_id: room.id,
-          room_label: (room as any).room_number || rawRoomName,
+          room_label: room.room_number || rawRoomName,
           event_type,
           source: "pms_sync",
           before, after, is_conflict,
         });
       };
-      if (mappedStatus && prevStatus && mappedStatus !== prevStatus) {
-        pushEvent("status_changed", { status: prevStatus }, { status: mappedStatus }, false);
+      if (mappedStatus && room.status && mappedStatus !== room.status) {
+        pushEvent("status_changed", { status: room.status }, { status: mappedStatus }, false);
       }
-      if (isCheckedOut && !prevCheckout) {
+      if (isCheckedOut && !currentCheckoutFlag) {
         pushEvent("checkout_confirmed", { is_checkout_room: false }, { is_checkout_room: true }, false);
       }
-      const nextGuestCount = Number(row.People ?? 0);
-      if (typeof prevGuestCount === "number" && prevGuestCount !== nextGuestCount) {
-        const wasVacant = prevGuestCount === 0;
+      if (isDepartureTomorrow && !currentCheckoutFlag) {
+        pushEvent("status_changed",
+          { is_checkout_room: false },
+          { is_checkout_room: true, reason: "departure_tomorrow" }, false);
+      }
+      if (typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
+        const wasVacant = room.guest_count === 0;
         const nowOccupied = nextGuestCount > 0;
-        const isConflict = wasVacant && nowOccupied; // newly-occupied room may collide with cleaning
+        const isConflict = wasVacant && nowOccupied;
         pushEvent(
           isConflict ? "room_newly_occupied" : "occupancy_changed",
-          { guest_count: prevGuestCount },
+          { guest_count: room.guest_count },
           { guest_count: nextGuestCount },
           isConflict,
         );
@@ -204,7 +308,6 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
       updated++;
       if (isCheckedOut) checkouts++;
 
-      // Persist diff events + apply pms_hold on conflicting assignments.
       if (eventInserts.length > 0) {
         const insertRes: any = await supabase
           .from("pms_change_events" as any)
@@ -240,31 +343,28 @@ export async function runPmsRefresh(hotelId: string): Promise<PmsSyncResult> {
 
   const status: PmsSyncStatus = errors.length ? "partial" : "success";
 
-  // For the Previo test hotel, also run the checkouts poll so any newly
-  // reception-confirmed checkouts (statusId=5) flip is_checkout_room in
-  // real time alongside the manual refresh. Non-fatal.
-  if (hotelId === "previo-test") {
-    try {
-      await supabase.functions.invoke("previo-poll-checkouts", {
-        body: { hotelId },
-      });
-    } catch (e) {
-      console.warn("[pmsRefresh] poll-checkouts warning:", e);
+  if (!dryRun) {
+    if (hotelId === "previo-test") {
+      try {
+        await supabase.functions.invoke("previo-poll-checkouts", { body: { hotelId } });
+      } catch (e) {
+        console.warn("[pmsRefresh] poll-checkouts warning:", e);
+      }
     }
+
+    try {
+      await supabase.from("pms_sync_history").insert({
+        hotel_id: hotelId,
+        sync_type: "rooms_refresh",
+        sync_status: status,
+        error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
+        data: { updated, notFound, total: rows.length, checkouts },
+      } as any);
+    } catch { /* non-fatal */ }
   }
 
-  // Log sync history (non-fatal).
-  try {
-    await supabase.from("pms_sync_history").insert({
-      hotel_id: hotelId,
-      sync_type: "rooms_refresh",
-      sync_status: status,
-      error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
-      data: { updated, notFound, total: rows.length, checkouts },
-    } as any);
-  } catch {
-    /* non-fatal */
-  }
-
-  return { status, updated, total: rows.length, notFound, checkouts, errors };
+  return {
+    status, updated, total: rows.length, notFound, checkouts, errors,
+    proposedChanges: dryRun ? proposedChanges : undefined,
+  };
 }
