@@ -15,6 +15,7 @@ export interface PmsSyncResult {
   checkouts: number;
   errors: string[];
   proposedChanges?: ProposedRoomChange[];
+  unmapped?: Array<{ pms_room_id: string; pms_room_name: string; room_kind_name: string; extracted_number: string }>;
 }
 
 /**
