@@ -14,10 +14,18 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { diffSnapshots } from "../_shared/pmsDiff.ts";
-import type { NormalizedSnapshot, NormalizedRoom } from "../_shared/pmsNormalizer.ts";
+import { normalize, type NormalizedSnapshot, type NormalizedRoom, type XlsxRow, type PrevioApiRow } from "../_shared/pmsNormalizer.ts";
 
 interface RequestBody {
-  snapshot: NormalizedSnapshot;
+  // Preferred: pre-normalized snapshot.
+  snapshot?: NormalizedSnapshot;
+  // Alternative: raw rows + meta (function normalizes server-side).
+  raw?: {
+    rows: XlsxRow[] | PrevioApiRow[];
+    hotel_id: string;
+    business_date: string;
+    source: "xlsx" | "api";
+  };
   actor_id?: string | null;
 }
 
@@ -26,7 +34,14 @@ Deno.serve(async (req) => {
 
   try {
     const body = (await req.json()) as RequestBody;
-    const snap = body?.snapshot;
+    let snap = body?.snapshot;
+    if (!snap && body?.raw) {
+      snap = normalize(body.raw.rows, {
+        hotelId: body.raw.hotel_id,
+        businessDate: body.raw.business_date,
+        source: body.raw.source,
+      });
+    }
     if (!snap?.hotel_id || !snap?.business_date || !Array.isArray(snap?.rooms)) {
       return json({ error: "invalid snapshot payload" }, 400);
     }

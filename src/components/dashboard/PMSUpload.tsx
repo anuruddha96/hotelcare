@@ -861,6 +861,32 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       } catch (error) {
         console.error('Error saving PMS upload summary:', error);
       }
+
+      // Fire-and-forget shadow-diff: records pms_change_events for the drawer.
+      // Never awaited, never throws — cannot affect the upload result.
+      try {
+        const businessDate = new Date().toISOString().slice(0, 10);
+        void supabase.functions
+          .invoke('pms-shadow-diff', {
+            body: {
+              raw: {
+                rows: jsonData as any,
+                hotel_id: selectedHotel,
+                business_date: businessDate,
+                source: 'xlsx' as const,
+              },
+              actor_id: user?.id ?? null,
+            },
+          })
+          .then((r) => {
+            if ((r as any)?.error) {
+              console.warn('[pms-shadow-diff] non-fatal:', (r as any).error);
+            }
+          })
+          .catch((e) => console.warn('[pms-shadow-diff] non-fatal:', e));
+      } catch (e) {
+        console.warn('[pms-shadow-diff] scheduling failed (non-fatal):', e);
+      }
       
       // Show completion notification
       const successMessage = `Upload completed! Processed ${processed.processed} rooms, updated ${processed.updated}, assigned ${processed.assigned} new tasks`;

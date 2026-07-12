@@ -168,3 +168,14 @@ Nothing new — all prior questions are answered. On approval I'll ship D1 first
 - Zero call sites yet: neither `PMSUpload.tsx` nor `previo-sync-daily-overview` invokes `pms-shadow-diff`. That one-line invocation is the very last touch of E2 and will be added on the next "next" so it can be reviewed alone.
 
 **Next: E2 final** — add the fire-and-forget `pms-shadow-diff` invocation from the XLSX upload success path (in a try/catch that can never fail the upload), then the same from `previo-sync-daily-overview`.
+
+## E2 final shipped (this turn)
+- `pms-shadow-diff` now accepts raw XLSX rows (`{ raw: { rows, hotel_id, business_date, source } }`) and normalizes server-side, so no Deno-only code needs to be imported from the browser bundle.
+- `PMSUpload.tsx` now invokes `pms-shadow-diff` once, fire-and-forget, right after the successful `pms_upload_summary` insert. The call is:
+  - never `await`ed → cannot delay the upload;
+  - wrapped in try/catch and a `.catch()` on the promise → cannot throw;
+  - logs only via `console.warn` if the edge function returns an error.
+- Skipped for `previo-sync-daily-overview` — that function is reservation-oriented, not physical-room-snapshot oriented. The equivalent API-side wiring belongs in `previo-sync-rooms` and will be added alongside F1 (outbound queue) so both sides move together.
+- Net operational effect right now: on every XLSX PMS upload, `pms_change_events` and `pms_snapshots` get populated in the background. Everything else — room_assignments, rooms, upload summary, checkout automation — is unchanged.
+
+**Next: F1** — `pms_outbound_queue` table + trigger on `room_assignments` (only enqueues when the hotel's `pms_configurations` has the outbound flag ON — `previo-test` today has it OFF, ottofiori has it OFF, so zero enqueues happen at rollout) + `previo-outbound-worker` cron.
