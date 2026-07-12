@@ -156,7 +156,7 @@ serve(async (req) => {
         JSON.stringify({
           ok: true,
           protocol: "xml",
-          method: "Hotel.rooms",
+          method: "Hotel.getRooms",
           roomCount,
           hotIdConfirmed: returnedHotId ?? pmsHotelId,
           latencyMs,
