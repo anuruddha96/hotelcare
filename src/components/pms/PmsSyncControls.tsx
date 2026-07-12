@@ -155,6 +155,12 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
       </Card>
 
       <PmsChangesDrawer hotelId={cfg.hotel_id} open={drawerOpen} onOpenChange={setDrawerOpen} />
+      <PmsRefreshPreviewDialog
+        hotelId={cfg.hotel_id}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        onApplied={() => { void loadCfg(); void loadPending(cfg.hotel_id); }}
+      />
     </>
   );
 }
