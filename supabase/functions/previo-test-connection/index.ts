@@ -119,12 +119,13 @@ serve(async (req) => {
         });
       }
 
-      // Read-only permitted method: Hotel.getRooms
+      // Read-only permitted method: Hotel.getRoomKinds (on Ottofiori's enabled list)
       const result = await callPrevioXml({
-        method: "getRooms",
+        method: "getRoomKinds",
         creds,
         pmsHotelId,
       });
+
 
       const latencyMs = Date.now() - startedAt;
 
