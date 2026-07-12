@@ -411,14 +411,43 @@ export default function PMSConfigurationManagement() {
               {/* Room Mappings */}
               {pmsConfig && (
                 <div className="space-y-4 p-4 border rounded-lg">
-                  <h3 className="font-semibold">Room Mappings</h3>
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-semibold">Room Mappings</h3>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={loading}
+                      onClick={async () => {
+                        setLoading(true);
+                        toast.info('Fetching rooms from Previo and auto-mapping by number…');
+                        const { data, error } = await supabase.functions.invoke('previo-sync-rooms', {
+                          body: { hotelId: selectedHotelId, mapOnly: true },
+                        });
+                        setLoading(false);
+                        if (error || (data as any)?.success === false) {
+                          toast.error(`Auto-map failed: ${error?.message || (data as any)?.error || 'unknown'}`);
+                          return;
+                        }
+                        const r = (data as any)?.results || {};
+                        toast.success(`Auto-map complete — mapped ${r.mapped ?? 0}, unmapped ${(r.unmapped ?? []).length}`);
+                        fetchPMSConfig();
+                      }}
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Auto-map from Previo
+                    </Button>
+                  </div>
                   <div className="p-3 bg-amber-50 dark:bg-amber-950 rounded-lg mb-4">
                     <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Important:</p>
                     <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
                       Enter the <strong>actual room number</strong> from HotelCare (e.g., "101", "102", "201"), 
-                      NOT the room type name. This links specific rooms to Previo room type IDs.
+                      NOT the room type name. Use <strong>Auto-map from Previo</strong> to seed mappings from
+                      Previo's room list — it links each Previo room to the existing HotelCare room whose
+                      number matches (e.g. "DB/TW-102" → "102"). Any rooms it can't match are listed for you
+                      to add manually below.
                     </p>
                   </div>
+
 
                   {/* Add New Mapping */}
                   <div className="grid grid-cols-4 gap-2">
