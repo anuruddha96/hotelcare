@@ -373,5 +373,6 @@ export async function runPmsRefresh(
   return {
     status, updated, total: rows.length, notFound, checkouts, errors,
     proposedChanges: dryRun ? proposedChanges : undefined,
+    unmapped,
   };
 }
