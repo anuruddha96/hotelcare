@@ -48,6 +48,7 @@ export default function PMSConfigurationManagement() {
   const [selectedHotelId, setSelectedHotelId] = useState<string>('');
   const [pmsConfig, setPmsConfig] = useState<PMSConfig | null>(null);
   const [roomMappings, setRoomMappings] = useState<RoomMapping[]>([]);
+  const [linkedRooms, setLinkedRooms] = useState<Array<{ id: string; room_number: string; pms_room_id: string; pms_room_name: string | null }>>([]);
   const [loading, setLoading] = useState(false);
   const [aiImportOpen, setAiImportOpen] = useState(false);
   
@@ -116,9 +117,29 @@ export default function PMSConfigurationManagement() {
       } else {
         setRoomMappings(mappings || []);
       }
+
+      // Also surface rooms that are already linked to Previo via
+      // pms_metadata.roomId, even when pms_room_mappings is empty. This
+      // lets admins see the actual room ↔ Previo linkage that the sync
+      // engine is using, and offer a "Backfill mappings" one-click fix.
+      const { data: linked } = await supabase
+        .from('rooms')
+        .select('id, room_number, pms_metadata')
+        .eq('hotel', config.hotel_id)
+        .not('pms_metadata->roomId', 'is', null)
+        .order('room_number');
+      setLinkedRooms(
+        (linked || []).map((r: any) => ({
+          id: r.id,
+          room_number: r.room_number,
+          pms_room_id: String(r.pms_metadata?.roomId ?? ''),
+          pms_room_name: r.pms_metadata?.previoName ?? r.pms_metadata?.roomKindName ?? null,
+        })).filter(r => r.pms_room_id),
+      );
     } else {
       setPmsConfig(null);
       setRoomMappings([]);
+      setLinkedRooms([]);
       setPmsHotelId('');
       setAutoSyncEnabled(false);
       setConnectionMode('manual');
