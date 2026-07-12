@@ -61,12 +61,24 @@ serve(async (req) => {
       );
     }
 
-    // SAFETY GUARD: only push to Previo for the previo-test hotel until verified.
-    // OttoFiori and others get a no-op success so existing flows are untouched.
-    if (pmsConfig.hotel_id !== 'previo-test') {
-      console.log(`[previo-update-room-status] Skipping push for hotel ${pmsConfig.hotel_id} (gated to previo-test)`);
+    // FLAG-BASED GATE (replaces the previous hardcoded 'previo-test' allowlist).
+    // Push happens only when: status_push_enabled=true AND outbound_kill_switch=false.
+    // If outbound_room_allowlist is present and non-empty, the room must be in it.
+    // These flags are pre-ON for 'previo-test' and pre-OFF for every other hotel,
+    // so behavior is byte-identical at rollout.
+    const cfg: any = pmsConfig;
+    if (cfg.status_push_enabled !== true || cfg.outbound_kill_switch === true) {
+      console.log(`[previo-update-room-status] Skipping push for ${cfg.hotel_id} (status_push_enabled=${cfg.status_push_enabled}, kill_switch=${cfg.outbound_kill_switch})`);
       return new Response(
-        JSON.stringify({ success: true, skipped: true, message: 'Push gated to previo-test hotel' }),
+        JSON.stringify({ success: true, skipped: true, message: 'Outbound push disabled for this hotel' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const allowlist: string[] | null = Array.isArray(cfg.outbound_room_allowlist) ? cfg.outbound_room_allowlist : null;
+    if (allowlist && allowlist.length > 0 && !allowlist.includes(roomId)) {
+      console.log(`[previo-update-room-status] Room ${roomId} not in outbound_room_allowlist for ${cfg.hotel_id}`);
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, message: 'Room not in outbound allowlist' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
