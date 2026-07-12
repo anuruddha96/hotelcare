@@ -2735,6 +2735,72 @@ export type Database = {
           },
         ]
       }
+      pms_outbound_queue: {
+        Row: {
+          attempts: number
+          completed_at: string | null
+          created_at: string
+          hotel_id: string
+          id: string
+          last_error: string | null
+          next_attempt_at: string
+          payload: Json | null
+          previo_room_id: string | null
+          room_id: string
+          source_assignment_id: string | null
+          status: string
+          target_status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          hotel_id: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          payload?: Json | null
+          previo_room_id?: string | null
+          room_id: string
+          source_assignment_id?: string | null
+          status?: string
+          target_status: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          payload?: Json | null
+          previo_room_id?: string | null
+          room_id?: string
+          source_assignment_id?: string | null
+          status?: string
+          target_status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_outbound_queue_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pms_outbound_queue_source_assignment_id_fkey"
+            columns: ["source_assignment_id"]
+            isOneToOne: false
+            referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pms_rate_plan_mappings: {
         Row: {
           channel: string

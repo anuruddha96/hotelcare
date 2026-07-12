@@ -179,3 +179,13 @@ Nothing new — all prior questions are answered. On approval I'll ship D1 first
 - Net operational effect right now: on every XLSX PMS upload, `pms_change_events` and `pms_snapshots` get populated in the background. Everything else — room_assignments, rooms, upload summary, checkout automation — is unchanged.
 
 **Next: F1** — `pms_outbound_queue` table + trigger on `room_assignments` (only enqueues when the hotel's `pms_configurations` has the outbound flag ON — `previo-test` today has it OFF, ottofiori has it OFF, so zero enqueues happen at rollout) + `previo-outbound-worker` cron.
+
+## F1 shipped (this turn)
+- Migration: `pms_outbound_queue` table (hotel_id, room_id, previo_room_id, target_status, source_assignment_id, attempts, next_attempt_at, status, last_error, payload, timestamps). Hotel staff read-only via RLS; edge functions write via service_role.
+- Trigger `trg_enqueue_pms_outbound` on `room_assignments AFTER UPDATE OF supervisor_approved`. Enqueue happens ONLY when ALL of: `status_push_enabled=true`, `outbound_kill_switch=false`, `outbound_room_allowlist` is a non-empty array containing this room's uuid, and the room has a `previo_room_id`. Because every existing hotel today either has `status_push_enabled=false`, `outbound_kill_switch=true`, or an empty allowlist, zero rows are enqueued at rollout — the trigger is inert until B2/B3 UI activates a hotel.
+- New edge function `previo-outbound-worker`: claims up to 25 pending items whose `next_attempt_at` has passed, delegates the actual Previo push to the existing `previo-update-room-status` function (single source of truth for Previo API), records success or applies exponential backoff (max 6 attempts, cap 1h).
+- No cron schedule created yet — that requires the project URL + anon key and is a one-time SQL insert. Will schedule during B2/B3 once the admin activation UI is in place, or you can enable it manually via the SQL editor with `cron.schedule('pms-outbound-tick', '* * * * *', ...)` calling `pms_outbound-worker` every minute.
+
+**Net operational effect right now:** none. Trigger + worker exist but the trigger cannot enqueue and no cron calls the worker.
+
+**Next: B2/B3** — admin Activation Checklist UI in PMSConfigurationManagement (per-hotel ordered steps) + remove hardcoded `previo-test`-only gates from `previo-update-room-status` and `previo-sync-rooms`, replacing them with flag checks that leave `previo-test` behavior unchanged.
