@@ -23,6 +23,10 @@ export interface PmsChangeEvent {
   acknowledged_at: string | null;
   acknowledged_by: string | null;
   resolution: string | null;
+  category?: "safe" | "risky" | "noop" | null;
+  change_kind?: string | null;
+  auto_applied?: boolean | null;
+  notes?: string | null;
 }
 
 const TYPE_META: Record<string, { icon: any; label: string }> = {
@@ -99,6 +103,7 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">
                 Room {evt.room_label || "?"} · {meta.label}
+                {evt.change_kind && <span className="text-muted-foreground font-normal"> · {evt.change_kind.replace(/_/g, " ")}</span>}
               </div>
               <div className="text-[11px] text-muted-foreground">
                 {formatDistanceToNow(new Date(evt.detected_at))} ago · {evt.source}
@@ -106,7 +111,13 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             </div>
           </div>
           {evt.is_conflict && !evt.acknowledged_at && (
-            <Badge variant="destructive" className="h-5 text-[10px]">Conflict</Badge>
+            <Badge variant="destructive" className="h-5 text-[10px]">Needs approval</Badge>
+          )}
+          {evt.category === "safe" && evt.auto_applied && (
+            <Badge variant="secondary" className="h-5 text-[10px]">Auto-applied</Badge>
+          )}
+          {evt.category === "safe" && !evt.auto_applied && !evt.acknowledged_at && (
+            <Badge variant="outline" className="h-5 text-[10px]">Safe</Badge>
           )}
           {evt.acknowledged_at && (
             <Badge variant="outline" className="h-5 text-[10px] gap-1">

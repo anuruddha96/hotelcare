@@ -159,3 +159,12 @@ Nothing new — all prior questions are answered. On approval I'll ship D1 first
 - No live code path calls the diff or the RPC yet — that is E2.
 
 **Next: E2** — wire the XLSX upload path and `previo-sync-daily-overview` through `diffSnapshots`, persist `pms_change_events`, auto-apply SAFE via `pms_apply_change`, and extend `PmsChangesDrawer` to show Auto-applied / Needs approval sections with realtime.
+
+## E2 shipped (this turn) — shadow-diff only
+- New table `pms_snapshots` (per hotel + business_date) storing the last normalized snapshot. Hotel staff can view; only edge functions write.
+- `pms_change_events` extended with `category` / `change_kind` / `auto_applied` columns (nullable / default false — no impact on existing rows or writers).
+- New edge function `pms-shadow-diff`: accepts a NormalizedSnapshot, diffs against previous snapshot for the same (hotel, date), inserts categorized `pms_change_events`, upserts snapshot. Idempotent via content_hash short-circuit. NEVER mutates room_assignments or rooms.
+- `PmsChangesDrawer` extended: shows "Needs approval" / "Auto-applied" / "Safe" badges and change_kind sub-label. Existing conflict/updates/resolved grouping preserved so no visible change until events with the new fields exist.
+- Zero call sites yet: neither `PMSUpload.tsx` nor `previo-sync-daily-overview` invokes `pms-shadow-diff`. That one-line invocation is the very last touch of E2 and will be added on the next "next" so it can be reviewed alone.
+
+**Next: E2 final** — add the fire-and-forget `pms-shadow-diff` invocation from the XLSX upload success path (in a try/catch that can never fail the upload), then the same from `previo-sync-daily-overview`.
