@@ -2532,7 +2532,10 @@ export type Database = {
           acknowledged_at: string | null
           acknowledged_by: string | null
           after: Json | null
+          auto_applied: boolean
           before: Json | null
+          category: string | null
+          change_kind: string | null
           conflicts_with_assignment_id: string | null
           detected_at: string
           event_type: string
@@ -2550,7 +2553,10 @@ export type Database = {
           acknowledged_at?: string | null
           acknowledged_by?: string | null
           after?: Json | null
+          auto_applied?: boolean
           before?: Json | null
+          category?: string | null
+          change_kind?: string | null
           conflicts_with_assignment_id?: string | null
           detected_at?: string
           event_type: string
@@ -2568,7 +2574,10 @@ export type Database = {
           acknowledged_at?: string | null
           acknowledged_by?: string | null
           after?: Json | null
+          auto_applied?: boolean
           before?: Json | null
+          category?: string | null
+          change_kind?: string | null
           conflicts_with_assignment_id?: string | null
           detected_at?: string
           event_type?: string
@@ -2829,6 +2838,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pms_snapshots: {
+        Row: {
+          business_date: string
+          content_hash: string
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          id: string
+          rooms: Json
+          source: string
+        }
+        Insert: {
+          business_date: string
+          content_hash: string
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          id?: string
+          rooms: Json
+          source: string
+        }
+        Update: {
+          business_date?: string
+          content_hash?: string
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          id?: string
+          rooms?: Json
+          source?: string
+        }
+        Relationships: []
       }
       pms_sync_history: {
         Row: {
