@@ -535,5 +535,12 @@ export default function PMSConfigurationManagement() {
         </CardContent>
       </Card>
     </div>
+      <AIRoomImportDialog
+        hotelId={selectedHotelId}
+        open={aiImportOpen}
+        onOpenChange={setAiImportOpen}
+        onApplied={fetchPMSConfig}
+      />
+    </>
   );
 }
