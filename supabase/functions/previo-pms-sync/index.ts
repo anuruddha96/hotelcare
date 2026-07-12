@@ -229,9 +229,31 @@ serve(async (req) => {
       console.warn(`[previo-pms-sync] XML reservations threw: ${reservationFetchError}`);
     }
 
+    // XML tenants: synthesise PrevioRoom entries from parsed reservations so
+    // the row builder below produces one row per reserved room (with today's
+    // arrival/departure/occupancy). Clean status is unknown via XML.
+    if (rooms.length === 0 && reservationsByRoomName.size > 0) {
+      const seen = new Set<string>();
+      for (const rec of reservationsByRoomName.values()) {
+        const key = String(rec.objId ?? rec.roomName);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rooms.push({
+          roomId: rec.objId ?? 0,
+          name: rec.roomName,
+          roomKindName: "",
+          roomTypeId: 0,
+          roomCleanStatusId: 0,
+          capacity: rec.guestsCount || 0,
+          extraCapacity: 0,
+        });
+      }
+    }
+
     // Build Excel-compatible rows. Header names match those that PMSUpload's
     // fuzzy column matcher recognizes (English variants).
     const rows = rooms.map((r) => {
+
       const res = reservationsByObjId.get(r.roomId) ?? reservationsByRoomName.get(r.name);
       const isOccupied = !!res && res.arrivalDate <= today && res.departureDate > today;
       const isDeparture = !!res && res.departureDate === today;
