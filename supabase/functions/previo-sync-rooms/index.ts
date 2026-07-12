@@ -38,13 +38,15 @@ serve(async (req) => {
 
   let requestedHotelId: string | null = null;
   let requestedImportLocal = false;
+  let requestedMapOnly = false;
   let requestedPreviewOnly = false;
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { hotelId, importLocal, previewOnly } = body as { hotelId?: string; importLocal?: boolean; previewOnly?: boolean };
+    const { hotelId, importLocal, mapOnly, previewOnly } = body as { hotelId?: string; importLocal?: boolean; mapOnly?: boolean; previewOnly?: boolean };
     requestedHotelId = hotelId ?? null;
     requestedImportLocal = Boolean(importLocal);
+    requestedMapOnly = Boolean(mapOnly);
     requestedPreviewOnly = Boolean(previewOnly);
 
     if (!hotelId) {
