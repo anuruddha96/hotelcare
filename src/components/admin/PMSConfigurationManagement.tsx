@@ -48,6 +48,7 @@ export default function PMSConfigurationManagement() {
   const [selectedHotelId, setSelectedHotelId] = useState<string>('');
   const [pmsConfig, setPmsConfig] = useState<PMSConfig | null>(null);
   const [roomMappings, setRoomMappings] = useState<RoomMapping[]>([]);
+  const [linkedRooms, setLinkedRooms] = useState<Array<{ id: string; room_number: string; pms_room_id: string; pms_room_name: string | null }>>([]);
   const [loading, setLoading] = useState(false);
   const [aiImportOpen, setAiImportOpen] = useState(false);
   
@@ -116,9 +117,29 @@ export default function PMSConfigurationManagement() {
       } else {
         setRoomMappings(mappings || []);
       }
+
+      // Also surface rooms that are already linked to Previo via
+      // pms_metadata.roomId, even when pms_room_mappings is empty. This
+      // lets admins see the actual room ↔ Previo linkage that the sync
+      // engine is using, and offer a "Backfill mappings" one-click fix.
+      const { data: linked } = await supabase
+        .from('rooms')
+        .select('id, room_number, pms_metadata')
+        .eq('hotel', config.hotel_id)
+        .not('pms_metadata->roomId', 'is', null)
+        .order('room_number');
+      setLinkedRooms(
+        (linked || []).map((r: any) => ({
+          id: r.id,
+          room_number: r.room_number,
+          pms_room_id: String(r.pms_metadata?.roomId ?? ''),
+          pms_room_name: r.pms_metadata?.previoName ?? r.pms_metadata?.roomKindName ?? null,
+        })).filter(r => r.pms_room_id),
+      );
     } else {
       setPmsConfig(null);
       setRoomMappings([]);
+      setLinkedRooms([]);
       setPmsHotelId('');
       setAutoSyncEnabled(false);
       setConnectionMode('manual');
@@ -236,6 +257,48 @@ export default function PMSConfigurationManagement() {
     }
     
     setLoading(false);
+  };
+
+  /**
+   * Backfill pms_room_mappings from rooms that already carry
+   * pms_metadata.roomId — happens when an earlier import populated the
+   * rooms table but skipped the mapping table (e.g. AI import in
+   * suggest-only mode). Idempotent: existing mappings are preserved.
+   */
+  const backfillMappingsFromMetadata = async () => {
+    if (!pmsConfig) return;
+    if (linkedRooms.length === 0) {
+      toast.info('No Previo-linked rooms found in the rooms table.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const existingByPmsId = new Map(roomMappings.map(m => [m.pms_room_id, m]));
+      const toInsert = linkedRooms
+        .filter(r => !existingByPmsId.has(r.pms_room_id))
+        .map(r => ({
+          pms_config_id: pmsConfig.id,
+          hotelcare_room_id: r.id,
+          hotelcare_room_number: r.room_number,
+          pms_room_id: r.pms_room_id,
+          pms_room_name: r.pms_room_name,
+          is_active: true,
+          mapping_status: 'active',
+          last_verified_at: new Date().toISOString(),
+        }));
+      if (toInsert.length === 0) {
+        toast.success('All linked rooms already have mappings.');
+      } else {
+        const { error } = await supabase.from('pms_room_mappings').insert(toInsert);
+        if (error) throw error;
+        toast.success(`Backfilled ${toInsert.length} room mapping(s).`);
+        await fetchPMSConfig();
+      }
+    } catch (e: any) {
+      toast.error(`Backfill failed: ${e?.message || 'unknown'}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const testPrevioConnection = async () => {
@@ -451,6 +514,16 @@ export default function PMSConfigurationManagement() {
                         <RefreshCw className="w-4 h-4 mr-2" />
                         Auto-map from Previo
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={loading || linkedRooms.length === 0}
+                        onClick={backfillMappingsFromMetadata}
+                        title="Create pms_room_mappings entries for rooms already linked via pms_metadata.roomId"
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Backfill from metadata ({linkedRooms.length})
+                      </Button>
                     </div>
                   </div>
                   <div className="p-3 bg-amber-50 dark:bg-amber-950 rounded-lg mb-4">
@@ -491,7 +564,30 @@ export default function PMSConfigurationManagement() {
                   {/* Existing Mappings */}
                   <div className="space-y-2">
                     {roomMappings.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No room mappings configured yet</p>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">
+                          No entries in <code>pms_room_mappings</code> yet.
+                        </p>
+                        {linkedRooms.length > 0 && (
+                          <div className="p-3 rounded border bg-muted/40">
+                            <p className="text-sm font-medium mb-2">
+                              {linkedRooms.length} room(s) already linked to Previo via <code>rooms.pms_metadata</code>:
+                            </p>
+                            <div className="max-h-56 overflow-y-auto space-y-1">
+                              {linkedRooms.map(r => (
+                                <div key={r.id} className="text-xs flex items-center gap-2">
+                                  <span className="font-medium">Room {r.room_number}</span>
+                                  <span className="text-muted-foreground">→ Previo ID {r.pms_room_id}</span>
+                                  {r.pms_room_name && <span className="text-muted-foreground">({r.pms_room_name})</span>}
+                                </div>
+                              ))}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Click <strong>Backfill from metadata</strong> above to persist these into the mapping table.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       roomMappings.map(mapping => (
                         <div key={mapping.id} className="flex items-center justify-between p-2 border rounded">
@@ -519,6 +615,7 @@ export default function PMSConfigurationManagement() {
                       ))
                     )}
                   </div>
+
 
                   <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
                     <p className="text-sm font-medium mb-1">Previo Room Type IDs:</p>

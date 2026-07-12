@@ -359,7 +359,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const assignmentMap = new Map<string, AssignmentData>();
   assignments.forEach(a => assignmentMap.set(a.room_id, a));
 
-  const isScheduledCheckoutRoom = (room: RoomData) => room.pms_metadata?.scheduledDepartureToday === true;
+  // A room counts as a "checkout room" in Team View if the PMS says the
+  // guest departs today OR tomorrow — this lets managers plan tomorrow's
+  // checkout cleanings today instead of finding them in Daily Rooms.
+  const isScheduledCheckoutRoom = (room: RoomData) =>
+    room.pms_metadata?.scheduledDepartureToday === true ||
+    room.pms_metadata?.scheduledDepartureTomorrow === true;
 
   const checkoutRooms = rooms.filter(r => {
     const assignment = assignmentMap.get(r.id);
@@ -471,8 +476,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               title="Manually moved by a manager (not from PMS)"
             >M</span>
           )}
-          {room.pms_metadata?.roomId && room.created_at && (Date.now() - new Date(room.created_at).getTime() < 3 * 24 * 3600 * 1000) && (
-            <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-emerald-600 text-white" title="Newly imported from Previo">NEW</span>
+          {room.pms_metadata?.roomId && room.created_at && (Date.now() - new Date(room.created_at).getTime() < 2 * 3600 * 1000) && (
+            <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-emerald-600 text-white" title="Newly imported from Previo (last 2h)">NEW</span>
+          )}
+          {room.pms_metadata?.scheduledDepartureTomorrow === true && !room.pms_metadata?.scheduledDepartureToday && (
+            <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
           )}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
