@@ -7,6 +7,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Previo names rooms with a category prefix (e.g. "DB/TW-102", "TRP-305",
+// "Q-101"). HotelCare stores just the numeric room_number ("102", "305").
+// Extract the trailing numeric token so we can auto-map by number.
+const extractRoomNumber = (raw: string): string => {
+  const s = String(raw ?? '').trim();
+  const matches = s.match(/\d+/g);
+  if (!matches || matches.length === 0) return s;
+  return matches[matches.length - 1];
+};
+
 interface PrevioRoom {
   roomId: number;
   name: string;
