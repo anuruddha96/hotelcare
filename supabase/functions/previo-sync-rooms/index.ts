@@ -125,12 +125,21 @@ serve(async (req) => {
       userId = user?.id || null;
     }
 
-    // ---- Import-local branch: upsert into rooms + pms_room_mappings.
-    // FLAG-BASED GATE (replaces the previous hardcoded 'previo-test' allowlist):
-    // requires the hotel's pms_configurations.room_import_enabled = true.
-    // 'previo-test' has this flag pre-ON; every other hotel has it pre-OFF,
-    // so rollout behavior is byte-identical.
-    if (importLocal) {
+    // ---- Import / mapping branch.
+    //
+    // Phase A (room upsert into public.rooms) is gated by the hotel's
+    // pms_configurations.room_import_enabled flag. It is off by default for
+    // every hotel except 'previo-test' so we never mass-create rooms behind
+    // the operator's back.
+    //
+    // Phase B (upsert into pms_room_mappings, matching Previo's physical
+    // roomId to an EXISTING HotelCare room by extracted room number) is
+    // ALWAYS safe and runs whenever the caller asked for `importLocal` or
+    // `mapOnly`, regardless of the room-import flag. Without this, hotels
+    // with hand-built room rosters (Ottofiori) never get their mappings
+    // seeded and the status-sync branch below fails with "No mapping for
+    // physical room …" for every room.
+    if (importLocal || mapOnly) {
       const { data: cfgRow } = await supabase
         .from('pms_configurations')
         .select('id, room_import_enabled')
@@ -138,34 +147,39 @@ serve(async (req) => {
         .eq('pms_type', 'previo')
         .single();
       if (!cfgRow) throw new Error('PMS config row not found');
-      if ((cfgRow as any).room_import_enabled !== true) {
-        return new Response(
-          JSON.stringify({ success: false, error: `Room import disabled for '${hotelCareHotelId}'. Enable it in the Activation Checklist.` }),
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+      const canUpsertRooms = !mapOnly && importLocal && (cfgRow as any).room_import_enabled === true;
 
-      // Pull org slug to populate on new room rows
-      const { data: hotelRec } = await supabase
-        .from('hotel_configurations')
-        .select('organization_id')
-        .eq('hotel_id', hotelCareHotelId)
-        .maybeSingle();
+      // Pull org slug for any newly-created room rows (Phase A only)
       let orgSlug: string | null = null;
-      if (hotelRec?.organization_id) {
-        const { data: org } = await supabase
-          .from('organizations')
-          .select('slug')
-          .eq('id', hotelRec.organization_id)
+      if (canUpsertRooms) {
+        const { data: hotelRec } = await supabase
+          .from('hotel_configurations')
+          .select('organization_id')
+          .eq('hotel_id', hotelCareHotelId)
           .maybeSingle();
-        orgSlug = org?.slug ?? null;
+        if (hotelRec?.organization_id) {
+          const { data: org } = await supabase
+            .from('organizations')
+            .select('slug')
+            .eq('id', hotelRec.organization_id)
+            .maybeSingle();
+          orgSlug = org?.slug ?? null;
+        }
       }
 
-      const importResults = { total: roomsData.length, upserted: 0, mapped: 0, errors: [] as string[] };
+      const importResults = {
+        total: roomsData.length,
+        upserted: 0,
+        mapped: 0,
+        unmapped: [] as Array<{ pms_room_id: string; pms_room_name: string; room_kind_name: string; extracted_number: string }>,
+        errors: [] as string[],
+        room_import_enabled: canUpsertRooms,
+      };
 
       for (const r of roomsData) {
         try {
-          const roomNumber = r.name;
+          const rawName = r.name;
+          const roomNumber = extractRoomNumber(rawName);
           const roomType = r.roomKindName || '';
           const roomCategory = r.roomKindName || null;
           const capacity = (r.capacity ?? 0) + (r.extraCapacity ?? 0);
@@ -180,76 +194,104 @@ serve(async (req) => {
             order: r.order,
           };
 
-          // Match by Previo numeric roomId first (handles "Onity 101" / "Salto 101" / "101" collisions).
-          // Fallback to (hotel, room_number) for legacy rows imported before pms_metadata.roomId was set.
+          // Locate the HotelCare room, matching by Previo roomId first
+          // (handles "Onity 101" / "Salto 101" collisions) then by the
+          // extracted numeric room_number.
           let { data: existing } = await supabase
             .from('rooms')
-            .select('id')
+            .select('id, room_number')
             .eq('hotel', hotelCareHotelId)
             .filter('pms_metadata->>roomId', 'eq', String(r.roomId))
             .maybeSingle();
           if (!existing) {
             ({ data: existing } = await supabase
               .from('rooms')
-              .select('id')
+              .select('id, room_number')
               .eq('hotel', hotelCareHotelId)
               .eq('room_number', roomNumber)
               .maybeSingle());
           }
 
-          if (existing) {
-            const { error } = await supabase
-              .from('rooms')
-              .update({
-                room_number: roomNumber,
-                room_type: roomType,
-                room_category: roomCategory,
-                room_capacity: capacity || null,
-                pms_metadata: pmsMetadata,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', existing.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase
-              .from('rooms')
-              .insert({
-                hotel: hotelCareHotelId,
-                room_number: roomNumber,
-                room_type: roomType,
-                room_category: roomCategory,
-                room_capacity: capacity || null,
-                status: 'clean',
-                organization_slug: orgSlug,
-                pms_metadata: pmsMetadata,
-              });
-            if (error) throw error;
+          // Phase A — upsert the room row (only when explicitly enabled).
+          if (canUpsertRooms) {
+            if (existing) {
+              const { error } = await supabase
+                .from('rooms')
+                .update({
+                  room_number: roomNumber,
+                  room_type: roomType,
+                  room_category: roomCategory,
+                  room_capacity: capacity || null,
+                  pms_metadata: pmsMetadata,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', existing.id);
+              if (error) throw error;
+            } else {
+              const { data: inserted, error } = await supabase
+                .from('rooms')
+                .insert({
+                  hotel: hotelCareHotelId,
+                  room_number: roomNumber,
+                  room_type: roomType,
+                  room_category: roomCategory,
+                  room_capacity: capacity || null,
+                  status: 'clean',
+                  organization_slug: orgSlug,
+                  pms_metadata: pmsMetadata,
+                })
+                .select('id, room_number')
+                .single();
+              if (error) throw error;
+              existing = inserted as any;
+            }
+            importResults.upserted++;
           }
-          importResults.upserted++;
 
+          // Phase B — mapping. Only create a mapping when a HotelCare room
+          // actually exists; otherwise surface as "unmapped" so an admin
+          // can wire it up manually.
+          if (!existing) {
+            importResults.unmapped.push({
+              pms_room_id: String(r.roomId),
+              pms_room_name: rawName,
+              room_kind_name: r.roomKindName || '',
+              extracted_number: roomNumber,
+            });
+            continue;
+          }
+
+          const targetRoomNumber = existing.room_number || roomNumber;
           const { data: existingMap } = await supabase
             .from('pms_room_mappings')
             .select('id')
             .eq('pms_config_id', cfgRow.id)
-            .eq('hotelcare_room_number', roomNumber)
+            .or(`pms_room_id.eq.${String(r.roomId)},hotelcare_room_number.eq.${targetRoomNumber}`)
             .maybeSingle();
           if (existingMap) {
             await supabase
               .from('pms_room_mappings')
               .update({
+                hotelcare_room_number: targetRoomNumber,
+                hotelcare_room_id: existing.id,
                 pms_room_id: String(r.roomId),
-                pms_room_name: r.name,
+                pms_room_name: rawName,
                 is_active: true,
+                mapping_status: 'auto',
+                last_verified_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
               })
               .eq('id', existingMap.id);
           } else {
             await supabase.from('pms_room_mappings').insert({
               pms_config_id: cfgRow.id,
-              hotelcare_room_number: roomNumber,
+              hotelcare_room_number: targetRoomNumber,
+              hotelcare_room_id: existing.id,
               pms_room_id: String(r.roomId),
-              pms_room_name: r.name,
+              pms_room_name: rawName,
               is_active: true,
+              mapping_status: 'auto',
+              last_verified_at: new Date().toISOString(),
             });
           }
           importResults.mapped++;
@@ -265,15 +307,7 @@ serve(async (req) => {
         data: {
           ...importResults,
           previo_hotel_id: previoNumericId,
-          operation: 'import_rooms',
-          extracted_rooms: roomsData.map((room) => ({
-            roomId: room.roomId,
-            name: room.name,
-            roomKindName: room.roomKindName,
-            capacity: room.capacity,
-            extraCapacity: room.extraCapacity,
-            roomCleanStatusId: room.roomCleanStatusId,
-          })),
+          operation: mapOnly ? 'map_rooms' : 'import_rooms',
         },
         changed_by: userId,
         sync_status: importResults.errors.length ? 'partial' : 'success',
@@ -281,10 +315,18 @@ serve(async (req) => {
       });
 
       return new Response(
-        JSON.stringify({ success: true, message: 'Rooms imported from Previo', results: importResults }),
+        JSON.stringify({
+          success: true,
+          message: mapOnly
+            ? `Mapped ${importResults.mapped} rooms (${importResults.unmapped.length} unmapped)`
+            : `Imported ${importResults.upserted} rooms, mapped ${importResults.mapped}`,
+          results: importResults,
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+
 
 
     // Get room mappings for this hotel
