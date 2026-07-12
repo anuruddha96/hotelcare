@@ -23,6 +23,10 @@ export interface PmsChangeEvent {
   acknowledged_at: string | null;
   acknowledged_by: string | null;
   resolution: string | null;
+  category?: "safe" | "risky" | "noop" | null;
+  change_kind?: string | null;
+  auto_applied?: boolean | null;
+  notes?: string | null;
 }
 
 const TYPE_META: Record<string, { icon: any; label: string }> = {
