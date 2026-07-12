@@ -174,16 +174,31 @@ function xmlEscape(s: string): string {
 }
 
 /**
- * Build the auth prefix for an XML `<request>` body.
- * For xml protocol → `<apiKey>...</apiKey>` (element name configurable).
- * For rest        → `<login>...</login><password>...</password>` (legacy).
+ * XML auth variants Previo may accept for a single-key credential. The XML
+ * schema doesn't officially document an <apiKey> element; different tenants
+ * are configured to accept the key in one of these slots.
  */
-export function buildPrevioXmlAuth(creds: PrevioCredentials): string {
-  if (creds.protocol === "xml") {
-    const tag = creds.authElement || "apiKey";
-    return `<${tag}>${xmlEscape(creds.apiKey)}</${tag}>`;
+export type PrevioXmlAuthVariant =
+  | "apiKey"        // <apiKey>KEY</apiKey>
+  | "login"         // <login>KEY</login><password/>
+  | "password"      // <login/><password>KEY</password>
+  | "loginPassword" // <login>KEY</login><password>KEY</password>
+  | "header";       // HTTP header Api-Key: KEY, no auth in XML
+
+function buildXmlAuthBlock(creds: PrevioCredentials, variant?: PrevioXmlAuthVariant): string {
+  if (creds.protocol === "rest") {
+    return `<login>${xmlEscape(creds.username)}</login><password>${xmlEscape(creds.password)}</password>`;
   }
-  return `<login>${xmlEscape(creds.username)}</login><password>${xmlEscape(creds.password)}</password>`;
+  const k = xmlEscape(creds.apiKey);
+  const v = variant ?? (creds.authElement === "apiKey" ? "apiKey" : (creds.authElement as PrevioXmlAuthVariant));
+  switch (v) {
+    case "login":         return `<login>${k}</login><password></password>`;
+    case "password":      return `<login></login><password>${k}</password>`;
+    case "loginPassword": return `<login>${k}</login><password>${k}</password>`;
+    case "header":        return ``; // no auth in body
+    case "apiKey":
+    default:              return `<${creds.authElement || "apiKey"}>${k}</${creds.authElement || "apiKey"}>`;
+  }
 }
 
 export interface PrevioXmlCallOptions {
@@ -192,6 +207,8 @@ export interface PrevioXmlCallOptions {
   pmsHotelId: string;
   /** Extra XML body appended AFTER auth + hotId. */
   extraXml?: string;
+  /** Force a specific XML auth variant (xml protocol only). */
+  authVariant?: PrevioXmlAuthVariant;
 }
 
 export interface PrevioXmlCallResult {
@@ -205,7 +222,7 @@ export interface PrevioXmlCallResult {
 
 /** POST an XML method call. Never logs credentials. */
 export async function callPrevioXml(opts: PrevioXmlCallOptions): Promise<PrevioXmlCallResult> {
-  const auth = buildPrevioXmlAuth(opts.creds);
+  const auth = buildXmlAuthBlock(opts.creds, opts.authVariant);
   const body = `<?xml version="1.0"?>
 <request>
 ${auth}
@@ -213,10 +230,16 @@ ${auth}
 ${opts.extraXml ?? ""}
 </request>`;
 
+  const headers: Record<string, string> = { "Content-Type": "text/xml; charset=UTF-8" };
+  if (opts.creds.protocol === "xml" && opts.authVariant === "header") {
+    headers["Api-Key"] = opts.creds.apiKey;
+  }
+
   const resp = await fetch(`${PREVIO_XML_ENDPOINT}/${opts.method}/`, {
     method: "POST",
-    headers: { "Content-Type": "text/xml; charset=UTF-8" },
+    headers,
     body,
+
   });
   const text = await resp.text();
   const errMatch = text.match(/<error>[\s\S]*?<message>([^<]*)<\/message>[\s\S]*?<\/error>/i)
