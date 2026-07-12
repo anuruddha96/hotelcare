@@ -1,10 +1,18 @@
-// One-click PMS sync for Previo test hotel.
-// Pulls /rest/rooms (incl. today's reservation per room) and returns rows
-// shaped exactly like the Excel PMS export so the frontend can feed them
-// into the same processing pipeline used for manual file uploads.
+// One-click PMS sync for Previo hotels.
+// Returns rows shaped exactly like the Excel PMS export so the frontend can
+// feed them into the same processing pipeline used for manual file uploads.
 //
-// HARD GUARD: only operates for hotel_id = 'previo-test'. Returns an error
-// for any other hotel so OttoFiori and others are never touched.
+// Roster strategy:
+//   - REST tenants: fetch rooms from /rest/rooms (includes clean status).
+//   - XML tenants (e.g. Ottofiori): use the local `rooms` table for the hotel
+//     as the authoritative roster (every physical room), then enrich with
+//     reservations pulled from Previo XML `searchReservations`. This
+//     guarantees every room is included in the sync even when it has no
+//     reservation in the window.
+//
+// Window: [today, today+3) so that reservations departing tomorrow are
+// visible and rooms can be flagged `DepartureTomorrow` / `IsCheckoutRoom`
+// ahead of time.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
@@ -17,8 +25,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const ALLOWED_HOTEL_ID = "previo-test";
-
 interface PrevioRoom {
   roomId: number;
   name: string;
@@ -27,18 +33,16 @@ interface PrevioRoom {
   roomCleanStatusId: number;
   capacity: number;
   extraCapacity: number;
-  reservation?: {
-    reservationId: number;
-    arrivalDate: string;   // YYYY-MM-DD
-    departureDate: string; // YYYY-MM-DD
-    status: string;
-    guestsCount?: number;
-    note?: string;
-  };
 }
 
 function todayUtcDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function addDays(base: string, n: number): string {
+  const d = new Date(base + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 function diffDays(from: string, to: string): number {
@@ -55,7 +59,6 @@ serve(async (req) => {
     const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
     const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Auth: require Bearer token
     const authHeader = req.headers.get("Authorization") || "";
     if (!authHeader.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -74,10 +77,17 @@ serve(async (req) => {
 
     const service = createClient(SUPABASE_URL, SERVICE);
 
-    const { hotelId } = await req.json().catch(() => ({}));
-    const targetHotel = hotelId || ALLOWED_HOTEL_ID;
+    const body = await req.json().catch(() => ({} as any));
+    const targetHotel: string = body.hotelId;
+    const dryRun: boolean = body.dryRun === true;
+    if (!targetHotel) {
+      return new Response(JSON.stringify({ error: "hotelId required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    // Authorization: must be admin/manager assigned to the hotel (or admin/top_management)
+    // Authorization: admin/top_management OR manager assigned to the hotel.
     const { data: profile } = await service
       .from("profiles")
       .select("role, assigned_hotel")
@@ -91,7 +101,6 @@ serve(async (req) => {
       });
     }
 
-    // Load PMS config
     const { data: cfg } = await service
       .from("pms_configurations")
       .select("id, hotel_id, pms_hotel_id, credentials_secret_name")
@@ -105,7 +114,6 @@ serve(async (req) => {
       );
     }
 
-    // Detect protocol from stored credential (xml = single ApiKey, rest = user/pass).
     let credsProtocol: "xml" | "rest" = "rest";
     try {
       const c = loadPrevioCredentials(cfg.credentials_secret_name);
@@ -117,17 +125,15 @@ serve(async (req) => {
       );
     }
 
-    // rooms[] is populated only for REST tenants (legacy previo-test). For
-    // XML tenants (Ottofiori et al.) we skip /rest/rooms — the XML API key
-    // isn't valid there — and derive rows purely from searchReservations.
     let rooms: PrevioRoom[] = [];
+    let rosterSource: "rest" | "local" | "reservations" = "reservations";
+
     if (credsProtocol === "rest") {
       const { response: resp } = await fetchPrevioWithAuth({
         credentialsSecretName: cfg.credentials_secret_name,
         path: "/rest/rooms",
         pmsHotelId: String(cfg.pms_hotel_id || ""),
       });
-
       if (!resp.ok) {
         const txt = await resp.text();
         console.error(`Previo /rest/rooms ${resp.status}:`, txt.slice(0, 500));
@@ -137,20 +143,37 @@ serve(async (req) => {
         );
       }
       rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
+      rosterSource = "rest";
+    } else {
+      // XML tenants: use local `rooms` table as authoritative roster so every
+      // physical room is included, even those without reservations.
+      const { data: localRooms } = await service
+        .from("rooms")
+        .select("room_number, room_type, pms_metadata")
+        .eq("hotel", targetHotel);
+      if (localRooms && localRooms.length > 0) {
+        rooms = localRooms.map((r: any) => ({
+          roomId: Number(r.pms_metadata?.roomId ?? 0),
+          name: r.room_number,
+          roomKindName: r.room_type ?? "",
+          roomTypeId: 0,
+          roomCleanStatusId: 0,
+          capacity: 0,
+          extraCapacity: 0,
+        }));
+        rosterSource = "local";
+      }
     }
+
     const today = todayUtcDate();
+    const tomorrow = addDays(today, 1);
+    const windowEnd = addDays(today, 3);
 
-
-    // Pull today's reservations via the Previo XML API. The REST API has no
-    // list endpoint for reservations, but the XML `searchReservations` method
-    // returns full reservation objects with the assigned room (object/name)
-    // and term (from/to). We index by room name (since /rest/rooms uses the
-    // same `name`) and by objId for safety.
     interface ParsedReservation {
       objId: number | null;
       roomName: string;
-      arrivalDate: string;   // YYYY-MM-DD
-      departureDate: string; // YYYY-MM-DD
+      arrivalDate: string;
+      departureDate: string;
       statusId: number;
       guestsCount: number;
       note: string | null;
@@ -159,79 +182,71 @@ serve(async (req) => {
     const reservationsByObjId = new Map<number, ParsedReservation>();
     let reservationFetchError: string | null = null;
     try {
-      // XML API requires from < to. Use [today, today+2) to safely capture
-      // anything departing today (term.to date == today).
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
       const creds = loadPrevioCredentials(cfg.credentials_secret_name);
       const xmlResult = await callPrevioXml({
         method: "searchReservations",
         creds,
         pmsHotelId: String(cfg.pms_hotel_id || ""),
-        extraXml: `<term><from>${today}</from><to>${tomorrow}</to></term>`,
+        extraXml: `<term><from>${today}</from><to>${windowEnd}</to></term>`,
       });
       const xmlText = xmlResult.text;
       if (!xmlResult.ok) {
         reservationFetchError = `XML API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
         console.warn(`[previo-pms-sync] XML reservations failed: ${reservationFetchError}`);
       } else {
-          // Naive XML parse — extract each <reservation>...</reservation> block.
-          const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
-          const grab = (s: string, tag: string) => {
-            const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
-            return m ? m[1].trim() : "";
+        const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
+        const grab = (s: string, tag: string) => {
+          const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+          return m ? m[1].trim() : "";
+        };
+        for (const block of blocks) {
+          const fromStr = grab(block, "from");
+          const toStr = grab(block, "to");
+          if (!fromStr || !toStr) continue;
+          const arrival = fromStr.slice(0, 10);
+          const departure = toStr.slice(0, 10);
+          const statusId = parseInt(grab(block, "statusId") || "0", 10);
+          if (statusId === 7 || statusId === 8) continue;
+          const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
+          const objId = objMatch ? parseInt(objMatch[1], 10) : null;
+          const roomName = objMatch ? objMatch[2].trim() : "";
+          if (!roomName && !objId) continue;
+          const guestsCount = (block.match(/<guest>/g) || []).length;
+          const noteMatch = block.match(/<note>([^<]*)<\/note>/);
+          const rec: ParsedReservation = {
+            objId,
+            roomName,
+            arrivalDate: arrival,
+            departureDate: departure,
+            statusId,
+            guestsCount,
+            note: noteMatch ? noteMatch[1].trim() || null : null,
           };
-          for (const block of blocks) {
-            const fromStr = grab(block, "from");
-            const toStr = grab(block, "to");
-            if (!fromStr || !toStr) continue;
-            const arrival = fromStr.slice(0, 10);
-            const departure = toStr.slice(0, 10);
-            const statusId = parseInt(grab(block, "statusId") || "0", 10);
-            // Skip cancelled (7) and no-show (8) reservations
-            if (statusId === 7 || statusId === 8) continue;
-            const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
-            const objId = objMatch ? parseInt(objMatch[1], 10) : null;
-            const roomName = objMatch ? objMatch[2].trim() : "";
-            if (!roomName && !objId) continue;
-            const guestsCount = (block.match(/<guest>/g) || []).length;
-            const noteMatch = block.match(/<note>([^<]*)<\/note>/);
-
-            const rec: ParsedReservation = {
-              objId,
-              roomName,
-              arrivalDate: arrival,
-              departureDate: departure,
-              statusId,
-              guestsCount,
-              note: noteMatch ? noteMatch[1].trim() || null : null,
-            };
-
-            // Prefer the reservation departing today (checkout) over an
-            // arrival or stay-through when one room has multiple records.
-            const replaceIfBetter = (existing: ParsedReservation | undefined) => {
-              if (!existing) return true;
-              if (rec.departureDate === today && existing.departureDate !== today) return true;
-              if (existing.departureDate === today) return false;
-              if (rec.arrivalDate <= today && rec.departureDate > today) return true;
-              return false;
-            };
-            if (roomName && replaceIfBetter(reservationsByRoomName.get(roomName))) {
-              reservationsByRoomName.set(roomName, rec);
-            }
-            if (objId != null && replaceIfBetter(reservationsByObjId.get(objId))) {
-              reservationsByObjId.set(objId, rec);
-            }
+          const rank = (r: ParsedReservation) => {
+            if (r.arrivalDate <= today && r.departureDate > today) return 3;
+            if (r.departureDate === today) return 2;
+            if (r.departureDate === tomorrow) return 1;
+            return 0;
+          };
+          const replaceIfBetter = (existing: ParsedReservation | undefined) => {
+            if (!existing) return true;
+            return rank(rec) > rank(existing);
+          };
+          if (roomName && replaceIfBetter(reservationsByRoomName.get(roomName))) {
+            reservationsByRoomName.set(roomName, rec);
           }
-          console.log(`[previo-pms-sync] XML returned ${blocks.length} reservations, indexed ${reservationsByRoomName.size} rooms`);
+          if (objId != null && replaceIfBetter(reservationsByObjId.get(objId))) {
+            reservationsByObjId.set(objId, rec);
+          }
+        }
+        console.log(`[previo-pms-sync] XML returned ${blocks.length} reservations, indexed ${reservationsByRoomName.size} rooms`);
       }
     } catch (e: any) {
       reservationFetchError = e?.message || String(e);
       console.warn(`[previo-pms-sync] XML reservations threw: ${reservationFetchError}`);
     }
 
-    // XML tenants: synthesise PrevioRoom entries from parsed reservations so
-    // the row builder below produces one row per reserved room (with today's
-    // arrival/departure/occupancy). Clean status is unknown via XML.
+    // Fallback: no roster (empty local table) — synthesise from reservations.
     if (rooms.length === 0 && reservationsByRoomName.size > 0) {
       const seen = new Set<string>();
       for (const rec of reservationsByRoomName.values()) {
@@ -248,27 +263,22 @@ serve(async (req) => {
           extraCapacity: 0,
         });
       }
+      rosterSource = "reservations";
     }
 
-    // Build Excel-compatible rows. Header names match those that PMSUpload's
-    // fuzzy column matcher recognizes (English variants).
     const rows = rooms.map((r) => {
-
-      const res = reservationsByObjId.get(r.roomId) ?? reservationsByRoomName.get(r.name);
+      const res = (r.roomId ? reservationsByObjId.get(r.roomId) : undefined)
+        ?? reservationsByRoomName.get(r.name);
       const isOccupied = !!res && res.arrivalDate <= today && res.departureDate > today;
       const isDeparture = !!res && res.departureDate === today;
+      const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
       const isArrival = !!res && res.arrivalDate === today;
-      // Previo statusId 5 = Departed/Checked-out. Reception flips this in the
-      // PMS when the guest actually leaves the hotel.
       const isCheckedOut = !!res && res.statusId === 5 && isDeparture;
+      const isCheckoutRoom = isCheckedOut || isDeparture || isDepartureTomorrow;
       const totalNights = res ? diffDays(res.arrivalDate, res.departureDate) : 0;
       const currentNight = res
         ? Math.min(totalNights, Math.max(1, diffDays(res.arrivalDate, today) + (isDeparture ? 0 : 1)))
         : 0;
-
-      // Previo roomCleanStatusId mapping (matches previo-sync-rooms):
-      //   1 = Untidy/Dirty, 2 = Clean, 3 = Inspected (clean),
-      //   4 = Out of order, 5 = Out of service. Unknown → null (skip update).
       const cleanMap: Record<number, string> = { 1: "Untidy", 2: "Clean", 3: "Clean", 4: "Untidy", 5: "Untidy" };
       const statusLabel = cleanMap[r.roomCleanStatusId] ?? "";
 
@@ -277,14 +287,13 @@ serve(async (req) => {
         RoomId: r.roomId,
         RoomKindName: r.roomKindName,
         Occupied: isOccupied || isDeparture ? "Yes" : "No",
-        // Excel uses time strings; we don't have actual times from /rest/rooms,
-        // so use sentinel "12:00" if the date matches today. The pipeline only
-        // cares whether departure is non-empty, not the exact time.
         Departure: isDeparture ? "12:00" : null,
+        DepartureTomorrow: isDepartureTomorrow,
+        DepartureDate: res?.departureDate ?? null,
+        ArrivalDate: res?.arrivalDate ?? null,
         Arrival: isArrival ? "15:00" : null,
-        // Real, reception-confirmed checkout (PMS statusId=5). Consumers
-        // should prefer this over Departure for is_checkout_room.
         CheckedOut: isCheckedOut,
+        IsCheckoutRoom: isCheckoutRoom,
         ReservationStatusId: res?.statusId ?? null,
         People: res?.guestsCount ?? (isOccupied || isDeparture ? r.capacity : 0),
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
@@ -296,16 +305,20 @@ serve(async (req) => {
     });
 
     const departureCount = rows.filter((r) => r.Departure).length;
+    const departureTomorrowCount = rows.filter((r) => r.DepartureTomorrow).length;
     const checkedOutCount = rows.filter((r) => r.CheckedOut).length;
     const arrivalCount = rows.filter((r) => r.Arrival).length;
-    console.log(`[previo-pms-sync] emitted ${rows.length} rows (${departureCount} scheduled departures, ${checkedOutCount} checked-out, ${arrivalCount} arrivals today)`);
+    console.log(`[previo-pms-sync] emitted ${rows.length} rows (${departureCount} depart today, ${departureTomorrowCount} depart tomorrow, ${checkedOutCount} checked-out, ${arrivalCount} arrivals; roster=${rosterSource}, dryRun=${dryRun})`);
 
     return new Response(
       JSON.stringify({
         ok: true,
         hotel_id: targetHotel,
+        dryRun,
+        rosterSource,
         rowCount: rows.length,
         departuresToday: departureCount,
+        departuresTomorrow: departureTomorrowCount,
         checkedOutToday: checkedOutCount,
         arrivalsToday: arrivalCount,
         reservationsAvailable: reservationsByRoomName.size,
