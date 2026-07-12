@@ -146,3 +146,16 @@ The button appearance, spacing, and copy match existing shadcn tokens — no vis
 
 ## What I need from you before implementing
 Nothing new — all prior questions are answered. On approval I'll ship D1 first (smallest, riskiest to get wrong) and check in before E1.
+
+---
+
+## D1 shipped
+- `supabase/functions/_shared/pmsNormalizer.ts` (pure, unwired).
+
+## E1 shipped (this turn)
+- `supabase/functions/_shared/pmsDiff.ts` — pure classifier: safe / risky / noop per room. Unwired.
+- Migration: `public.pms_apply_change(hotel, room, date, before, after, event_id)` SECURITY DEFINER. Never deletes existing assignments; on true `stay_kind` change it sets `pms_hold=true` on the row and links `pms_hold_event_id`. On safe changes it reports `updated_in_place` so the caller can UPDATE in place. `EXECUTE` revoked from PUBLIC, granted only to `service_role`.
+- Added missing GRANTs to `pms_change_events` (SELECT, UPDATE for authenticated; ALL for service_role).
+- No live code path calls the diff or the RPC yet — that is E2.
+
+**Next: E2** — wire the XLSX upload path and `previo-sync-daily-overview` through `diffSnapshots`, persist `pms_change_events`, auto-apply SAFE via `pms_apply_change`, and extend `PmsChangesDrawer` to show Auto-applied / Needs approval sections with realtime.
