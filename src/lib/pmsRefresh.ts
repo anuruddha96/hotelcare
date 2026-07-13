@@ -261,10 +261,12 @@ export async function runPmsRefresh(
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
-      if (shouldBeCheckoutRoom) {
-        updateData.is_checkout_room = true;
-        if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
-      }
+      // Always write the authoritative checkout flag so rooms that are no
+      // longer departing today/tomorrow get reset to false. Preserve any
+      // manual override (manager toggled it in the UI).
+      const manualOverride = existingMetadata?.manual_checkout === true;
+      updateData.is_checkout_room = manualOverride ? true : shouldBeCheckoutRoom;
+      if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
       if (row.Note) updateData.notes = String(row.Note);
