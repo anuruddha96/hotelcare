@@ -51,6 +51,11 @@ function diffDays(from: string, to: string): number {
   return Math.max(0, Math.round((b - a) / 86400000));
 }
 
+function extractRoomNumber(raw: string): string {
+  const match = String(raw ?? "").match(/(\d{3})(?:\D*)$/) ?? String(raw ?? "").match(/\d+/);
+  return match ? match[1] : String(raw ?? "").trim();
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -343,8 +348,10 @@ serve(async (req) => {
     }
 
     const rows = rooms.map((r) => {
+      const roomNumber = extractRoomNumber(r.name);
       const res = (r.roomId ? reservationsByObjId.get(r.roomId) : undefined)
-        ?? reservationsByRoomName.get(r.name);
+        ?? reservationsByRoomName.get(r.name)
+        ?? (roomNumber !== r.name ? reservationsByRoomName.get(roomNumber) : undefined);
       const isOccupied = !!res && res.arrivalDate <= today && res.departureDate > today;
       const isDeparture = !!res && res.departureDate === today;
       const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
