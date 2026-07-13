@@ -280,13 +280,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             const done = a.status === 'completed' && a.supervisor_approved === true;
             if (!done) carried.add(a.room_id);
           }
-          // Only mark as carried if there's no completed+approved assignment today
-          const doneTodayIds = new Set(
-            (assignmentsRes.data || [])
-              .filter((a: any) => a.status === 'completed' && a.supervisor_approved === true)
-              .map((a: any) => a.room_id)
+          // Any assignment today (regardless of status) means the room belongs
+          // to "today" — a fresh assignment supersedes a prior carried one.
+          const assignedTodayIds = new Set(
+            (assignmentsRes.data || []).map((a: any) => a.room_id)
           );
-          for (const id of doneTodayIds) carried.delete(id);
+          for (const id of assignedTodayIds) carried.delete(id);
           setCarriedRoomIds(carried);
         } else {
           setCarriedRoomIds(new Set());
@@ -295,6 +294,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         console.error('Error fetching carried rooms:', e);
         setCarriedRoomIds(new Set());
       }
+
 
       // Calculate ACT from completed assignments for this hotel's rooms
       const completedForHotel = (completedRes.data || []).filter(a => roomIds.has(a.room_id));
