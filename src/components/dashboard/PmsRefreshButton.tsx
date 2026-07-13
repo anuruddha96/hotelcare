@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, DoorOpen, Radio, Activity } from 'lucide-react';
+import { RefreshCw, Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, DoorOpen, Radio, Activity, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLiveSync } from '@/contexts/LiveSyncContext';
-import { formatDistanceToNowStrict } from 'date-fns';
+import { formatDistanceToNowStrict, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Props {
   onRefreshed?: () => void;
 }
+
 
 const MANAGER_ROLES = new Set([
   'admin',
@@ -115,10 +121,29 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   // Heartbeat ping cadence: fast when syncing, slow when fresh, none when stale.
   const showPing = busy || isFresh || t.status === 'error';
 
-  const handleClick = async () => {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [justSuccess, setJustSuccess] = useState(false);
+
+  const doRefresh = async () => {
     await refresh('pms');
+    setJustSuccess(true);
+    toast.success('✨ PMS sync complete', {
+      description: 'Team View is now up to date with Previo.',
+      duration: 3500,
+    });
+    setTimeout(() => setJustSuccess(false), 1600);
     onRefreshed?.();
   };
+
+  const handleClick = async () => {
+    // If last sync <10 min old, ask for confirmation.
+    if (t.lastAt && Date.now() - t.lastAt.getTime() < 10 * 60 * 1000) {
+      setConfirmOpen(true);
+      return;
+    }
+    await doRefresh();
+  };
+
 
   return (
     <div
