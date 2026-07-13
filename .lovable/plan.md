@@ -1,64 +1,46 @@
 ## Goal
 
-Turn the left column of Hotel Room Overview into a true **read-only snapshot of yesterday's working day** (assignments, statuses, staff, done/pending as they stood at end of day). The right column stays the live "today" view. No changes to any live assignments — this is a rendering/wiring change only.
+Fix four things in `HotelRoomOverview`:
 
-## Behavior
+1. **Daily rooms showing as "clean" when they aren't** (Ottofiori manager could not assign daily rooms because chips looked already-cleaned).
+2. **Mobile view for managers**: hide the "Yesterday's rooms" column on mobile for `manager` role. Keep it on mobile for `admin` / `top_management`. Desktop unchanged (both columns visible for everyone).
+3. **Yesterday's snapshot chips missing legend indicators** (DND, No-Show, Early Checkout, Towel Change, Linen Change, RC, extra towels, bed config).
+4. **Legend expanded by default**.
 
-**Left column ("Yesterday — read-only"):**
-- Header changes from "Yesterday / carried" to `Yesterday — {date}` with a `Read-only` badge.
-- Shows every room that had an assignment on the most recent prior working day (default: `selectedDate - 1`; if that day has zero assignments, fall back to the latest earlier `assignment_date` that has any rows, so weekends/gaps still render something).
-- Each chip reflects **yesterday's final state**, not today's:
-  - assigned housekeeper (from yesterday's row)
-  - status (completed / in_progress / assigned / not started)
-  - supervisor_approved flag
-  - checkout vs daily (from yesterday's `assignment_type`)
-  - completion time if present
-- Chips are fully non-interactive: no drag, no click-to-open editor, no context menu, no type switch, no "mark ready" — all handlers gated behind an `isReadOnly` prop on the chip renderer.
-- Drag-and-drop drop target on the left column is disabled.
+No changes to live data, edge functions, DB, or training module.
 
-**Right column ("Today"):**
-- Unchanged behavior. Shows current live assignments + PMS/manual rooms for `selectedDate`.
-- Managers keep all existing edit/drag/assignment powers here.
+## Technical Plan (only `src/components/dashboard/HotelRoomOverview.tsx`)
 
-**Carried-over rooms:** the current "carried incomplete" logic (`carriedRoomIds`) is removed from the split — it was conflating two ideas. Yesterday's snapshot naturally shows any unfinished rooms as `in_progress`/`assigned`. If a room genuinely needs redoing today, the manager creates a today assignment (already supported).
+### 1. Fix "all daily rooms show as cleaned"
+In `renderRoomChip` (line ~500), the status fallback is:
+```ts
+else statusKey = room.status || 'dirty';
+```
+`rooms.status` persists as `'clean'` from prior days, so a room without a today assignment renders green. Change the fallback so that when the room appears in a section (checkout/daily) but has **no `assignment` for today**, we always render it as `'dirty'` (needs cleaning), ignoring the stale `room.status`. Only use `room.status` when it explicitly signals a non-clean state (e.g. `dirty`, `in_progress`, `out_of_service`).
 
-## Technical Plan
+Concretely:
+```ts
+else if (!assignment) statusKey = 'dirty';
+else statusKey = room.status && room.status !== 'clean' ? room.status : 'dirty';
+```
+This restores the manager's ability to see which rooms still need to be assigned today.
 
-All work in `src/components/dashboard/HotelRoomOverview.tsx` + a couple of translation keys.
+### 2. Hide left column on mobile for managers
+`useIsMobile()` + existing role flags are already imported. In `renderSection`, wrap the two-column grid so the LEFT (yesterday) panel is not rendered when `isMobile && role === 'manager'`. Admins/top_management keep both columns on mobile. Right column becomes full-width in the mobile-manager case (drop the `md:grid-cols-[...]` and render only the right panel).
 
-1. **Add "previous working day" resolver in `fetchData`:**
-   - Query `room_assignments` for the max `assignment_date < selectedDate` scoped to this hotel's `room_id`s (single query with `order desc limit 1`).
-   - Then fetch all `room_assignments` rows for that date, selecting: `room_id, assigned_to, status, assignment_type, supervisor_approved, ready_to_clean, started_at, completed_at, notes, assignment_date`.
-   - Store in new state: `previousDayDate: string | null` and `previousAssignments: Record<string, YesterdayAssignment>` keyed by `room_id`.
+### 3. Add legend indicators to read-only yesterday chips
+Extend `renderReadOnlyChip` to mirror the same visual affordances as `renderRoomChip`, using the room's current fields (best available proxy for yesterday's state — the DB doesn't store per-day snapshots of these flags):
+- Ring colors: `is_dnd` → purple ring, `isNoShow(room)` → red ring, `isEarlyCheckout(room)` → orange ring.
+- Inline badges: `towel_change_required` → `T`, `linen_change_required` → `C`, `roomFlags.roomCleaning` → `RC`, `roomFlags.collectExtraTowels` → 🧺, `bed_type === 'shabath'` → `SH`.
+- Emoji indicators: 🚫 (DND), ⚠️ (no-show), 🔶 (early checkout).
+- Bed configuration abbreviation and `📝` for clean notes under the chip.
+- Keep existing yesterday-only markers (✅ approved / ⏳ pending / ⏱ in-progress, C/O tag, completion time, staff name).
+- Still fully non-interactive (`pointer-events-none` container, no popover/drag/click handlers).
 
-2. **Replace `carriedRoomIds` split with snapshot-based split:**
-   - `previousRooms` = rooms whose id is a key in `previousAssignments`.
-   - `todayRooms` = every other room in the hotel list (same set as before).
-   - A room appearing in both days shows on both sides (left = yesterday state, right = today state). This is intentional so managers can compare.
-
-3. **Read-only chip path:**
-   - Extract a lightweight `renderRoomChipReadOnly(room, yestAssignment)` (or pass `readOnly` + `overrideAssignment` props into the existing `renderRoomChip`). It reuses the same visual layout but:
-     - Disables `onClick`, `onDragStart`, `draggable`, popover triggers, dropdown menus.
-     - Sources `assigned_to`, `status`, `assignment_type`, `supervisor_approved`, `completed_at` from `yestAssignment` instead of live `assignments` state.
-   - Wrap left-column chips in a container with `pointer-events-none` as a belt-and-braces guard, but keep the tooltip/name legible (wrap the label in a `pointer-events-auto` span if needed).
-
-4. **Disable left-column drop target:**
-   - In `renderSection`, when rendering the left panel, do not attach the `onDragOver/Drop` handlers to that sub-div, and pass `isReadOnly` down so the section header shows a small lock icon + "Read-only" badge.
-
-5. **Header + labels:**
-   - Left panel header: `Yesterday — {formatted previousDayDate}` + `Read-only` badge. If `previousDayDate` is null, show "No prior day data" and hide the panel body.
-   - Update `t('team.yesterdayCarried')` copy in `src/lib/highlighted-translations.ts` for en/hu/es/vi/mn to "Yesterday" (plain), and add `team.readOnly` = "Read-only".
-
-6. **No writes anywhere.** Confirm by grepping the new code path for `supabase.from('room_assignments').update|insert|delete` — must be zero in the read-only branch. No edge function redeploys.
-
-7. **Realtime:** existing channel filter is `assignment_date=eq.${selectedDate}` (today only), so yesterday's snapshot won't churn — good. No changes needed.
-
-## Files touched
-
-- `src/components/dashboard/HotelRoomOverview.tsx` (fetch prior-day snapshot, split logic, read-only chip path, disable left-column DnD, header)
-- `src/lib/highlighted-translations.ts` (label tweaks + `team.readOnly`)
+### 4. Legend expanded by default
+Change `const [showLegend, setShowLegend] = useState(false)` → `useState(true)`.
 
 ## Out of scope
-
-- No edge function changes, no migrations, no changes to live room_assignments, no PMS sync tweaks.
-- Not touching the training module in this pass.
+- No DB migrations, no edge function changes, no live-assignment writes.
+- No changes to the training module or to any other screen.
+- No change to desktop layout for any role.
