@@ -51,6 +51,11 @@ function diffDays(from: string, to: string): number {
   return Math.max(0, Math.round((b - a) / 86400000));
 }
 
+function extractRoomNumber(raw: string): string {
+  const match = String(raw ?? "").match(/(\d{3})(?:\D*)$/) ?? String(raw ?? "").match(/\d+/);
+  return match ? match[1] : String(raw ?? "").trim();
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -181,6 +186,27 @@ serve(async (req) => {
     const reservationsByRoomName = new Map<string, ParsedReservation>();
     const reservationsByObjId = new Map<number, ParsedReservation>();
     let reservationFetchError: string | null = null;
+    let reservationFallbackSource: string | null = null;
+
+    const indexReservation = (rec: ParsedReservation) => {
+      const rank = (r: ParsedReservation) => {
+        if (r.departureDate === today) return 4;                                   // checkout today
+        if (r.arrivalDate < today && r.departureDate > today) return 3;            // true stay-through
+        if (r.arrivalDate === today && r.departureDate > today) return 2;          // arrival only
+        if (r.departureDate === tomorrow) return 1;
+        return 0;
+      };
+      const replaceIfBetter = (existing: ParsedReservation | undefined) => {
+        if (!existing) return true;
+        return rank(rec) > rank(existing);
+      };
+      if (rec.roomName && replaceIfBetter(reservationsByRoomName.get(rec.roomName))) {
+        reservationsByRoomName.set(rec.roomName, rec);
+      }
+      if (rec.objId != null && replaceIfBetter(reservationsByObjId.get(rec.objId))) {
+        reservationsByObjId.set(rec.objId, rec);
+      }
+    };
     try {
       const creds = loadPrevioCredentials(cfg.credentials_secret_name);
       const xmlResult = await callPrevioXml({
@@ -227,29 +253,78 @@ serve(async (req) => {
           // today) and the incoming (arrival today, departure future)
           // reservations for the same room. The outgoing one wins because the
           // room needs checkout cleaning before the new guest can arrive.
-          const rank = (r: ParsedReservation) => {
-            if (r.departureDate === today) return 4;                                   // checkout today
-            if (r.arrivalDate < today && r.departureDate > today) return 3;            // true stay-through
-            if (r.arrivalDate === today && r.departureDate > today) return 2;          // arrival only
-            if (r.departureDate === tomorrow) return 1;
-            return 0;
-          };
-          const replaceIfBetter = (existing: ParsedReservation | undefined) => {
-            if (!existing) return true;
-            return rank(rec) > rank(existing);
-          };
-          if (roomName && replaceIfBetter(reservationsByRoomName.get(roomName))) {
-            reservationsByRoomName.set(roomName, rec);
-          }
-          if (objId != null && replaceIfBetter(reservationsByObjId.get(objId))) {
-            reservationsByObjId.set(objId, rec);
-          }
+          indexReservation(rec);
         }
         console.log(`[previo-pms-sync] XML returned ${blocks.length} reservations, indexed ${reservationsByRoomName.size} rooms`);
       }
     } catch (e: any) {
       reservationFetchError = e?.message || String(e);
       console.warn(`[previo-pms-sync] XML reservations threw: ${reservationFetchError}`);
+    }
+
+    // Safety net: if the live XML reservation feed is unavailable/empty, do
+    // NOT let the REST room roster (which has clean statuses but no departure
+    // data) wipe checkout rooms back into daily rooms. Rehydrate today's
+    // housekeeping picture from the latest successful manual PMS upload.
+    if (reservationsByRoomName.size === 0) {
+      try {
+        const { data: hotelCfg } = await service
+          .from("hotel_configurations")
+          .select("hotel_name")
+          .eq("hotel_id", targetHotel)
+          .maybeSingle();
+        const hotelFilters = Array.from(new Set([targetHotel, (hotelCfg as any)?.hotel_name].filter(Boolean)));
+        const start = `${today}T00:00:00Z`;
+        const end = `${tomorrow}T00:00:00Z`;
+        const { data: latestUpload } = await service
+          .from("pms_upload_summary")
+          .select("checkout_rooms, daily_cleaning_rooms, upload_date")
+          .in("hotel_filter", hotelFilters)
+          .gte("upload_date", start)
+          .lt("upload_date", end)
+          .order("upload_date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const checkoutRows = Array.isArray((latestUpload as any)?.checkout_rooms)
+          ? (latestUpload as any).checkout_rooms
+          : [];
+        const dailyRows = Array.isArray((latestUpload as any)?.daily_cleaning_rooms)
+          ? (latestUpload as any).daily_cleaning_rooms
+          : [];
+        for (const item of checkoutRows) {
+          const roomName = String(item?.roomNumber ?? item?.room_number ?? "").trim();
+          if (!roomName) continue;
+          indexReservation({
+            objId: null,
+            roomName,
+            arrivalDate: addDays(today, -1),
+            departureDate: today,
+            statusId: item?.status === "checked_out" ? 5 : 1,
+            guestsCount: Number(item?.guestCount ?? 0) || 0,
+            note: item?.notes ? String(item.notes) : null,
+          });
+        }
+        for (const item of dailyRows) {
+          const roomName = String(item?.roomNumber ?? item?.room_number ?? "").trim();
+          if (!roomName) continue;
+          indexReservation({
+            objId: null,
+            roomName,
+            arrivalDate: addDays(today, -1),
+            departureDate: tomorrow,
+            statusId: 1,
+            guestsCount: Number(item?.guestCount ?? 0) || 0,
+            note: item?.notes ? String(item.notes) : null,
+          });
+        }
+        if (checkoutRows.length || dailyRows.length) {
+          reservationFallbackSource = "latest_pms_upload_summary";
+          console.log(`[previo-pms-sync] XML unavailable/empty; recovered ${checkoutRows.length} checkout and ${dailyRows.length} daily rooms from latest PMS upload`);
+        }
+      } catch (e: any) {
+        console.warn(`[previo-pms-sync] PMS upload fallback failed: ${e?.message || String(e)}`);
+      }
     }
 
     // Fallback: no roster (empty local table) — synthesise from reservations.
@@ -273,8 +348,10 @@ serve(async (req) => {
     }
 
     const rows = rooms.map((r) => {
+      const roomNumber = extractRoomNumber(r.name);
       const res = (r.roomId ? reservationsByObjId.get(r.roomId) : undefined)
-        ?? reservationsByRoomName.get(r.name);
+        ?? reservationsByRoomName.get(r.name)
+        ?? (roomNumber !== r.name ? reservationsByRoomName.get(roomNumber) : undefined);
       const isOccupied = !!res && res.arrivalDate <= today && res.departureDate > today;
       const isDeparture = !!res && res.departureDate === today;
       const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
@@ -329,6 +406,7 @@ serve(async (req) => {
         arrivalsToday: arrivalCount,
         reservationsAvailable: reservationsByRoomName.size,
         reservationFetchError,
+        reservationFallbackSource,
         rows,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
