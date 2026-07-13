@@ -45,7 +45,11 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [justSuccess, setJustSuccess] = useState(false);
 
-  if (!enabled || !isManager) return null;
+  // Show for all eligible managers regardless of whether the hotel has a
+  // Previo config wired up — the refresh will simply no-op / show an error
+  // toast for hotels on manual PMS uploads, and managers still want to see
+  // and click the button.
+  if (!isManager) return null;
 
   const t = tasks.pms;
   const busy = t.status === 'syncing';
