@@ -201,6 +201,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'Sin habitaciones',
     'team.new': 'NUEVO',
+    'team.readOnly': 'Solo lectura',
 
     'performance.topPerformer': 'Mejor Rendimiento',
     'performance.teamAverage': 'Promedio del Equipo',
