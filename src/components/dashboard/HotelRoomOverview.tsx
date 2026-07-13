@@ -1108,7 +1108,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       return p.length <= 8 ? p : p.substring(0, 7) + '.';
     })();
     return (
-      <div className="flex flex-col items-center gap-0.5 select-none" style={{ cursor: 'not-allowed' }}>
+      <div className="flex flex-col items-center gap-0.5 select-none opacity-60 saturate-75 transition-opacity hover:opacity-80" style={{ cursor: 'not-allowed' }}>
         <div
           className={`
             px-2 py-1 rounded text-xs font-bold border-2 min-w-[40px] text-center ${colorClass}
