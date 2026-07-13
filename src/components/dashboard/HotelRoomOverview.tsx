@@ -164,7 +164,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [managerMessage, setManagerMessage] = useState('');
-  const [carriedRoomIds, setCarriedRoomIds] = useState<Set<string>>(new Set());
+  const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
+  const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
@@ -259,40 +260,49 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
 
-      // Fetch carried-over rooms: assignments from prior days that were never
-      // completed/approved. These represent "yesterday / carried" work that
-      // still needs attention today.
+      // Load a READ-ONLY snapshot of the previous working day so managers can
+      // compare where things stopped yesterday vs where things stand today.
+      // We find the most recent assignment_date < selectedDate for this hotel
+      // and load every assignment from that date. No writes anywhere.
       try {
         const roomIdList = Array.from(roomIds);
         if (roomIdList.length > 0) {
-          const { data: carriedData } = await supabase
+          const { data: prevDateRow } = await supabase
             .from('room_assignments')
-            .select('room_id, status, supervisor_approved, assignment_date')
+            .select('assignment_date')
             .in('room_id', roomIdList)
             .lt('assignment_date', selectedDate)
             .order('assignment_date', { ascending: false })
-            .limit(500);
-          const carried = new Set<string>();
-          const seen = new Set<string>();
-          for (const a of (carriedData || [])) {
-            if (seen.has(a.room_id)) continue;
-            seen.add(a.room_id);
-            const done = a.status === 'completed' && a.supervisor_approved === true;
-            if (!done) carried.add(a.room_id);
+            .limit(1)
+            .maybeSingle();
+          const prevDate = (prevDateRow as any)?.assignment_date || null;
+          setPreviousDayDate(prevDate);
+          if (prevDate) {
+            const { data: prevAssignRows } = await supabase
+              .from('room_assignments')
+              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, notes, completed_at, assignment_date')
+              .in('room_id', roomIdList)
+              .eq('assignment_date', prevDate);
+            const map = new Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>();
+            for (const a of (prevAssignRows || []) as any[]) {
+              // If multiple rows exist for the same room on that day, keep the
+              // most "final" one (completed > in_progress > assigned).
+              const existing = map.get(a.room_id);
+              const rank = (s: string) => s === 'completed' ? 3 : s === 'in_progress' ? 2 : 1;
+              if (!existing || rank(a.status) >= rank(existing.status)) map.set(a.room_id, a);
+            }
+            setPreviousAssignments(map);
+          } else {
+            setPreviousAssignments(new Map());
           }
-          // Any assignment today (regardless of status) means the room belongs
-          // to "today" — a fresh assignment supersedes a prior carried one.
-          const assignedTodayIds = new Set(
-            (assignmentsRes.data || []).map((a: any) => a.room_id)
-          );
-          for (const id of assignedTodayIds) carried.delete(id);
-          setCarriedRoomIds(carried);
         } else {
-          setCarriedRoomIds(new Set());
+          setPreviousDayDate(null);
+          setPreviousAssignments(new Map());
         }
       } catch (e) {
-        console.error('Error fetching carried rooms:', e);
-        setCarriedRoomIds(new Set());
+        console.error('Error fetching previous-day snapshot:', e);
+        setPreviousDayDate(null);
+        setPreviousAssignments(new Map());
       }
 
 
@@ -318,13 +328,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const canInteractWithRooms = isManagerOrAdmin || isReception;
   const [roomNotes, setRoomNotes] = useState('');
 
-  const getRoomDayBucket = (room: RoomData): 'today' | 'previous' => {
-    // A room only belongs on the "Yesterday" side when it has an unfinished
-    // assignment carried over from a prior day AND no assignment today.
-    // Everything else — daily rooms, today's checkouts, manual entries,
-    // freshly synced PMS rooms — belongs on the "Today" side.
-    if (carriedRoomIds.has(room.id)) return 'previous';
-    return 'today';
+  // Format a YYYY-MM-DD date for the "Yesterday — {date}" header without
+  // dragging in a date library.
+  const formatPrevDate = (iso: string | null): string => {
+    if (!iso) return '';
+    try {
+      const [y, m, d] = iso.split('-').map(Number);
+      return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } catch { return iso; }
   };
 
 
@@ -1052,14 +1063,79 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     }
   };
 
+  // Lookup: room by id — used to render yesterday's snapshot chips.
+  const roomsById = new Map<string, RoomData>();
+  rooms.forEach(r => roomsById.set(r.id, r));
+
+  // Read-only chip for yesterday's snapshot. No handlers, no popover, no
+  // dropdowns — pure display of how the room stood at end of prior day.
+  const renderReadOnlyChip = (
+    room: RoomData,
+    prev: AssignmentData & { completed_at: string | null },
+  ) => {
+    const isCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+    const status = prev.status;
+    const approved = !!prev.supervisor_approved;
+    let statusKey: string;
+    if (status === 'completed' && approved) statusKey = 'clean';
+    else if (status === 'completed') statusKey = 'pending_approval';
+    else if (status === 'in_progress') statusKey = 'in_progress';
+    else statusKey = 'dirty';
+    const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
+    const staffName = (() => {
+      const n = staffMap[prev.assigned_to];
+      if (!n) return null;
+      const p = n.split(' ')[0];
+      return p.length <= 8 ? p : p.substring(0, 7) + '.';
+    })();
+    return (
+      <div className="flex flex-col items-center gap-0.5 select-none" style={{ cursor: 'not-allowed' }}>
+        <div
+          className={`px-2 py-1 rounded text-xs font-bold border-2 min-w-[40px] text-center ${colorClass}`}
+          title={`Yesterday · ${isCheckout ? 'Checkout' : 'Daily'} · ${status}${approved ? ' (approved)' : ''}`}
+        >
+          {room.room_number}
+          {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
+          {status === 'completed' && approved && <span className="ml-0.5 text-[9px]">✅</span>}
+          {status === 'completed' && !approved && <span className="ml-0.5 text-[9px]">⏳</span>}
+          {status === 'in_progress' && <span className="ml-0.5 text-[9px]">⏱</span>}
+        </div>
+        <div className="flex flex-col items-center gap-0">
+          {staffName && (
+            <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">{staffName}</span>
+          )}
+          {prev.completed_at && (
+            <span className="text-[8px] text-muted-foreground/80">
+              {new Date(prev.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily') => {
-    const todayRooms = roomList.filter((room) => getRoomDayBucket(room) === 'today');
-    const previousRooms = roomList.filter((room) => getRoomDayBucket(room) === 'previous');
+    // Right column: live today rooms for this section (unchanged).
+    const todayRooms = roomList;
+
+    // Left column: read-only snapshot of yesterday's rooms that belonged to
+    // this same section (checkout vs daily) — sourced from previousAssignments,
+    // NOT from today's live room list.
+    const previousEntries: Array<{ room: RoomData; prev: AssignmentData & { completed_at: string | null } }> = [];
+    previousAssignments.forEach((prev, roomId) => {
+      const room = roomsById.get(roomId);
+      if (!room) return;
+      const wasCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+      if (sectionType === 'checkout' && !wasCheckout) return;
+      if (sectionType === 'daily' && wasCheckout) return;
+      previousEntries.push({ room, prev });
+    });
+
     const floors = groupByFloor(roomList);
     const dndCount = roomList.filter(r => r.is_dnd).length;
     const isDragOver = dragOverSection === sectionType;
 
-    const renderFloorRows = (roomsForColumn: RoomData[], faded: boolean) => {
+    const renderTodayFloorRows = (roomsForColumn: RoomData[]) => {
       const columnFloors = groupByFloor(roomsForColumn);
       if (columnFloors.length === 0) {
         return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
@@ -1073,10 +1149,44 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </Badge>
               <div className="flex flex-wrap gap-1.5">
                 {floorRooms.map(room => (
-                  <div key={room.id} className={faded ? 'opacity-55 grayscale-[25%]' : 'animate-fade-in'}>
+                  <div key={room.id} className="animate-fade-in">
                     {renderRoomChip(room)}
                   </div>
                 ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    const renderPrevFloorRows = () => {
+      if (previousEntries.length === 0) {
+        return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
+      }
+      // Group by floor manually since entries carry both room + prev.
+      const floorMap = new Map<number, typeof previousEntries>();
+      for (const entry of previousEntries) {
+        const f = entry.room.floor_number ?? (Math.floor(parseInt(entry.room.room_number) / 100) || 0);
+        if (!floorMap.has(f)) floorMap.set(f, []);
+        floorMap.get(f)!.push(entry);
+      }
+      const sorted = Array.from(floorMap.entries()).sort((a, b) => a[0] - b[0]);
+      return (
+        <div className="space-y-1.5">
+          {sorted.map(([floor, entries]) => (
+            <div key={floor} className="flex items-start gap-2">
+              <Badge variant="outline" className="text-[10px] min-w-[28px] text-center shrink-0 mt-0.5">
+                F{floor}
+              </Badge>
+              <div className="flex flex-wrap gap-1.5">
+                {entries
+                  .sort((a, b) => String(a.room.room_number).localeCompare(String(b.room.room_number), undefined, { numeric: true }))
+                  .map(({ room, prev }) => (
+                    <div key={room.id} className="animate-fade-in">
+                      {renderReadOnlyChip(room, prev)}
+                    </div>
+                  ))}
               </div>
             </div>
           ))}
@@ -1124,29 +1234,39 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           )}
         </div>
 
-        {floors.length === 0 ? (
+        {floors.length === 0 && previousEntries.length === 0 ? (
           <p className="text-xs text-muted-foreground pl-6">No rooms</p>
         ) : (
           <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-            <div className="rounded-md border border-border/60 bg-muted/20 p-2">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{t('team.yesterdayCarried')}</span>
-                <Badge variant="secondary" className="text-[10px] opacity-70">{previousRooms.length}</Badge>
+            {/* LEFT — Yesterday, read-only snapshot */}
+            <div className="rounded-md border border-border/60 bg-muted/20 p-2 pointer-events-none">
+              <div className="mb-2 flex items-center justify-between gap-2 pointer-events-auto">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t('team.yesterdayCarried')}{previousDayDate ? ` — ${formatPrevDate(previousDayDate)}` : ''}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Badge variant="outline" className="text-[9px] uppercase tracking-wide border-border/70 text-muted-foreground">
+                    {t('team.readOnly')}
+                  </Badge>
+                  <Badge variant="secondary" className="text-[10px] opacity-70">{previousEntries.length}</Badge>
+                </div>
               </div>
-              {renderFloorRows(previousRooms, true)}
+              {renderPrevFloorRows()}
             </div>
+            {/* RIGHT — Today, live */}
             <div className="rounded-md border border-blue-200 bg-blue-50/35 p-2 dark:border-blue-900/50 dark:bg-blue-950/15">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{t('team.todayPmsManual')}</span>
                 <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} {t('team.new')}</Badge>
               </div>
-              {renderFloorRows(todayRooms, false)}
+              {renderTodayFloorRows(todayRooms)}
             </div>
           </div>
         )}
       </div>
     );
   };
+
 
   const renderPublicAreas = () => {
     if (publicAreaTasks.length === 0) return null;

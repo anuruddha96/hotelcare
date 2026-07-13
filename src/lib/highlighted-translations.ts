@@ -38,6 +38,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'No rooms',
     'team.new': 'NEW',
+    'team.readOnly': 'Read-only',
 
     // PerformanceLeaderboard
     'performance.topPerformer': 'Top Performer',
@@ -121,6 +122,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'Nincs szoba',
     'team.new': 'ÚJ',
+    'team.readOnly': 'Csak olvasható',
 
     'performance.topPerformer': 'Legjobb Teljesítmény',
     'performance.teamAverage': 'Csapat Átlag',
@@ -199,6 +201,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'Sin habitaciones',
     'team.new': 'NUEVO',
+    'team.readOnly': 'Solo lectura',
 
     'performance.topPerformer': 'Mejor Rendimiento',
     'performance.teamAverage': 'Promedio del Equipo',
@@ -277,6 +280,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'Không có phòng',
     'team.new': 'MỚI',
+    'team.readOnly': 'Chỉ đọc',
 
     'performance.topPerformer': 'Người Xuất Sắc Nhất',
     'performance.teamAverage': 'Trung Bình Đội',
@@ -355,6 +359,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'Өрөө байхгүй',
     'team.new': 'ШИНЭ',
+    'team.readOnly': 'Зөвхөн унших',
 
     'performance.topPerformer': 'Шилдэг Гүйцэтгэгч',
     'performance.teamAverage': 'Багийн Дундаж',
