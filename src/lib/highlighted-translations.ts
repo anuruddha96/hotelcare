@@ -33,8 +33,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'manual',
     'team.refresh': 'Refresh',
     'team.refreshing': 'Refreshing...',
-    'team.yesterdayCarried': 'Yesterday / carried',
-    'team.todayPmsManual': 'Today PMS / manual',
+    'team.yesterdayCarried': "Yesterday's rooms",
+    'team.todayPmsManual': "Today's rooms",
+
     'team.noRooms': 'No rooms',
     'team.new': 'NEW',
 
@@ -115,8 +116,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'kézi',
     'team.refresh': 'Frissítés',
     'team.refreshing': 'Frissítés...',
-    'team.yesterdayCarried': 'Tegnap / áthozott',
-    'team.todayPmsManual': 'Mai PMS / kézi',
+    'team.yesterdayCarried': 'Tegnapi szobák',
+    'team.todayPmsManual': 'Mai szobák',
+
     'team.noRooms': 'Nincs szoba',
     'team.new': 'ÚJ',
 
@@ -192,8 +194,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'manual',
     'team.refresh': 'Actualizar',
     'team.refreshing': 'Actualizando...',
-    'team.yesterdayCarried': 'Ayer / pendiente',
-    'team.todayPmsManual': 'PMS de hoy / manual',
+    'team.yesterdayCarried': 'Habitaciones de ayer',
+    'team.todayPmsManual': 'Habitaciones de hoy',
+
     'team.noRooms': 'Sin habitaciones',
     'team.new': 'NUEVO',
 
@@ -269,8 +272,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'thủ công',
     'team.refresh': 'Làm mới',
     'team.refreshing': 'Đang làm mới...',
-    'team.yesterdayCarried': 'Hôm qua / chuyển tiếp',
-    'team.todayPmsManual': 'PMS hôm nay / thủ công',
+    'team.yesterdayCarried': 'Phòng hôm qua',
+    'team.todayPmsManual': 'Phòng hôm nay',
+
     'team.noRooms': 'Không có phòng',
     'team.new': 'MỚI',
 
@@ -346,8 +350,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'гар',
     'team.refresh': 'Шинэчлэх',
     'team.refreshing': 'Шинэчилж байна...',
-    'team.yesterdayCarried': 'Өчигдөр / үлдсэн',
-    'team.todayPmsManual': 'Өнөөдрийн PMS / гар',
+    'team.yesterdayCarried': 'Өчигдрийн өрөө',
+    'team.todayPmsManual': 'Өнөөдрийн өрөө',
+
     'team.noRooms': 'Өрөө байхгүй',
     'team.new': 'ШИНЭ',
 
