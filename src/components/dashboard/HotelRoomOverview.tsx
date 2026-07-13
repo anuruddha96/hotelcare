@@ -1085,6 +1085,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     else if (status === 'in_progress') statusKey = 'in_progress';
     else statusKey = 'dirty';
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
+    const roomFlags = parseRoomFlags(room.notes);
+    const isDND = room.is_dnd;
+    const noShow = isNoShow(room) && !isEarlyCheckout(room);
+    const earlyCheckout = isEarlyCheckout(room);
+    const sizeLabel = getSizeLabel(room.room_size_sqm);
     const staffName = (() => {
       const n = staffMap[prev.assigned_to];
       if (!n) return null;
@@ -1094,16 +1099,48 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return (
       <div className="flex flex-col items-center gap-0.5 select-none" style={{ cursor: 'not-allowed' }}>
         <div
-          className={`px-2 py-1 rounded text-xs font-bold border-2 min-w-[40px] text-center ${colorClass}`}
+          className={`
+            px-2 py-1 rounded text-xs font-bold border-2 min-w-[40px] text-center ${colorClass}
+            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
+            ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
+            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+          `}
           title={`Yesterday · ${isCheckout ? 'Checkout' : 'Daily'} · ${status}${approved ? ' (approved)' : ''}`}
         >
           {room.room_number}
           {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
+          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
+          {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
+          {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
+          {prev.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
           {status === 'completed' && approved && <span className="ml-0.5 text-[9px]">✅</span>}
           {status === 'completed' && !approved && <span className="ml-0.5 text-[9px]">⏳</span>}
           {status === 'in_progress' && <span className="ml-0.5 text-[9px]">⏱</span>}
+          {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
+          {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
+          {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
+          {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
         </div>
         <div className="flex flex-col items-center gap-0">
+          {(room as any).bed_configuration && (
+            <span className="text-[8px] text-purple-600 dark:text-purple-400 font-semibold truncate max-w-[48px]">
+              {(() => {
+                const bc = (room as any).bed_configuration;
+                if (bc.includes('Double')) return 'DB';
+                if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
+                if (bc.includes('Twin')) return 'TW';
+                if (bc.includes('Single')) return 'SGL';
+                if (bc.includes('Baby')) return '👶BB';
+                if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
+                return bc.substring(0, 3).toUpperCase();
+              })()}
+            </span>
+          )}
+          {roomFlags.cleanNotes && (
+            <span className="text-[8px]" title={roomFlags.cleanNotes}>📝</span>
+          )}
           {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">{staffName}</span>
           )}
