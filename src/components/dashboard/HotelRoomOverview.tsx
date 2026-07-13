@@ -882,9 +882,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       e.stopPropagation();
                       setActionLoading(`clean-${room.id}`);
                       try {
-                        await supabase.from('rooms').update({ status: 'clean' } as any).eq('id', room.id);
-                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'clean' } : r));
-                        toast.success(`Room ${room.room_number} → Clean`);
+                        const nowIso = new Date().toISOString();
+                        await supabase.from('rooms').update({ status: 'clean', last_cleaned_at: nowIso } as any).eq('id', room.id);
+                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'clean', last_cleaned_at: nowIso } : r));
                       } catch { toast.error('Failed'); }
                       finally { setActionLoading(null); }
                     }}
