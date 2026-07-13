@@ -21,12 +21,18 @@ export type PrevioCredentials =
       apiKey: string;
       /** XML element name that wraps the api key inside <request>. Defaults to "apiKey". */
       authElement: string;
+      /** Optional dedicated XML login (Previo XML API accepts login/password, NOT the REST ApiKey). */
+      xmlLogin?: string;
+      xmlPassword?: string;
       source: string;
     }
   | {
       protocol: "rest";
       username: string;
       password: string;
+      /** Optional dedicated XML login for tenants that mix REST + XML. */
+      xmlLogin?: string;
+      xmlPassword?: string;
       source: string;
     };
 
@@ -76,6 +82,8 @@ export function parsePrevioCredentialValue(
       const username = clean(j.username ?? j.user ?? j.login ?? j.email);
       const password = clean(j.password ?? j.pass ?? j.secret);
       const authElement = clean(j.authElement ?? j.auth_element) || "apiKey";
+      const xmlLogin = clean(j.xmlLogin ?? j.xml_login ?? j.xmlUsername ?? j.xml_username) || undefined;
+      const xmlPassword = clean(j.xmlPassword ?? j.xml_password) || undefined;
 
       if (protocol === "xml") {
         if (!apiKey) {
@@ -83,7 +91,7 @@ export function parsePrevioCredentialValue(
             `Previo credential "${sourceName}" declares protocol=xml but has no apiKey field.`,
           );
         }
-        return { protocol: "xml", apiKey, authElement, source: sourceName };
+        return { protocol: "xml", apiKey, authElement, xmlLogin, xmlPassword, source: sourceName };
       }
       if (protocol === "rest") {
         if (!username || !password) {
@@ -91,15 +99,15 @@ export function parsePrevioCredentialValue(
             `Previo credential "${sourceName}" declares protocol=rest but is missing username or password.`,
           );
         }
-        return { protocol: "rest", username, password, source: sourceName };
+        return { protocol: "rest", username, password, xmlLogin, xmlPassword, source: sourceName };
       }
 
       // Implicit protocol inference from present fields.
       if (apiKey && !username && !password) {
-        return { protocol: "xml", apiKey, authElement, source: sourceName };
+        return { protocol: "xml", apiKey, authElement, xmlLogin, xmlPassword, source: sourceName };
       }
       if (username && password) {
-        return { protocol: "rest", username, password, source: sourceName };
+        return { protocol: "rest", username, password, xmlLogin, xmlPassword, source: sourceName };
       }
       throw new PrevioCredentialParseError(
         `Previo credential "${sourceName}" JSON has no recognized fields. Expected apiKey (xml) or username+password (rest).`,
@@ -187,6 +195,11 @@ export type PrevioXmlAuthVariant =
   | "header";       // HTTP header Api-Key: KEY, no auth in XML
 
 function buildXmlAuthBlock(creds: PrevioCredentials, variant?: PrevioXmlAuthVariant): string {
+  // Dedicated XML login/password ALWAYS wins for XML calls — the REST ApiKey
+  // is rejected by Previo's XML endpoint (401 Invalid login or password).
+  if (creds.xmlLogin && creds.xmlPassword) {
+    return `<login>${xmlEscape(creds.xmlLogin)}</login><password>${xmlEscape(creds.xmlPassword)}</password>`;
+  }
   if (creds.protocol === "rest") {
     return `<login>${xmlEscape(creds.username)}</login><password>${xmlEscape(creds.password)}</password>`;
   }
@@ -246,12 +259,17 @@ ${opts.extraXml ?? ""}
 </request>`;
 
   const headers: Record<string, string> = { "Content-Type": "text/xml; charset=UTF-8" };
-  const effectiveXmlAuthVariant = opts.creds.protocol === "xml"
-    ? authVariant ?? (opts.creds.authElement === "apiKey" ? "authorizationApiKey" : opts.creds.authElement)
-    : null;
-  if (opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "authorizationApiKey") {
+  const hasDedicatedXmlLogin = !!(opts.creds.xmlLogin && opts.creds.xmlPassword);
+  const effectiveXmlAuthVariant = hasDedicatedXmlLogin
+    ? ("login" as PrevioXmlAuthVariant)
+    : opts.creds.protocol === "xml"
+      ? authVariant ?? (opts.creds.authElement === "apiKey" ? "authorizationApiKey" : opts.creds.authElement)
+      : null;
+  // Only attach ApiKey headers when we're actually authenticating via header
+  // (no dedicated XML login). Otherwise Previo can reject login+header combos.
+  if (!hasDedicatedXmlLogin && opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "authorizationApiKey") {
     headers["Authorization"] = `ApiKey ${opts.creds.apiKey}`;
-  } else if (opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "header") {
+  } else if (!hasDedicatedXmlLogin && opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "header") {
     headers["Api-Key"] = opts.creds.apiKey;
   }
 
@@ -272,9 +290,15 @@ ${opts.extraXml ?? ""}
 
 /** POST an XML method call. Never logs credentials. */
 export async function callPrevioXml(opts: PrevioXmlCallOptions): Promise<PrevioXmlCallResult> {
+  // Dedicated XML login/password bypasses the auth-variant fallback loop —
+  // there is only one valid auth path in that case.
+  if (opts.creds.xmlLogin && opts.creds.xmlPassword) {
+    return await callPrevioXmlOnce(opts, "login");
+  }
   if (opts.creds.protocol !== "xml" || opts.authVariant) {
     return await callPrevioXmlOnce(opts, opts.authVariant);
   }
+
 
   const preferred = opts.creds.authElement === "apiKey"
     ? "authorizationApiKey"
