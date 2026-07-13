@@ -164,6 +164,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [managerMessage, setManagerMessage] = useState('');
+  const [carriedRoomIds, setCarriedRoomIds] = useState<Set<string>>(new Set());
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
@@ -258,6 +259,43 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
 
+      // Fetch carried-over rooms: assignments from prior days that were never
+      // completed/approved. These represent "yesterday / carried" work that
+      // still needs attention today.
+      try {
+        const roomIdList = Array.from(roomIds);
+        if (roomIdList.length > 0) {
+          const { data: carriedData } = await supabase
+            .from('room_assignments')
+            .select('room_id, status, supervisor_approved, assignment_date')
+            .in('room_id', roomIdList)
+            .lt('assignment_date', selectedDate)
+            .order('assignment_date', { ascending: false })
+            .limit(500);
+          const carried = new Set<string>();
+          const seen = new Set<string>();
+          for (const a of (carriedData || [])) {
+            if (seen.has(a.room_id)) continue;
+            seen.add(a.room_id);
+            const done = a.status === 'completed' && a.supervisor_approved === true;
+            if (!done) carried.add(a.room_id);
+          }
+          // Only mark as carried if there's no completed+approved assignment today
+          const doneTodayIds = new Set(
+            (assignmentsRes.data || [])
+              .filter((a: any) => a.status === 'completed' && a.supervisor_approved === true)
+              .map((a: any) => a.room_id)
+          );
+          for (const id of doneTodayIds) carried.delete(id);
+          setCarriedRoomIds(carried);
+        } else {
+          setCarriedRoomIds(new Set());
+        }
+      } catch (e) {
+        console.error('Error fetching carried rooms:', e);
+        setCarriedRoomIds(new Set());
+      }
+
       // Calculate ACT from completed assignments for this hotel's rooms
       const completedForHotel = (completedRes.data || []).filter(a => roomIds.has(a.room_id));
       if (completedForHotel.length > 0) {
@@ -281,20 +319,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [roomNotes, setRoomNotes] = useState('');
 
   const getRoomDayBucket = (room: RoomData): 'today' | 'previous' => {
+    // Highest signal: an unfinished assignment from a prior day was carried
+    // forward. That room belongs in "yesterday / carried" regardless of PMS.
+    if (carriedRoomIds.has(room.id)) return 'previous';
+
     const meta = room.pms_metadata || {};
     const day = selectedDate;
-    const syncedDates = [
-      meta.pmsSyncDate,
-      meta.lastPmsRefreshDate,
-      meta.manual_moved_at ? String(meta.manual_moved_at).slice(0, 10) : null,
-      room.updated_at ? String(room.updated_at).slice(0, 10) : null,
-    ].filter(Boolean);
 
+    // "Today" markers come only from authoritative PMS/manual signals — never
+    // from generic sync/updated timestamps (those get bumped on every refresh
+    // and would falsely bucket every room as "today").
     if (
       meta.scheduledDepartureToday === true ||
       meta.checkedOutToday === true ||
       meta.scheduledDepartureTomorrow === true ||
-      syncedDates.includes(day)
+      meta.manual_checkout === true ||
+      (meta.manual_moved_at && String(meta.manual_moved_at).slice(0, 10) === day)
     ) {
       return 'today';
     }
