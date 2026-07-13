@@ -185,6 +185,18 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     fetchData();
   }, [selectedDate, hotelName, refreshKey]);
 
+  // Listen for PMS sync completion broadcast from either entry point and
+  // flash a soft green glow on the card + refetch.
+  useEffect(() => {
+    const onSynced = () => {
+      setSyncFlash(true);
+      fetchData(true);
+      setTimeout(() => setSyncFlash(false), 2000);
+    };
+    window.addEventListener('pms-sync-completed', onSynced);
+    return () => window.removeEventListener('pms-sync-completed', onSynced);
+  }, []);
+
   // Auto-refresh: realtime subscription on rooms/assignments + visibility-aware polling
   // Ensures stale checkout flags clear from the UI as soon as the PMS poll updates the DB.
   useEffect(() => {
