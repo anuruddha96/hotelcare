@@ -161,7 +161,7 @@ serve(async (req) => {
       // physical room is included, even those without reservations.
       const { data: localRooms } = await service
         .from("rooms")
-        .select("room_number, room_type, pms_metadata")
+        .select("hotel, room_number, room_type, pms_metadata")
         .in("hotel", localHotelKeys);
       if (localRooms && localRooms.length > 0) {
         const byNumber = new Map<string, any>();
