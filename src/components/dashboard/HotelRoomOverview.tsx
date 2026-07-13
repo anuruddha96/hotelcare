@@ -156,7 +156,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [showLegend, setShowLegend] = useState(false);
+  const [showLegend, setShowLegend] = useState(true);
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -510,7 +510,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     else if (assignmentStatus === 'in_progress') statusKey = 'in_progress';
     else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) statusKey = 'clean';
     else if (assignmentStatus === 'completed') statusKey = 'pending_approval';
-    else statusKey = room.status || 'dirty';
+    // No assignment for today: never show stale 'clean' from previous days —
+    // that misleads managers into thinking the room is already done.
+    else if (!assignment) statusKey = (room.status && room.status !== 'clean') ? room.status : 'dirty';
+    else statusKey = room.status && room.status !== 'clean' ? room.status : 'dirty';
     
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
     const isDND = room.is_dnd;
