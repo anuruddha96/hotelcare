@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { OrganizationManagement } from './OrganizationManagement';
 import { HotelManagementView } from './HotelManagementView';
@@ -11,38 +11,41 @@ import { TrainingAdminPanel } from './TrainingAdminPanel';
 
 export const AdminTabs = () => {
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <Tabs defaultValue="organizations" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="organizations" className="gap-2">
-            <Building2 className="w-4 h-4" />
-            Organizations
-          </TabsTrigger>
-          <TabsTrigger value="hotels" className="gap-2">
-            <Hotel className="w-4 h-4" />
-            Hotels
-          </TabsTrigger>
-          <TabsTrigger value="pms" className="gap-2">
-            <Cable className="w-4 h-4" />
-            PMS Config
-          </TabsTrigger>
-          <TabsTrigger value="translations" className="gap-2">
-            <Languages className="w-4 h-4" />
-            Translations
-          </TabsTrigger>
-          <TabsTrigger value="breakfast" className="gap-2">
-            <Coffee className="w-4 h-4" />
-            Breakfast
-          </TabsTrigger>
-          <TabsTrigger value="training" className="gap-2">
-            <GraduationCap className="w-4 h-4" />
-            Training
-          </TabsTrigger>
-          <TabsTrigger value="system" className="gap-2">
-            <HardDrive className="w-4 h-4" />
-            System
-          </TabsTrigger>
-        </TabsList>
+        {/* Horizontally scrollable on mobile so all tabs stay reachable */}
+        <div className="w-full overflow-x-auto -mx-2 px-2 pb-1 scrollbar-thin">
+          <TabsList className="w-max min-w-full inline-flex">
+            <TabsTrigger value="organizations" className="gap-2">
+              <Building2 className="w-4 h-4" />
+              Organizations
+            </TabsTrigger>
+            <TabsTrigger value="hotels" className="gap-2">
+              <Hotel className="w-4 h-4" />
+              Hotels
+            </TabsTrigger>
+            <TabsTrigger value="pms" className="gap-2">
+              <Cable className="w-4 h-4" />
+              PMS Config
+            </TabsTrigger>
+            <TabsTrigger value="translations" className="gap-2">
+              <Languages className="w-4 h-4" />
+              Translations
+            </TabsTrigger>
+            <TabsTrigger value="breakfast" className="gap-2">
+              <Coffee className="w-4 h-4" />
+              Breakfast
+            </TabsTrigger>
+            <TabsTrigger value="training" className="gap-2">
+              <GraduationCap className="w-4 h-4" />
+              Training
+            </TabsTrigger>
+            <TabsTrigger value="system" className="gap-2">
+              <HardDrive className="w-4 h-4" />
+              System
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="training">
           <TrainingAdminPanel />
