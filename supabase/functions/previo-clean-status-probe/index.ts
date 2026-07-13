@@ -41,6 +41,7 @@ function buildCandidates(pmsRoomId: string, status: string): Candidate[] {
 
   // Documented-looking paths
   const paths = [
+    `/rest/rooms/${pmsRoomId}/clean-statuses`, // documented (plural) — try first
     `/rest/rooms/${pmsRoomId}/clean-status`,
     `/rest/rooms/${pmsRoomId}/cleaning-status`,
     `/rest/rooms/${pmsRoomId}/housekeeping`,
