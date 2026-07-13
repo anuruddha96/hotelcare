@@ -37,6 +37,19 @@ serve(async (req) => {
     }
     hotelForLog = room.hotel;
 
+    // Resolve room.hotel (which may be either the hotel_id slug or the
+    // human hotel_name) to the pms_configurations.hotel_id slug.
+    const hotelKeys = new Set<string>([room.hotel]);
+    try {
+      const { data: cfg } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name')
+        .or(`hotel_id.eq.${room.hotel},hotel_name.eq.${room.hotel}`)
+        .maybeSingle();
+      if (cfg?.hotel_id) hotelKeys.add(cfg.hotel_id);
+      if (cfg?.hotel_name) hotelKeys.add(cfg.hotel_name);
+    } catch (_) { /* ignore */ }
+
     // Get PMS configuration for this hotel
     const { data: pmsConfig, error: configError } = await supabase
       .from('pms_configurations')
@@ -48,13 +61,13 @@ serve(async (req) => {
           pms_room_name
         )
       `)
-      .eq('hotel_id', room.hotel)
+      .in('hotel_id', Array.from(hotelKeys))
       .eq('pms_type', 'previo')
       .eq('is_active', true)
-      .single();
+      .maybeSingle();
 
     if (configError || !pmsConfig) {
-      console.log('No PMS configuration found for hotel:', room.hotel);
+      console.log('No PMS configuration found for hotel:', room.hotel, 'tried:', Array.from(hotelKeys));
       return new Response(
         JSON.stringify({ success: true, skipped: true, message: 'No PMS integration configured for this hotel' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
