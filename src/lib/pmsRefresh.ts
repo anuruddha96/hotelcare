@@ -95,6 +95,11 @@ export async function runPmsRefresh(
     throw new Error((data as any)?.error || error?.message || "PMS sync failed");
   }
   const rows: any[] = (data as any)?.rows || [];
+  const pmsCheckoutSignals =
+    Number((data as any)?.departuresToday ?? 0) +
+    Number((data as any)?.departuresTomorrow ?? 0) +
+    Number((data as any)?.checkedOutToday ?? 0);
+  const weakReservationSnapshot = rows.length > 0 && pmsCheckoutSignals === 0;
   if (rows.length === 0) {
     return {
       status: "success", updated: 0, total: 0, notFound: 0, checkouts: 0, errors: [],
@@ -241,6 +246,8 @@ export async function runPmsRefresh(
         continue;
       }
 
+      const preserveExistingCheckout = weakReservationSnapshot && currentCheckoutFlag && !shouldBeCheckoutRoom;
+
       const updateData: Record<string, any> = {
         guest_count: nextGuestCount,
         guest_nights_stayed: guestNightsStayed,
@@ -249,10 +256,18 @@ export async function runPmsRefresh(
         updated_at: new Date().toISOString(),
         pms_metadata: {
           ...(existingMetadata ?? {}),
-          scheduledDepartureToday: isScheduledDeparture,
-          scheduledDepartureTomorrow: isDepartureTomorrow,
-          departureTime: departureParsed,
-          checkedOutToday: isCheckedOut,
+          scheduledDepartureToday: preserveExistingCheckout
+            ? existingMetadata?.scheduledDepartureToday
+            : isScheduledDeparture,
+          scheduledDepartureTomorrow: preserveExistingCheckout
+            ? existingMetadata?.scheduledDepartureTomorrow
+            : isDepartureTomorrow,
+          departureTime: preserveExistingCheckout
+            ? existingMetadata?.departureTime
+            : departureParsed,
+          checkedOutToday: preserveExistingCheckout
+            ? existingMetadata?.checkedOutToday
+            : isCheckedOut,
         },
       };
       if (mappedStatus) {
@@ -263,9 +278,13 @@ export async function runPmsRefresh(
       }
       // Always write the authoritative checkout flag so rooms that are no
       // longer departing today/tomorrow get reset to false. Preserve any
-      // manual override (manager toggled it in the UI).
+      // manual override (manager toggled it in the UI). If the PMS response
+      // contains no checkout signals at all, treat it as a weak/partial feed
+      // and never clear an existing checkout flag from that response.
       const manualOverride = existingMetadata?.manual_checkout === true;
-      updateData.is_checkout_room = manualOverride ? true : shouldBeCheckoutRoom;
+      if (!preserveExistingCheckout) {
+        updateData.is_checkout_room = manualOverride ? true : shouldBeCheckoutRoom;
+      }
       if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
@@ -315,7 +334,7 @@ export async function runPmsRefresh(
         continue;
       }
       updated++;
-      if (isCheckedOut) checkouts++;
+      if (shouldBeCheckoutRoom || preserveExistingCheckout) checkouts++;
 
       if (eventInserts.length > 0) {
         const insertRes: any = await supabase
