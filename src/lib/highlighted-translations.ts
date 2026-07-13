@@ -194,8 +194,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'manual',
     'team.refresh': 'Actualizar',
     'team.refreshing': 'Actualizando...',
-    'team.yesterdayCarried': 'Ayer / pendiente',
-    'team.todayPmsManual': 'PMS de hoy / manual',
+    'team.yesterdayCarried': 'Habitaciones de ayer',
+    'team.todayPmsManual': 'Habitaciones de hoy',
+
     'team.noRooms': 'Sin habitaciones',
     'team.new': 'NUEVO',
 
