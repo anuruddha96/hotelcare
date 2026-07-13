@@ -259,12 +259,17 @@ ${opts.extraXml ?? ""}
 </request>`;
 
   const headers: Record<string, string> = { "Content-Type": "text/xml; charset=UTF-8" };
-  const effectiveXmlAuthVariant = opts.creds.protocol === "xml"
-    ? authVariant ?? (opts.creds.authElement === "apiKey" ? "authorizationApiKey" : opts.creds.authElement)
-    : null;
-  if (opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "authorizationApiKey") {
+  const hasDedicatedXmlLogin = !!(opts.creds.xmlLogin && opts.creds.xmlPassword);
+  const effectiveXmlAuthVariant = hasDedicatedXmlLogin
+    ? ("login" as PrevioXmlAuthVariant)
+    : opts.creds.protocol === "xml"
+      ? authVariant ?? (opts.creds.authElement === "apiKey" ? "authorizationApiKey" : opts.creds.authElement)
+      : null;
+  // Only attach ApiKey headers when we're actually authenticating via header
+  // (no dedicated XML login). Otherwise Previo can reject login+header combos.
+  if (!hasDedicatedXmlLogin && opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "authorizationApiKey") {
     headers["Authorization"] = `ApiKey ${opts.creds.apiKey}`;
-  } else if (opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "header") {
+  } else if (!hasDedicatedXmlLogin && opts.creds.protocol === "xml" && effectiveXmlAuthVariant === "header") {
     headers["Api-Key"] = opts.creds.apiKey;
   }
 
