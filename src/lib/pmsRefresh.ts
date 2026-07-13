@@ -110,6 +110,7 @@ export async function runPmsRefresh(
 
   const keys = await resolveHotelKeys(hotelId);
   const hotelKeys = keys.length ? keys : [hotelId];
+  const canonicalHotelKey = hotelKeys.find((key) => key !== hotelId) ?? hotelId;
 
   let updated = 0;
   let notFound = 0;
@@ -128,7 +129,7 @@ export async function runPmsRefresh(
 
       const lookup = async (matcher: (q: any) => any) => {
         const q = supabase.from("rooms")
-          .select("id, room_number, status, guest_count, is_checkout_room, pms_metadata")
+          .select("id, hotel, room_number, status, guest_count, is_checkout_room, pms_metadata")
           .in("hotel", hotelKeys);
         return await matcher(q);
       };
@@ -158,7 +159,13 @@ export async function runPmsRefresh(
         }
         continue;
       }
-      const room: any = roomsFound[0];
+      const room: any = [...roomsFound].sort((a: any, b: any) => {
+        const score = (candidate: any) =>
+          (candidate.hotel === canonicalHotelKey ? 100 : 0) +
+          (candidate.pms_metadata?.roomId ? 20 : 0) +
+          (candidate.is_checkout_room ? 5 : 0);
+        return score(b) - score(a);
+      })[0];
       matchedRoomIds.add(room.id);
 
       const departureParsed = excelTimeToString(row.Departure);
@@ -258,6 +265,8 @@ export async function runPmsRefresh(
         updated_at: new Date().toISOString(),
         pms_metadata: {
           ...(existingMetadata ?? {}),
+          pmsSyncDate: today,
+          lastPmsRefreshDate: today,
           scheduledDepartureToday: preserveExistingCheckout
             ? existingMetadata?.scheduledDepartureToday
             : isScheduledDeparture,
