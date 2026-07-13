@@ -122,6 +122,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'Nincs szoba',
     'team.new': 'ÚJ',
+    'team.readOnly': 'Csak olvasható',
 
     'performance.topPerformer': 'Legjobb Teljesítmény',
     'performance.teamAverage': 'Csapat Átlag',
