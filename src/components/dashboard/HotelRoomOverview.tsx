@@ -511,10 +511,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     else if (assignmentStatus === 'in_progress') statusKey = 'in_progress';
     else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) statusKey = 'clean';
     else if (assignmentStatus === 'completed') statusKey = 'pending_approval';
-    // No assignment for today: never show stale 'clean' from previous days —
-    // that misleads managers into thinking the room is already done.
-    else if (!assignment) statusKey = (room.status && room.status !== 'clean') ? room.status : 'dirty';
-    else statusKey = room.status && room.status !== 'clean' ? room.status : 'dirty';
+    // No assignment for today: only treat room.status='clean' as clean when
+    // last_cleaned_at falls on the selected date — otherwise it's stale and
+    // must render as dirty so managers can assign it.
+    else {
+      const cleanedToday = !!room.last_cleaned_at &&
+        new Date(room.last_cleaned_at).toISOString().slice(0, 10) === selectedDate;
+      if (room.status === 'clean' && cleanedToday) statusKey = 'clean';
+      else if (room.status && room.status !== 'clean') statusKey = room.status;
+      else statusKey = 'dirty';
+    }
     
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
     const isDND = room.is_dnd;
