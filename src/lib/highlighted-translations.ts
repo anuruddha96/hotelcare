@@ -350,8 +350,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'гар',
     'team.refresh': 'Шинэчлэх',
     'team.refreshing': 'Шинэчилж байна...',
-    'team.yesterdayCarried': 'Өчигдөр / үлдсэн',
-    'team.todayPmsManual': 'Өнөөдрийн PMS / гар',
+    'team.yesterdayCarried': 'Өчигдрийн өрөө',
+    'team.todayPmsManual': 'Өнөөдрийн өрөө',
+
     'team.noRooms': 'Өрөө байхгүй',
     'team.new': 'ШИНЭ',
 
