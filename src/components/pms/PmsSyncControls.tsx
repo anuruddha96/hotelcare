@@ -9,6 +9,7 @@ import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck, CheckCircle2 } from "lucide-react";
 import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
 import { useAuth } from "@/hooks/useAuth";
+import { runPmsRefresh } from "@/lib/pmsRefresh";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -81,12 +82,10 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const doSync = async () => {
     setSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("previo-sync-daily-overview", {
-        body: { hotelId: cfg.hotel_id },
+      const result = await runPmsRefresh(cfg.hotel_id);
+      toast.success("✨ PMS sync completed", {
+        description: `${result.updated} rooms updated · ${result.checkouts} checkout rooms`,
       });
-      if (error) throw new Error(error.message);
-      if ((data as any)?.error) throw new Error((data as any).error);
-      toast.success("✨ PMS sync completed", { description: "Room list is now up to date." });
       setSuccessPulse(true);
       setTimeout(() => setSuccessPulse(false), 1400);
       await loadCfg();
@@ -173,7 +172,7 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
                 className={successPulse ? "ring-2 ring-emerald-400 ring-offset-2 transition-shadow" : undefined}
               >
                 {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-                Sync overview
+                PMS Refresh
               </Button>
               {successPulse && (
                 <span className="pointer-events-none absolute -top-2 -right-2 animate-scale-in">

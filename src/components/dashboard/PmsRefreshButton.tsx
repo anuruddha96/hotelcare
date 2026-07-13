@@ -42,6 +42,9 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
     return () => clearInterval(id);
   }, []);
 
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [justSuccess, setJustSuccess] = useState(false);
+
   if (!enabled || !isManager) return null;
 
   const t = tasks.pms;
@@ -120,9 +123,6 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
 
   // Heartbeat ping cadence: fast when syncing, slow when fresh, none when stale.
   const showPing = busy || isFresh || t.status === 'error';
-
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [justSuccess, setJustSuccess] = useState(false);
 
   const doRefresh = async () => {
     await refresh('pms');
