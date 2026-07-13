@@ -260,40 +260,49 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
 
-      // Fetch carried-over rooms: assignments from prior days that were never
-      // completed/approved. These represent "yesterday / carried" work that
-      // still needs attention today.
+      // Load a READ-ONLY snapshot of the previous working day so managers can
+      // compare where things stopped yesterday vs where things stand today.
+      // We find the most recent assignment_date < selectedDate for this hotel
+      // and load every assignment from that date. No writes anywhere.
       try {
         const roomIdList = Array.from(roomIds);
         if (roomIdList.length > 0) {
-          const { data: carriedData } = await supabase
+          const { data: prevDateRow } = await supabase
             .from('room_assignments')
-            .select('room_id, status, supervisor_approved, assignment_date')
+            .select('assignment_date')
             .in('room_id', roomIdList)
             .lt('assignment_date', selectedDate)
             .order('assignment_date', { ascending: false })
-            .limit(500);
-          const carried = new Set<string>();
-          const seen = new Set<string>();
-          for (const a of (carriedData || [])) {
-            if (seen.has(a.room_id)) continue;
-            seen.add(a.room_id);
-            const done = a.status === 'completed' && a.supervisor_approved === true;
-            if (!done) carried.add(a.room_id);
+            .limit(1)
+            .maybeSingle();
+          const prevDate = (prevDateRow as any)?.assignment_date || null;
+          setPreviousDayDate(prevDate);
+          if (prevDate) {
+            const { data: prevAssignRows } = await supabase
+              .from('room_assignments')
+              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, notes, completed_at, assignment_date')
+              .in('room_id', roomIdList)
+              .eq('assignment_date', prevDate);
+            const map = new Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>();
+            for (const a of (prevAssignRows || []) as any[]) {
+              // If multiple rows exist for the same room on that day, keep the
+              // most "final" one (completed > in_progress > assigned).
+              const existing = map.get(a.room_id);
+              const rank = (s: string) => s === 'completed' ? 3 : s === 'in_progress' ? 2 : 1;
+              if (!existing || rank(a.status) >= rank(existing.status)) map.set(a.room_id, a);
+            }
+            setPreviousAssignments(map);
+          } else {
+            setPreviousAssignments(new Map());
           }
-          // Any assignment today (regardless of status) means the room belongs
-          // to "today" — a fresh assignment supersedes a prior carried one.
-          const assignedTodayIds = new Set(
-            (assignmentsRes.data || []).map((a: any) => a.room_id)
-          );
-          for (const id of assignedTodayIds) carried.delete(id);
-          setCarriedRoomIds(carried);
         } else {
-          setCarriedRoomIds(new Set());
+          setPreviousDayDate(null);
+          setPreviousAssignments(new Map());
         }
       } catch (e) {
-        console.error('Error fetching carried rooms:', e);
-        setCarriedRoomIds(new Set());
+        console.error('Error fetching previous-day snapshot:', e);
+        setPreviousDayDate(null);
+        setPreviousAssignments(new Map());
       }
 
 
