@@ -195,6 +195,11 @@ export type PrevioXmlAuthVariant =
   | "header";       // HTTP header Api-Key: KEY, no auth in XML
 
 function buildXmlAuthBlock(creds: PrevioCredentials, variant?: PrevioXmlAuthVariant): string {
+  // Dedicated XML login/password ALWAYS wins for XML calls — the REST ApiKey
+  // is rejected by Previo's XML endpoint (401 Invalid login or password).
+  if (creds.xmlLogin && creds.xmlPassword) {
+    return `<login>${xmlEscape(creds.xmlLogin)}</login><password>${xmlEscape(creds.xmlPassword)}</password>`;
+  }
   if (creds.protocol === "rest") {
     return `<login>${xmlEscape(creds.username)}</login><password>${xmlEscape(creds.password)}</password>`;
   }
