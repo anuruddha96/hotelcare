@@ -105,7 +105,7 @@ serve(async (req) => {
     const previoRoomId = roomMapping.pms_room_id;
     const { response: previoResponse } = await fetchPrevioWithAuth({
       credentialsSecretName: (pmsConfig as any).credentials_secret_name,
-      path: `/rest/rooms/${previoRoomId}/clean-status`,
+      path: `/rest/rooms/${previoRoomId}/clean-statuses`,
       pmsHotelId: String((pmsConfig as any).pms_hotel_id || ''),
       method: 'PUT',
       body: JSON.stringify({ status: previoStatus }),
