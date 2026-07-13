@@ -575,7 +575,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             >M</span>
           )}
           {room.pms_metadata?.roomId && room.updated_at && (Date.now() - new Date(room.updated_at as any).getTime() < 2 * 3600 * 1000) && (
-            <span className="ml-0.5 px-1 rounded text-[9px] font-extrabold bg-blue-600 text-white ring-1 ring-blue-300 animate-fade-in" title="Newly synced from Previo (last 2h)">NEW</span>
+            <span
+              className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-blue-500 ring-1 ring-blue-300 animate-fade-in"
+              title="Newly synced from Previo (last 2h)"
+            />
           )}
 
           {room.pms_metadata?.scheduledDepartureTomorrow === true && !room.pms_metadata?.scheduledDepartureToday && (
