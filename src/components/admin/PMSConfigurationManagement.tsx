@@ -341,6 +341,15 @@ export default function PMSConfigurationManagement() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Quick-find banner for the hide-toggle managers keep asking about */}
+          <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm dark:border-blue-900/60 dark:bg-blue-950/30">
+            <Cable className="h-4 w-4 mt-0.5 text-blue-600 shrink-0" />
+            <div className="text-blue-900 dark:text-blue-200">
+              <strong>Turn the legacy PMS Upload tab on/off here.</strong> Pick a hotel below, then scroll to the{' '}
+              <em>"Hide legacy PMS Upload tab"</em> switch inside the Previo Configuration card.
+              When ON, managers only see <strong>Team View → PMS Refresh</strong>.
+            </div>
+          </div>
           {/* Hotel Selection */}
           <div className="space-y-2">
             <Label>Select Hotel</Label>
