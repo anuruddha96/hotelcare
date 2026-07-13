@@ -337,6 +337,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
             {!hidePmsUploadTab && (
               <TabsContent value="pms-upload" className="space-y-6">
+                {isAdmin && (
+                  <div className="text-[11px] text-muted-foreground rounded-md border border-dashed border-border/60 bg-muted/30 px-3 py-1.5">
+                    Admin tip: hide this tab from managers in <strong>Admin → PMS Config → Hide legacy PMS Upload tab</strong>.
+                  </div>
+                )}
                 <PmsSyncControls hotelId={assignedHotel} uploadAnchorId="pms-xlsx-upload" />
                 <div id="pms-xlsx-upload">
                   <PMSUpload onNavigateToTeamView={() => setActiveTab('manage')} />

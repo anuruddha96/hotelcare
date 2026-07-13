@@ -9,6 +9,7 @@ import { managerAttendanceCurriculum } from './manager-attendance';
 import { managerRevenueCurriculum } from './manager-revenue';
 import { managerInvoicesCurriculum } from './manager-invoices';
 import { autoAssignPromo } from './autoAssignPromo';
+import { adminPmsOverviewCurriculum } from './admin-pms-overview';
 
 export const ALL_CURRICULA: TrainingCurriculum[] = [
   housekeeperCurriculum,
@@ -21,6 +22,7 @@ export const ALL_CURRICULA: TrainingCurriculum[] = [
   managerRevenueCurriculum,
   managerInvoicesCurriculum,
   autoAssignPromo,
+  adminPmsOverviewCurriculum,
 ];
 
 export function curriculaForRole(role: RoleKey | string): TrainingCurriculum[] {

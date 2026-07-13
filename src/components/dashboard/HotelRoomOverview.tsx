@@ -167,6 +167,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [managerMessage, setManagerMessage] = useState('');
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
   const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
+  const [syncFlash, setSyncFlash] = useState(false);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
@@ -183,6 +184,18 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   useEffect(() => {
     fetchData();
   }, [selectedDate, hotelName, refreshKey]);
+
+  // Listen for PMS sync completion broadcast from either entry point and
+  // flash a soft green glow on the card + refetch.
+  useEffect(() => {
+    const onSynced = () => {
+      setSyncFlash(true);
+      fetchData(true);
+      setTimeout(() => setSyncFlash(false), 2000);
+    };
+    window.addEventListener('pms-sync-completed', onSynced);
+    return () => window.removeEventListener('pms-sync-completed', onSynced);
+  }, []);
 
   // Auto-refresh: realtime subscription on rooms/assignments + visibility-aware polling
   // Ensures stale checkout flags clear from the UI as soon as the PMS poll updates the DB.
@@ -261,13 +274,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
 
-      // Load a READ-ONLY snapshot of the previous working day so managers can
+      // Load a READ-ONLY snapshot of the previous working day so admins can
       // compare where things stopped yesterday vs where things stand today.
-      // We find the most recent assignment_date < selectedDate for this hotel
-      // and load every assignment from that date. No writes anywhere.
+      // Non-admin users only see today, so we skip this query entirely for them.
+      const wantsPreviousDay =
+        profile?.role === 'admin' || profile?.role === 'top_management';
       try {
         const roomIdList = Array.from(roomIds);
-        if (roomIdList.length > 0) {
+        if (wantsPreviousDay && roomIdList.length > 0) {
           const { data: prevDateRow } = await supabase
             .from('room_assignments')
             .select('assignment_date')
@@ -1119,6 +1133,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           title={`Yesterday · ${isCheckout ? 'Checkout' : 'Daily'} · ${status}${approved ? ' (approved)' : ''}`}
         >
           {room.room_number}
+          {room.pms_metadata?.manual_checkout === true && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
+              title="Manually moved by a manager (not from PMS)"
+            >M</span>
+          )}
           {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
@@ -1288,24 +1308,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         {floors.length === 0 && previousEntries.length === 0 ? (
           <p className="text-xs text-muted-foreground pl-6">No rooms</p>
         ) : (() => {
-          // On mobile, managers only see today's rooms. Admins/top_management
-          // still see the yesterday snapshot on mobile.
-          const hideYesterdayOnMobile =
-            isMobile && (profile?.role === 'manager' || profile?.role === 'housekeeping_manager');
-          if (hideYesterdayOnMobile) {
-            return (
-              <div className="rounded-md border border-blue-200 bg-blue-50/35 p-2 dark:border-blue-900/50 dark:bg-blue-950/15">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{t('team.todayPmsManual')}</span>
-                  <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} {t('team.new')}</Badge>
-                </div>
-                {renderTodayFloorRows(todayRooms)}
-              </div>
-            );
+          // Two-column Yesterday/Today split is admin-only. All other eligible
+          // users (managers, housekeeping_managers, reception, exec viewers)
+          // see just the Today column on every device.
+          const showYesterdayColumn =
+            profile?.role === 'admin' || profile?.role === 'top_management';
+          if (!showYesterdayColumn) {
+            return renderTodayFloorRows(todayRooms);
           }
           return (
             <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-              {/* LEFT — Yesterday, read-only snapshot */}
+              {/* LEFT — Yesterday, read-only snapshot (admins/top-management only) */}
               <div className="rounded-md border border-border/60 bg-muted/20 p-2 pointer-events-none">
                 <div className="mb-2 flex items-center justify-between gap-2 pointer-events-auto">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1398,7 +1411,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   return (
     <>
-      <Card className="border-primary/20">
+      <Card className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
         <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
           {/* Row 1: Title + actions */}
           <div className="flex items-center justify-between gap-2">
@@ -1474,7 +1487,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {showLegend ? t('legend.hideLegend') : t('legend.showLegend')}
             </button>
             {showLegend && (
-              <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-3 gap-y-1.5 mt-2 p-2 rounded-md bg-muted/30 border border-border/50">
+              <div data-training="room-legend" className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-3 gap-y-1.5 mt-2 p-2 rounded-md bg-muted/30 border border-border/50">
                 {[
                   { label: t('legend.approvedClean'), cls: 'bg-emerald-200 border-emerald-500', hint: t('legend.approvedCleanHint') },
                   { label: t('legend.dirtyAssigned'), cls: 'bg-amber-200 border-amber-500', hint: t('legend.dirtyAssignedHint') },
@@ -1491,6 +1504,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: t('legend.extraTowelsHint') },
                   { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
                   { label: t('legend.approved'), cls: 'text-[10px]', isText: true, text: '✅', hint: t('legend.approvedHint') },
+                  // Additional badges that render on the chip but were missing from the legend:
+                  { label: t('legend.manualCheckout'), cls: 'bg-amber-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'M', hint: t('legend.manualCheckoutHint') },
+                  { label: t('legend.newlySynced'), cls: 'bg-blue-500 ring-1 ring-blue-300', hint: t('legend.newlySyncedHint') },
+                  { label: t('legend.departsTomorrow'), cls: 'bg-indigo-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C/O+1', hint: t('legend.departsTomorrowHint') },
+                  { label: t('legend.shabbat'), cls: 'text-blue-700 dark:text-blue-300 text-[9px] font-extrabold', isText: true, text: 'SH', hint: t('legend.shabbatHint') },
+                  { label: t('legend.noService'), cls: 'bg-gray-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'NS', hint: t('legend.noServiceHint') },
+                  { label: t('legend.hasNote'), cls: 'text-[10px]', isText: true, text: '📝', hint: t('legend.hasNoteHint') },
                 ].map(item => (
                   <HelpTooltip key={item.label} hint={(item as any).hint}>
                     <div className="flex items-center gap-1 cursor-help">

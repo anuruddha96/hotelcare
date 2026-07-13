@@ -135,6 +135,8 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
       description: 'Team View is now up to date with Previo.',
       duration: 3500,
     });
+    // Broadcast so the Hotel Room Overview card can flash a matching glow.
+    try { window.dispatchEvent(new CustomEvent('pms-sync-completed')); } catch { /* noop */ }
     setTimeout(() => setJustSuccess(false), 1600);
     onRefreshed?.();
   };
