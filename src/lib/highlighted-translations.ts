@@ -33,6 +33,10 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'manual',
     'team.refresh': 'Refresh',
     'team.refreshing': 'Refreshing...',
+    'team.yesterdayCarried': 'Yesterday / carried',
+    'team.todayPmsManual': 'Today PMS / manual',
+    'team.noRooms': 'No rooms',
+    'team.new': 'NEW',
 
     // PerformanceLeaderboard
     'performance.topPerformer': 'Top Performer',
@@ -111,6 +115,10 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'kézi',
     'team.refresh': 'Frissítés',
     'team.refreshing': 'Frissítés...',
+    'team.yesterdayCarried': 'Tegnap / áthozott',
+    'team.todayPmsManual': 'Mai PMS / kézi',
+    'team.noRooms': 'Nincs szoba',
+    'team.new': 'ÚJ',
 
     'performance.topPerformer': 'Legjobb Teljesítmény',
     'performance.teamAverage': 'Csapat Átlag',
@@ -184,6 +192,10 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'manual',
     'team.refresh': 'Actualizar',
     'team.refreshing': 'Actualizando...',
+    'team.yesterdayCarried': 'Ayer / pendiente',
+    'team.todayPmsManual': 'PMS de hoy / manual',
+    'team.noRooms': 'Sin habitaciones',
+    'team.new': 'NUEVO',
 
     'performance.topPerformer': 'Mejor Rendimiento',
     'performance.teamAverage': 'Promedio del Equipo',
@@ -257,6 +269,10 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'thủ công',
     'team.refresh': 'Làm mới',
     'team.refreshing': 'Đang làm mới...',
+    'team.yesterdayCarried': 'Hôm qua / chuyển tiếp',
+    'team.todayPmsManual': 'PMS hôm nay / thủ công',
+    'team.noRooms': 'Không có phòng',
+    'team.new': 'MỚI',
 
     'performance.topPerformer': 'Người Xuất Sắc Nhất',
     'performance.teamAverage': 'Trung Bình Đội',
@@ -330,6 +346,10 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'гар',
     'team.refresh': 'Шинэчлэх',
     'team.refreshing': 'Шинэчилж байна...',
+    'team.yesterdayCarried': 'Өчигдөр / үлдсэн',
+    'team.todayPmsManual': 'Өнөөдрийн PMS / гар',
+    'team.noRooms': 'Өрөө байхгүй',
+    'team.new': 'ШИНЭ',
 
     'performance.topPerformer': 'Шилдэг Гүйцэтгэгч',
     'performance.teamAverage': 'Багийн Дундаж',

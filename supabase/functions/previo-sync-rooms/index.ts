@@ -175,6 +175,13 @@ serve(async (req) => {
         errors: [] as string[],
         room_import_enabled: canUpsertRooms,
       };
+      const { data: hotelCfgForKeys } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_name')
+        .eq('hotel_id', hotelCareHotelId)
+        .maybeSingle();
+      const hotelKeys = Array.from(new Set([hotelCareHotelId, (hotelCfgForKeys as any)?.hotel_name].filter(Boolean)));
+      const canonicalHotelName = (hotelCfgForKeys as any)?.hotel_name || hotelCareHotelId;
 
       for (const r of roomsData) {
         try {
@@ -199,22 +206,24 @@ serve(async (req) => {
           // extracted numeric room_number.
           let { data: existing } = await supabase
             .from('rooms')
-            .select('id, room_number')
-            .eq('hotel', hotelCareHotelId)
+            .select('id, hotel, room_number')
+            .in('hotel', hotelKeys)
             .filter('pms_metadata->>roomId', 'eq', String(r.roomId))
-            .maybeSingle();
-          if (!existing) {
-            ({ data: existing } = await supabase
+            .limit(10);
+          let existingRoom = existing?.sort((a: any, b: any) => (b.hotel === canonicalHotelName ? 1 : 0) - (a.hotel === canonicalHotelName ? 1 : 0))[0] || null;
+          if (!existingRoom) {
+            const { data: matchedByNumber } = await supabase
               .from('rooms')
-              .select('id, room_number')
-              .eq('hotel', hotelCareHotelId)
+              .select('id, hotel, room_number')
+              .in('hotel', hotelKeys)
               .eq('room_number', roomNumber)
-              .maybeSingle());
+              .limit(10);
+            existingRoom = matchedByNumber?.sort((a: any, b: any) => (b.hotel === canonicalHotelName ? 1 : 0) - (a.hotel === canonicalHotelName ? 1 : 0))[0] || null;
           }
 
           // Phase A — upsert the room row (only when explicitly enabled).
           if (canUpsertRooms) {
-            if (existing) {
+            if (existingRoom) {
               const { error } = await supabase
                 .from('rooms')
                 .update({
@@ -225,7 +234,7 @@ serve(async (req) => {
                   pms_metadata: pmsMetadata,
                   updated_at: new Date().toISOString(),
                 })
-                .eq('id', existing.id);
+                .eq('id', existingRoom.id);
               if (error) throw error;
             } else {
               const { data: inserted, error } = await supabase
@@ -243,7 +252,7 @@ serve(async (req) => {
                 .select('id, room_number')
                 .single();
               if (error) throw error;
-              existing = inserted as any;
+              existingRoom = inserted as any;
             }
             importResults.upserted++;
           }
@@ -251,7 +260,7 @@ serve(async (req) => {
           // Phase B — mapping. Only create a mapping when a HotelCare room
           // actually exists; otherwise surface as "unmapped" so an admin
           // can wire it up manually.
-          if (!existing) {
+          if (!existingRoom) {
             importResults.unmapped.push({
               pms_room_id: String(r.roomId),
               pms_room_name: rawName,
@@ -261,7 +270,7 @@ serve(async (req) => {
             continue;
           }
 
-          const targetRoomNumber = existing.room_number || roomNumber;
+          const targetRoomNumber = existingRoom.room_number || roomNumber;
           const { data: existingMap } = await supabase
             .from('pms_room_mappings')
             .select('id')
@@ -273,7 +282,7 @@ serve(async (req) => {
               .from('pms_room_mappings')
               .update({
                 hotelcare_room_number: targetRoomNumber,
-                hotelcare_room_id: existing.id,
+                hotelcare_room_id: existingRoom.id,
                 pms_room_id: String(r.roomId),
                 pms_room_name: rawName,
                 is_active: true,
@@ -286,7 +295,7 @@ serve(async (req) => {
             await supabase.from('pms_room_mappings').insert({
               pms_config_id: cfgRow.id,
               hotelcare_room_number: targetRoomNumber,
-              hotelcare_room_id: existing.id,
+              hotelcare_room_id: existingRoom.id,
               pms_room_id: String(r.roomId),
               pms_room_name: rawName,
               is_active: true,

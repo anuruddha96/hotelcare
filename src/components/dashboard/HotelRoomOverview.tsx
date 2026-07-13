@@ -23,6 +23,7 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 
 interface RoomData {
   id: string;
+  hotel: string | null;
   room_number: string;
   floor_number: number | null;
   status: string | null;
@@ -228,7 +229,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
+          .select('id, hotel, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
           .in('hotel', keys)
           .order('room_number'),
         supabase
@@ -249,9 +250,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .not('completed_at', 'is', null)
       ]);
 
-      setRooms(roomsRes.data || []);
+      const assignmentRoomIds = new Set((assignmentsRes.data || []).map((a: any) => a.room_id));
+      const dedupedRooms = dedupeRoomsByNumber(roomsRes.data || [], assignmentRoomIds);
+      setRooms(dedupedRooms);
       
-      const roomIds = new Set((roomsRes.data || []).map(r => r.id));
+      const roomIds = new Set(dedupedRooms.map(r => r.id));
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
 
@@ -276,6 +279,52 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const canInteractWithRooms = isManagerOrAdmin || isReception;
   const [roomNotes, setRoomNotes] = useState('');
+
+  const getRoomDayBucket = (room: RoomData): 'today' | 'previous' => {
+    const meta = room.pms_metadata || {};
+    const day = selectedDate;
+    const syncedDates = [
+      meta.pmsSyncDate,
+      meta.lastPmsRefreshDate,
+      meta.manual_moved_at ? String(meta.manual_moved_at).slice(0, 10) : null,
+      room.updated_at ? String(room.updated_at).slice(0, 10) : null,
+    ].filter(Boolean);
+
+    if (
+      meta.scheduledDepartureToday === true ||
+      meta.checkedOutToday === true ||
+      meta.scheduledDepartureTomorrow === true ||
+      syncedDates.includes(day)
+    ) {
+      return 'today';
+    }
+
+    return 'previous';
+  };
+
+  const dedupeRoomsByNumber = (roomList: RoomData[], assignmentRoomIds: Set<string>) => {
+    const byNumber = new Map<string, RoomData>();
+    const score = (room: RoomData) => {
+      let value = 0;
+      if (assignmentRoomIds.has(room.id)) value += 1000;
+      if (room.hotel === hotelName) value += 500;
+      if (room.pms_metadata?.roomId) value += 120;
+      if (room.pms_metadata?.scheduledDepartureToday === true || room.pms_metadata?.checkedOutToday === true) value += 80;
+      if (room.is_checkout_room) value += 40;
+      if (room.updated_at) value += Math.min(30, Math.max(0, (Date.now() - new Date(room.updated_at).getTime()) / -3_600_000 + 30));
+      return value;
+    };
+
+    for (const room of roomList) {
+      const key = String(room.room_number || '').trim();
+      const current = byNumber.get(key);
+      if (!current || score(room) > score(current)) byNumber.set(key, room);
+    }
+
+    return Array.from(byNumber.values()).sort((a, b) =>
+      String(a.room_number).localeCompare(String(b.room_number), undefined, { numeric: true }),
+    );
+  };
 
   const handleRoomClick = (room: RoomData) => {
     if (!canInteractWithRooms) return;
@@ -978,9 +1027,36 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   };
 
   const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily') => {
+    const todayRooms = roomList.filter((room) => getRoomDayBucket(room) === 'today');
+    const previousRooms = roomList.filter((room) => getRoomDayBucket(room) === 'previous');
     const floors = groupByFloor(roomList);
     const dndCount = roomList.filter(r => r.is_dnd).length;
     const isDragOver = dragOverSection === sectionType;
+
+    const renderFloorRows = (roomsForColumn: RoomData[], faded: boolean) => {
+      const columnFloors = groupByFloor(roomsForColumn);
+      if (columnFloors.length === 0) {
+        return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
+      }
+      return (
+        <div className="space-y-1.5">
+          {columnFloors.map(([floor, floorRooms]) => (
+            <div key={floor} className="flex items-start gap-2">
+              <Badge variant="outline" className="text-[10px] min-w-[28px] text-center shrink-0 mt-0.5">
+                F{floor}
+              </Badge>
+              <div className="flex flex-wrap gap-1.5">
+                {floorRooms.map(room => (
+                  <div key={room.id} className={faded ? 'opacity-55 grayscale-[25%]' : 'animate-fade-in'}>
+                    {renderRoomChip(room)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    };
 
     return (
       <div
@@ -1025,17 +1101,21 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         {floors.length === 0 ? (
           <p className="text-xs text-muted-foreground pl-6">No rooms</p>
         ) : (
-          <div className="space-y-1.5">
-            {floors.map(([floor, floorRooms]) => (
-              <div key={floor} className="flex items-start gap-2">
-                <Badge variant="outline" className="text-[10px] min-w-[28px] text-center shrink-0 mt-0.5">
-                  F{floor}
-                </Badge>
-                <div className="flex flex-wrap gap-1.5">
-                  {floorRooms.map(room => renderRoomChip(room))}
-                </div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+            <div className="rounded-md border border-border/60 bg-muted/20 p-2">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{t('team.yesterdayCarried')}</span>
+                <Badge variant="secondary" className="text-[10px] opacity-70">{previousRooms.length}</Badge>
               </div>
-            ))}
+              {renderFloorRows(previousRooms, true)}
+            </div>
+            <div className="rounded-md border border-blue-200 bg-blue-50/35 p-2 dark:border-blue-900/50 dark:bg-blue-950/15">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{t('team.todayPmsManual')}</span>
+                <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} {t('team.new')}</Badge>
+              </div>
+              {renderFloorRows(todayRooms, false)}
+            </div>
           </div>
         )}
       </div>

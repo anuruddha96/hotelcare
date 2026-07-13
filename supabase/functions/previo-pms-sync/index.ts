@@ -132,6 +132,13 @@ serve(async (req) => {
 
     let rooms: PrevioRoom[] = [];
     let rosterSource: "rest" | "local" | "reservations" = "reservations";
+    const { data: hotelCfgForKeys } = await service
+      .from("hotel_configurations")
+      .select("hotel_name")
+      .eq("hotel_id", targetHotel)
+      .maybeSingle();
+    const localHotelKeys = Array.from(new Set([targetHotel, (hotelCfgForKeys as any)?.hotel_name].filter(Boolean)));
+    const canonicalHotelName = (hotelCfgForKeys as any)?.hotel_name || targetHotel;
 
     if (credsProtocol === "rest") {
       const { response: resp } = await fetchPrevioWithAuth({
@@ -154,10 +161,19 @@ serve(async (req) => {
       // physical room is included, even those without reservations.
       const { data: localRooms } = await service
         .from("rooms")
-        .select("room_number, room_type, pms_metadata")
-        .eq("hotel", targetHotel);
+        .select("hotel, room_number, room_type, pms_metadata")
+        .in("hotel", localHotelKeys);
       if (localRooms && localRooms.length > 0) {
-        rooms = localRooms.map((r: any) => ({
+        const byNumber = new Map<string, any>();
+        for (const room of localRooms as any[]) {
+          const key = extractRoomNumber(room.room_number);
+          const current = byNumber.get(key);
+          const score = (candidate: any) =>
+            (candidate.hotel === canonicalHotelName ? 100 : 0) +
+            (candidate.pms_metadata?.roomId ? 20 : 0);
+          if (!current || score(room) > score(current)) byNumber.set(key, room);
+        }
+        rooms = Array.from(byNumber.values()).map((r: any) => ({
           roomId: Number(r.pms_metadata?.roomId ?? 0),
           name: r.room_number,
           roomKindName: r.room_type ?? "",
@@ -202,6 +218,10 @@ serve(async (req) => {
       };
       if (rec.roomName && replaceIfBetter(reservationsByRoomName.get(rec.roomName))) {
         reservationsByRoomName.set(rec.roomName, rec);
+      }
+      const numericRoomName = extractRoomNumber(rec.roomName);
+      if (numericRoomName && numericRoomName !== rec.roomName && replaceIfBetter(reservationsByRoomName.get(numericRoomName))) {
+        reservationsByRoomName.set(numericRoomName, rec);
       }
       if (rec.objId != null && replaceIfBetter(reservationsByObjId.get(rec.objId))) {
         reservationsByObjId.set(rec.objId, rec);
