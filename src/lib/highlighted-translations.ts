@@ -272,8 +272,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'thủ công',
     'team.refresh': 'Làm mới',
     'team.refreshing': 'Đang làm mới...',
-    'team.yesterdayCarried': 'Hôm qua / chuyển tiếp',
-    'team.todayPmsManual': 'PMS hôm nay / thủ công',
+    'team.yesterdayCarried': 'Phòng hôm qua',
+    'team.todayPmsManual': 'Phòng hôm nay',
+
     'team.noRooms': 'Không có phòng',
     'team.new': 'MỚI',
 
