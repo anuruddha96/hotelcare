@@ -21,12 +21,18 @@ export type PrevioCredentials =
       apiKey: string;
       /** XML element name that wraps the api key inside <request>. Defaults to "apiKey". */
       authElement: string;
+      /** Optional dedicated XML login (Previo XML API accepts login/password, NOT the REST ApiKey). */
+      xmlLogin?: string;
+      xmlPassword?: string;
       source: string;
     }
   | {
       protocol: "rest";
       username: string;
       password: string;
+      /** Optional dedicated XML login for tenants that mix REST + XML. */
+      xmlLogin?: string;
+      xmlPassword?: string;
       source: string;
     };
 
