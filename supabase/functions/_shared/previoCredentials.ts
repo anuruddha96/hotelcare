@@ -82,6 +82,8 @@ export function parsePrevioCredentialValue(
       const username = clean(j.username ?? j.user ?? j.login ?? j.email);
       const password = clean(j.password ?? j.pass ?? j.secret);
       const authElement = clean(j.authElement ?? j.auth_element) || "apiKey";
+      const xmlLogin = clean(j.xmlLogin ?? j.xml_login ?? j.xmlUsername ?? j.xml_username) || undefined;
+      const xmlPassword = clean(j.xmlPassword ?? j.xml_password) || undefined;
 
       if (protocol === "xml") {
         if (!apiKey) {
@@ -89,7 +91,7 @@ export function parsePrevioCredentialValue(
             `Previo credential "${sourceName}" declares protocol=xml but has no apiKey field.`,
           );
         }
-        return { protocol: "xml", apiKey, authElement, source: sourceName };
+        return { protocol: "xml", apiKey, authElement, xmlLogin, xmlPassword, source: sourceName };
       }
       if (protocol === "rest") {
         if (!username || !password) {
@@ -97,15 +99,15 @@ export function parsePrevioCredentialValue(
             `Previo credential "${sourceName}" declares protocol=rest but is missing username or password.`,
           );
         }
-        return { protocol: "rest", username, password, source: sourceName };
+        return { protocol: "rest", username, password, xmlLogin, xmlPassword, source: sourceName };
       }
 
       // Implicit protocol inference from present fields.
       if (apiKey && !username && !password) {
-        return { protocol: "xml", apiKey, authElement, source: sourceName };
+        return { protocol: "xml", apiKey, authElement, xmlLogin, xmlPassword, source: sourceName };
       }
       if (username && password) {
-        return { protocol: "rest", username, password, source: sourceName };
+        return { protocol: "rest", username, password, xmlLogin, xmlPassword, source: sourceName };
       }
       throw new PrevioCredentialParseError(
         `Previo credential "${sourceName}" JSON has no recognized fields. Expected apiKey (xml) or username+password (rest).`,
