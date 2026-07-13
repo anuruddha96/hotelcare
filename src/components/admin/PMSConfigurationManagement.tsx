@@ -28,6 +28,7 @@ interface PMSConfig {
   last_test_at?: string | null;
   last_test_status?: string | null;
   last_test_error?: string | null;
+  hide_pms_upload_page?: boolean;
 }
 
 interface RoomMapping {
@@ -58,6 +59,7 @@ export default function PMSConfigurationManagement() {
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [connectionMode, setConnectionMode] = useState<'manual' | 'scheduled'>('manual');
   const [credentialsSecretName, setCredentialsSecretName] = useState('');
+  const [hidePmsUploadPage, setHidePmsUploadPage] = useState(false);
   const [newRoomNumber, setNewRoomNumber] = useState('');
   const [newPmsRoomId, setNewPmsRoomId] = useState('');
   const [newPmsRoomName, setNewPmsRoomName] = useState('');
@@ -104,6 +106,7 @@ export default function PMSConfigurationManagement() {
       setAutoSyncEnabled((config as any).auto_sync_enabled ?? false);
       setConnectionMode(((config as any).connection_mode as 'manual' | 'scheduled') || 'manual');
       setCredentialsSecretName((config as any).credentials_secret_name || '');
+      setHidePmsUploadPage((config as any).hide_pms_upload_page === true);
 
       // Fetch room mappings
       const { data: mappings, error: mappingsError } = await supabase
@@ -144,6 +147,7 @@ export default function PMSConfigurationManagement() {
       setAutoSyncEnabled(false);
       setConnectionMode('manual');
       setCredentialsSecretName('');
+      setHidePmsUploadPage(false);
     }
     
     setLoading(false);
@@ -167,6 +171,7 @@ export default function PMSConfigurationManagement() {
           auto_sync_enabled: autoSyncEnabled,
           connection_mode: connectionMode,
           credentials_secret_name: credentialsSecretName || null,
+          hide_pms_upload_page: hidePmsUploadPage,
           updated_at: new Date().toISOString()
         } as any)
         .eq('id', pmsConfig.id);
@@ -189,6 +194,7 @@ export default function PMSConfigurationManagement() {
           auto_sync_enabled: autoSyncEnabled,
           connection_mode: connectionMode,
           credentials_secret_name: credentialsSecretName || null,
+          hide_pms_upload_page: hidePmsUploadPage,
           is_active: false,
         } as any)
         .select()
@@ -432,6 +438,20 @@ export default function PMSConfigurationManagement() {
                   <Label htmlFor="auto-sync-enabled">
                     Allow background auto-sync (scheduled mode only)
                   </Label>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="hide-pms-upload-page">Hide legacy PMS Upload tab</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Managers will use Team View → PMS Refresh. Keep the upload tab visible only as a fallback.
+                    </p>
+                  </div>
+                  <Switch
+                    id="hide-pms-upload-page"
+                    checked={hidePmsUploadPage}
+                    onCheckedChange={setHidePmsUploadPage}
+                  />
                 </div>
 
                 <div className="flex gap-2">
