@@ -1484,6 +1484,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: t('legend.extraTowelsHint') },
                   { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
                   { label: t('legend.approved'), cls: 'text-[10px]', isText: true, text: '✅', hint: t('legend.approvedHint') },
+                  // Additional badges that render on the chip but were missing from the legend:
+                  { label: t('legend.manualCheckout'), cls: 'bg-amber-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'M', hint: t('legend.manualCheckoutHint') },
+                  { label: t('legend.newlySynced'), cls: 'bg-blue-500 ring-1 ring-blue-300', hint: t('legend.newlySyncedHint') },
+                  { label: t('legend.departsTomorrow'), cls: 'bg-indigo-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C/O+1', hint: t('legend.departsTomorrowHint') },
+                  { label: t('legend.shabbat'), cls: 'text-blue-700 dark:text-blue-300 text-[9px] font-extrabold', isText: true, text: 'SH', hint: t('legend.shabbatHint') },
+                  { label: t('legend.noService'), cls: 'bg-gray-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'NS', hint: t('legend.noServiceHint') },
+                  { label: t('legend.hasNote'), cls: 'text-[10px]', isText: true, text: '📝', hint: t('legend.hasNoteHint') },
                 ].map(item => (
                   <HelpTooltip key={item.label} hint={(item as any).hint}>
                     <div className="flex items-center gap-1 cursor-help">
