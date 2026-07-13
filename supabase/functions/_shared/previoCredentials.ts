@@ -290,9 +290,15 @@ ${opts.extraXml ?? ""}
 
 /** POST an XML method call. Never logs credentials. */
 export async function callPrevioXml(opts: PrevioXmlCallOptions): Promise<PrevioXmlCallResult> {
+  // Dedicated XML login/password bypasses the auth-variant fallback loop —
+  // there is only one valid auth path in that case.
+  if (opts.creds.xmlLogin && opts.creds.xmlPassword) {
+    return await callPrevioXmlOnce(opts, "login");
+  }
   if (opts.creds.protocol !== "xml" || opts.authVariant) {
     return await callPrevioXmlOnce(opts, opts.authVariant);
   }
+
 
   const preferred = opts.creds.authElement === "apiKey"
     ? "authorizationApiKey"
