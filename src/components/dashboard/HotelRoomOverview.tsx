@@ -885,6 +885,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         const nowIso = new Date().toISOString();
                         await supabase.from('rooms').update({ status: 'clean', last_cleaned_at: nowIso } as any).eq('id', room.id);
                         setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'clean', last_cleaned_at: nowIso } : r));
+                        toast.success(`Room ${room.room_number} → Clean`);
                       } catch { toast.error('Failed'); }
                       finally { setActionLoading(null); }
                     }}
