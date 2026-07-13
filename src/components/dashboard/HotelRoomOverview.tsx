@@ -274,13 +274,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
 
-      // Load a READ-ONLY snapshot of the previous working day so managers can
+      // Load a READ-ONLY snapshot of the previous working day so admins can
       // compare where things stopped yesterday vs where things stand today.
-      // We find the most recent assignment_date < selectedDate for this hotel
-      // and load every assignment from that date. No writes anywhere.
+      // Non-admin users only see today, so we skip this query entirely for them.
+      const wantsPreviousDay =
+        profile?.role === 'admin' || profile?.role === 'top_management';
       try {
         const roomIdList = Array.from(roomIds);
-        if (roomIdList.length > 0) {
+        if (wantsPreviousDay && roomIdList.length > 0) {
           const { data: prevDateRow } = await supabase
             .from('room_assignments')
             .select('assignment_date')
