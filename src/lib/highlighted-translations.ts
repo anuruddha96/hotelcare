@@ -116,8 +116,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'kézi',
     'team.refresh': 'Frissítés',
     'team.refreshing': 'Frissítés...',
-    'team.yesterdayCarried': 'Tegnap / áthozott',
-    'team.todayPmsManual': 'Mai PMS / kézi',
+    'team.yesterdayCarried': 'Tegnapi szobák',
+    'team.todayPmsManual': 'Mai szobák',
+
     'team.noRooms': 'Nincs szoba',
     'team.new': 'ÚJ',
 
