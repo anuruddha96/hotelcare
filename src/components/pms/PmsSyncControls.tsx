@@ -6,8 +6,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
-import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck } from "lucide-react";
+import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck, CheckCircle2 } from "lucide-react";
 import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
 
 interface Props {
   /** Manager's assigned_hotel (may be hotel_id or hotel name — component
@@ -30,11 +36,17 @@ interface Cfg {
 }
 
 export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [pendingRisky, setPendingRisky] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [successPulse, setSuccessPulse] = useState(false);
+  const [confirmReSyncOpen, setConfirmReSyncOpen] = useState(false);
+  const [lastSyncMeta, setLastSyncMeta] = useState<{ at: string; by: string | null } | null>(null);
+
 
   const loadCfg = async () => {
     if (!hotelId) return;
@@ -66,8 +78,7 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const canSyncFromPms = cfg.snapshot_read_enabled === true;
   const killed = cfg.outbound_kill_switch === true;
 
-  const runSync = async () => {
-    if (!canSyncFromPms) return;
+  const doSync = async () => {
     setSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke("previo-sync-daily-overview", {
@@ -75,7 +86,9 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
       });
       if (error) throw new Error(error.message);
       if ((data as any)?.error) throw new Error((data as any).error);
-      toast.success("PMS sync completed");
+      toast.success("✨ PMS sync completed", { description: "Room list is now up to date." });
+      setSuccessPulse(true);
+      setTimeout(() => setSuccessPulse(false), 1400);
       await loadCfg();
       await loadPending(cfg.hotel_id);
     } catch (e) {
@@ -84,6 +97,36 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
       setSyncing(false);
     }
   };
+
+  const runSync = async () => {
+    if (!canSyncFromPms) return;
+    // Re-sync guard: if the last sync happened less than 10 min ago, show a
+    // confirmation so managers don't hammer the PMS by accident.
+    if (cfg.last_sync_at) {
+      const ageMs = Date.now() - new Date(cfg.last_sync_at).getTime();
+      if (ageMs < 10 * 60 * 1000) {
+        // Fetch the last sync history row (best-effort) so we can show who
+        // triggered it. Non-blocking on failure.
+        try {
+          const { data: last } = await (supabase as any)
+            .from("pms_sync_history")
+            .select("created_at, synced_by_name")
+            .eq("hotel_id", cfg.hotel_id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          setLastSyncMeta({
+            at: (last?.created_at as string) || cfg.last_sync_at,
+            by: (last?.synced_by_name as string) || null,
+          });
+        } catch { setLastSyncMeta({ at: cfg.last_sync_at, by: null }); }
+        setConfirmReSyncOpen(true);
+        return;
+      }
+    }
+    await doSync();
+  };
+
 
   const scrollToUpload = () => {
     if (!uploadAnchorId) return;
@@ -103,7 +146,8 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
             <span className={`inline-block h-2 w-2 rounded-full ${healthDot}`} />
             PMS sync
             {cfg.environment && <Badge variant="outline" className="text-[10px] uppercase">{cfg.environment}</Badge>}
-            {killed && <Badge variant="destructive" className="gap-1 text-[10px]"><ShieldOff className="h-3 w-3" /> Kill-switch</Badge>}
+            {killed && isAdmin && <Badge variant="destructive" className="gap-1 text-[10px]"><ShieldOff className="h-3 w-3" /> Kill-switch</Badge>}
+
             {pendingRisky > 0 && (
               <Badge variant="destructive" className="text-[10px] ml-auto">{pendingRisky} need approval</Badge>
             )}
@@ -118,16 +162,26 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="default"
-              onClick={runSync}
-              disabled={!canSyncFromPms || syncing}
-              title={canSyncFromPms ? "Pull the latest daily overview from Previo" : "Enable Snapshot read in the admin activation checklist first"}
-            >
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              Sync overview
-            </Button>
+            <div className="relative">
+              <Button
+                size="sm"
+                variant="default"
+                onClick={runSync}
+                disabled={!canSyncFromPms || syncing}
+                title={canSyncFromPms ? "Pull the latest daily overview from Previo" : "Enable Snapshot read in the admin activation checklist first"}
+                data-training-id="pms-sync-btn"
+                className={successPulse ? "ring-2 ring-emerald-400 ring-offset-2 transition-shadow" : undefined}
+              >
+                {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                Sync overview
+              </Button>
+              {successPulse && (
+                <span className="pointer-events-none absolute -top-2 -right-2 animate-scale-in">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500 drop-shadow" />
+                </span>
+              )}
+            </div>
+
             <Button
               size="sm"
               variant="secondary"
@@ -161,6 +215,26 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
         onOpenChange={setPreviewOpen}
         onApplied={() => { void loadCfg(); void loadPending(cfg.hotel_id); }}
       />
+
+      <AlertDialog open={confirmReSyncOpen} onOpenChange={setConfirmReSyncOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sync again so soon?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {lastSyncMeta
+                ? <>Last PMS sync was <b>{formatDistanceToNow(new Date(lastSyncMeta.at))} ago</b>{lastSyncMeta.by ? <> by <b>{lastSyncMeta.by}</b></> : null}. Running another sync will contact Previo again and may overwrite any manual changes made since.</>
+                : <>A sync was completed recently. Running another will re-contact Previo.</>}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmReSyncOpen(false); void doSync(); }}>
+              Sync again
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
+

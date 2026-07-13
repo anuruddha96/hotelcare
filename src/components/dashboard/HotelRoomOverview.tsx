@@ -40,8 +40,10 @@ interface RoomData {
   towel_change_required: boolean | null;
   linen_change_required: boolean | null;
   created_at?: string | null;
+  updated_at?: string | null;
   pms_metadata?: any;
 }
+
 
 interface AssignmentData {
   room_id: string;
@@ -226,7 +228,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, pms_metadata')
+          .select('id, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
           .in('hotel', keys)
           .order('room_number'),
         supabase
@@ -476,9 +478,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               title="Manually moved by a manager (not from PMS)"
             >M</span>
           )}
-          {room.pms_metadata?.roomId && room.created_at && (Date.now() - new Date(room.created_at).getTime() < 2 * 3600 * 1000) && (
-            <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-emerald-600 text-white" title="Newly imported from Previo (last 2h)">NEW</span>
+          {room.pms_metadata?.roomId && room.updated_at && (Date.now() - new Date(room.updated_at as any).getTime() < 2 * 3600 * 1000) && (
+            <span className="ml-0.5 px-1 rounded text-[9px] font-extrabold bg-blue-600 text-white ring-1 ring-blue-300 animate-fade-in" title="Newly synced from Previo (last 2h)">NEW</span>
           )}
+
           {room.pms_metadata?.scheduledDepartureTomorrow === true && !room.pms_metadata?.scheduledDepartureToday && (
             <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
           )}

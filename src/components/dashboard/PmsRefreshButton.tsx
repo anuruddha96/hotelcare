@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, DoorOpen, Radio, Activity } from 'lucide-react';
+import { RefreshCw, Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, DoorOpen, Radio, Activity, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLiveSync } from '@/contexts/LiveSyncContext';
-import { formatDistanceToNowStrict } from 'date-fns';
+import { formatDistanceToNowStrict, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Props {
   onRefreshed?: () => void;
 }
+
 
 const MANAGER_ROLES = new Set([
   'admin',
@@ -115,10 +121,29 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   // Heartbeat ping cadence: fast when syncing, slow when fresh, none when stale.
   const showPing = busy || isFresh || t.status === 'error';
 
-  const handleClick = async () => {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [justSuccess, setJustSuccess] = useState(false);
+
+  const doRefresh = async () => {
     await refresh('pms');
+    setJustSuccess(true);
+    toast.success('✨ PMS sync complete', {
+      description: 'Team View is now up to date with Previo.',
+      duration: 3500,
+    });
+    setTimeout(() => setJustSuccess(false), 1600);
     onRefreshed?.();
   };
+
+  const handleClick = async () => {
+    // If last sync <10 min old, ask for confirmation.
+    if (t.lastAt && Date.now() - t.lastAt.getTime() < 10 * 60 * 1000) {
+      setConfirmOpen(true);
+      return;
+    }
+    await doRefresh();
+  };
+
 
   return (
     <div
@@ -223,18 +248,16 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         variant="outline"
         onClick={handleClick}
         disabled={busy}
+        data-training-id="pms-refresh-btn"
         className={cn(
           'relative z-10 h-8 w-full shrink-0 gap-1.5 overflow-hidden bg-background/60 backdrop-blur sm:w-auto sm:self-center',
           busy && 'border-primary/60 text-primary',
+          justSuccess && 'ring-2 ring-emerald-400 ring-offset-2',
         )}
       >
-        {/* Blue progress fill that sweeps across the button while syncing */}
         {busy && (
           <>
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 bg-primary/15"
-            />
+            <span aria-hidden className="pointer-events-none absolute inset-0 bg-primary/15" />
             <span
               aria-hidden
               className="pointer-events-none absolute inset-y-0 left-0 w-full origin-left bg-gradient-to-r from-primary/40 via-primary/30 to-primary/10"
@@ -250,10 +273,27 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
           </>
         )}
         <span className="relative z-10 inline-flex items-center gap-1.5">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          <span>{busy ? 'Refreshing' : 'PMS Refresh'}</span>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justSuccess ? <Sparkles className="h-3.5 w-3.5 text-emerald-500" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          <span>{busy ? 'Refreshing' : justSuccess ? 'Synced!' : 'PMS Refresh'}</span>
         </span>
       </Button>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sync again so soon?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Last PMS sync was <b>{t.lastAt ? formatDistanceToNow(t.lastAt) : 'just now'} ago</b>. Running another sync will contact Previo again and may briefly re-shuffle the room chips as fresh data arrives.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmOpen(false); void doRefresh(); }}>
+              Sync again
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

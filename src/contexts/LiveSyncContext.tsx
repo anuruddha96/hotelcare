@@ -230,14 +230,15 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     [runPms, runRevenue, runCheckouts],
   );
 
-  // Auto-run on login + when tab regains focus after long idle.
+  // PMS sync is MANUAL only: never auto-run on login / focus. The Team View
+  // "PMS Refresh" button is the single entry point for a manager-initiated
+  // refresh. Revenue + checkout polling remain automatic because they are
+  // read-only pulls that never mutate housekeeping state.
   useEffect(() => {
     if (!enabled) return;
-    void runPms();
     void runRevenue();
     void runCheckouts();
     const onFocus = () => {
-      void runPms();
       void runRevenue();
       void runCheckouts();
     };
@@ -247,7 +248,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", onFocus);
       clearInterval(checkoutsTimer);
     };
-  }, [enabled, runPms, runRevenue, runCheckouts]);
+  }, [enabled, runRevenue, runCheckouts]);
+
 
   // ---- PMS change events: realtime + count ---------------------------------
   const refreshPmsChanges = useCallback(async () => {

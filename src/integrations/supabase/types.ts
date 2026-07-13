@@ -2615,6 +2615,7 @@ export type Database = {
           created_at: string
           credentials_secret_name: string | null
           environment: string
+          hide_pms_upload_page: boolean
           hotel_id: string
           id: string
           is_active: boolean
@@ -2656,6 +2657,7 @@ export type Database = {
           created_at?: string
           credentials_secret_name?: string | null
           environment?: string
+          hide_pms_upload_page?: boolean
           hotel_id: string
           id?: string
           is_active?: boolean
@@ -2697,6 +2699,7 @@ export type Database = {
           created_at?: string
           credentials_secret_name?: string | null
           environment?: string
+          hide_pms_upload_page?: boolean
           hotel_id?: string
           id?: string
           is_active?: boolean
@@ -2950,6 +2953,8 @@ export type Database = {
           id: string
           sync_status: string
           sync_type: string
+          synced_by_name: string | null
+          synced_by_user_id: string | null
         }
         Insert: {
           changed_at?: string | null
@@ -2962,6 +2967,8 @@ export type Database = {
           id?: string
           sync_status: string
           sync_type: string
+          synced_by_name?: string | null
+          synced_by_user_id?: string | null
         }
         Update: {
           changed_at?: string | null
@@ -2974,6 +2981,8 @@ export type Database = {
           id?: string
           sync_status?: string
           sync_type?: string
+          synced_by_name?: string | null
+          synced_by_user_id?: string | null
         }
         Relationships: [
           {
