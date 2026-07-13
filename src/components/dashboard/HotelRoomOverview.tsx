@@ -476,9 +476,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               title="Manually moved by a manager (not from PMS)"
             >M</span>
           )}
-          {room.pms_metadata?.roomId && room.created_at && (Date.now() - new Date(room.created_at).getTime() < 2 * 3600 * 1000) && (
-            <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-emerald-600 text-white" title="Newly imported from Previo (last 2h)">NEW</span>
+          {room.pms_metadata?.roomId && room.updated_at && (Date.now() - new Date(room.updated_at as any).getTime() < 2 * 3600 * 1000) && (
+            <span className="ml-0.5 px-1 rounded text-[9px] font-extrabold bg-blue-600 text-white ring-1 ring-blue-300 animate-fade-in" title="Newly synced from Previo (last 2h)">NEW</span>
           )}
+
           {room.pms_metadata?.scheduledDepartureTomorrow === true && !room.pms_metadata?.scheduledDepartureToday && (
             <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
           )}
