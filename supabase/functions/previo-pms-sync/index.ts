@@ -222,9 +222,15 @@ serve(async (req) => {
             guestsCount,
             note: noteMatch ? noteMatch[1].trim() || null : null,
           };
+          // Prefer the reservation that dictates *today's* housekeeping work.
+          // Same-day turnover: Previo returns BOTH the outgoing (departure
+          // today) and the incoming (arrival today, departure future)
+          // reservations for the same room. The outgoing one wins because the
+          // room needs checkout cleaning before the new guest can arrive.
           const rank = (r: ParsedReservation) => {
-            if (r.arrivalDate <= today && r.departureDate > today) return 3;
-            if (r.departureDate === today) return 2;
+            if (r.departureDate === today) return 4;                                   // checkout today
+            if (r.arrivalDate < today && r.departureDate > today) return 3;            // true stay-through
+            if (r.arrivalDate === today && r.departureDate > today) return 2;          // arrival only
             if (r.departureDate === tomorrow) return 1;
             return 0;
           };
