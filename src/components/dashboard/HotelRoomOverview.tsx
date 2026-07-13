@@ -27,6 +27,7 @@ interface RoomData {
   room_number: string;
   floor_number: number | null;
   status: string | null;
+  last_cleaned_at: string | null;
   is_checkout_room: boolean | null;
   is_dnd: boolean | null;
   notes: string | null;
@@ -231,7 +232,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, hotel, room_number, floor_number, status, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
+          .select('id, hotel, room_number, floor_number, status, last_cleaned_at, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
           .in('hotel', keys)
           .order('room_number'),
         supabase
@@ -510,10 +511,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     else if (assignmentStatus === 'in_progress') statusKey = 'in_progress';
     else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) statusKey = 'clean';
     else if (assignmentStatus === 'completed') statusKey = 'pending_approval';
-    // No assignment for today: never show stale 'clean' from previous days —
-    // that misleads managers into thinking the room is already done.
-    else if (!assignment) statusKey = (room.status && room.status !== 'clean') ? room.status : 'dirty';
-    else statusKey = room.status && room.status !== 'clean' ? room.status : 'dirty';
+    // No assignment for today: only treat room.status='clean' as clean when
+    // last_cleaned_at falls on the selected date — otherwise it's stale and
+    // must render as dirty so managers can assign it.
+    else {
+      const cleanedToday = !!room.last_cleaned_at &&
+        new Date(room.last_cleaned_at).toISOString().slice(0, 10) === selectedDate;
+      if (room.status === 'clean' && cleanedToday) statusKey = 'clean';
+      else if (room.status && room.status !== 'clean') statusKey = room.status;
+      else statusKey = 'dirty';
+    }
     
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
     const isDND = room.is_dnd;
@@ -568,7 +575,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             >M</span>
           )}
           {room.pms_metadata?.roomId && room.updated_at && (Date.now() - new Date(room.updated_at as any).getTime() < 2 * 3600 * 1000) && (
-            <span className="ml-0.5 px-1 rounded text-[9px] font-extrabold bg-blue-600 text-white ring-1 ring-blue-300 animate-fade-in" title="Newly synced from Previo (last 2h)">NEW</span>
+            <span
+              className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-blue-500 ring-1 ring-blue-300 animate-fade-in"
+              title="Newly synced from Previo (last 2h)"
+            />
           )}
 
           {room.pms_metadata?.scheduledDepartureTomorrow === true && !room.pms_metadata?.scheduledDepartureToday && (
@@ -872,8 +882,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       e.stopPropagation();
                       setActionLoading(`clean-${room.id}`);
                       try {
-                        await supabase.from('rooms').update({ status: 'clean' } as any).eq('id', room.id);
-                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'clean' } : r));
+                        const nowIso = new Date().toISOString();
+                        await supabase.from('rooms').update({ status: 'clean', last_cleaned_at: nowIso } as any).eq('id', room.id);
+                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'clean', last_cleaned_at: nowIso } : r));
                         toast.success(`Room ${room.room_number} → Clean`);
                       } catch { toast.error('Failed'); }
                       finally { setActionLoading(null); }
@@ -1097,7 +1108,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       return p.length <= 8 ? p : p.substring(0, 7) + '.';
     })();
     return (
-      <div className="flex flex-col items-center gap-0.5 select-none" style={{ cursor: 'not-allowed' }}>
+      <div className="flex flex-col items-center gap-0.5 select-none opacity-60 saturate-75 transition-opacity hover:opacity-80" style={{ cursor: 'not-allowed' }}>
         <div
           className={`
             px-2 py-1 rounded text-xs font-bold border-2 min-w-[40px] text-center ${colorClass}
