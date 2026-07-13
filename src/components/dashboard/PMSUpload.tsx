@@ -1028,6 +1028,13 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         toast.warning('Previo returned no rooms');
         return;
       }
+      const checkoutSignals =
+        Number((data as any)?.departuresToday ?? 0) +
+        Number((data as any)?.departuresTomorrow ?? 0) +
+        Number((data as any)?.checkedOutToday ?? 0);
+      if ((data as any)?.reservationFetchError && checkoutSignals === 0 && !(data as any)?.reservationFallbackSource) {
+        throw new Error('Previo returned room statuses but no reservation/departure data, so the sync was stopped to avoid moving checkout rooms into Daily Rooms.');
+      }
 
       // Convert API rows -> in-memory XLSX -> File, then feed to existing
       // processFile so the dirty-room/checkout/cleaning logic stays identical
