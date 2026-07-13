@@ -359,6 +359,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'Өрөө байхгүй',
     'team.new': 'ШИНЭ',
+    'team.readOnly': 'Зөвхөн унших',
 
     'performance.topPerformer': 'Шилдэг Гүйцэтгэгч',
     'performance.teamAverage': 'Багийн Дундаж',
