@@ -38,6 +38,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'No rooms',
     'team.new': 'NEW',
+    'team.readOnly': 'Read-only',
 
     // PerformanceLeaderboard
     'performance.topPerformer': 'Top Performer',
