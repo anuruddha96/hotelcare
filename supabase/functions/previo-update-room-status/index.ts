@@ -96,19 +96,22 @@ serve(async (req) => {
       );
     }
 
-    // Map HotelCare status to Previo status
-    const previoStatus = mapToPrevioStatus(status);
+    // Map HotelCare status to Previo's numeric roomCleanStatusId.
+    // Previo's clean-statuses endpoint requires `roomCleanStatusId` (integer),
+    // NOT a status string. IDs match what previo-pms-sync reads back:
+    //   1=Untidy, 2=Clean, 3=Inspected, 4=Out of order, 5=Untidy
+    const previoStatusId = mapToPrevioStatusId(status);
 
-    console.log(`Updating room status in Previo REST API - Room: ${room.room_number}, Status: ${previoStatus}`);
+    console.log(`Updating room status in Previo REST API - Room: ${room.room_number}, roomCleanStatusId: ${previoStatusId}`);
 
-    // Use mapped Previo room ID; clean-status endpoint takes the room ID in the path
+    // Use mapped Previo room ID; documented endpoint is /clean-statuses (plural).
     const previoRoomId = roomMapping.pms_room_id;
     const { response: previoResponse } = await fetchPrevioWithAuth({
       credentialsSecretName: (pmsConfig as any).credentials_secret_name,
       path: `/rest/rooms/${previoRoomId}/clean-statuses`,
       pmsHotelId: String((pmsConfig as any).pms_hotel_id || ''),
       method: 'PUT',
-      body: JSON.stringify({ status: previoStatus }),
+      body: JSON.stringify({ roomCleanStatusId: previoStatusId }),
     });
 
     if (!previoResponse.ok) {
