@@ -37,6 +37,19 @@ serve(async (req) => {
     }
     hotelForLog = room.hotel;
 
+    // Resolve room.hotel (which may be either the hotel_id slug or the
+    // human hotel_name) to the pms_configurations.hotel_id slug.
+    const hotelKeys = new Set<string>([room.hotel]);
+    try {
+      const { data: cfg } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name')
+        .or(`hotel_id.eq.${room.hotel},hotel_name.eq.${room.hotel}`)
+        .maybeSingle();
+      if (cfg?.hotel_id) hotelKeys.add(cfg.hotel_id);
+      if (cfg?.hotel_name) hotelKeys.add(cfg.hotel_name);
+    } catch (_) { /* ignore */ }
+
     // Get PMS configuration for this hotel
     const { data: pmsConfig, error: configError } = await supabase
       .from('pms_configurations')
@@ -48,13 +61,13 @@ serve(async (req) => {
           pms_room_name
         )
       `)
-      .eq('hotel_id', room.hotel)
+      .in('hotel_id', Array.from(hotelKeys))
       .eq('pms_type', 'previo')
       .eq('is_active', true)
-      .single();
+      .maybeSingle();
 
     if (configError || !pmsConfig) {
-      console.log('No PMS configuration found for hotel:', room.hotel);
+      console.log('No PMS configuration found for hotel:', room.hotel, 'tried:', Array.from(hotelKeys));
       return new Response(
         JSON.stringify({ success: true, skipped: true, message: 'No PMS integration configured for this hotel' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -96,19 +109,22 @@ serve(async (req) => {
       );
     }
 
-    // Map HotelCare status to Previo status
-    const previoStatus = mapToPrevioStatus(status);
+    // Map HotelCare status to Previo's numeric roomCleanStatusId.
+    // Previo's clean-statuses endpoint requires `roomCleanStatusId` (integer),
+    // NOT a status string. IDs match what previo-pms-sync reads back:
+    //   1=Untidy, 2=Clean, 3=Inspected, 4=Out of order, 5=Untidy
+    const previoStatusId = mapToPrevioStatusId(status);
 
-    console.log(`Updating room status in Previo REST API - Room: ${room.room_number}, Status: ${previoStatus}`);
+    console.log(`Updating room status in Previo REST API - Room: ${room.room_number}, roomCleanStatusId: ${previoStatusId}`);
 
-    // Use mapped Previo room ID; clean-status endpoint takes the room ID in the path
+    // Use mapped Previo room ID; documented endpoint is /clean-statuses (plural).
     const previoRoomId = roomMapping.pms_room_id;
     const { response: previoResponse } = await fetchPrevioWithAuth({
       credentialsSecretName: (pmsConfig as any).credentials_secret_name,
-      path: `/rest/rooms/${previoRoomId}/clean-status`,
+      path: `/rest/rooms/${previoRoomId}/clean-statuses`,
       pmsHotelId: String((pmsConfig as any).pms_hotel_id || ''),
       method: 'PUT',
-      body: JSON.stringify({ status: previoStatus }),
+      body: JSON.stringify({ roomCleanStatusId: previoStatusId }),
     });
 
     if (!previoResponse.ok) {
@@ -131,7 +147,8 @@ serve(async (req) => {
         data: {
           room_id: roomId,
           room_number: room.room_number,
-          status: previoStatus,
+          roomCleanStatusId: previoStatusId,
+          hotelcare_status: status,
           previo_room_id: previoRoomId,
           response: responseData,
         },
@@ -142,7 +159,7 @@ serve(async (req) => {
         success: true, 
         message: 'Room status updated in Previo REST API',
         roomNumber: room.room_number,
-        status: previoStatus
+        roomCleanStatusId: previoStatusId,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -180,18 +197,15 @@ serve(async (req) => {
   }
 });
 
-// Map HotelCare status to Previo status codes
-function mapToPrevioStatus(status: string): string {
+// Map HotelCare status to Previo's numeric roomCleanStatusId.
+// Mapping mirrors previo-pms-sync's inbound cleanMap:
+//   1=Untidy, 2=Clean, 3=Inspected, 4=Out of order, 5=Untidy
+function mapToPrevioStatusId(status: string): number {
   switch (status) {
-    case 'clean':
-      return 'clean';
+    case 'clean':        return 2;
+    case 'inspected':    return 3;
+    case 'out_of_order': return 4;
     case 'dirty':
-      return 'dirty';
-    case 'inspected':
-      return 'inspected';
-    case 'out_of_order':
-      return 'out_of_order';
-    default:
-      return 'dirty';
+    default:             return 1;
   }
 }
