@@ -319,20 +319,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [roomNotes, setRoomNotes] = useState('');
 
   const getRoomDayBucket = (room: RoomData): 'today' | 'previous' => {
+    // Highest signal: an unfinished assignment from a prior day was carried
+    // forward. That room belongs in "yesterday / carried" regardless of PMS.
+    if (carriedRoomIds.has(room.id)) return 'previous';
+
     const meta = room.pms_metadata || {};
     const day = selectedDate;
-    const syncedDates = [
-      meta.pmsSyncDate,
-      meta.lastPmsRefreshDate,
-      meta.manual_moved_at ? String(meta.manual_moved_at).slice(0, 10) : null,
-      room.updated_at ? String(room.updated_at).slice(0, 10) : null,
-    ].filter(Boolean);
 
+    // "Today" markers come only from authoritative PMS/manual signals — never
+    // from generic sync/updated timestamps (those get bumped on every refresh
+    // and would falsely bucket every room as "today").
     if (
       meta.scheduledDepartureToday === true ||
       meta.checkedOutToday === true ||
       meta.scheduledDepartureTomorrow === true ||
-      syncedDates.includes(day)
+      meta.manual_checkout === true ||
+      (meta.manual_moved_at && String(meta.manual_moved_at).slice(0, 10) === day)
     ) {
       return 'today';
     }
