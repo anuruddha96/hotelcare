@@ -731,6 +731,18 @@ export const additionalTranslations = {
     'legend.roomCleaningHint': 'Full room cleaning required',
     'legend.extraTowelsHint': 'Collect extra towels from this room',
     'legend.approvedHint': 'Supervisor has approved this cleaning',
+    'legend.manualCheckout': 'Manual C/O',
+    'legend.manualCheckoutHint': 'Manager moved this room to Checkout (not from PMS)',
+    'legend.newlySynced': 'Newly synced',
+    'legend.newlySyncedHint': 'Room data updated from Previo in the last 2 hours',
+    'legend.departsTomorrow': 'Departs tomorrow',
+    'legend.departsTomorrowHint': 'Guest departs tomorrow — plan checkout cleaning',
+    'legend.shabbat': 'Shabbat',
+    'legend.shabbatHint': 'Shabbat/observant guest — special cleaning rules',
+    'legend.noService': 'No Service',
+    'legend.noServiceHint': 'Housekeeper marked this room as No Service (with reason)',
+    'legend.hasNote': 'Has note',
+    'legend.hasNoteHint': 'Room has a cleaning note attached',
 
     // Public Area Assignment
     'publicArea.title': 'Assign Public Areas',
