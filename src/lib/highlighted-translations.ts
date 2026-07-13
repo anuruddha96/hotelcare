@@ -33,8 +33,9 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'team.manual': 'manual',
     'team.refresh': 'Refresh',
     'team.refreshing': 'Refreshing...',
-    'team.yesterdayCarried': 'Yesterday / carried',
-    'team.todayPmsManual': 'Today PMS / manual',
+    'team.yesterdayCarried': "Yesterday's rooms",
+    'team.todayPmsManual': "Today's rooms",
+
     'team.noRooms': 'No rooms',
     'team.new': 'NEW',
 
