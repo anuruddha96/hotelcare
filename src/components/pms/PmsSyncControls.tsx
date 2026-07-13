@@ -6,8 +6,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
-import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck } from "lucide-react";
+import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck, CheckCircle2 } from "lucide-react";
 import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
 
 interface Props {
   /** Manager's assigned_hotel (may be hotel_id or hotel name — component
@@ -30,11 +36,17 @@ interface Cfg {
 }
 
 export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [pendingRisky, setPendingRisky] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [successPulse, setSuccessPulse] = useState(false);
+  const [confirmReSyncOpen, setConfirmReSyncOpen] = useState(false);
+  const [lastSyncMeta, setLastSyncMeta] = useState<{ at: string; by: string | null } | null>(null);
+
 
   const loadCfg = async () => {
     if (!hotelId) return;
