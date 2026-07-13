@@ -207,16 +207,20 @@ export async function runPmsRefresh(
         });
       }
       const currentCheckoutFlag = !!room.is_checkout_room;
-      if (shouldBeCheckoutRoom !== currentCheckoutFlag) {
+      const preserveExistingCheckout = weakReservationSnapshot && currentCheckoutFlag && !shouldBeCheckoutRoom;
+      const effectiveCheckoutFlag = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+      if (effectiveCheckoutFlag !== currentCheckoutFlag) {
         const label = isCheckedOut
           ? "Checked out"
           : isScheduledDeparture
             ? "Departure today"
             : isDepartureTomorrow
               ? "Departure tomorrow"
-              : "No checkout";
+              : preserveExistingCheckout
+                ? "Preserved — PMS reservation data unavailable"
+                : "No checkout";
         changeFields.push({
-          field: "Checkout room", before: currentCheckoutFlag, after: `${shouldBeCheckoutRoom} (${label})`, category: "checkout",
+          field: "Checkout room", before: currentCheckoutFlag, after: `${effectiveCheckoutFlag} (${label})`, category: "checkout",
         });
       }
       if (towel || linen) {
@@ -245,8 +249,6 @@ export async function runPmsRefresh(
       if (dryRun) {
         continue;
       }
-
-      const preserveExistingCheckout = weakReservationSnapshot && currentCheckoutFlag && !shouldBeCheckoutRoom;
 
       const updateData: Record<string, any> = {
         guest_count: nextGuestCount,
