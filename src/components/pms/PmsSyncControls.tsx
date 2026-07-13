@@ -78,8 +78,7 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const canSyncFromPms = cfg.snapshot_read_enabled === true;
   const killed = cfg.outbound_kill_switch === true;
 
-  const runSync = async () => {
-    if (!canSyncFromPms) return;
+  const doSync = async () => {
     setSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke("previo-sync-daily-overview", {
@@ -87,7 +86,9 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
       });
       if (error) throw new Error(error.message);
       if ((data as any)?.error) throw new Error((data as any).error);
-      toast.success("PMS sync completed");
+      toast.success("✨ PMS sync completed", { description: "Room list is now up to date." });
+      setSuccessPulse(true);
+      setTimeout(() => setSuccessPulse(false), 1400);
       await loadCfg();
       await loadPending(cfg.hotel_id);
     } catch (e) {
@@ -96,6 +97,36 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
       setSyncing(false);
     }
   };
+
+  const runSync = async () => {
+    if (!canSyncFromPms) return;
+    // Re-sync guard: if the last sync happened less than 10 min ago, show a
+    // confirmation so managers don't hammer the PMS by accident.
+    if (cfg.last_sync_at) {
+      const ageMs = Date.now() - new Date(cfg.last_sync_at).getTime();
+      if (ageMs < 10 * 60 * 1000) {
+        // Fetch the last sync history row (best-effort) so we can show who
+        // triggered it. Non-blocking on failure.
+        try {
+          const { data: last } = await (supabase as any)
+            .from("pms_sync_history")
+            .select("created_at, synced_by_name")
+            .eq("hotel_id", cfg.hotel_id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          setLastSyncMeta({
+            at: (last?.created_at as string) || cfg.last_sync_at,
+            by: (last?.synced_by_name as string) || null,
+          });
+        } catch { setLastSyncMeta({ at: cfg.last_sync_at, by: null }); }
+        setConfirmReSyncOpen(true);
+        return;
+      }
+    }
+    await doSync();
+  };
+
 
   const scrollToUpload = () => {
     if (!uploadAnchorId) return;
@@ -115,7 +146,8 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
             <span className={`inline-block h-2 w-2 rounded-full ${healthDot}`} />
             PMS sync
             {cfg.environment && <Badge variant="outline" className="text-[10px] uppercase">{cfg.environment}</Badge>}
-            {killed && <Badge variant="destructive" className="gap-1 text-[10px]"><ShieldOff className="h-3 w-3" /> Kill-switch</Badge>}
+            {killed && isAdmin && <Badge variant="destructive" className="gap-1 text-[10px]"><ShieldOff className="h-3 w-3" /> Kill-switch</Badge>}
+
             {pendingRisky > 0 && (
               <Badge variant="destructive" className="text-[10px] ml-auto">{pendingRisky} need approval</Badge>
             )}
