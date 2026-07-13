@@ -280,6 +280,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
 
     'team.noRooms': 'Không có phòng',
     'team.new': 'MỚI',
+    'team.readOnly': 'Chỉ đọc',
 
     'performance.topPerformer': 'Người Xuất Sắc Nhất',
     'performance.teamAverage': 'Trung Bình Đội',
