@@ -167,6 +167,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [managerMessage, setManagerMessage] = useState('');
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
   const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
+  const [syncFlash, setSyncFlash] = useState(false);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
