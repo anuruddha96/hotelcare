@@ -134,7 +134,8 @@ serve(async (req) => {
         data: {
           room_id: roomId,
           room_number: room.room_number,
-          status: previoStatus,
+          roomCleanStatusId: previoStatusId,
+          hotelcare_status: status,
           previo_room_id: previoRoomId,
           response: responseData,
         },
@@ -145,7 +146,7 @@ serve(async (req) => {
         success: true, 
         message: 'Room status updated in Previo REST API',
         roomNumber: room.room_number,
-        status: previoStatus
+        roomCleanStatusId: previoStatusId,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -183,18 +184,15 @@ serve(async (req) => {
   }
 });
 
-// Map HotelCare status to Previo status codes
-function mapToPrevioStatus(status: string): string {
+// Map HotelCare status to Previo's numeric roomCleanStatusId.
+// Mapping mirrors previo-pms-sync's inbound cleanMap:
+//   1=Untidy, 2=Clean, 3=Inspected, 4=Out of order, 5=Untidy
+function mapToPrevioStatusId(status: string): number {
   switch (status) {
-    case 'clean':
-      return 'clean';
+    case 'clean':        return 2;
+    case 'inspected':    return 3;
+    case 'out_of_order': return 4;
     case 'dirty':
-      return 'dirty';
-    case 'inspected':
-      return 'inspected';
-    case 'out_of_order':
-      return 'out_of_order';
-    default:
-      return 'dirty';
+    default:             return 1;
   }
 }
