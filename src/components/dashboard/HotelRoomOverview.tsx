@@ -1119,6 +1119,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           title={`Yesterday · ${isCheckout ? 'Checkout' : 'Daily'} · ${status}${approved ? ' (approved)' : ''}`}
         >
           {room.room_number}
+          {room.pms_metadata?.manual_checkout === true && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
+              title="Manually moved by a manager (not from PMS)"
+            >M</span>
+          )}
           {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
