@@ -27,6 +27,7 @@ interface RoomData {
   room_number: string;
   floor_number: number | null;
   status: string | null;
+  last_cleaned_at: string | null;
   is_checkout_room: boolean | null;
   is_dnd: boolean | null;
   notes: string | null;
