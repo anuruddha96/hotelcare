@@ -164,6 +164,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [managerMessage, setManagerMessage] = useState('');
+  const [carriedRoomIds, setCarriedRoomIds] = useState<Set<string>>(new Set());
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
