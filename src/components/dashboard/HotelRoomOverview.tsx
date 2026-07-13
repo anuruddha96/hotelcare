@@ -259,6 +259,43 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
 
+      // Fetch carried-over rooms: assignments from prior days that were never
+      // completed/approved. These represent "yesterday / carried" work that
+      // still needs attention today.
+      try {
+        const roomIdList = Array.from(roomIds);
+        if (roomIdList.length > 0) {
+          const { data: carriedData } = await supabase
+            .from('room_assignments')
+            .select('room_id, status, supervisor_approved, assignment_date')
+            .in('room_id', roomIdList)
+            .lt('assignment_date', selectedDate)
+            .order('assignment_date', { ascending: false })
+            .limit(500);
+          const carried = new Set<string>();
+          const seen = new Set<string>();
+          for (const a of (carriedData || [])) {
+            if (seen.has(a.room_id)) continue;
+            seen.add(a.room_id);
+            const done = a.status === 'completed' && a.supervisor_approved === true;
+            if (!done) carried.add(a.room_id);
+          }
+          // Only mark as carried if there's no completed+approved assignment today
+          const doneTodayIds = new Set(
+            (assignmentsRes.data || [])
+              .filter((a: any) => a.status === 'completed' && a.supervisor_approved === true)
+              .map((a: any) => a.room_id)
+          );
+          for (const id of doneTodayIds) carried.delete(id);
+          setCarriedRoomIds(carried);
+        } else {
+          setCarriedRoomIds(new Set());
+        }
+      } catch (e) {
+        console.error('Error fetching carried rooms:', e);
+        setCarriedRoomIds(new Set());
+      }
+
       // Calculate ACT from completed assignments for this hotel's rooms
       const completedForHotel = (completedRes.data || []).filter(a => roomIds.has(a.room_id));
       if (completedForHotel.length > 0) {
