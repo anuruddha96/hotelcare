@@ -1276,33 +1276,50 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
         {floors.length === 0 && previousEntries.length === 0 ? (
           <p className="text-xs text-muted-foreground pl-6">No rooms</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-            {/* LEFT — Yesterday, read-only snapshot */}
-            <div className="rounded-md border border-border/60 bg-muted/20 p-2 pointer-events-none">
-              <div className="mb-2 flex items-center justify-between gap-2 pointer-events-auto">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t('team.yesterdayCarried')}{previousDayDate ? ` — ${formatPrevDate(previousDayDate)}` : ''}
-                </span>
-                <div className="flex items-center gap-1">
-                  <Badge variant="outline" className="text-[9px] uppercase tracking-wide border-border/70 text-muted-foreground">
-                    {t('team.readOnly')}
-                  </Badge>
-                  <Badge variant="secondary" className="text-[10px] opacity-70">{previousEntries.length}</Badge>
+        ) : (() => {
+          // On mobile, managers only see today's rooms. Admins/top_management
+          // still see the yesterday snapshot on mobile.
+          const hideYesterdayOnMobile =
+            isMobile && (profile?.role === 'manager' || profile?.role === 'housekeeping_manager');
+          if (hideYesterdayOnMobile) {
+            return (
+              <div className="rounded-md border border-blue-200 bg-blue-50/35 p-2 dark:border-blue-900/50 dark:bg-blue-950/15">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{t('team.todayPmsManual')}</span>
+                  <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} {t('team.new')}</Badge>
                 </div>
+                {renderTodayFloorRows(todayRooms)}
               </div>
-              {renderPrevFloorRows()}
-            </div>
-            {/* RIGHT — Today, live */}
-            <div className="rounded-md border border-blue-200 bg-blue-50/35 p-2 dark:border-blue-900/50 dark:bg-blue-950/15">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{t('team.todayPmsManual')}</span>
-                <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} {t('team.new')}</Badge>
+            );
+          }
+          return (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+              {/* LEFT — Yesterday, read-only snapshot */}
+              <div className="rounded-md border border-border/60 bg-muted/20 p-2 pointer-events-none">
+                <div className="mb-2 flex items-center justify-between gap-2 pointer-events-auto">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('team.yesterdayCarried')}{previousDayDate ? ` — ${formatPrevDate(previousDayDate)}` : ''}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className="text-[9px] uppercase tracking-wide border-border/70 text-muted-foreground">
+                      {t('team.readOnly')}
+                    </Badge>
+                    <Badge variant="secondary" className="text-[10px] opacity-70">{previousEntries.length}</Badge>
+                  </div>
+                </div>
+                {renderPrevFloorRows()}
               </div>
-              {renderTodayFloorRows(todayRooms)}
+              {/* RIGHT — Today, live */}
+              <div className="rounded-md border border-blue-200 bg-blue-50/35 p-2 dark:border-blue-900/50 dark:bg-blue-950/15">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{t('team.todayPmsManual')}</span>
+                  <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} {t('team.new')}</Badge>
+                </div>
+                {renderTodayFloorRows(todayRooms)}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     );
   };
