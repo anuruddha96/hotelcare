@@ -46,6 +46,28 @@ export const managerTeamCurriculum: TrainingCurriculum = {
       optional: true,
     },
     {
+      key: 'pms_refresh',
+      title: {
+        en: 'PMS Refresh replaces daily file upload',
+        hu: 'A PMS frissítés kiváltja a napi fájlfeltöltést',
+        es: 'PMS Refresh reemplaza la carga diaria',
+        vi: 'PMS Refresh thay cho tải file hằng ngày',
+        mn: 'PMS Refresh нь өдөр тутмын файл оруулалтыг орлоно',
+      },
+      body: {
+        en: 'Use this button in Team View to pull today’s checkout and daily rooms from Previo. The manual PMS Upload tab is now only a fallback when an admin keeps it visible.',
+        hu: 'Ezzel a gombbal a Csapat nézetben lekérhetők a mai kijelentkezési és napi szobák a Previóból.',
+        es: 'Usa este botón en Vista de Equipo para traer desde Previo las salidas y habitaciones diarias de hoy.',
+        vi: 'Dùng nút này trong Team View để lấy phòng checkout và phòng hằng ngày hôm nay từ Previo.',
+        mn: 'Team View дээрх энэ товчоор өнөөдрийн гарах болон өдөр тутмын өрөөг Previó-оос татна.',
+      },
+      route: '/:org',
+      tab: 'housekeeping',
+      selector: '[data-training-id="pms-refresh-btn"]',
+      precondition: 'hotel_selected',
+      optional: true,
+    },
+    {
       key: 'auto_assign',
       title: {
         en: 'Auto-Assign — one-click distribution',

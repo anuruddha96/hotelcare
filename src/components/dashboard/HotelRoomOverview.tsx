@@ -1036,7 +1036,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const renderFloorRows = (roomsForColumn: RoomData[], faded: boolean) => {
       const columnFloors = groupByFloor(roomsForColumn);
       if (columnFloors.length === 0) {
-        return <p className="text-xs text-muted-foreground pl-1">No rooms</p>;
+        return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
       }
       return (
         <div className="space-y-1.5">
@@ -1104,15 +1104,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
             <div className="rounded-md border border-border/60 bg-muted/20 p-2">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Yesterday / carried</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{t('team.yesterdayCarried')}</span>
                 <Badge variant="secondary" className="text-[10px] opacity-70">{previousRooms.length}</Badge>
               </div>
               {renderFloorRows(previousRooms, true)}
             </div>
             <div className="rounded-md border border-blue-200 bg-blue-50/35 p-2 dark:border-blue-900/50 dark:bg-blue-950/15">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Today PMS / manual</span>
-                <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} NEW</Badge>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{t('team.todayPmsManual')}</span>
+                <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} {t('team.new')}</Badge>
               </div>
               {renderFloorRows(todayRooms, false)}
             </div>
