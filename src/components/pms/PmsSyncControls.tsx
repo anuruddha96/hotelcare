@@ -87,6 +87,7 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
         description: `${result.updated} rooms updated · ${result.checkouts} checkout rooms`,
       });
       setSuccessPulse(true);
+      try { window.dispatchEvent(new CustomEvent('pms-sync-completed')); } catch { /* noop */ }
       setTimeout(() => setSuccessPulse(false), 1400);
       await loadCfg();
       await loadPending(cfg.hotel_id);
