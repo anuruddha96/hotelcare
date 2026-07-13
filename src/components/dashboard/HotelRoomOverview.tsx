@@ -328,13 +328,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const canInteractWithRooms = isManagerOrAdmin || isReception;
   const [roomNotes, setRoomNotes] = useState('');
 
-  const getRoomDayBucket = (room: RoomData): 'today' | 'previous' => {
-    // A room only belongs on the "Yesterday" side when it has an unfinished
-    // assignment carried over from a prior day AND no assignment today.
-    // Everything else — daily rooms, today's checkouts, manual entries,
-    // freshly synced PMS rooms — belongs on the "Today" side.
-    if (carriedRoomIds.has(room.id)) return 'previous';
-    return 'today';
+  // Format a YYYY-MM-DD date for the "Yesterday — {date}" header without
+  // dragging in a date library.
+  const formatPrevDate = (iso: string | null): string => {
+    if (!iso) return '';
+    try {
+      const [y, m, d] = iso.split('-').map(Number);
+      return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } catch { return iso; }
   };
 
 
