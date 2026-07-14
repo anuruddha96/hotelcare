@@ -399,13 +399,19 @@ serve(async (req) => {
       const cleanMap: Record<number, string> = { 1: "Untidy", 2: "Clean", 3: "Clean", 4: "Untidy", 5: "Untidy" };
       const statusLabel = cleanMap[r.roomCleanStatusId] ?? "";
 
+      // Belt-and-braces: only flag DepartureTomorrow when this is the guest's
+      // LAST night (currentNight === totalNights). Protects against stale or
+      // synthesised reservations painting a mid-stay room as C/O+1.
+      const departureTomorrowConfirmed =
+        isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
+
       return {
         Room: r.name,
         RoomId: r.roomId,
         RoomKindName: r.roomKindName,
         Occupied: isOccupied || isDeparture ? "Yes" : "No",
         Departure: isDeparture ? "12:00" : null,
-        DepartureTomorrow: isDepartureTomorrow,
+        DepartureTomorrow: departureTomorrowConfirmed,
         DepartureDate: res?.departureDate ?? null,
         ArrivalDate: res?.arrivalDate ?? null,
         Arrival: isArrival ? "15:00" : null,
@@ -414,6 +420,8 @@ serve(async (req) => {
         ReservationStatusId: res?.statusId ?? null,
         People: res?.guestsCount ?? (isOccupied || isDeparture ? r.capacity : 0),
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
+        CurrentNight: currentNight || null,
+        TotalNights: totalNights || null,
         Note: res?.note ?? null,
         Nationality: null,
         Defect: null,
