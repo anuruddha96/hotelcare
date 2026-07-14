@@ -92,20 +92,18 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         setHidePmsUploadTab(false);
         return;
       }
-      // `assigned_hotel` on profiles may be either the hotel slug
-      // (e.g. "ottofiori") or the display name ("Hotel Ottofiori").
-      // pms_configurations.hotel_id is always the slug, so resolve
-      // all keys and query with .in() to catch both cases.
-      const keys = await resolveHotelKeys(assignedHotel);
-      const hotelKeys = keys.length ? keys : [assignedHotel];
-      const { data } = await (supabase as any)
-        .from('pms_configurations')
-        .select('hide_pms_upload_page,hotel_id')
-        .in('hotel_id', hotelKeys)
-        .eq('pms_type', 'previo')
-        .limit(1)
-        .maybeSingle();
-      setHidePmsUploadTab((data as any)?.hide_pms_upload_page === true);
+      // Direct SELECT on pms_configurations is admin-only, so managers
+      // would always see the tab. Use the SECURITY DEFINER RPC that
+      // returns just the boolean and honours slug/display-name variants.
+      const { data, error } = await (supabase as any).rpc('get_pms_upload_hidden', {
+        hotel_key: assignedHotel,
+      });
+      if (error) {
+        console.warn('[HousekeepingTab] get_pms_upload_hidden failed:', error);
+        setHidePmsUploadTab(false);
+        return;
+      }
+      setHidePmsUploadTab(data === true);
     };
     void loadPmsUploadVisibility();
   }, [assignedHotel]);
