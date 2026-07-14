@@ -129,15 +129,52 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   const showPing = busy || isFresh || t.status === 'error';
 
   const doRefresh = async () => {
-    await refresh('pms');
-    setJustSuccess(true);
-    toast.success('✨ PMS sync complete', {
-      description: 'Team View is now up to date with Previo.',
-      duration: 3500,
-    });
-    // Broadcast so the Hotel Room Overview card can flash a matching glow.
+    if (!enabled) {
+      toast.error('PMS not connected', {
+        description: 'This hotel has no active Previo integration. Ask an admin to configure PMS to enable Team View sync.',
+        duration: 5000,
+      });
+      return;
+    }
+    const outcome = await refresh('pms');
+    // refresh('pms') always returns a RefreshOutcome from the context.
+    const result = outcome as { ran: boolean; status: string; message?: string; meta?: any } | undefined;
+
+    if (!result || result.ran === false) {
+      toast.message('PMS sync skipped', {
+        description: result?.message || 'Nothing to sync right now.',
+        duration: 4000,
+      });
+      return;
+    }
+    if (result.status === 'error') {
+      toast.error('PMS sync failed', {
+        description: result.message || 'Could not reach Previo. Check the connection and try again.',
+        duration: 6000,
+      });
+      return;
+    }
+    const meta = result.meta || {};
+    const updatedCount = meta.updated ?? meta.upserted ?? 0;
+    const totalCount = meta.total ?? meta.rowCount ?? 0;
+    if (result.status === 'partial') {
+      toast.warning('PMS sync partial', {
+        description: `${updatedCount}/${totalCount} rooms synced. ${result.message ? `First error: ${result.message}` : 'Some rows had errors.'}`,
+        duration: 6000,
+      });
+    } else {
+      setJustSuccess(true);
+      toast.success('✨ PMS sync complete', {
+        description: totalCount > 0
+          ? `Team View is now up to date with Previo (${updatedCount}/${totalCount} rooms).`
+          : 'Team View is now up to date with Previo.',
+        duration: 3500,
+      });
+      setTimeout(() => setJustSuccess(false), 1600);
+    }
+    // Broadcast so the Hotel Room Overview card can flash a matching glow —
+    // only when we actually ran and didn't outright fail.
     try { window.dispatchEvent(new CustomEvent('pms-sync-completed')); } catch { /* noop */ }
-    setTimeout(() => setJustSuccess(false), 1600);
     onRefreshed?.();
   };
 
