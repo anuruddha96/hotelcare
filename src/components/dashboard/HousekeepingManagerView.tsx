@@ -498,7 +498,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
           {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
-            <PmsRefreshButton hotelId={profile.assigned_hotel || ''} />
+            <PmsRefreshButton />
           )}
           {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
             <>
