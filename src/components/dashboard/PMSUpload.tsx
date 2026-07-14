@@ -791,6 +791,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             is_dnd: false,
             dnd_marked_at: null,
             dnd_marked_by: null,
+            pms_metadata: {
+              scheduledDepartureToday: isCheckout,
+              scheduledDepartureTomorrow: !isCheckout && parsedNightTotal && guestNightsStayed > 0 && guestNightsStayed === totalNights,
+              departureTime: isCheckout ? departureParsed : null,
+              checkedOutToday: false,
+              pmsUploadDate: new Date().toISOString().split('T')[0],
+              lastPmsRefreshDate: new Date().toISOString().split('T')[0],
+            },
             updated_at: new Date().toISOString()
           };
 
