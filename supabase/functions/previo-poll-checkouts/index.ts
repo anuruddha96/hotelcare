@@ -252,13 +252,25 @@ async function pollOneHotel(
   }
 
   // 4. Clear stale checkout flags (guest now back, or earlier false positive).
+  // NEVER clear a room that is still scheduled to depart today or already
+  // marked checked-out today via the PMS upload / sync — otherwise a poll
+  // that only sees statusId=5 (already-departed) reservations would wipe
+  // legitimate scheduled-departure rooms out of the checkout bucket.
   try {
     const { data: stale } = await service
       .from("rooms")
-      .select("id, room_number")
+      .select("id, room_number, pms_metadata")
       .eq("hotel", hotelId)
       .eq("is_checkout_room", true);
-    const staleRows = (stale ?? []).filter((r: any) => !trueCheckoutRoomIds.has(r.id));
+    const staleRows = (stale ?? []).filter((r: any) => {
+      if (trueCheckoutRoomIds.has(r.id)) return false;
+      const meta = r.pms_metadata || {};
+      if (meta.scheduledDepartureToday === true) return false;
+      if (meta.checkedOutToday === true) return false;
+      const lastRefresh = meta.lastPmsRefreshDate || meta.pmsUploadDate;
+      if (lastRefresh === today) return false; // trust today's upload/sync
+      return true;
+    });
     if (staleRows.length > 0) {
       const ids = staleRows.map((r: any) => r.id);
       await service
@@ -266,7 +278,6 @@ async function pollOneHotel(
         .update({ is_checkout_room: false, checkout_time: null, updated_at: nowIso() })
         .in("id", ids);
       result.cleared = ids.length;
-      // Emit informational events
       const evtRows = staleRows.map((r: any) => ({
         hotel_id: hotelId,
         room_id: r.id,
