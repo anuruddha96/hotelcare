@@ -18,6 +18,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
+import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,15 +32,51 @@ interface PrevioRoom {
   reservation?: {
     arrivalDate?: string;
     departureDate?: string;
-    statusId?: number;
+    statusId?: number | string;
+    reservationStatusId?: number | string;
+    status?: number | string | { id?: number | string; name?: string };
+    state?: string;
   } | null;
 }
 
 const todayUtc = () => new Date().toISOString().slice(0, 10);
 const nowIso = () => new Date().toISOString();
+const addDays = (base: string, n: number) => {
+  const d = new Date(`${base}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 const extractNum = (raw: string) => {
   const m = String(raw ?? "").match(/\d+/);
   return m ? m[0] : String(raw ?? "").trim();
+};
+const cleanDate = (raw: unknown) => {
+  const s = String(raw ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : "";
+};
+const statusToken = (raw: unknown): string => {
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    return statusToken(obj.id ?? obj.name ?? obj.status ?? obj.value);
+  }
+  return String(raw ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+};
+const isCheckedOutStatus = (raw: unknown) => {
+  const n = Number(raw);
+  if (Number.isFinite(n) && n === 5) return true;
+  const t = statusToken(raw);
+  return ["5", "checkedout", "checkedouttoday", "departed", "departure", "left", "leaved"].includes(t);
+};
+const reservationLooksCheckedOut = (res: any) => {
+  if (!res || typeof res !== "object") return false;
+  return isCheckedOutStatus(res.statusId)
+    || isCheckedOutStatus(res.reservationStatusId)
+    || isCheckedOutStatus(res.status)
+    || isCheckedOutStatus(res.state)
+    || res.checkedOut === true
+    || res.isCheckedOut === true
+    || res.departed === true
+    || res.isDeparted === true;
 };
 
 interface PollResult {
@@ -52,6 +89,8 @@ interface PollResult {
   errors: string[];
   unmatched: string[];
   reservationFetchError: string | null;
+  departed: number;
+  diagnostics: Array<Record<string, unknown>>;
 }
 
 async function pollOneHotel(
@@ -62,7 +101,7 @@ async function pollOneHotel(
   const result: PollResult = {
     hotel_id: hotelId,
     checked: 0, marked: 0, cleared: 0, events: 0, conflicts: 0,
-    errors: [], unmatched: [], reservationFetchError: null,
+    errors: [], unmatched: [], reservationFetchError: null, departed: 0, diagnostics: [],
   };
 
   const { data: hotelCfg } = await service
@@ -71,6 +110,24 @@ async function pollOneHotel(
     .eq("hotel_id", hotelId)
     .maybeSingle();
   const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
+
+  const { data: localScheduled } = await service
+    .from("rooms")
+    .select("id, room_number, is_checkout_room, pms_metadata")
+    .in("hotel", hotelKeys)
+    .or("is_checkout_room.eq.true,pms_metadata->>scheduledDepartureToday.eq.true")
+    .limit(50);
+  const localScheduledRooms = (localScheduled ?? []) as any[];
+  const localScheduledByName = new Map<string, any>();
+  const localScheduledByObjId = new Map<number, any>();
+  for (const local of localScheduledRooms) {
+    const name = String(local.room_number ?? "").trim();
+    const num = extractNum(name);
+    if (name) localScheduledByName.set(name, local);
+    if (num && num !== name) localScheduledByName.set(num, local);
+    const objId = Number(local.pms_metadata?.roomId);
+    if (Number.isFinite(objId) && objId > 0) localScheduledByObjId.set(objId, local);
+  }
 
   // 1. Fetch roster + reservation state from Previo REST. This endpoint works
   // for every tenant (REST username/password AND single-key ApiKey tenants like
@@ -97,27 +154,154 @@ async function pollOneHotel(
   }
   result.checked = rooms.length;
 
-  // 2. Identify today's departures from the reservation payload embedded in
-  // each /rest/rooms row. statusId===5 == "departed" in Previo.
+  // 2. Identify today's departures. REST is the primary source, but Previo's
+  // REST reservation payload is not perfectly consistent across tenants/test
+  // accounts: statusId may arrive as a string, a nested status object, or the
+  // reservation may disappear from the room after checkout. For REST-credential
+  // hotels we therefore add the same XML searchReservations evidence used by
+  // manual PMS Refresh. ApiKey/XML-only tenants like Ottofiori keep using REST
+  // only, so the previously working clean-status push is untouched.
   const today = todayUtc();
   const checkedOutByName = new Map<string, string>(); // name -> reservationId ("" — REST /rest/rooms does not expose one)
   const checkedOutByObjId = new Map<number, string>();
-  for (const r of rooms) {
-    const res = r.reservation;
-    if (!res) continue;
-    const departure = res.departureDate ? String(res.departureDate).slice(0, 10) : "";
-    if (res.statusId !== 5 || departure !== today) continue;
-    const name = String(r.name ?? "").trim();
-    if (name) checkedOutByName.set(name, "");
-    if (r.roomId != null && !isNaN(Number(r.roomId))) {
-      checkedOutByObjId.set(Number(r.roomId), "");
+  const checkoutSignals: Array<{ name: string; objId: number | null; reservationId: string; source: string }> = [];
+  const addCheckoutSignal = (nameRaw: unknown, objIdRaw: unknown, reservationId: unknown, source: string) => {
+    const name = String(nameRaw ?? "").trim();
+    const objId = Number(objIdRaw);
+    const safeObjId = Number.isFinite(objId) && objId > 0 ? objId : null;
+    const safeReservationId = String(reservationId ?? "").trim();
+    if (!name && !safeObjId) return;
+    checkoutSignals.push({ name, objId: safeObjId, reservationId: safeReservationId, source });
+    if (name) {
+      checkedOutByName.set(name, safeReservationId);
+      const num = extractNum(name);
+      if (num && num !== name) checkedOutByName.set(num, safeReservationId);
     }
+    if (safeObjId != null) checkedOutByObjId.set(safeObjId, safeReservationId);
+  };
+
+  for (const r of rooms) {
+    const res: any = r.reservation;
+    const exactLocalMatch = localScheduledByObjId.get(Number(r.roomId));
+    const localMatch = exactLocalMatch
+      ?? localScheduledByName.get(String(r.name ?? "").trim())
+      ?? localScheduledByName.get(extractNum(String(r.name ?? "")));
+    if (!res) {
+      const exactScheduledCheckout = exactLocalMatch?.pms_metadata?.scheduledDepartureToday === true
+        && exactLocalMatch?.is_checkout_room === true;
+      if (localMatch) {
+        result.diagnostics.push({
+          source: "rest-room",
+          room: r.name,
+          roomId: r.roomId,
+          localRoom: localMatch.room_number,
+          localScheduledDepartureToday: localMatch.pms_metadata?.scheduledDepartureToday === true,
+          localIsCheckoutRoom: localMatch.is_checkout_room === true,
+          reservationPresent: false,
+          accepted: exactScheduledCheckout,
+          reason: exactScheduledCheckout
+            ? "scheduled checkout room has exact Previo roomId match and reservation is now absent"
+            : "no reservation, but not an exact scheduled-checkout roomId match",
+        });
+      }
+      if (exactScheduledCheckout) {
+        addCheckoutSignal(r.name, r.roomId, "", "rest-room-reservation-cleared");
+      }
+      continue;
+    }
+    const departure = cleanDate(res.departureDate ?? res.departure ?? res.to);
+    const checkedOut = reservationLooksCheckedOut(res);
+    if (departure === today || checkedOut || localMatch) {
+      result.diagnostics.push({
+        source: "rest-room",
+        room: r.name,
+        roomId: r.roomId,
+        localRoom: localMatch?.room_number ?? null,
+        localScheduledDepartureToday: localMatch?.pms_metadata?.scheduledDepartureToday === true,
+        localIsCheckoutRoom: localMatch?.is_checkout_room === true,
+        reservationPresent: true,
+        departure,
+        statusId: res.statusId ?? null,
+        reservationStatusId: res.reservationStatusId ?? null,
+        status: typeof res.status === "object" ? JSON.stringify(res.status).slice(0, 120) : res.status ?? null,
+        checkedOut,
+        accepted: checkedOut && departure === today,
+      });
+    }
+    if (!checkedOut || departure !== today) continue;
+    addCheckoutSignal(r.name, r.roomId, res.reservationId ?? res.id ?? "", "rest-room-reservation");
+  }
+
+  try {
+    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    const xmlResult = await callPrevioXml({
+      method: "searchReservations",
+      creds,
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
+      extraXml: `<term><from>${today}</from><to>${addDays(today, 1)}</to></term>`,
+    });
+    if (!xmlResult.ok) {
+      // Best-effort only. Ottofiori's REST ApiKey is known to reject the XML
+      // endpoint with 401, but REST polling still works there. Keep the poll
+      // successful and only expose the XML miss as diagnostics.
+      result.diagnostics.push({
+        source: "xml-searchReservations",
+        accepted: false,
+        status: xmlResult.status,
+        reason: xmlResult.errorMessage || xmlResult.text.slice(0, 120),
+      });
+    } else {
+      const blocks = xmlResult.text.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
+      const grab = (s: string, tag: string) => {
+        const m = s.match(new RegExp(`<${tag}>([^<]*)<\/${tag}>`));
+        return m ? m[1].trim() : "";
+      };
+      for (const block of blocks) {
+        const departure = cleanDate(grab(block, "to"));
+        const statusId = grab(block, "statusId");
+        if (departure !== today || !isCheckedOutStatus(statusId)) continue;
+        const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
+        const reservationId = grab(block, "resId") || grab(block, "reservationId") || grab(block, "id");
+        const objId = objMatch ? objMatch[1] : "";
+        const roomName = objMatch ? objMatch[2].trim() : "";
+        result.diagnostics.push({
+          source: "xml-searchReservations",
+          room: roomName,
+          roomId: objId || null,
+          departure,
+          statusId,
+          accepted: true,
+        });
+        addCheckoutSignal(roomName, objId, reservationId, "xml-searchReservations");
+      }
+    }
+  } catch (e: any) {
+    result.diagnostics.push({
+      source: "xml-searchReservations",
+      accepted: false,
+      reason: e?.message || String(e),
+    });
   }
 
   const trueCheckoutRoomIds = new Set<string>();
-  const departedRooms = rooms.filter((r) =>
+  const departedRoomMap = new Map<string, PrevioRoom>();
+  for (const r of rooms.filter((r) =>
     checkedOutByObjId.has(r.roomId) || checkedOutByName.has(r.name),
-  );
+  )) {
+    departedRoomMap.set(`${r.roomId || ""}:${r.name || ""}`, r);
+  }
+  for (const sig of checkoutSignals) {
+    if (![...departedRoomMap.values()].some((r) =>
+      (sig.objId != null && Number(r.roomId) === sig.objId) || (sig.name && String(r.name).trim() === sig.name),
+    )) {
+      departedRoomMap.set(`${sig.objId || ""}:${sig.name || ""}`, {
+        roomId: sig.objId ?? 0,
+        name: sig.name,
+      });
+    }
+  }
+  const departedRooms = [...departedRoomMap.values()];
+  result.departed = departedRooms.length;
 
 
   // 3. Process each departed room
@@ -234,8 +418,7 @@ async function pollOneHotel(
         .eq("room_id", localRoom.id)
         .eq("assignment_date", today)
         .eq("assignment_type", "checkout_cleaning")
-        .in("status", ["assigned", "in_progress"])
-        .or("ready_to_clean.is.false,ready_to_clean.is.null");
+        .in("status", ["assigned", "in_progress"]);
       result.marked += released?.length ?? 0;
     } catch (e: any) {
       result.errors.push(`${r.name}: ${e?.message || e}`);
@@ -394,7 +577,7 @@ serve(async (req) => {
         perHotel.push({
           hotel_id: t.hotel_id, checked: 0, marked: 0, cleared: 0,
           events: 0, conflicts: 0, errors: [e?.message || String(e)],
-          unmatched: [], reservationFetchError: null,
+          unmatched: [], reservationFetchError: null, departed: 0, diagnostics: [],
         });
       }
     }
