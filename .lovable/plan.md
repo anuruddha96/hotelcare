@@ -1,36 +1,63 @@
-## Fix PMS Upload tab visibility + add No Show rooms section
+## Root cause
 
-### 1. PMS Upload tab still visible for managers
-**Root cause:** `pms_configurations` RLS allows SELECT only for admins. Manager Ricsi's visibility query returns `null`, so `hidePmsUploadTab` stays `false` and the tab renders regardless of the admin toggle.
+The `previo-poll-checkouts` edge function has two cron jobs firing every 5 minutes (jobids 8 and 9). Both fire successfully at the HTTP layer — `cron.job_run_details` shows `succeeded` every 5 min — but the function itself returns `400 "hotelId required"` on every cron invocation, so no hotel is ever actually polled. That's why `pms_sync_history` has **zero** `checkouts_poll` rows and 201 sits waiting for a manual refresh.
 
-**Fix:** Add a `SECURITY DEFINER` RPC `get_pms_upload_hidden(hotel_key text)` that resolves the hotel key against `hotel_configurations` and returns the single `hide_pms_upload_page` boolean. Grant EXECUTE to `authenticated`. Replace the direct table read in `HousekeepingTab.tsx` with `supabase.rpc('get_pms_upload_hidden', { hotel_key: assignedHotel })`. RLS on the table itself is unchanged — admins keep exclusive write access.
+Why the 400: the pg_cron jobs call the function with only an `apikey` header (anon key), no `Authorization: Bearer <SERVICE_ROLE>` header. In `index.ts`:
 
-### 2. No Show rooms
-**Definition:** A PMS row where `Occupied = no` AND `Arrival`, `Departure`, and `Night / Total` are all blank.
+```ts
+// authHeader = ""  → isServiceCall = false, userId = null
+if (!isServiceCall && !userId && !isCronTrigger) { return 401; }  // passes (trigger:cron)
+...
+if (hotelIdInput) { ... } else {
+  if (!isServiceCall) {                                            // ← blocks cron
+    return 400 "hotelId required";
+  }
+  // fan-out across all active Previo configs
+}
+```
 
-**Detection**
-- `previo-pms-sync/index.ts` row emitter: when a fetched room has no reservation for today (no arrival, no departure, no night counts) set `IsNoShow: true` on the emitted row. Orthogonal to existing daily/checkout logic.
-- `pmsRefresh.ts`: when `row.IsNoShow === true`, set `pms_metadata.isNoShow = true` (clear otherwise). Do NOT set `is_checkout_room`. Emit a `pms_change_events` row of type `no_show_detected` on the false→true transition.
+The `isCronTrigger` branch was added to bypass the 401 gate, but the fan-out branch below still hard-requires `isServiceCall`. So cron gets past auth then is immediately rejected before it can enumerate hotels.
 
-**UI in `HotelRoomOverview.tsx`**
-- New collapsible section directly under **Daily Rooms** titled **No Show Rooms**. Lists rooms where `pms_metadata.isNoShow === true` AND `is_checkout_room === false`. Header shows count; entire section hidden when count is 0.
-- Each card shows an amber `NO SHOW` badge and a one-line explainer: "Guest did not arrive — PMS shows no active reservation".
-- Existing Mark Clean / Assign actions remain available, but tapping them opens a small confirm dialog: "This room is flagged as a no-show. Continue and move to clean?" (Confirm / Cancel). No changes to housekeeper allotments — same write paths as daily rooms.
+Ottofiori is XML-only, so even a manual poll goes through the `credsProtocol === "xml"` path that reads local `rooms` and matches `<statusId>5</statusId>` reservations against them — that path is fine; it just never runs on the schedule.
 
-**Safety guarantees**
-- No-show flag never overrides an existing `room_assignments` row.
-- Checkout poller and PMS sync continue to preserve assignments as before.
-- No changes to PMS Upload XLS parser, auto-assign algorithm, or checkout poller.
+## Fix
 
-### Files
-- **New migration:** `public.get_pms_upload_hidden(text)` SECURITY DEFINER + GRANT EXECUTE to authenticated.
-- `src/components/dashboard/HousekeepingTab.tsx` — switch visibility read to RPC.
-- `supabase/functions/previo-pms-sync/index.ts` — emit `IsNoShow`.
-- `src/lib/pmsRefresh.ts` — persist `pms_metadata.isNoShow` + change event.
-- `src/components/dashboard/HotelRoomOverview.tsx` — No Show section, badge, confirm dialog.
-- `src/lib/room-overview-translations.ts` — new strings in en/hu/es/vi/mn.
+### 1. Allow the cron fan-out path
 
-### Not doing
-- No schema changes on `rooms` (reuse `pms_metadata` JSON).
-- No changes to `pms_configurations` RLS.
-- No changes to the PMS Upload XLS flow, blue Sync button, or admin toggle behavior.
+In `supabase/functions/previo-poll-checkouts/index.ts`, relax the fan-out gate so `trigger: "cron"` calls are accepted the same way service-role calls are:
+
+```ts
+} else {
+  // Fan-out: service-role OR authenticated cron trigger
+  if (!isServiceCall && !isCronTrigger) {
+    return 400 "hotelId required";
+  }
+  ...
+}
+```
+
+No other logic changes. Per-hotel polling, XML reservation parsing, statusId=5 detection, room matching, `is_checkout_room` flip, `pms_change_events` emission, and stale-clear guards all stay identical.
+
+### 2. Remove the duplicate cron job
+
+Jobs 8 (`previo-poll-checkouts-5min`) and 9 (`previo-poll-checkouts-every-5min`) are exact duplicates on the same `*/5 * * * *` schedule — every tick hits the function twice. Drop job 9 via `cron.unschedule(9)` in the same migration so we don't double-poll Previo once the fix lands.
+
+### 3. Verify 201 gets flipped
+
+After deploy, wait one 5-min tick (or manually invoke the function once with `{"trigger":"cron"}` from the poll button) and confirm:
+- `pms_sync_history` gets a fresh `checkouts_poll` row with `hotel_id='ottofiori'` and non-zero `checked`.
+- `rooms` row for 201 shows `is_checkout_room=true`, `status='dirty'` (unless a housekeeper is actively cleaning it), and `pms_metadata.checkedOutToday=true`.
+- A `pms_change_events` row of type `checkout_confirmed` was written for room 201.
+
+If the reservation is not returned by `searchReservations` for `today→tomorrow` with `statusId=5`, the poll result will include `reservationFetchError` or leave 201 unchanged — in that case we log the XML sample from the response and iterate on the query window separately (not part of this fix).
+
+## Files
+
+- `supabase/functions/previo-poll-checkouts/index.ts` — one-line gate change in the fan-out branch.
+- New migration — `SELECT cron.unschedule(9);` (keeps job 8 as the single 5-min trigger).
+
+## Not doing
+
+- No changes to `runCheckouts` in `LiveSyncContext` (client-side polling is still test-hotel-only and doesn't affect Ottofiori).
+- No changes to XML reservation parsing, status mapping, or stale-clear rules.
+- No new cron jobs.
