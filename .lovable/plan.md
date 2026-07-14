@@ -1,75 +1,36 @@
-## Root cause of the wrong "C/O+1" badges
+## Fix PMS Upload tab visibility + add No Show rooms section
 
-`previo-pms-sync` (used by the blue **PMS Sync** button) has a fallback that runs when Previo's XML reservation feed returns empty. It rebuilds today's picture from `pms_upload_summary` — but throws away the real `currentNight`/`totalNights` stored there and synthesizes every daily row as `arrivalDate = today-1`, `departureDate = tomorrow`. That's why every daily room in the DB now shows `guest_nights_stayed=2` and `scheduledDepartureTomorrow=true` (101 2/3, 202 2/3, 301 2/4, 403 4/4 all look identical: `C/O+1`).
+### 1. PMS Upload tab still visible for managers
+**Root cause:** `pms_configurations` RLS allows SELECT only for admins. Manager Ricsi's visibility query returns `null`, so `hidePmsUploadTab` stays `false` and the tab renders regardless of the admin toggle.
 
-The XLS upload path itself is correct — the summary rows already contain the real nights (verified: 101→2/3, 301→2/4, 403→4/4). Only the sync fallback is discarding them.
+**Fix:** Add a `SECURITY DEFINER` RPC `get_pms_upload_hidden(hotel_key text)` that resolves the hotel key against `hotel_configurations` and returns the single `hide_pms_upload_page` boolean. Grant EXECUTE to `authenticated`. Replace the direct table read in `HousekeepingTab.tsx` with `supabase.rpc('get_pms_upload_hidden', { hotel_key: assignedHotel })`. RLS on the table itself is unchanged — admins keep exclusive write access.
 
-Separately, you want checkout auto-detection: when Previo marks a room "checked out" (Occupied=No + a status/departure signal), the app should auto-flip the room to *Ready to Clean* without touching housekeeper assignments.
+### 2. No Show rooms
+**Definition:** A PMS row where `Occupied = no` AND `Arrival`, `Departure`, and `Night / Total` are all blank.
 
----
+**Detection**
+- `previo-pms-sync/index.ts` row emitter: when a fetched room has no reservation for today (no arrival, no departure, no night counts) set `IsNoShow: true` on the emitted row. Orthogonal to existing daily/checkout logic.
+- `pmsRefresh.ts`: when `row.IsNoShow === true`, set `pms_metadata.isNoShow = true` (clear otherwise). Do NOT set `is_checkout_room`. Emit a `pms_change_events` row of type `no_show_detected` on the false→true transition.
 
-## Changes
+**UI in `HotelRoomOverview.tsx`**
+- New collapsible section directly under **Daily Rooms** titled **No Show Rooms**. Lists rooms where `pms_metadata.isNoShow === true` AND `is_checkout_room === false`. Header shows count; entire section hidden when count is 0.
+- Each card shows an amber `NO SHOW` badge and a one-line explainer: "Guest did not arrive — PMS shows no active reservation".
+- Existing Mark Clean / Assign actions remain available, but tapping them opens a small confirm dialog: "This room is flagged as a no-show. Continue and move to clean?" (Confirm / Cancel). No changes to housekeeper allotments — same write paths as daily rooms.
 
-### 1. Fix `supabase/functions/previo-pms-sync/index.ts` fallback (lines ~289–348)
+**Safety guarantees**
+- No-show flag never overrides an existing `room_assignments` row.
+- Checkout poller and PMS sync continue to preserve assignments as before.
+- No changes to PMS Upload XLS parser, auto-assign algorithm, or checkout poller.
 
-Use the real per-row fields already stored in `pms_upload_summary`:
+### Files
+- **New migration:** `public.get_pms_upload_hidden(text)` SECURITY DEFINER + GRANT EXECUTE to authenticated.
+- `src/components/dashboard/HousekeepingTab.tsx` — switch visibility read to RPC.
+- `supabase/functions/previo-pms-sync/index.ts` — emit `IsNoShow`.
+- `src/lib/pmsRefresh.ts` — persist `pms_metadata.isNoShow` + change event.
+- `src/components/dashboard/HotelRoomOverview.tsx` — No Show section, badge, confirm dialog.
+- `src/lib/room-overview-translations.ts` — new strings in en/hu/es/vi/mn.
 
-- For each daily row, compute `arrivalDate = today − (currentNight − 1)` and `departureDate = today + (totalNights − currentNight + 1)` using the stored `currentNight`/`totalNights` (fallback to today/tomorrow only when missing).
-- For each checkout row, keep `departureDate = today`, but derive `arrivalDate` from `totalNights` when present.
-- Pass through `guestCount` and `notes` unchanged.
-
-Result: after sync, `Night / Total` and `DepartureTomorrow` mirror the last real XLS upload instead of collapsing everything to 2/2 + depart-tomorrow.
-
-### 2. Harden the row emitter (same file, ~line 384–397)
-
-Even when the fallback path runs, only set `DepartureTomorrow: true` when `departureDate === tomorrow` (already true) AND `currentNight === totalNights`. Belt-and-braces so a stale/short reservation can never mark a mid-stay room as C/O+1.
-
-### 3. Backfill today's Ottofiori rooms (one-shot SQL)
-
-Reset the wrongly-flagged daily rooms so today's Team View is correct without waiting for the next sync:
-
-```sql
--- For each currently-daily room, restore night data from today's upload summary
--- and clear scheduledDepartureTomorrow unless currentNight === totalNights.
-```
-
-Runs once, targeted to Ottofiori, only touches PMS fields (`guest_nights_stayed`, `pms_metadata.scheduledDepartureTomorrow`, `pms_metadata.departureTime`). No `room_assignments` writes.
-
-### 4. Auto-mark checkout rooms Ready-to-Clean from Previo
-
-Add a lightweight poller that runs on Previo XML tenants (Ottofiori today) every ~5 min:
-
-- **Edge function:** extend `previo-poll-checkouts` (already exists) to run for all XML hotels, not just `previo-test`. It calls `searchReservations` for `[today, today+1)`, and for each reservation with `statusId = 5` (checked-out) OR whose object's live occupancy flips to "no" while `departureDate === today`, it:
-  - Finds the matching `rooms` row (same lookup used elsewhere).
-  - Updates ONLY: `is_checkout_room = true`, `pms_metadata.checkedOutToday = true`, `pms_metadata.readyToClean = true`, `pms_metadata.checkedOutAt = now()`.
-  - **Does NOT touch `status`** if there's an active `room_assignments` row (`assigned` / `in_progress`) — that's the housekeeper's workflow. It only writes a `pms_change_events` row of type `checkout_confirmed` so the manager sees it in the PMS drawer.
-  - **Only when there is no active assignment** does it also set `status = 'dirty'` so the room appears in the "checkout / ready to clean" bucket automatically.
-- **Scheduler:** add a Supabase cron (`pg_cron` via migration) hitting the function every 5 minutes.
-- **Idempotent:** each run is a diff — rooms already flagged `checkedOutToday=true` today are skipped, so no repeated writes and no assignment churn.
-
-### 5. Assignment-safety guarantees (called out in code comments)
-
-Neither the fallback fix nor the auto-checkout poller ever:
-- writes to `room_assignments`
-- clears `assigned_to` / `assigned_housekeeper_id` on `rooms`
-- flips `status` on a room with an active assignment
-
-The only field that can transition against an in-progress assignment is `is_checkout_room = true` (with a `pms_hold` event queued) — exactly the same protection the manual PMS Sync already uses.
-
-### 6. Small UI polish
-
-`HotelRoomOverview.tsx`: the C/O+1 chip already gates on `scheduledDepartureTomorrow && !scheduledDepartureToday`. Add one more gate: `pms_metadata.currentNight === pms_metadata.totalNights` when both are present, so even a bad upstream flag can't paint a mid-stay room.
-
----
-
-## Verification
-
-1. Backfill runs → Team View for Ottofiori shows only 403 / 305 / 404 / 203 with `C/O+1` (their real 2/2, 3/3, 4/4 rows), while 101/202/301/302/304 are plain daily.
-2. Click **PMS Sync** → the same picture holds. `pms_change_events` shows no spurious `status_changed` rows.
-3. On Previo, mark a room checked-out → within 5 min the room's chip flips to Checkout / Ready to Clean; if a housekeeper was mid-cleaning, the assignment stays intact and a `pms_change_events` row appears in the manager's drawer.
-
-## Not doing
-
-- No changes to the PMS Upload XLS parser (already correct).
-- No changes to the blue PMS Sync button, admin toggle, or existing checkout badges.
-- No schema changes beyond enabling the cron.
+### Not doing
+- No schema changes on `rooms` (reuse `pms_metadata` JSON).
+- No changes to `pms_configurations` RLS.
+- No changes to the PMS Upload XLS flow, blue Sync button, or admin toggle behavior.
