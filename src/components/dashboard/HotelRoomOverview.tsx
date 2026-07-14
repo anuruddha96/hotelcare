@@ -162,7 +162,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverNotes, setPopoverNotes] = useState<string>('');
-  const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | null>(null);
+  const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [managerMessage, setManagerMessage] = useState('');
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
@@ -474,7 +474,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   });
   const dailyRooms = rooms.filter(r => {
     const assignment = assignmentMap.get(r.id);
-    return !r.is_checkout_room && !isScheduledCheckoutRoom(r) && assignment?.assignment_type !== 'checkout_cleaning';
+    if (r.is_checkout_room || isScheduledCheckoutRoom(r) || assignment?.assignment_type === 'checkout_cleaning') return false;
+    // No-show rooms surface in their own section below.
+    if ((r.pms_metadata as any)?.isNoShow === true) return false;
+    return true;
   });
 
   const isPmsNoShow = (room: RoomData) =>
@@ -1057,7 +1060,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily') => {
+  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily' | 'noshow') => {
     e.preventDefault();
     setDragOverSection(null);
     justDraggedRef.current = Date.now();
@@ -1066,8 +1069,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const roomNumber = e.dataTransfer.getData('roomNumber');
     const sourceType = e.dataTransfer.getData('sourceType');
     if (!roomId || sourceType === targetType) return;
-
-    const newIsCheckout = targetType === 'checkout';
+    // Dropping onto "no-show" behaves like moving back to daily (managers
+    // typically drag a no-show back to daily to reassign / clean it).
+    const effectiveTarget: 'checkout' | 'daily' = targetType === 'checkout' ? 'checkout' : 'daily';
+    const newIsCheckout = effectiveTarget === 'checkout';
     const newAssignmentType = newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning';
     const assignment = assignmentMap.get(roomId);
     const movedRoom = rooms.find(r => r.id === roomId);
@@ -1198,7 +1203,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily') => {
+  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow') => {
     // Right column: live today rooms for this section (unchanged).
     const todayRooms = roomList;
 
@@ -1212,6 +1217,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const wasCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
       if (sectionType === 'checkout' && !wasCheckout) return;
       if (sectionType === 'daily' && wasCheckout) return;
+      if (sectionType === 'noshow') return; // no yesterday snapshot for no-show
       previousEntries.push({ room, prev });
     });
 
@@ -1555,6 +1561,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                {renderSection(t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
                <div className="border-t border-border/50" />
                {renderSection(t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {noShowRooms.length > 0 && (
+                 <>
+                   <div className="border-t border-border/50" />
+                   {renderSection(t('team.noShowRooms'), noShowRooms, <BedDouble className="h-3.5 w-3.5 text-red-600" />, 'noshow')}
+                 </>
+               )}
             </>
           )}
           {publicAreaTasks.length > 0 && (
