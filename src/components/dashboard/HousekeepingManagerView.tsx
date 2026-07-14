@@ -497,9 +497,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
-          {/* PmsRefreshButton removed from Team View — use the Refresh
-              button on the Hotel Room Overview card instead. Kept import
-              tree intact via the PMS Config panel for admins. */}
+          {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
+            <PmsRefreshButton hotelId={profile.assigned_hotel || ''} />
+          )}
           {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
             <>
               <Button
