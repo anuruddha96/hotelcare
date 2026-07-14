@@ -20,11 +20,18 @@ export interface TaskState {
   meta?: Record<string, any>;
 }
 
+export interface RefreshOutcome {
+  ran: boolean;
+  status: PmsSyncStatus | "syncing" | "skipped" | "error";
+  message?: string;
+  meta?: Record<string, any>;
+}
+
 interface LiveSyncContextValue {
   enabled: boolean;
   hotelId: string | null;
   tasks: Record<TaskName, TaskState>;
-  refresh: (task?: TaskName) => Promise<void>;
+  refresh: (task?: TaskName) => Promise<RefreshOutcome | void>;
   openChangesDrawer: () => void;
 }
 
@@ -117,10 +124,14 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [enabled, hotelId]);
 
-  const runPms = useCallback(async (force = false) => {
-    if (!enabled || !hotelId) return;
+  const runPms = useCallback(async (force = false): Promise<RefreshOutcome> => {
+    if (!enabled || !hotelId) {
+      return { ran: false, status: "skipped", message: hotelId ? "PMS integration not configured for this hotel" : "No hotel context" };
+    }
     const now = Date.now();
-    if (!force && now - lastRunRef.current.pms < THROTTLE_MS) return;
+    if (!force && now - lastRunRef.current.pms < THROTTLE_MS) {
+      return { ran: false, status: "skipped", message: "Throttled" };
+    }
     lastRunRef.current.pms = now;
     setTasks((p) => ({ ...p, pms: { ...p.pms, status: "syncing" } }));
     try {
@@ -129,11 +140,14 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         ...p,
         pms: { status: r.status, lastAt: new Date(), meta: r },
       }));
+      return { ran: true, status: r.status, meta: r, message: r.errors?.[0] };
     } catch (e: any) {
+      const message = e?.message || "PMS sync failed";
       setTasks((p) => ({
         ...p,
-        pms: { status: "error", lastAt: new Date(), message: e?.message || "PMS sync failed" },
+        pms: { status: "error", lastAt: new Date(), message },
       }));
+      return { ran: true, status: "error", message };
     }
   }, [enabled, hotelId]);
 
@@ -221,8 +235,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   }, [enabled, hotelId]);
 
   const refresh = useCallback(
-    async (task?: TaskName) => {
-      if (task === "pms") await runPms(true);
+    async (task?: TaskName): Promise<RefreshOutcome | void> => {
+      if (task === "pms") return await runPms(true);
       else if (task === "revenue") await runRevenue(true);
       else if (task === "checkouts") await runCheckouts(true);
       else await Promise.all([runPms(true), runRevenue(true), runCheckouts(true)]);
