@@ -594,9 +594,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             />
           )}
 
-          {room.pms_metadata?.scheduledDepartureTomorrow === true && !room.pms_metadata?.scheduledDepartureToday && (
-            <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
-          )}
+          {(() => {
+            const meta: any = room.pms_metadata || {};
+            if (meta.scheduledDepartureTomorrow !== true) return null;
+            if (meta.scheduledDepartureToday) return null;
+            // Extra safety: if the PMS also gave us night counts, only paint
+            // C/O+1 when this is the guest's LAST night (currentNight === totalNights).
+            const cn = Number(meta.currentNight);
+            const tn = Number(meta.totalNights);
+            if (Number.isFinite(cn) && Number.isFinite(tn) && cn > 0 && tn > 0 && cn !== tn) return null;
+            return (
+              <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
+            );
+          })()}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
