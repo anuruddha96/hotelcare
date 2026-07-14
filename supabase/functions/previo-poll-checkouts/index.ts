@@ -117,6 +117,7 @@ async function pollOneHotel(
     const xmlText = xmlResult.text;
     if (!xmlResult.ok) {
       result.reservationFetchError = `XML API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
+      result.errors.push(`reservation fetch: ${result.reservationFetchError}`);
     } else {
       const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
       const grab = (s: string, tag: string) => {
@@ -139,6 +140,7 @@ async function pollOneHotel(
     }
   } catch (e: any) {
     result.reservationFetchError = e?.message || String(e);
+    result.errors.push(`reservation fetch: ${result.reservationFetchError}`);
   }
 
   const trueCheckoutRoomIds = new Set<string>();
