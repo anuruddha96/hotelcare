@@ -405,6 +405,12 @@ serve(async (req) => {
       const departureTomorrowConfirmed =
         isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
 
+      // No-show: PMS has no reservation for this room today (not occupied,
+      // no arrival, no departure, no night counts). Managers still need to
+      // see and clean these rooms, but flagged so they know the guest
+      // didn't arrive.
+      const isNoShow = !res && !isOccupied && !isDeparture && !isArrival && !isDepartureTomorrow;
+
       return {
         Room: r.name,
         RoomId: r.roomId,
@@ -417,6 +423,7 @@ serve(async (req) => {
         Arrival: isArrival ? "15:00" : null,
         CheckedOut: isCheckedOut,
         IsCheckoutRoom: isCheckoutRoom,
+        IsNoShow: isNoShow,
         ReservationStatusId: res?.statusId ?? null,
         People: res?.guestsCount ?? (isOccupied || isDeparture ? r.capacity : 0),
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
