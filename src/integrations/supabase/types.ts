@@ -5272,6 +5272,7 @@ export type Database = {
         Args: { p_org_slug: string }
         Returns: number
       }
+      get_pms_upload_hidden: { Args: { hotel_key: string }; Returns: boolean }
       get_public_breakfast_hotels: {
         Args: { _org_slug: string }
         Returns: {
