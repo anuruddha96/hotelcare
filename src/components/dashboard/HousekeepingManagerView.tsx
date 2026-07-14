@@ -21,8 +21,7 @@ import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { HotelRoomOverview } from './HotelRoomOverview';
 import { PublicAreaAssignment } from './PublicAreaAssignment';
 import { AssignmentSuccessAnimation } from './AssignmentSuccessAnimation';
-// PmsRefreshButton import removed — Team View now relies on the Refresh
-// button inside the Hotel Room Overview card.
+import { PmsRefreshButton } from './PmsRefreshButton';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
