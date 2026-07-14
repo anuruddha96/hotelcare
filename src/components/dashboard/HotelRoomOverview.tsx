@@ -588,6 +588,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           `}
         >
           {room.room_number}
+          {(room.pms_metadata as any)?.isNoShow === true && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white"
+              title="PMS reports no reservation — guest did not arrive"
+            >NS</span>
+          )}
           {room.pms_metadata?.manual_checkout === true && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
