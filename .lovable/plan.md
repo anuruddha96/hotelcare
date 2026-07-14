@@ -1,26 +1,33 @@
-## What I found
+## What's actually broken
 
-- Room `201` already exists and is marked as checkout/dirty in `rooms`, but it does not show `RTC` because today’s `room_assignments.ready_to_clean` is still `false`.
-- The checkout poll is not writing `checkouts_poll` history because `pms_sync_history.sync_type` only allows older values (`rooms`, `reservations`, etc.), so `checkouts_poll` violates the table constraint.
-- The poll also looks up rooms with `.eq('hotel', 'ottofiori')`, but Ottofiori room rows are stored as `Hotel Ottofiori`; this can prevent the poll from finding and updating room `201`.
+The poll function (`previo-poll-checkouts`) detects departures by calling Previo's **XML** endpoint `api.previo.app/x1/hotel/searchReservations/`. Ottofiori's stored credential is a Previo **REST ApiKey**, which the XML endpoint rejects with `401 Invalid login or password`. That's why the credential "works for everything else" — every other feature (PMS Refresh `/rest/rooms`, the manager-approve push in `previo-update-room-status`) uses the **REST** endpoint with `Authorization: ApiKey …`, which the same key accepts.
 
-## Plan
+So the credential is fine. The poll is simply asking the wrong endpoint.
 
-1. **Fix the checkout poll room lookup**
-   - Update `previo-poll-checkouts` so it resolves both hotel keys: the PMS config slug (`ottofiori`) and display hotel name (`Hotel Ottofiori`).
-   - Use those keys when loading and matching local rooms, the same way the manual PMS refresh already does.
+## Fix
 
-2. **Fix poll history inserts**
-   - Add `checkouts_poll` to the allowed `pms_sync_history.sync_type` values.
-   - This makes future 5-minute poll runs visible in history and prevents silent insert failures.
+Stop using the XML endpoint for departure detection. Use the same `/rest/rooms` call that manual PMS Refresh already uses — its response includes each room's `reservation.statusId` and `reservation.departureDate`, which is exactly what we need to identify today's `statusId === 5` departures.
 
-3. **Make RTC reflect PMS confirmation**
-   - When the poll confirms a room checked out, update today’s checkout assignment for that room to `ready_to_clean=true`.
-   - This is what the UI uses to show the `RTC` badge.
+### Steps
 
-4. **Repair room 201 immediately**
-   - Update today’s assignment for Ottofiori room `201` to `ready_to_clean=true` so it appears as RTC now, without waiting for another cron cycle.
+1. In `supabase/functions/previo-poll-checkouts/index.ts`:
+   - Always fetch `/rest/rooms` via `fetchPrevioWithAuth` (drop the XML-only branch that skipped this for Ottofiori).
+   - Build `checkedOutByObjId` / `checkedOutByName` from `room.reservation` where `statusId === 5` and `departureDate === today`, using `roomId` and `name` — no `reservationId` is exposed by `/rest/rooms`, so store an empty string (downstream code already treats it as optional and just logs it into `pms_change_events`).
+   - Remove the `callPrevioXml({ method: "searchReservations" })` call and its `loadPrevioCredentials` import if no longer needed. Keep the rest of the pipeline (room lookup by `hotelKeys`, `is_checkout_room` update, `room_assignments.ready_to_clean=true`, `pms_change_events`, stale-flag cleanup) exactly as it is.
+   - Keep the `pms_sync_history` `checkouts_poll` row and the error-collection behavior.
 
-5. **Verify**
-   - Check `rooms` and `room_assignments` for 201 after the change.
-   - Trigger or observe the checkout poll and confirm a new `checkouts_poll` history row appears.
+2. Do **not** touch:
+   - `previo-update-room-status` (manager-approve → Previo push) — user confirmed this works, leave untouched.
+   - `previo-pms-sync` — its XML `searchReservations` call is best-effort and already tolerates failure; unrelated to the RTC bug.
+   - `_shared/previoCredentials.ts` and `_shared/previoAuth.ts` — no credential-format change.
+   - The cron schedule / auth gate — already fixed in the prior turn.
+
+3. Deploy `previo-poll-checkouts`, trigger it once, and verify against the Ottofiori test hotel:
+   - `pms_sync_history` shows a fresh `checkouts_poll` row with `errors=[]`.
+   - Any room whose `/rest/rooms` reservation reports `statusId=5` + departure=today flips `rooms.is_checkout_room=true` and `room_assignments.ready_to_clean=true` (RTC badge appears in Team View).
+   - Function logs no longer contain `401 Invalid login or password`.
+
+### Notes for the reviewer
+
+- Ottofiori's `/rest/rooms` response is already known to work — it's what powers the working manual PMS Refresh, so no new secrets, no XML login/password needed.
+- If the Previo test hotel currently has no `statusId=5` rooms, the poll will simply report `checked=<N>, updated=0, errors=[]` — that's the correct "nothing to do" outcome and confirms auth is healthy.
