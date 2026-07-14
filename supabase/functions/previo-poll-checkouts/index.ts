@@ -61,6 +61,13 @@ async function pollOneHotel(
     errors: [], unmatched: [], reservationFetchError: null,
   };
 
+  const { data: hotelCfg } = await service
+    .from("hotel_configurations")
+    .select("hotel_name")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
+
   // 1. Fetch roster. REST tenants have /rest/rooms with clean statuses; XML
   // tenants (e.g. Ottofiori) don't — use the local `rooms` table so the poll
   // still runs and every physical room can be matched.
@@ -83,12 +90,6 @@ async function pollOneHotel(
     }
     rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
   } else {
-    const { data: hotelCfg } = await service
-      .from("hotel_configurations")
-      .select("hotel_name")
-      .eq("hotel_id", hotelId)
-      .maybeSingle();
-    const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
     const { data: local } = await service
       .from("rooms")
       .select("room_number, pms_metadata")
@@ -116,6 +117,7 @@ async function pollOneHotel(
     const xmlText = xmlResult.text;
     if (!xmlResult.ok) {
       result.reservationFetchError = `XML API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
+      result.errors.push(`reservation fetch: ${result.reservationFetchError}`);
     } else {
       const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
       const grab = (s: string, tag: string) => {
@@ -138,6 +140,7 @@ async function pollOneHotel(
     }
   } catch (e: any) {
     result.reservationFetchError = e?.message || String(e);
+    result.errors.push(`reservation fetch: ${result.reservationFetchError}`);
   }
 
   const trueCheckoutRoomIds = new Set<string>();
@@ -159,7 +162,7 @@ async function pollOneHotel(
           service
             .from("rooms")
             .select("id, status, is_checkout_room, room_number, pms_metadata")
-            .eq("hotel", hotelId),
+            .in("hotel", hotelKeys),
         ).maybeSingle();
         return (data as any) || null;
       };
@@ -260,7 +263,7 @@ async function pollOneHotel(
         .eq("assignment_date", today)
         .eq("assignment_type", "checkout_cleaning")
         .in("status", ["assigned", "in_progress"])
-        .eq("ready_to_clean", false);
+        .or("ready_to_clean.is.false,ready_to_clean.is.null");
       result.marked += released?.length ?? 0;
     } catch (e: any) {
       result.errors.push(`${r.name}: ${e?.message || e}`);
@@ -276,7 +279,7 @@ async function pollOneHotel(
     const { data: stale } = await service
       .from("rooms")
       .select("id, room_number, pms_metadata")
-      .eq("hotel", hotelId)
+      .in("hotel", hotelKeys)
       .eq("is_checkout_room", true);
     const staleRows = (stale ?? []).filter((r: any) => {
       if (trueCheckoutRoomIds.has(r.id)) return false;
