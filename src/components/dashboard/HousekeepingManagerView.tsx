@@ -21,8 +21,7 @@ import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { HotelRoomOverview } from './HotelRoomOverview';
 import { PublicAreaAssignment } from './PublicAreaAssignment';
 import { AssignmentSuccessAnimation } from './AssignmentSuccessAnimation';
-// PmsRefreshButton import removed — Team View now relies on the Refresh
-// button inside the Hotel Room Overview card.
+import { PmsRefreshButton } from './PmsRefreshButton';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -498,9 +497,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
-          {/* PmsRefreshButton removed from Team View — use the Refresh
-              button on the Hotel Room Overview card instead. Kept import
-              tree intact via the PMS Config panel for admins. */}
+          {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
+            <PmsRefreshButton />
+          )}
           {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
             <>
               <Button
