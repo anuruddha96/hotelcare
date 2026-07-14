@@ -91,11 +91,18 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         setHidePmsUploadTab(false);
         return;
       }
+      // `assigned_hotel` on profiles may be either the hotel slug
+      // (e.g. "ottofiori") or the display name ("Hotel Ottofiori").
+      // pms_configurations.hotel_id is always the slug, so resolve
+      // all keys and query with .in() to catch both cases.
+      const keys = await resolveHotelKeys(assignedHotel);
+      const hotelKeys = keys.length ? keys : [assignedHotel];
       const { data } = await (supabase as any)
         .from('pms_configurations')
-        .select('hide_pms_upload_page')
-        .eq('hotel_id', assignedHotel)
+        .select('hide_pms_upload_page,hotel_id')
+        .in('hotel_id', hotelKeys)
         .eq('pms_type', 'previo')
+        .limit(1)
         .maybeSingle();
       setHidePmsUploadTab((data as any)?.hide_pms_upload_page === true);
     };
