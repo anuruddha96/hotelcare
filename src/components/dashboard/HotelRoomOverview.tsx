@@ -1315,6 +1315,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 </span>
               );
             })()}
+            {sectionType === 'noshow' && (
+              <span className="text-[10px] text-red-700 dark:text-red-300 font-medium">
+                {t('team.noShowExplainer')}
+              </span>
+            )}
             {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">Drop here</Badge>}
           </div>
           {dndCount > 0 && (
