@@ -315,10 +315,14 @@ serve(async (req) => {
         for (const item of checkoutRows) {
           const roomName = String(item?.roomNumber ?? item?.room_number ?? "").trim();
           if (!roomName) continue;
+          // Use real totalNights when the upload captured them so downstream
+          // Night/Total reflects the actual stay, not a synthesized 1/1.
+          const totalN = Number(item?.totalNights ?? 0) || 0;
+          const arrival = totalN > 0 ? addDays(today, -Math.max(0, totalN - 1)) : addDays(today, -1);
           indexReservation({
             objId: null,
             roomName,
-            arrivalDate: addDays(today, -1),
+            arrivalDate: arrival,
             departureDate: today,
             statusId: item?.status === "checked_out" ? 5 : 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
@@ -328,11 +332,18 @@ serve(async (req) => {
         for (const item of dailyRows) {
           const roomName = String(item?.roomNumber ?? item?.room_number ?? "").trim();
           if (!roomName) continue;
+          // Preserve real currentNight / totalNights from the upload so this
+          // fallback doesn't collapse every daily room to 2/2 depart-tomorrow.
+          const curN = Number(item?.currentNight ?? 0) || 0;
+          const totalN = Number(item?.totalNights ?? 0) || 0;
+          const arrival = curN > 0 ? addDays(today, -(curN - 1)) : addDays(today, -1);
+          const remaining = totalN > 0 && curN > 0 ? Math.max(1, totalN - curN + 1) : 1;
+          const departure = addDays(today, remaining);
           indexReservation({
             objId: null,
             roomName,
-            arrivalDate: addDays(today, -1),
-            departureDate: tomorrow,
+            arrivalDate: arrival,
+            departureDate: departure,
             statusId: 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
             note: item?.notes ? String(item.notes) : null,
@@ -388,13 +399,19 @@ serve(async (req) => {
       const cleanMap: Record<number, string> = { 1: "Untidy", 2: "Clean", 3: "Clean", 4: "Untidy", 5: "Untidy" };
       const statusLabel = cleanMap[r.roomCleanStatusId] ?? "";
 
+      // Belt-and-braces: only flag DepartureTomorrow when this is the guest's
+      // LAST night (currentNight === totalNights). Protects against stale or
+      // synthesised reservations painting a mid-stay room as C/O+1.
+      const departureTomorrowConfirmed =
+        isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
+
       return {
         Room: r.name,
         RoomId: r.roomId,
         RoomKindName: r.roomKindName,
         Occupied: isOccupied || isDeparture ? "Yes" : "No",
         Departure: isDeparture ? "12:00" : null,
-        DepartureTomorrow: isDepartureTomorrow,
+        DepartureTomorrow: departureTomorrowConfirmed,
         DepartureDate: res?.departureDate ?? null,
         ArrivalDate: res?.arrivalDate ?? null,
         Arrival: isArrival ? "15:00" : null,
@@ -403,6 +420,8 @@ serve(async (req) => {
         ReservationStatusId: res?.statusId ?? null,
         People: res?.guestsCount ?? (isOccupied || isDeparture ? r.capacity : 0),
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
+        CurrentNight: currentNight || null,
+        TotalNights: totalNights || null,
         Note: res?.note ?? null,
         Nationality: null,
         Defect: null,

@@ -61,18 +61,43 @@ async function pollOneHotel(
     errors: [], unmatched: [], reservationFetchError: null,
   };
 
-  // 1. Fetch /rest/rooms snapshot
-  const { response: resp } = await fetchPrevioWithAuth({
-    credentialsSecretName: cfg.credentials_secret_name,
-    path: "/rest/rooms",
-    pmsHotelId: String(cfg.pms_hotel_id || ""),
-  });
-  if (!resp.ok) {
-    const t = await resp.text();
-    result.errors.push(`Previo ${resp.status}: ${t.slice(0, 200)}`);
-    return result;
+  // 1. Fetch roster. REST tenants have /rest/rooms with clean statuses; XML
+  // tenants (e.g. Ottofiori) don't — use the local `rooms` table so the poll
+  // still runs and every physical room can be matched.
+  let rooms: PrevioRoom[] = [];
+  let credsProtocol: "xml" | "rest" = "rest";
+  try {
+    credsProtocol = loadPrevioCredentials(cfg.credentials_secret_name).protocol;
+  } catch { /* fall through */ }
+
+  if (credsProtocol === "rest") {
+    const { response: resp } = await fetchPrevioWithAuth({
+      credentialsSecretName: cfg.credentials_secret_name,
+      path: "/rest/rooms",
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
+    });
+    if (!resp.ok) {
+      const t = await resp.text();
+      result.errors.push(`Previo ${resp.status}: ${t.slice(0, 200)}`);
+      return result;
+    }
+    rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
+  } else {
+    const { data: hotelCfg } = await service
+      .from("hotel_configurations")
+      .select("hotel_name")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
+    const { data: local } = await service
+      .from("rooms")
+      .select("room_number, pms_metadata")
+      .in("hotel", hotelKeys);
+    rooms = (local ?? []).map((r: any) => ({
+      roomId: Number(r.pms_metadata?.roomId ?? 0),
+      name: r.room_number,
+    }));
   }
-  const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
   result.checked = rooms.length;
 
   // 2. Pull today's reservations via XML to find statusId=5 (departed)
@@ -152,12 +177,35 @@ async function pollOneHotel(
       trueCheckoutRoomIds.add(localRoom.id);
 
       const wasCheckout = !!localRoom.is_checkout_room;
+
+      // Look up today's active assignments first so we can protect an
+      // in-progress housekeeper cleaning from having its status stomped.
+      const { data: existingAsg } = await service
+        .from("room_assignments")
+        .select("id, status, assignment_type, assigned_to, pms_hold")
+        .eq("room_id", localRoom.id)
+        .eq("assignment_date", today)
+        .in("status", ["assigned", "in_progress"]);
+      const hasActiveAssignment = (existingAsg ?? []).length > 0;
+
+      const existingMeta = (localRoom.pms_metadata && typeof localRoom.pms_metadata === "object")
+        ? localRoom.pms_metadata : {};
       const updateData: Record<string, any> = {
         is_checkout_room: true,
         checkout_time: nowIso(),
         updated_at: nowIso(),
+        pms_metadata: {
+          ...existingMeta,
+          checkedOutToday: true,
+          readyToClean: true,
+          checkedOutAt: nowIso(),
+        },
       };
-      if (localRoom.status !== "dirty") updateData.status = "dirty";
+      // Only touch status when no housekeeper is actively working the room.
+      // Otherwise the assignment/pms_hold flow governs the transition.
+      if (!hasActiveAssignment && localRoom.status !== "dirty") {
+        updateData.status = "dirty";
+      }
 
       const { error: updErr } = await service
         .from("rooms")
@@ -165,13 +213,6 @@ async function pollOneHotel(
         .eq("id", localRoom.id);
       if (updErr) throw updErr;
 
-      // Find conflicting assignments for today and emit a change event.
-      const { data: existingAsg } = await service
-        .from("room_assignments")
-        .select("id, status, assignment_type, assigned_to, pms_hold")
-        .eq("room_id", localRoom.id)
-        .eq("assignment_date", today)
-        .in("status", ["assigned", "in_progress"]);
 
       // Only emit when this is a *new* signal (status flipped to checkout).
       if (!wasCheckout) {
@@ -227,13 +268,25 @@ async function pollOneHotel(
   }
 
   // 4. Clear stale checkout flags (guest now back, or earlier false positive).
+  // NEVER clear a room that is still scheduled to depart today or already
+  // marked checked-out today via the PMS upload / sync — otherwise a poll
+  // that only sees statusId=5 (already-departed) reservations would wipe
+  // legitimate scheduled-departure rooms out of the checkout bucket.
   try {
     const { data: stale } = await service
       .from("rooms")
-      .select("id, room_number")
+      .select("id, room_number, pms_metadata")
       .eq("hotel", hotelId)
       .eq("is_checkout_room", true);
-    const staleRows = (stale ?? []).filter((r: any) => !trueCheckoutRoomIds.has(r.id));
+    const staleRows = (stale ?? []).filter((r: any) => {
+      if (trueCheckoutRoomIds.has(r.id)) return false;
+      const meta = r.pms_metadata || {};
+      if (meta.scheduledDepartureToday === true) return false;
+      if (meta.checkedOutToday === true) return false;
+      const lastRefresh = meta.lastPmsRefreshDate || meta.pmsUploadDate;
+      if (lastRefresh === today) return false; // trust today's upload/sync
+      return true;
+    });
     if (staleRows.length > 0) {
       const ids = staleRows.map((r: any) => r.id);
       await service
@@ -241,7 +294,6 @@ async function pollOneHotel(
         .update({ is_checkout_room: false, checkout_time: null, updated_at: nowIso() })
         .in("id", ids);
       result.cleared = ids.length;
-      // Emit informational events
       const evtRows = staleRows.map((r: any) => ({
         hotel_id: hotelId,
         room_id: r.id,
