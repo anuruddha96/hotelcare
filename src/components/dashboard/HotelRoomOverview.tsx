@@ -477,7 +477,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return !r.is_checkout_room && !isScheduledCheckoutRoom(r) && assignment?.assignment_type !== 'checkout_cleaning';
   });
 
+  const isPmsNoShow = (room: RoomData) =>
+    (room.pms_metadata as any)?.isNoShow === true;
+
   const isNoShow = (room: RoomData) => {
+    if (isPmsNoShow(room)) return true;
     return room.notes?.toLowerCase().includes('no show') || false;
   };
 
@@ -485,7 +489,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return room.notes?.toLowerCase().includes('early checkout') || false;
   };
 
-  const noShowRooms = rooms.filter(r => isNoShow(r) && !isEarlyCheckout(r));
+  const noShowRooms = rooms.filter(r => isNoShow(r) && !isEarlyCheckout(r) && !r.is_checkout_room);
   const earlyCheckoutRooms = rooms.filter(r => isEarlyCheckout(r));
 
   const groupByFloor = (roomList: RoomData[]) => {
