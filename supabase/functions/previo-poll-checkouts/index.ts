@@ -61,18 +61,43 @@ async function pollOneHotel(
     errors: [], unmatched: [], reservationFetchError: null,
   };
 
-  // 1. Fetch /rest/rooms snapshot
-  const { response: resp } = await fetchPrevioWithAuth({
-    credentialsSecretName: cfg.credentials_secret_name,
-    path: "/rest/rooms",
-    pmsHotelId: String(cfg.pms_hotel_id || ""),
-  });
-  if (!resp.ok) {
-    const t = await resp.text();
-    result.errors.push(`Previo ${resp.status}: ${t.slice(0, 200)}`);
-    return result;
+  // 1. Fetch roster. REST tenants have /rest/rooms with clean statuses; XML
+  // tenants (e.g. Ottofiori) don't — use the local `rooms` table so the poll
+  // still runs and every physical room can be matched.
+  let rooms: PrevioRoom[] = [];
+  let credsProtocol: "xml" | "rest" = "rest";
+  try {
+    credsProtocol = loadPrevioCredentials(cfg.credentials_secret_name).protocol;
+  } catch { /* fall through */ }
+
+  if (credsProtocol === "rest") {
+    const { response: resp } = await fetchPrevioWithAuth({
+      credentialsSecretName: cfg.credentials_secret_name,
+      path: "/rest/rooms",
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
+    });
+    if (!resp.ok) {
+      const t = await resp.text();
+      result.errors.push(`Previo ${resp.status}: ${t.slice(0, 200)}`);
+      return result;
+    }
+    rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
+  } else {
+    const { data: hotelCfg } = await service
+      .from("hotel_configurations")
+      .select("hotel_name")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
+    const { data: local } = await service
+      .from("rooms")
+      .select("room_number, pms_metadata")
+      .in("hotel", hotelKeys);
+    rooms = (local ?? []).map((r: any) => ({
+      roomId: Number(r.pms_metadata?.roomId ?? 0),
+      name: r.room_number,
+    }));
   }
-  const rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
   result.checked = rooms.length;
 
   // 2. Pull today's reservations via XML to find statusId=5 (departed)
