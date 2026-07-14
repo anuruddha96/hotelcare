@@ -282,6 +282,7 @@ export async function runPmsRefresh(
             : isCheckedOut,
           currentNight: nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null,
           totalNights: nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null,
+          isNoShow: row.IsNoShow === true,
         },
       };
       if (mappedStatus) {
