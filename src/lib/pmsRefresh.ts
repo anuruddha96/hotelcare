@@ -288,14 +288,12 @@ export async function runPmsRefresh(
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
-      // Always write the authoritative checkout flag so rooms that are no
-      // longer departing today/tomorrow get reset to false. Preserve any
-      // manual override (manager toggled it in the UI). If the PMS response
+      // PMS sync is authoritative for today's buckets: rooms that no longer
+      // depart today must be reset back to Daily Rooms. If the PMS response
       // contains no checkout signals at all, treat it as a weak/partial feed
       // and never clear an existing checkout flag from that response.
-      const manualOverride = existingMetadata?.manual_checkout === true;
       if (!preserveExistingCheckout) {
-        updateData.is_checkout_room = manualOverride ? true : shouldBeCheckoutRoom;
+        updateData.is_checkout_room = shouldBeCheckoutRoom;
       }
       if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
       if (towel) updateData.last_towel_change = today;
@@ -322,8 +320,8 @@ export async function runPmsRefresh(
       }
       if (isDepartureTomorrow && !currentCheckoutFlag) {
         pushEvent("status_changed",
-          { is_checkout_room: false },
-          { is_checkout_room: true, reason: "departure_tomorrow" }, false);
+          { scheduledDepartureTomorrow: false },
+          { scheduledDepartureTomorrow: true, reason: "departure_tomorrow_daily_room" }, false);
       }
       if (typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
         const wasVacant = room.guest_count === 0;
