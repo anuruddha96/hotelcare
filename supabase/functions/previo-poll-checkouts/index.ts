@@ -177,12 +177,35 @@ async function pollOneHotel(
       trueCheckoutRoomIds.add(localRoom.id);
 
       const wasCheckout = !!localRoom.is_checkout_room;
+
+      // Look up today's active assignments first so we can protect an
+      // in-progress housekeeper cleaning from having its status stomped.
+      const { data: existingAsg } = await service
+        .from("room_assignments")
+        .select("id, status, assignment_type, assigned_to, pms_hold")
+        .eq("room_id", localRoom.id)
+        .eq("assignment_date", today)
+        .in("status", ["assigned", "in_progress"]);
+      const hasActiveAssignment = (existingAsg ?? []).length > 0;
+
+      const existingMeta = (localRoom.pms_metadata && typeof localRoom.pms_metadata === "object")
+        ? localRoom.pms_metadata : {};
       const updateData: Record<string, any> = {
         is_checkout_room: true,
         checkout_time: nowIso(),
         updated_at: nowIso(),
+        pms_metadata: {
+          ...existingMeta,
+          checkedOutToday: true,
+          readyToClean: true,
+          checkedOutAt: nowIso(),
+        },
       };
-      if (localRoom.status !== "dirty") updateData.status = "dirty";
+      // Only touch status when no housekeeper is actively working the room.
+      // Otherwise the assignment/pms_hold flow governs the transition.
+      if (!hasActiveAssignment && localRoom.status !== "dirty") {
+        updateData.status = "dirty";
+      }
 
       const { error: updErr } = await service
         .from("rooms")
@@ -190,13 +213,6 @@ async function pollOneHotel(
         .eq("id", localRoom.id);
       if (updErr) throw updErr;
 
-      // Find conflicting assignments for today and emit a change event.
-      const { data: existingAsg } = await service
-        .from("room_assignments")
-        .select("id, status, assignment_type, assigned_to, pms_hold")
-        .eq("room_id", localRoom.id)
-        .eq("assignment_date", today)
-        .in("status", ["assigned", "in_progress"]);
 
       // Only emit when this is a *new* signal (status flipped to checkout).
       if (!wasCheckout) {
