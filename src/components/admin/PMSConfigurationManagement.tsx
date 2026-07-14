@@ -449,17 +449,19 @@ export default function PMSConfigurationManagement() {
                   </Label>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3">
+                <div className="flex items-center justify-between gap-3 rounded-md border-2 border-primary/40 bg-primary/5 p-3">
                   <div className="space-y-1">
-                    <Label htmlFor="hide-pms-upload-page">Hide legacy PMS Upload tab</Label>
+                    <Label htmlFor="hide-pms-upload-page" className="font-semibold">
+                      Show PMS Upload tab to managers
+                    </Label>
                     <p className="text-xs text-muted-foreground">
-                      Managers will use Team View → PMS Refresh. Keep the upload tab visible only as a fallback.
+                      When ON, managers see the legacy XLSX PMS Upload tab in Housekeeping. Turn OFF once the hotel is fully on live Previo sync so managers only use the Refresh button on the Hotel Room Overview.
                     </p>
                   </div>
                   <Switch
                     id="hide-pms-upload-page"
-                    checked={hidePmsUploadPage}
-                    onCheckedChange={setHidePmsUploadPage}
+                    checked={!hidePmsUploadPage}
+                    onCheckedChange={(v) => setHidePmsUploadPage(!v)}
                   />
                 </div>
 
