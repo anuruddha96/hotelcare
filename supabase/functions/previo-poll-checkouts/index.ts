@@ -387,8 +387,8 @@ serve(async (req) => {
       }
       targets.push(cfg as any);
     } else {
-      // Fan-out: only service-role calls allowed.
-      if (!isServiceCall) {
+      // Fan-out: service-role OR cron trigger only.
+      if (!isServiceCall && !isCronTrigger) {
         return new Response(JSON.stringify({ error: "hotelId required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
