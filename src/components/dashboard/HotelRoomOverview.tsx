@@ -462,12 +462,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const assignmentMap = new Map<string, AssignmentData>();
   assignments.forEach(a => assignmentMap.set(a.room_id, a));
 
-  // A room counts as a "checkout room" in Team View if the PMS says the
-  // guest departs today OR tomorrow — this lets managers plan tomorrow's
-  // checkout cleanings today instead of finding them in Daily Rooms.
+  // A room counts as a "checkout room" in Team View only when the guest
+  // departs today. Departure-tomorrow rooms stay in Daily Rooms and show the
+  // C/O+1 badge so managers can see them without removing today's stayovers.
   const isScheduledCheckoutRoom = (room: RoomData) =>
-    room.pms_metadata?.scheduledDepartureToday === true ||
-    room.pms_metadata?.scheduledDepartureTomorrow === true;
+    room.pms_metadata?.scheduledDepartureToday === true;
 
   const checkoutRooms = rooms.filter(r => {
     const assignment = assignmentMap.get(r.id);

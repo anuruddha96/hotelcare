@@ -322,8 +322,8 @@ export async function runPmsRefresh(
       }
       if (isDepartureTomorrow && !currentCheckoutFlag) {
         pushEvent("status_changed",
-          { is_checkout_room: false },
-          { is_checkout_room: true, reason: "departure_tomorrow" }, false);
+          { scheduledDepartureTomorrow: false },
+          { scheduledDepartureTomorrow: true, reason: "departure_tomorrow_daily_room" }, false);
       }
       if (typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
         const wasVacant = room.guest_count === 0;
