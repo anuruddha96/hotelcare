@@ -326,6 +326,10 @@ export async function runPmsRefresh(
           { scheduledDepartureTomorrow: false },
           { scheduledDepartureTomorrow: true, reason: "departure_tomorrow_daily_room" }, false);
       }
+      const wasNoShow = existingMetadata?.isNoShow === true;
+      if (row.IsNoShow === true && !wasNoShow) {
+        pushEvent("no_show_detected", { isNoShow: false }, { isNoShow: true }, false);
+      }
       if (typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
         const wasVacant = room.guest_count === 0;
         const nowOccupied = nextGuestCount > 0;
