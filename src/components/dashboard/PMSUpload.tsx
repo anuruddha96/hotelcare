@@ -678,13 +678,18 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               nightTotal: nightTotalRaw,
               notes: checkoutNotePrefix ? `${checkoutNotePrefix} - ${noteVal || ''}`.trim() : noteVal
             });
-          } else if (isOccupiedYes(occupiedVal) && departureParsed === null) {
-            // Daily cleaning room (occupied but no departure)
+          } else if (
+            (isOccupiedYes(occupiedVal) && departureParsed === null) ||
+            (parsedNightTotal && guestNightsStayed > 0 && guestNightsStayed < totalNights)
+          ) {
+            // Daily cleaning room — either PMS marks it occupied with no
+            // departure, or Night/Total shows the guest is mid-stay
+            // (current < total). Catches XLSX rows where the Occupied cell
+            // is ambiguous/blank but reservation clearly continues.
             needsCleaning = true;
             newStatus = 'dirty';
-            console.log(`[PMS] Room ${roomNumber}: Daily cleaning needed (Occupied: ${occupiedVal}, no departure)`);
-            
-            // Add to daily cleaning rooms list
+            console.log(`[PMS] Room ${roomNumber}: Daily cleaning (Occupied: ${occupiedVal}, Night/Total: ${nightTotalRaw ?? '-'})`);
+
             dailyCleaningRoomsList.push({
               roomNumber,
               roomType: room.room_type,

@@ -172,9 +172,10 @@ export async function runPmsRefresh(
       const isScheduledDeparture = departureParsed !== null;
       const isDepartureTomorrow = row.DepartureTomorrow === true;
       const isCheckedOut = row.CheckedOut === true;
-      // Authoritative checkout-room flag: real checkout, scheduled departure
-      // today, OR scheduled departure tomorrow (plan ahead).
-      const shouldBeCheckoutRoom = row.IsCheckoutRoom === true || isCheckedOut || isScheduledDeparture || isDepartureTomorrow;
+      // Authoritative checkout-room flag: only real checkout or scheduled
+      // departure TODAY. Departure-tomorrow rooms remain daily rooms and
+      // are marked via the C/O+1 badge (scheduledDepartureTomorrow metadata).
+      const shouldBeCheckoutRoom = row.IsCheckoutRoom === true || isCheckedOut || isScheduledDeparture;
 
       const existingMetadata = room.pms_metadata && typeof room.pms_metadata === "object"
         ? room.pms_metadata

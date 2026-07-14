@@ -377,7 +377,10 @@ serve(async (req) => {
       const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
       const isArrival = !!res && res.arrivalDate === today;
       const isCheckedOut = !!res && res.statusId === 5 && isDeparture;
-      const isCheckoutRoom = isCheckedOut || isDeparture || isDepartureTomorrow;
+      // Only real checkouts (today or already checked out) belong in the
+      // Checkout Rooms bucket. "Departs tomorrow" stays a daily room but
+      // still surfaces via the C/O+1 badge (DepartureTomorrow flag below).
+      const isCheckoutRoom = isCheckedOut || isDeparture;
       const totalNights = res ? diffDays(res.arrivalDate, res.departureDate) : 0;
       const currentNight = res
         ? Math.min(totalNights, Math.max(1, diffDays(res.arrivalDate, today) + (isDeparture ? 0 : 1)))
