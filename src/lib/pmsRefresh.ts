@@ -280,6 +280,8 @@ export async function runPmsRefresh(
           checkedOutToday: preserveExistingCheckout
             ? existingMetadata?.checkedOutToday
             : isCheckedOut,
+          currentNight: nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null,
+          totalNights: nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null,
         },
       };
       if (mappedStatus) {
