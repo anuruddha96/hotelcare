@@ -590,12 +590,12 @@ export function SupervisorApprovalView() {
     return `${minutes}m`;
   };
 
-  const handleApproval = async (assignmentId: string) => {
+  const performApproval = async (assignmentId: string) => {
     const previousAssignments = [...pendingAssignments];
     setPendingAssignments(prev => prev.filter(a => a.id !== assignmentId));
     try {
       const assignment = previousAssignments.find(a => a.id === assignmentId);
-      
+
       const updateData: any = {
         supervisor_approved: true,
         supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
@@ -628,6 +628,29 @@ export function SupervisorApprovalView() {
       setPendingAssignments(previousAssignments);
     }
   };
+
+  const handleApproval = async (assignmentId: string) => {
+    const assignment = pendingAssignments.find(a => a.id === assignmentId);
+    if (!assignment?.room_id) {
+      return performApproval(assignmentId);
+    }
+    const roomNumberByRoomId: Record<string, string> = {
+      [assignment.room_id]: assignment.rooms?.room_number || '—',
+    };
+    const { items, total } = await fetchMinibarForRooms([assignment.room_id], roomNumberByRoomId);
+    if (items.length === 0) {
+      return performApproval(assignmentId);
+    }
+    setGateRefilled(false);
+    setGateAddedToPrevio(false);
+    setMinibarGate({
+      title: `Room ${assignment.rooms?.room_number || ''} — minibar used`,
+      items,
+      total,
+      onConfirm: () => performApproval(assignmentId),
+    });
+  };
+
 
   /**
    * Push a room's clean status to Previo via the edge function.
