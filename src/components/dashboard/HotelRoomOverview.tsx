@@ -738,8 +738,45 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 </button>
               )}
               {canMarkReadyToClean && assignment?.ready_to_clean && (
-                <div className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
-                  ✅ {t('roomOverview.readyToClean')}
+                <div className="w-full space-y-1.5">
+                  <div className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    ✅ {t('roomOverview.readyToClean')}
+                  </div>
+                  {isManagerOrAdmin && (
+                    <button
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors"
+                      disabled={actionLoading === `revert-rtc-${room.id}`}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setActionLoading(`revert-rtc-${room.id}`);
+                        try {
+                          const { error } = await supabase
+                            .from('room_assignments')
+                            .update({ ready_to_clean: false, pms_hold: false, pms_hold_reason: null } as any)
+                            .eq('room_id', room.id)
+                            .eq('assignment_date', selectedDate)
+                            .eq('assignment_type', 'checkout_cleaning');
+                          if (error) throw error;
+                          // Audit trail so cron/reconcile understands this was intentional.
+                          await supabase.from('pms_change_events').insert({
+                            hotel_id: room.hotel,
+                            room_id: room.id,
+                            room_label: room.room_number,
+                            event_type: 'rtc_reverted_manual',
+                            source: 'manager_ui',
+                            before: { ready_to_clean: true },
+                            after: { ready_to_clean: false },
+                            is_conflict: false,
+                          } as any);
+                          setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: false } : a));
+                          toast.success(`Room ${room.room_number} reverted from Ready to Clean`);
+                        } catch { toast.error('Failed to revert'); }
+                        finally { setActionLoading(null); }
+                      }}
+                    >
+                      ↩ Revert Ready to Clean
+                    </button>
+                  )}
                 </div>
               )}
 
