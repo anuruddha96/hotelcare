@@ -128,12 +128,15 @@ async function pollOneHotel(
     .maybeSingle();
   const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
 
+  // Load every locally mapped room for this hotel so we can recognise
+  // checkouts even when the room was not pre-flagged as scheduledDeparture
+  // (e.g. early check-outs Previo processes mid-day).
   const { data: localScheduled } = await service
     .from("rooms")
     .select("id, room_number, is_checkout_room, pms_metadata")
     .in("hotel", hotelKeys)
-    .or("is_checkout_room.eq.true,pms_metadata->>scheduledDepartureToday.eq.true")
-    .limit(50);
+    .not("pms_metadata->>roomId", "is", null)
+    .limit(500);
   const localScheduledRooms = (localScheduled ?? []) as any[];
   const localScheduledByName = new Map<string, any>();
   const localScheduledByObjId = new Map<number, any>();
