@@ -21,27 +21,37 @@ interface CheckoutRoomsViewProps {
 export function CheckoutRoomsView({ checkoutRooms, dailyCleaningRooms }: CheckoutRoomsViewProps) {
   const { t } = useTranslation();
 
-  const RoomCard = ({ room }: { room: CheckoutRoom }) => (
+  const RoomCard = ({ room }: { room: CheckoutRoom }) => {
+    const isCheckout = room.status === 'checkout' || room.status === 'early_checkout';
+    return (
     <div className="flex items-center justify-between p-3 bg-background border rounded-lg">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Bed className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium">{room.roomNumber}</span>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Bed className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium">{room.roomNumber}</span>
+          </div>
+          {room.roomType && (
+            <Badge variant="outline" className="text-xs">
+              {room.roomType}
+            </Badge>
+          )}
+          {room.status === 'early_checkout' && (
+            <Badge className="text-xs bg-orange-100 text-orange-800 border-orange-300">
+              Early Checkout
+            </Badge>
+          )}
+          {room.status === 'no_show' && (
+            <Badge className="text-xs bg-red-100 text-red-800 border-red-300">
+              No Show
+            </Badge>
+          )}
         </div>
-        {room.roomType && (
-          <Badge variant="outline" className="text-xs">
-            {room.roomType}
-          </Badge>
-        )}
-        {room.status === 'early_checkout' && (
-          <Badge className="text-xs bg-orange-100 text-orange-800 border-orange-300">
-            Early Checkout
-          </Badge>
-        )}
-        {room.status === 'no_show' && (
-          <Badge className="text-xs bg-red-100 text-red-800 border-red-300">
-            No Show
-          </Badge>
+        {isCheckout && room.departureTime && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            <span>Check-out {room.departureTime}</span>
+          </div>
         )}
       </div>
       
