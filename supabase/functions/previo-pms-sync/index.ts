@@ -240,7 +240,7 @@ serve(async (req) => {
         method: "searchReservations",
         creds,
         pmsHotelId: String(cfg.pms_hotel_id || ""),
-        extraXml: `<term><from>${today}</from><to>${windowEnd}</to></term>`,
+        extraXml: `<term><from>${windowStart}</from><to>${windowEnd}</to></term>`,
       });
       const xmlText = xmlResult.text;
       if (!xmlResult.ok) {
