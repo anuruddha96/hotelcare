@@ -47,6 +47,7 @@ serve(async (req) => {
         credentialsSecretName: (cfg as any).credentials_secret_name,
         pmsHotelId: String((cfg as any).pms_hotel_id || ""),
         path,
+        headers: { "X-Previo-Language-ID": "2" },
       });
       const text = await response.text();
       results.push({ path, status: response.status, contentType: response.headers.get("content-type"), snippet: text.slice(0, 1200) });
