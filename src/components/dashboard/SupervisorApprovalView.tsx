@@ -678,9 +678,10 @@ export function SupervisorApprovalView() {
     }
   };
 
-  const handleBulkApprove = async (hotelName: string) => {
+  const performBulkApprove = async (hotelName: string) => {
     const assignments = hotelGroups[hotelName];
     if (!assignments || assignments.length === 0) return;
+
 
     setBulkApproving(hotelName);
     setBulkProgress(0);
