@@ -838,7 +838,12 @@ ${activePreviews.map(preview => {
 
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const isSelected = selectedRoomForMove?.roomId === room.id;
-    const chipColor = (room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true)
+    const isCheckoutChip = room.is_checkout_room || (room.pms_metadata as any)?.scheduledDepartureToday === true;
+    const isRtc = isCheckoutChip && (
+      (room.pms_metadata as any)?.checkedOutToday === true ||
+      (room.pms_metadata as any)?.readyToClean === true
+    );
+    const chipColor = isCheckoutChip
       ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
       : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
 
