@@ -173,21 +173,7 @@ async function pollOneHotel(
     return result;
   }
   result.checked = rooms.length;
-  // TEMP diagnostics: dump the raw Previo room object for every locally-mapped
-  // room so we can distinguish real checkouts (301/401) from still-in-house
-  // rooms that also happen to have no reservation in the REST payload.
-  for (const r of rooms) {
-    const objId = Number(r.roomId);
-    const local = localScheduledByObjId.get(objId)
-      ?? localScheduledByName.get(String(r.name ?? "").trim())
-      ?? localScheduledByName.get(extractNum(String(r.name ?? "")));
-    if (!local) continue;
-    result.diagnostics.push({
-      source: "raw-previo-room",
-      localRoom: local.room_number,
-      raw: JSON.stringify(r).slice(0, 800),
-    });
-  }
+
 
 
   // 2. Identify today's departures. REST is the primary source, but Previo's
