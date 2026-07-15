@@ -178,11 +178,23 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
             </Badge>
           )}
 
-          {getMinibarValue() > 0 && (
-            <Badge variant="secondary" className="text-xs px-1.5 py-0.5 bg-yellow-50 text-yellow-700">
-              €{getMinibarValue().toFixed(2)}
-            </Badge>
-          )}
+          {getMinibarValue() > 0 && (() => {
+            const count = room.minibar_usage!.reduce((s: number, u: any) => s + (u.quantity_used || 0), 0);
+            const hasGuest = room.minibar_usage!.some((u: any) => u.source === 'guest');
+            const hasStaff = room.minibar_usage!.some((u: any) => u.source && u.source !== 'guest');
+            return (
+              <Badge
+                variant="secondary"
+                className="text-xs px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200"
+                title="Minibar usage — charge in Previo manually"
+              >
+                <Wine className="h-2.5 w-2.5 mr-1" />
+                {count} · €{getMinibarValue().toFixed(2)}
+                {hasGuest && <span className="ml-1" title="Includes guest QR entry">📱</span>}
+                {hasStaff && <span className="ml-0.5" title="Includes housekeeper entry">🧹</span>}
+              </Badge>
+            );
+          })()}
         </div>
 
         {/* Cleaning Info */}
