@@ -431,6 +431,10 @@ export async function runPmsRefresh(
           isNoShow: row.IsNoShow === true,
         },
       };
+      if (isCheckedOut) {
+        updateData.pms_metadata.readyToClean = true;
+        updateData.pms_metadata.checkedOutAt = new Date().toISOString();
+      }
       if (!isCheckedOut) {
         delete updateData.pms_metadata.readyToClean;
         delete updateData.pms_metadata.checkedOutAt;
@@ -513,6 +517,16 @@ export async function runPmsRefresh(
       updated++;
       if (updateData.is_checkout_room) checkouts++;
 
+      if (isCheckedOut) {
+        await supabase
+          .from("room_assignments")
+          .update({ ready_to_clean: true, updated_at: new Date().toISOString() } as any)
+          .eq("room_id", room.id)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .in("status", ["assigned", "in_progress"]);
+      }
+
       if (eventInserts.length > 0) {
         const insertRes: any = await supabase
           .from("pms_change_events" as any)
@@ -549,12 +563,10 @@ export async function runPmsRefresh(
   const status: PmsSyncStatus = errors.length ? "partial" : "success";
 
   if (!dryRun) {
-    if (hotelId === "previo-test") {
-      try {
-        await supabase.functions.invoke("previo-poll-checkouts", { body: { hotelId } });
-      } catch (e) {
-        console.warn("[pmsRefresh] poll-checkouts warning:", e);
-      }
+    try {
+      await supabase.functions.invoke("previo-poll-checkouts", { body: { hotelId } });
+    } catch (e) {
+      console.warn("[pmsRefresh] poll-checkouts warning:", e);
     }
 
     try {

@@ -217,7 +217,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
     const channel = supabase
       .channel(`room-overview-${hotelName}-${selectedDate}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (payload: any) => {
+        const rowHotel = payload?.new?.hotel ?? payload?.old?.hotel;
+        if (!rowHotel || rowHotel === hotelName) scheduleRefetch();
+        else {
+          void resolveHotelKeys(hotelName).then(keys => {
+            if ((keys.length ? keys : [hotelName]).includes(rowHotel)) scheduleRefetch();
+          });
+        }
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, scheduleRefetch)
       .subscribe();
 
