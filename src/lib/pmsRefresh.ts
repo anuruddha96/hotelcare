@@ -5,6 +5,9 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
+import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
+
+const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
 
 export type PmsSyncStatus = "success" | "partial" | "error" | "idle";
 
@@ -139,6 +142,7 @@ export async function runPmsRefresh(
         .maybeSingle();
       const lastRefresh = (probe as any)?.pms_metadata?.lastPmsRefreshDate ?? null;
       if (!lastRefresh || lastRefresh < today) {
+        // 1. Clear yesterday's DND flags.
         await supabase
           .from("rooms")
           .update({
@@ -149,10 +153,56 @@ export async function runPmsRefresh(
           })
           .in("hotel", hotelKeys)
           .eq("is_dnd", true);
-        console.log(`[pmsRefresh] Cleared previous-day DND for hotel ${hotelId} (last refresh ${lastRefresh ?? "never"})`);
+
+        // 2. Strip stale manual bucket overrides + stale note prefixes from
+        //    yesterday so today's PMS refresh can classify the room fresh.
+        //    Same-day manual moves are unaffected (they're written after this
+        //    block runs). We only touch rooms whose PMS metadata is older than
+        //    today.
+        const { data: staleRooms } = await supabase
+          .from("rooms")
+          .select("id, notes, pms_metadata")
+          .in("hotel", hotelKeys);
+        const cleanupUpdates: Array<Promise<any>> = [];
+        for (const r of staleRooms ?? []) {
+          const meta = (r as any).pms_metadata && typeof (r as any).pms_metadata === "object"
+            ? { ...(r as any).pms_metadata }
+            : null;
+          const oldSyncDate = meta?.pmsSyncDate ?? meta?.lastPmsRefreshDate ?? null;
+          const isStale = !oldSyncDate || oldSyncDate < today;
+          if (!isStale) continue;
+
+          const patch: Record<string, any> = {};
+          if (meta) {
+            let changed = false;
+            for (const k of [
+              "manual_checkout", "manual_checkout_at", "manual_checkout_by",
+              "manual_daily", "manual_daily_at", "manual_daily_by",
+            ]) {
+              if (k in meta) { delete meta[k]; changed = true; }
+            }
+            if (changed) patch.pms_metadata = meta;
+          }
+          const notes = (r as any).notes as string | null;
+          if (notes && STALE_NOTE_PREFIXES.test(notes)) {
+            const cleaned = notes.replace(STALE_NOTE_PREFIXES, "").trim();
+            patch.notes = cleaned || null;
+          }
+          if (Object.keys(patch).length > 0) {
+            patch.updated_at = new Date().toISOString();
+            cleanupUpdates.push(
+              supabase.from("rooms").update(patch).eq("id", (r as any).id),
+            );
+          }
+        }
+        if (cleanupUpdates.length) await Promise.all(cleanupUpdates);
+
+        console.log(
+          `[pmsRefresh] New-day reset for hotel ${hotelId} (last refresh ${lastRefresh ?? "never"}): DND cleared, ${cleanupUpdates.length} rooms cleaned of stale manual overrides / notes`,
+        );
       }
     } catch (e) {
-      console.warn("[pmsRefresh] DND reset skipped:", e);
+      console.warn("[pmsRefresh] New-day reset skipped:", e);
     }
   }
 
@@ -167,7 +217,7 @@ export async function runPmsRefresh(
 
       const lookup = async (matcher: (q: any) => any) => {
         const q = supabase.from("rooms")
-          .select("id, hotel, room_number, status, guest_count, is_checkout_room, pms_metadata")
+          .select("id, hotel, room_number, status, guest_count, is_checkout_room, pms_metadata, bed_configuration, notes")
           .in("hotel", hotelKeys);
         return await matcher(q);
       };
