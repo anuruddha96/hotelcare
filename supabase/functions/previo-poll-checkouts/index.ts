@@ -128,12 +128,15 @@ async function pollOneHotel(
     .maybeSingle();
   const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
 
+  // Load every locally mapped room for this hotel so we can recognise
+  // checkouts even when the room was not pre-flagged as scheduledDeparture
+  // (e.g. early check-outs Previo processes mid-day).
   const { data: localScheduled } = await service
     .from("rooms")
     .select("id, room_number, is_checkout_room, pms_metadata")
     .in("hotel", hotelKeys)
-    .or("is_checkout_room.eq.true,pms_metadata->>scheduledDepartureToday.eq.true")
-    .limit(50);
+    .not("pms_metadata->>roomId", "is", null)
+    .limit(500);
   const localScheduledRooms = (localScheduled ?? []) as any[];
   const localScheduledByName = new Map<string, any>();
   const localScheduledByObjId = new Map<number, any>();
@@ -170,6 +173,8 @@ async function pollOneHotel(
     return result;
   }
   result.checked = rooms.length;
+
+
 
   // 2. Identify today's departures. REST is the primary source, but Previo's
   // REST reservation payload is not perfectly consistent across tenants/test
@@ -221,6 +226,7 @@ async function pollOneHotel(
       }
       continue;
     }
+
     const departure = cleanDate(res.departureDate ?? res.departure ?? res.to);
     const checkedOut = reservationLooksCheckedOut(res);
     if (departure === today || checkedOut || localMatch) {
@@ -239,7 +245,7 @@ async function pollOneHotel(
         commissionStatusId: res.commissionStatusId ?? null,
         roomReservationStatusId: res.roomReservationStatusId ?? null,
         status: typeof res.status === "object" ? JSON.stringify(res.status).slice(0, 120) : res.status ?? null,
-        roomCleanStatus: r.roomCleanStatusId ?? r.cleanStatusId ?? null,
+        roomCleanStatus: cleanStatusRaw,
         checkedOut,
         accepted: checkedOut && departure === today,
       });
@@ -247,6 +253,7 @@ async function pollOneHotel(
     if (!checkedOut || departure !== today) continue;
     addCheckoutSignal(r.name, r.roomId, res.reservationId ?? res.id ?? "", "rest-room-reservation");
   }
+
 
   try {
     const creds = loadPrevioCredentials(cfg.credentials_secret_name);
