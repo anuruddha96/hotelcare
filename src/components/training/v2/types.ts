@@ -1,5 +1,5 @@
 // Training v2 — types
-export type LangCode = 'en' | 'hu' | 'es' | 'vi' | 'mn';
+export type LangCode = 'en' | 'hu' | 'es' | 'vi' | 'mn' | 'uk';
 
 export type RoleKey =
   | 'housekeeping'
