@@ -44,7 +44,8 @@ const ELIGIBLE_ROLES = new Set([
 ]);
 
 const THROTTLE_MS = 2 * 60 * 1000; // 2 min
-const CHECKOUTS_INTERVAL_MS = 10 * 60 * 1000; // 10 min
+const CHECKOUTS_ACTIVE_INTERVAL_MS = 5 * 60 * 1000; // 5 min while pending checkouts remain
+const CHECKOUTS_IDLE_INTERVAL_MS = 30 * 60 * 1000; // 30 min once all RTC (safety net)
 
 const initialTask: TaskState = { status: "idle", lastAt: null };
 
@@ -193,28 +194,45 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     }
   }, [enabled, hotelId]);
 
-  const runCheckouts = useCallback(async (force = false) => {
-    if (!enabled || !hotelId) return;
-    // Test-hotel-only during API testing phase. Edge function also enforces this.
-    if (hotelId !== "previo-test") return;
+  const runCheckouts = useCallback(async (force = false): Promise<number> => {
+    if (!enabled || !hotelId) return 0;
     const now = Date.now();
-    if (!force && now - lastRunRef.current.checkouts < CHECKOUTS_INTERVAL_MS) return;
+    if (!force && now - lastRunRef.current.checkouts < CHECKOUTS_ACTIVE_INTERVAL_MS) {
+      return (tasks.checkouts.meta as any)?.pendingCheckouts ?? 0;
+    }
     lastRunRef.current.checkouts = now;
     setTasks((p) => ({ ...p, checkouts: { ...p.checkouts, status: "syncing" } }));
+    let pendingCheckouts = 0;
     try {
       const { data, error } = await supabase.functions.invoke("previo-poll-checkouts", {
         body: { hotelId },
       });
       if (error) throw new Error(error.message || "Checkout poll failed");
       const payload = (data || {}) as any;
-      if (payload.ok === false) throw new Error(payload.error || "Checkout poll failed");
+      if (payload.ok === false && payload.supported !== false) {
+        throw new Error(payload.error || "Checkout poll failed");
+      }
       const marked = Number(payload.marked || 0);
+
+      // Count checkout rooms for today that are not yet RTC.
+      try {
+        const { data: rows } = await (supabase as any)
+          .from("rooms")
+          .select("id, pms_metadata")
+          .eq("hotel", hotelId)
+          .eq("is_checkout_room", true);
+        pendingCheckouts = (rows ?? []).filter((r: any) => {
+          const m = r.pms_metadata || {};
+          return !(m.checkedOutToday === true || m.readyToClean === true);
+        }).length;
+      } catch { /* non-fatal */ }
+
       setTasks((p) => ({
         ...p,
         checkouts: {
           status: payload.errors?.length ? "partial" : "success",
           lastAt: new Date(),
-          meta: payload,
+          meta: { ...payload, pendingCheckouts },
         },
       }));
       if (marked > 0) {
@@ -227,14 +245,25 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         checkouts: { status: "error", lastAt: new Date(), message: e?.message || "Checkout poll failed" },
       }));
     }
-  }, [enabled, hotelId]);
+    return pendingCheckouts;
+  }, [enabled, hotelId, tasks.checkouts.meta]);
 
   const refresh = useCallback(
     async (task?: TaskName): Promise<RefreshOutcome | void> => {
-      if (task === "pms") return await runPms(true);
+      if (task === "pms") {
+        const r = await runPms(true);
+        // After a manual PMS sync, immediately poll checkouts so RTC updates
+        // land without waiting for the next interval tick.
+        void runCheckouts(true);
+        return r;
+      }
       else if (task === "revenue") await runRevenue(true);
       else if (task === "checkouts") await runCheckouts(true);
-      else await Promise.all([runPms(true), runRevenue(true), runCheckouts(true)]);
+      else {
+        const r = await runPms(true);
+        await Promise.all([runRevenue(true), runCheckouts(true)]);
+        return r;
+      }
     },
     [runPms, runRevenue, runCheckouts],
   );
@@ -246,16 +275,25 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!enabled) return;
     void runRevenue();
-    void runCheckouts();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      const pending = await runCheckouts();
+      if (cancelled) return;
+      const delay = pending > 0 ? CHECKOUTS_ACTIVE_INTERVAL_MS : CHECKOUTS_IDLE_INTERVAL_MS;
+      timer = setTimeout(tick, delay);
+    };
+    void tick();
     const onFocus = () => {
       void runRevenue();
       void runCheckouts();
     };
     window.addEventListener("focus", onFocus);
-    const checkoutsTimer = setInterval(() => void runCheckouts(), CHECKOUTS_INTERVAL_MS);
     return () => {
+      cancelled = true;
       window.removeEventListener("focus", onFocus);
-      clearInterval(checkoutsTimer);
+      if (timer) clearTimeout(timer);
     };
   }, [enabled, runRevenue, runCheckouts]);
 

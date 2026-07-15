@@ -838,7 +838,12 @@ ${activePreviews.map(preview => {
 
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const isSelected = selectedRoomForMove?.roomId === room.id;
-    const chipColor = (room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true)
+    const isCheckoutChip = room.is_checkout_room || (room.pms_metadata as any)?.scheduledDepartureToday === true;
+    const isRtc = isCheckoutChip && (
+      (room.pms_metadata as any)?.checkedOutToday === true ||
+      (room.pms_metadata as any)?.readyToClean === true
+    );
+    const chipColor = isCheckoutChip
       ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
       : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
 
@@ -869,9 +874,12 @@ ${activePreviews.map(preview => {
           if (isSelected) setSelectedRoomForMove(null);
           else setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
         }}
-        title={`${t('autoAssign.room')} ${room.room_number}${room.room_category ? ` · ${room.room_category}` : ''}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
+        title={`${t('autoAssign.room')} ${room.room_number}${isRtc ? ' · RTC' : ''}${room.room_category ? ` · ${room.room_category}` : ''}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
       >
         <span>{room.room_number}</span>
+        {isRtc && (
+          <span className="text-[9px] px-0.5 rounded font-extrabold bg-green-600 text-white">RTC</span>
+        )}
         {room.room_category && (
           <span className="text-[9px] opacity-70 font-normal">{getCategoryShortName(room.room_category)}</span>
         )}
