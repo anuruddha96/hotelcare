@@ -421,18 +421,23 @@ serve(async (req) => {
       const departureTomorrowConfirmed =
         isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
 
-      // No-show: PMS has no reservation for this room today (not occupied,
-      // no arrival, no departure, no night counts). Managers still need to
-      // see and clean these rooms, but flagged so they know the guest
-      // didn't arrive.
-      const isNoShow = !res && !isOccupied && !isDeparture && !isArrival && !isDepartureTomorrow;
+      // No-show is a RESERVATION state, not "the room has no reservation".
+      // Real definition: reception booked a guest to arrive today and they
+      // never checked in. Previo marks such reservations with statusId 6.
+      // A room with no reservation at all is simply vacant.
+      const noteLower = (res?.note ?? "").toLowerCase();
+      const isNoShow = !!res
+        && res.arrivalDate === today
+        && (res.statusId === 6 || noteLower.includes("no show") || noteLower.includes("no-show"));
 
       return {
         Room: r.name,
         RoomId: r.roomId,
         RoomKindName: r.roomKindName,
         Occupied: isOccupied || isDeparture ? "Yes" : "No",
-        Departure: isDeparture ? "12:00" : null,
+        // Prefer the real reservation departure time; fall back to 11:00
+        // (Ottofiori standard check-out) so the chip is never blank.
+        Departure: isDeparture ? (res?.departureTime || "11:00") : null,
         DepartureTomorrow: departureTomorrowConfirmed,
         DepartureDate: res?.departureDate ?? null,
         ArrivalDate: res?.arrivalDate ?? null,
