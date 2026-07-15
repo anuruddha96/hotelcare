@@ -732,7 +732,28 @@ export function SupervisorApprovalView() {
     fetchPendingAssignments();
   };
 
-  const handleReassignment = async () => {
+  const handleBulkApprove = async (hotelName: string) => {
+    const assignments = hotelGroups[hotelName];
+    if (!assignments || assignments.length === 0) return;
+    const roomIds = assignments.map(a => a.room_id).filter(Boolean) as string[];
+    const roomNumberByRoomId: Record<string, string> = {};
+    for (const a of assignments) {
+      if (a.room_id) roomNumberByRoomId[a.room_id] = a.rooms?.room_number || '—';
+    }
+    const { items, total } = await fetchMinibarForRooms(roomIds, roomNumberByRoomId);
+    if (items.length === 0) {
+      return performBulkApprove(hotelName);
+    }
+    setGateRefilled(false);
+    setGateAddedToPrevio(false);
+    setMinibarGate({
+      title: `${hotelName} — ${items.length} minibar item(s) across rooms`,
+      items,
+      total,
+      onConfirm: () => performBulkApprove(hotelName),
+    });
+  };
+
     if (!selectedAssignment || !selectedHousekeeper) return;
 
     try {
