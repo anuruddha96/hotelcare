@@ -1,50 +1,53 @@
+## What's broken (evidence)
 
-## Problem
+Ground truth from the uploaded Cleaning Excel (Previo's own report) — a room is a **checkout** only when the `Departure` column has a time (e.g. `11:00`). Everything else with `Occupied=Yes` is a **daily** room; when `Night/Total` shows the guest is on their last night (e.g. `2/2`, `3/3`) it should also carry the **C/O+1 "departs tomorrow"** badge.
 
-`previo-pms-sync` misclassifies rooms because the XML `searchReservations` window is `[today, today+3)`. Previo's `<term>` filters by **arrival date**, so any guest who arrived *before* today (all mid-stay and today-departing guests) is missing from the result. Every such room then falls through to the `!res` branch and is flagged `IsNoShow=true`.
+Actual `rooms` table right now (Ottofiori):
 
-That produces the exact symptoms you reported:
-- **101, 202** (mid-stay, e.g. 1/3): reservation not returned → classed as no-show instead of daily.
-- **301 (3/4), 302, 304** (mid-stay): same reason → no-show instead of daily.
-- **203, 305** (departing today, arrived earlier): reservation not returned → no-show instead of checkout.
+- 102, 103, 105, 204, 205, 402, 406 → `is_checkout_room=true`, `departureTime="12:00"`, `currentNight=null`, `totalNights=null`, `guest_count=0` — should be **daily**.
+- 203, 305, 403 → `is_checkout_room=false`, no `departureTime` — should be **checkout** (Excel has `11:00`).
+- Every "checkout" row still has the old hardcoded `"12:00"` and `guest_count=0`, so the fresh `previo-pms-sync` output (real `departureTime`, real guest counts) never landed. The edge function needs a fresh deploy AND the classification/`Departure`/`Night-Total` fields have to actually come from the XML.
+- DND flags from yesterday (`is_dnd=true` on 101, 203, 302, 404) are still set — nothing clears them on a new-day PMS refresh.
 
-Second bug: `isNoShow = !res && ...` treats *any* room without a reservation as a no-show. A true no-show requires a reservation whose arrival ≤ today that the reception marked as no-show. Empty rooms are just vacant.
+Plus a UI overflow: at ~1000 px the Dirty Linen desktop table with 9 columns escapes the surrounding Card.
 
-Third: checkout time (`departure`) is currently hard-coded to `"12:00"` and not shown on the checkout room chip.
+## Fix plan
 
-## Fix
+### 1. `supabase/functions/previo-pms-sync/index.ts` — align classification with the Excel
 
-### 1. Widen the reservation fetch window (`supabase/functions/previo-pms-sync/index.ts`)
-- Change the XML `<term>` from `today → today+3` to `today-30 → today+3`. That guarantees every ongoing stay (arrival up to 30 days ago) plus today's/tomorrow's departures are captured. 30 days safely covers Previo's longest realistic stays; guests still get filtered downstream by the `arrival ≤ today < departure` check.
-- Keep the existing `indexReservation` rank so same-day turnover still picks the outgoing reservation.
+- **Checkout definition**: a room is `IsCheckoutRoom` only when the winning reservation has `departureDate === today` (or `statusId === 5` today). Rooms whose reservation runs past today (`departureDate > today`) — including guests on their last night — are **not** checkouts, even when `currentNight === totalNights`.
+- **`Departure` field**: emit `res.departureTime` when present, else `"11:00"` (Ottofiori house rule), only when `isCheckoutRoom` is true. Never emit `"12:00"`.
+- **`DepartureTomorrow` (C/O+1)**: true when `res.departureDate === today+1` AND `currentNight === totalNights` (guaranteed last night). This drives the C/O+1 chip without moving the room to Checkout Rooms.
+- **Guest count**: always emit `res.guestsCount` when a reservation exists; never fall through to `0` for occupied rooms.
+- **Night/Total**: always emit `CurrentNight` / `TotalNights` / `Night / Total` for any room with a matched reservation (currently missing for rooms where `<to>` accidentally equals today).
+- Keep the widened `[today-30, today+3]` XML window and the `pms_upload_summary` rescue path untouched.
 
-### 2. Parse a real departure time from the reservation XML
-- Add a `departureTime` field to `ParsedReservation`. Read Previo's `<toTime>` (or the time portion of `<to>` when present) — fall back to `"11:00"` (Hotel Ottofiori standard) instead of `12:00` only when the reservation truly has no time.
-- Propagate it into the emitted row as `Departure: res.departureTime`.
+### 2. `src/lib/pmsRefresh.ts` — write what the sync returns, and prep the new day
 
-### 3. Correct no-show detection
-- Redefine: a room is a **no-show** only when a reservation exists with `arrivalDate === today` AND Previo `statusId` indicates no-show. Previo uses `statusId = 6` for "no show" (documented in `searchReservations`) — capture that explicitly.
-- Also honour the reception-side status: if `statusId === 6` OR the note contains `"no show"` (case-insensitive), flag it.
-- Rooms with no reservation at all become plain **vacant** (`IsNoShow=false`, `Occupied=No`, no Departure, no Arrival) — the downstream PMSUpload flow already leaves those alone.
+- Persist `pms_metadata.currentNight` / `totalNights` / `departureTime` / `scheduledDepartureTomorrow` from every synced row, even when the room is not a checkout, so daily rooms show `Night/Total` and the C/O+1 badge.
+- Always overwrite `guest_count` from the sync row (drop the current path that leaves `0` when the field is missing).
+- **New-day DND reset**: at the top of a manual PMS Refresh, when the hotel's last `pms_metadata.lastPmsRefreshDate` is older than today, clear `is_dnd`, `dnd_marked_at`, `dnd_marked_by` for every room in the hotel before applying the sync rows. This gives housekeeping a clean DND slate for the new day (existing DND submitted today is untouched because the reset runs once per calendar day).
+- Keep `preserveExistingCheckout` guard, but base it on the sync's own `reservationFallbackSource === null && pmsCheckoutSignals === 0` (true "empty feed") so a healthy sync that legitimately reclassifies a stale checkout back to daily is allowed to write `is_checkout_room=false`.
 
-### 4. Show checkout time on the chip (`src/components/dashboard/CheckoutRoomsView.tsx`)
-- The chip already renders `room.departureTime` in the right-hand meta area. Move/duplicate it directly under the room number line so it's visible on the chip itself (small muted text, e.g. `Check-out 11:00`). Only render when `status === 'checkout'` or `'early_checkout'`.
+### 3. `src/components/dashboard/CheckoutRoomsView.tsx` — keep chip in sync
 
-### 5. Regression guard
-- After the widened window, `rooms.length === 0` fallback path stays untouched.
-- The `pms_upload_summary` rescue block also stays as a belt-and-braces fallback when the XML feed is empty.
+- Read `departureTime` from either the sync row or `pms_metadata.departureTime`; never render `"12:00"`. Fall back to `"11:00"` only when the metadata is truly blank.
 
-## Verification (after 5-min cron or manual "Refresh PMS")
-1. Ottofiori test account, today 2026-07-15:
-   - 101, 202, 301, 302, 304 → appear in **Daily Rooms** with correct `N/Total`.
-   - 203, 305 → appear in **Checkout Rooms** with a `Check-out HH:MM` line on the chip.
-   - Any true no-show (Previo statusId 6 for today's arrival) → still flagged No Show badge.
-2. Edge logs show `[previo-pms-sync] XML returned N reservations, indexed M rooms` with M covering all occupied rooms.
-3. No manual room status writes — wait for the 5-minute `previo-poll-checkouts` cron to reconcile.
+### 4. `src/components/dashboard/SimplifiedDirtyLinenManagement.tsx` — table overflow
 
-## Files touched
-- `supabase/functions/previo-pms-sync/index.ts` — window, no-show logic, departure time parsing.
-- `src/components/dashboard/CheckoutRoomsView.tsx` — render checkout time on chip.
-- `.lovable/plan.md` — log the change.
+- Force the mobile card layout below `lg` (`< 1024 px`) using `useIsMobile`-style reactive breakpoint hook instead of the one-shot `window.innerWidth` check, so 1000–1023 px viewports render the compact cards.
+- Add `overflow-hidden` to the wrapping `Card` and keep the existing `overflow-x-auto` scroll wrapper for the desktop table, so the table can never visually escape the Card even at intermediate widths.
 
-No DB migration, no RLS change, no manual room overrides.
+### 5. Redeploy edge function
+
+- After the code edits, deploy `previo-pms-sync` and immediately trigger one PMS refresh from the UI (or the plan runner) to overwrite the stale `"12:00"` / `guest_count=0` rows with the corrected values.
+
+## Verification
+
+- Post-refresh, query `rooms` for Ottofiori and confirm: only rooms 104, 201, 203, 303, 305, 401, 403, 404, 405 have `is_checkout_room=true`; every other occupied room has `currentNight`/`totalNights` populated; DND flags on 101/203/302/404 cleared; no `departureTime="12:00"` remains.
+- Team View shows Checkout Rooms count = 9 with real check-out times; Daily Rooms show C/O+1 badge on 102, 103, 202, 302, 304, 402, 105, 205, 406 (last-night guests).
+- Load Dirty Linen at 1000 px viewport: mobile cards render, table no longer bleeds outside the Card.
+
+## Out of scope
+
+No DB schema changes, no RLS changes, no changes to manual XLSX upload classification (already matches Excel), no changes to `previo-poll-checkouts` clean-status logic.
