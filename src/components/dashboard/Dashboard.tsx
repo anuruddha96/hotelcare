@@ -88,7 +88,7 @@ export function Dashboard() {
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name')
-        .eq('role', 'housekeeping')
+        .in('role', ['housekeeping', 'housekeeping_manager', 'manager'])
         .eq('assigned_hotel', profile.assigned_hotel);
       
       if (data) {
