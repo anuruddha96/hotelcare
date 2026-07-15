@@ -204,6 +204,7 @@ async function pollOneHotel(
 
   for (const r of rooms) {
     const res: any = r.reservation;
+    const cleanStatusRaw = r.roomCleanStatusId ?? r.cleanStatusId ?? r.roomCleanStatus ?? r.cleanStatus ?? null;
     const exactLocalMatch = localScheduledByObjId.get(Number(r.roomId));
     const localMatch = exactLocalMatch
       ?? localScheduledByName.get(String(r.name ?? "").trim())
@@ -218,7 +219,7 @@ async function pollOneHotel(
           localRoom: localMatch.room_number,
           localScheduledDepartureToday,
           localIsCheckoutRoom: localMatch.is_checkout_room === true,
-          roomCleanStatus: r.roomCleanStatusId ?? r.cleanStatusId ?? null,
+          roomCleanStatus: cleanStatusRaw,
           reservationPresent: false,
           accepted: false,
           reason: "no reservation payload from Previo REST; room clean status alone is not enough evidence to mark checked-out",
@@ -462,11 +463,14 @@ async function pollOneHotel(
   // of the poll or by aggressive manual marking.
   try {
     if (!dryRun) {
-      const { data: flagged } = await service
+      const { data: localRows } = await service
         .from("rooms")
         .select("id, room_number, status, pms_metadata, is_checkout_room")
         .in("hotel", hotelKeys)
-        .filter("pms_metadata->>checkedOutToday", "eq", "true");
+        .limit(500);
+      const flagged = ((localRows ?? []) as any[]).filter((r) =>
+        r.is_checkout_room === true || r.pms_metadata?.checkedOutToday === true || r.pms_metadata?.readyToClean === true
+      );
       const roomsByObjId = new Map<number, PrevioRoom>();
       const roomsByName = new Map<string, PrevioRoom>();
       for (const pr of rooms) {
@@ -493,24 +497,17 @@ async function pollOneHotel(
           const dep = cleanDate(res.departureDate ?? res.departure ?? res.to);
           if (dep && dep > today) {
             revertReason = `Previo still reports active reservation (departure=${dep})`;
+          } else if (dep === today) {
+            revertReason = "Previo departure is today but reservation is not checked-out yet";
           } else {
-            continue; // reservation present, departs today, not marked checked-out — ambiguous, leave as-is
+            revertReason = "Previo reservation is present and not checked-out";
           }
         } else if (pr) {
           // Previo returned this room in the roster but with NO reservation
           // payload. That alone is not proof of checkout — earlier versions of
-          // this poll wrongly stamped this as a departure. Require a real
-          // corroborating event (from either the accept path today OR a prior
-          // legitimate checkout_confirmed row) before trusting the flag.
-          const { data: confirmEvt } = await service
-            .from("pms_change_events")
-            .select("id")
-            .eq("hotel_id", hotelId)
-            .eq("room_id", local.id)
-            .eq("event_type", "checkout_confirmed")
-            .gte("detected_at", `${today}T00:00:00Z`)
-            .limit(1);
-          if ((confirmEvt ?? []).length > 0) continue; // legitimately confirmed earlier today
+          // this poll wrongly stamped this as a departure and even inserted
+          // checkout_confirmed events. Only the current run's true checkout
+          // signals are trusted; everything else is reconciled back to in-house.
           revertReason = "no reservation payload from Previo and no confirming checkout event today";
         } else {
           continue; // room not in Previo roster at all — do not touch
@@ -529,20 +526,20 @@ async function pollOneHotel(
           continue;
         }
 
-        // Hold any active checkout_cleaning assignment for today so the HK
-        // does not walk into an occupied room. Preserve in-progress work.
+        // Block any active assignment for today so the HK does not walk into
+        // an occupied room. This clears stale RTC even when a false checkout
+        // flag was attached to a daily-cleaning assignment.
         const { data: held } = await service
           .from("room_assignments")
           .update({
             pms_hold: true,
-            pms_hold_reason: "Previo still shows guest in-house — checkout flag was reverted",
+            pms_hold_reason: "Previo does not confirm checkout — room is not ready to clean",
             ready_to_clean: false,
             updated_at: nowIso(),
           })
           .select("id")
           .eq("room_id", local.id)
           .eq("assignment_date", today)
-          .eq("assignment_type", "checkout_cleaning")
           .in("status", ["assigned", "in_progress"]);
         result.heldAssignments += held?.length ?? 0;
 
