@@ -24,6 +24,7 @@ interface PendingAssignment {
   assignment_type: string;
   estimated_duration: number;
   ready_to_clean: boolean;
+  pms_hold?: boolean | null;
   is_checkout_room: boolean;
   priority: number;
   notes?: string;
@@ -57,6 +58,7 @@ export function PendingRoomsDialog({
           id,
           estimated_duration,
           ready_to_clean,
+          pms_hold,
           assignment_type,
           priority,
           notes,
@@ -81,6 +83,7 @@ export function PendingRoomsDialog({
         assignment_type: item.assignment_type,
         estimated_duration: item.estimated_duration,
         ready_to_clean: item.ready_to_clean,
+        pms_hold: item.pms_hold,
         is_checkout_room: item.rooms.is_checkout_room,
         priority: item.priority,
         notes: item.notes,
@@ -305,7 +308,7 @@ export function PendingRoomsDialog({
                       )}
                     </div>
                     
-                    {!assignment.ready_to_clean && canReleaseCheckout && (
+                    {!assignment.ready_to_clean && !assignment.pms_hold && canReleaseCheckout && (
                       <Button
                         size="sm"
                         variant="default"
