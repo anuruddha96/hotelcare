@@ -447,6 +447,101 @@ async function pollOneHotel(
     }
   }
 
+  // 3.5. Reconcile false positives: any local room currently flagged as
+  // checkedOutToday whose Previo REST payload still shows an active in-house
+  // reservation (departure later than today, or departure=today without a
+  // checked-out status) is reverted so HC does not send housekeepers to an
+  // occupied room. This self-heals stale flags stamped by earlier versions
+  // of the poll or by aggressive manual marking.
+  try {
+    if (!dryRun) {
+      const { data: flagged } = await service
+        .from("rooms")
+        .select("id, room_number, status, pms_metadata, is_checkout_room")
+        .in("hotel", hotelKeys)
+        .filter("pms_metadata->>checkedOutToday", "eq", "true");
+      const roomsByObjId = new Map<number, PrevioRoom>();
+      const roomsByName = new Map<string, PrevioRoom>();
+      for (const pr of rooms) {
+        const oid = Number(pr.roomId);
+        if (Number.isFinite(oid) && oid > 0) roomsByObjId.set(oid, pr);
+        const nm = String(pr.name ?? "").trim();
+        if (nm) roomsByName.set(nm, pr);
+      }
+      const revertEvents: any[] = [];
+      for (const local of (flagged ?? []) as any[]) {
+        if (trueCheckoutRoomIds.has(local.id)) continue; // just re-verified this run
+        const meta = local.pms_metadata || {};
+        const objId = Number(meta.roomId);
+        const previoName = String(meta.previoName ?? "").trim();
+        const pr = (Number.isFinite(objId) && objId > 0 && roomsByObjId.get(objId))
+          || (previoName && roomsByName.get(previoName))
+          || null;
+        const res: any = pr?.reservation;
+        if (!res) continue; // no positive evidence either way — leave as-is
+        if (reservationLooksCheckedOut(res)) continue; // Previo confirms departure — keep flagged
+        const dep = cleanDate(res.departureDate ?? res.departure ?? res.to);
+        const stillInHouse = dep && dep > today; // departs later => guest still here
+        if (!stillInHouse) continue;
+
+        const { checkedOutAt: _a, readyToClean: _b, ...restMeta } = meta;
+        const newMeta = { ...restMeta, checkedOutToday: false };
+        const { error: updErr } = await service.from("rooms").update({
+          is_checkout_room: false,
+          checkout_time: null,
+          pms_metadata: newMeta,
+          updated_at: nowIso(),
+        }).eq("id", local.id);
+        if (updErr) {
+          result.errors.push(`reconcile ${local.room_number}: ${updErr.message}`);
+          continue;
+        }
+
+        // Hold any active checkout_cleaning assignment for today so the HK
+        // does not walk into an occupied room. Preserve in-progress work.
+        const { data: held } = await service
+          .from("room_assignments")
+          .update({
+            pms_hold: true,
+            pms_hold_reason: "Previo still shows guest in-house — checkout flag was reverted",
+            ready_to_clean: false,
+            updated_at: nowIso(),
+          })
+          .select("id")
+          .eq("room_id", local.id)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .in("status", ["assigned", "in_progress"]);
+        result.heldAssignments += held?.length ?? 0;
+
+        revertEvents.push({
+          hotel_id: hotelId,
+          room_id: local.id,
+          room_label: local.room_number,
+          event_type: "checkout_reverted",
+          source: "poll_checkouts_reconcile",
+          before: { is_checkout_room: true, checkedOutToday: true },
+          after: { is_checkout_room: false, checkedOutToday: false },
+          is_conflict: false,
+        });
+        result.diagnostics.push({
+          source: "reconcile",
+          room: local.room_number,
+          roomId: objId || null,
+          reason: `Previo still reports active reservation (departure=${dep}); reverting false checkout`,
+          accepted: false,
+        });
+        result.revertedCheckedOut++;
+      }
+      if (revertEvents.length) {
+        await service.from("pms_change_events").insert(revertEvents);
+        result.events += revertEvents.length;
+      }
+    }
+  } catch (e: any) {
+    result.errors.push(`reconcile: ${e?.message || e}`);
+  }
+
   // 4. Clear stale checkout flags (guest now back, or earlier false positive).
   // NEVER clear a room that is still scheduled to depart today or already
   // marked checked-out today via the PMS upload / sync — otherwise a poll
