@@ -57,6 +57,7 @@ interface MinibarUsage {
   quantity_used: number;
   usage_date: string;
   is_cleared: boolean;
+  source?: string | null;
   minibar_items: MinibarItem;
 }
 
@@ -636,6 +637,43 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
               </div>
             </CardHeader>
             <CardContent>
+              {minibarUsage.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <strong>Reminder:</strong> These items are <u>not</u> pushed to Previo automatically. Charge the guest in Previo manually before checkout.
+                  </div>
+                  <div className="rounded-md border bg-muted/20 divide-y">
+                    {[...minibarUsage]
+                      .sort((a, b) => new Date(b.usage_date).getTime() - new Date(a.usage_date).getTime())
+                      .map((u) => {
+                        const src = (u.source || 'staff').toLowerCase();
+                        const srcLabel =
+                          src === 'guest' ? { icon: '📱', label: 'Guest QR', cls: 'bg-blue-100 text-blue-800 border-blue-200' } :
+                          src === 'reception' ? { icon: '🛎️', label: 'Reception', cls: 'bg-purple-100 text-purple-800 border-purple-200' } :
+                          { icon: '🧹', label: 'Housekeeper', cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' };
+                        return (
+                          <div key={u.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs sm:text-sm">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate">
+                                {u.quantity_used}× {u.minibar_items?.name || 'Item'}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {new Date(u.usage_date).toLocaleString()}
+                              </div>
+                            </div>
+                            <Badge variant="outline" className={`text-[10px] gap-1 ${srcLabel.cls}`}>
+                              <span>{srcLabel.icon}</span>
+                              {srcLabel.label}
+                            </Badge>
+                            <span className="text-xs font-semibold text-primary w-16 text-right">
+                              €{((u.minibar_items?.price || 0) * u.quantity_used).toFixed(2)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
               <div className="space-y-2 sm:space-y-3">
               {minibarItems.map((item) => {
                   const currentUsage = getCurrentUsage(item.id);
