@@ -80,21 +80,16 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         setHasPrevio(false);
         return;
       }
-      const { data } = await supabase
-        .from("pms_configurations")
-        .select("hotel_id, is_active, pms_type")
-        .eq("hotel_id", profile.assigned_hotel)
-        .eq("pms_type", "previo")
-        .eq("is_active", true)
-        .maybeSingle();
+      // Use a SECURITY DEFINER RPC so non-admin managers can detect an active
+      // Previo integration without needing SELECT on pms_configurations
+      // (which is admin-only and would otherwise return null → "PMS not
+      // connected" toast even when the cron is happily syncing).
+      const { data, error } = await (supabase as any).rpc("hotel_has_active_previo", {
+        _hotel_id: profile.assigned_hotel,
+      });
       if (cancelled) return;
-      if (data) {
-        setHotelId(data.hotel_id);
-        setHasPrevio(true);
-      } else {
-        setHotelId(profile.assigned_hotel);
-        setHasPrevio(false);
-      }
+      setHotelId(profile.assigned_hotel);
+      setHasPrevio(!error && data === true);
     })();
     return () => {
       cancelled = true;
