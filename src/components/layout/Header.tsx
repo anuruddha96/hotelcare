@@ -132,7 +132,9 @@ export function Header() {
             <HotelSwitcher />
             <LanguageSwitcher />
             <InstallAppPrompt />
-            <LiveSyncIndicator />
+            {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
+              <LiveSyncIndicator />
+            )}
             <TrainingHelpButton />
             
             {/* Revenue moved to PMSNavigation main tab bar */}
