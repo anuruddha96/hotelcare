@@ -76,7 +76,7 @@ export function SimpleRoomAssignment({ onAssignmentCreated }: SimpleRoomAssignme
       const { data: staffData, error: staffError } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
-        .eq('role', 'housekeeping')
+        .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
         .eq('assigned_hotel', profile.assigned_hotel)
         .eq('organization_slug', profile.organization_slug)
         .order('full_name');
