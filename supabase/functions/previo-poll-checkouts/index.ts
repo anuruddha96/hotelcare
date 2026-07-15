@@ -128,24 +128,23 @@ async function pollOneHotel(
     .maybeSingle();
   const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
 
-  // Early exit: if there are no checkout_cleaning assignments still waiting for
-  // RTC today, there is nothing for this cron run to do. This satisfies the
-  // requirement that the poll effectively stops once all checkout rooms are RTC.
-  if (!dryRun) {
-    const today0 = todayUtc();
-    const { data: pendingAsg } = await service
-      .from("room_assignments")
-      .select("id, rooms!inner(hotel)")
-      .eq("assignment_date", today0)
-      .eq("assignment_type", "checkout_cleaning")
-      .eq("ready_to_clean", false)
-      .in("status", ["assigned", "in_progress"])
-      .in("rooms.hotel", hotelKeys)
-      .limit(1);
-    if (!pendingAsg || pendingAsg.length === 0) {
-      result.diagnostics.push({ source: "early-exit", reason: "no pending checkout_cleaning assignments waiting for RTC" });
-      return result;
-    }
+  // Load all pending checkout_cleaning assignments for today (waiting for RTC).
+  // Used both for early-exit and as the guard for signal (c) below.
+  const today0 = todayUtc();
+  const { data: pendingAsg } = await service
+    .from("room_assignments")
+    .select("id, room_id, rooms!inner(hotel)")
+    .eq("assignment_date", today0)
+    .eq("assignment_type", "checkout_cleaning")
+    .eq("ready_to_clean", false)
+    .in("status", ["assigned", "in_progress"])
+    .in("rooms.hotel", hotelKeys);
+  const pendingCheckoutRoomIds = new Set<string>(
+    (pendingAsg ?? []).map((a: any) => a.room_id).filter(Boolean),
+  );
+  if (!dryRun && pendingCheckoutRoomIds.size === 0) {
+    result.diagnostics.push({ source: "early-exit", reason: "no pending checkout_cleaning assignments waiting for RTC" });
+    return result;
   }
 
   // Load every locally mapped room for this hotel so we can recognise
