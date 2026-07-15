@@ -189,12 +189,19 @@ serve(async (req) => {
     const today = todayUtcDate();
     const tomorrow = addDays(today, 1);
     const windowEnd = addDays(today, 3);
+    // Widen the *arrival-side* window backwards so mid-stay guests (who
+    // arrived days/weeks ago) are still returned. Previo's <term> filters
+    // by arrival date, so a today-only window silently drops every
+    // stay-through and today-departing reservation → they'd fall into
+    // the !res branch and get mis-flagged as no-shows.
+    const windowStart = addDays(today, -30);
 
     interface ParsedReservation {
       objId: number | null;
       roomName: string;
       arrivalDate: string;
       departureDate: string;
+      departureTime: string | null;
       statusId: number;
       guestsCount: number;
       note: string | null;
