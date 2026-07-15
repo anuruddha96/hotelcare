@@ -481,121 +481,12 @@ async function pollOneHotel(
     }
   }
 
-  // 3.5. Reconcile false positives: any local room currently flagged as
-  // checkedOutToday whose Previo REST payload still shows an active in-house
-  // reservation (departure later than today, or departure=today without a
-  // checked-out status) is reverted so HC does not send housekeepers to an
-  // occupied room. This self-heals stale flags stamped by earlier versions
-  // of the poll or by aggressive manual marking.
-  try {
-    if (!dryRun) {
-      const { data: localRows } = await service
-        .from("rooms")
-        .select("id, room_number, status, pms_metadata, is_checkout_room")
-        .in("hotel", hotelKeys)
-        .limit(500);
-      const flagged = ((localRows ?? []) as any[]).filter((r) =>
-        r.is_checkout_room === true || r.pms_metadata?.checkedOutToday === true || r.pms_metadata?.readyToClean === true
-      );
-      const roomsByObjId = new Map<number, PrevioRoom>();
-      const roomsByName = new Map<string, PrevioRoom>();
-      for (const pr of rooms) {
-        const oid = Number(pr.roomId);
-        if (Number.isFinite(oid) && oid > 0) roomsByObjId.set(oid, pr);
-        const nm = String(pr.name ?? "").trim();
-        if (nm) roomsByName.set(nm, pr);
-      }
-      const revertEvents: any[] = [];
-      for (const local of (flagged ?? []) as any[]) {
-        if (trueCheckoutRoomIds.has(local.id)) continue; // just re-verified this run
-        const meta = local.pms_metadata || {};
-        const objId = Number(meta.roomId);
-        const previoName = String(meta.previoName ?? "").trim();
-        const pr = (Number.isFinite(objId) && objId > 0 && roomsByObjId.get(objId))
-          || (previoName && roomsByName.get(previoName))
-          || null;
-        const res: any = pr?.reservation;
-        let revertReason = "";
-        if (res && reservationLooksCheckedOut(res)) {
-          continue; // Previo confirms departure — keep flagged
-        }
-        if (res) {
-          const dep = cleanDate(res.departureDate ?? res.departure ?? res.to);
-          if (dep && dep > today) {
-            revertReason = `Previo still reports active reservation (departure=${dep})`;
-          } else if (dep === today) {
-            revertReason = "Previo departure is today but reservation is not checked-out yet";
-          } else {
-            revertReason = "Previo reservation is present and not checked-out";
-          }
-        } else if (pr) {
-          // Previo returned this room in the roster but with NO reservation
-          // payload. That alone is not proof of checkout — earlier versions of
-          // this poll wrongly stamped this as a departure and even inserted
-          // checkout_confirmed events. Only the current run's true checkout
-          // signals are trusted; everything else is reconciled back to in-house.
-          revertReason = "no reservation payload from Previo and no confirming checkout event today";
-        } else {
-          continue; // room not in Previo roster at all — do not touch
-        }
-
-        const { checkedOutAt: _a, readyToClean: _b, ...restMeta } = meta;
-        const newMeta = { ...restMeta, checkedOutToday: false };
-        const { error: updErr } = await service.from("rooms").update({
-          is_checkout_room: false,
-          checkout_time: null,
-          pms_metadata: newMeta,
-          updated_at: nowIso(),
-        }).eq("id", local.id);
-        if (updErr) {
-          result.errors.push(`reconcile ${local.room_number}: ${updErr.message}`);
-          continue;
-        }
-
-        // Block any active assignment for today so the HK does not walk into
-        // an occupied room. This clears stale RTC even when a false checkout
-        // flag was attached to a daily-cleaning assignment.
-        const { data: held } = await service
-          .from("room_assignments")
-          .update({
-            pms_hold: true,
-            pms_hold_reason: "Previo does not confirm checkout — room is not ready to clean",
-            ready_to_clean: false,
-            updated_at: nowIso(),
-          })
-          .select("id")
-          .eq("room_id", local.id)
-          .eq("assignment_date", today)
-          .in("status", ["assigned", "in_progress"]);
-        result.heldAssignments += held?.length ?? 0;
-
-        revertEvents.push({
-          hotel_id: hotelId,
-          room_id: local.id,
-          room_label: local.room_number,
-          event_type: "checkout_reverted",
-          source: "poll_checkouts_reconcile",
-          before: { is_checkout_room: true, checkedOutToday: true },
-          after: { is_checkout_room: false, checkedOutToday: false },
-          is_conflict: false,
-        });
-        result.diagnostics.push({
-          source: "reconcile",
-          room: local.room_number,
-          roomId: objId || null,
-          reason: `${revertReason}; reverting false checkout`,
-          accepted: false,
-        });
-        result.revertedCheckedOut++;
-      }
-      if (revertEvents.length) {
-        await service.from("pms_change_events").insert(revertEvents);
-        result.events += revertEvents.length;
-      }
-    }
-  } catch (e: any) {
-    result.errors.push(`reconcile: ${e?.message || e}`);
-  }
+  // 3.5. (removed) The previous reconcile step reverted rooms whose Previo
+  // REST payload did not contain a reservation object. That heuristic wrongly
+  // flipped RTC back to false on every 5-min run for tenants (e.g. Ottofiori)
+  // whose REST /rest/rooms does not attach the reservation payload. Policy:
+  // once RTC is set (by cron, PMS upload, or manager) it stays set until an
+  // admin/manager explicitly toggles it off from the room chip.
 
   // 4. Clear stale checkout flags (guest now back, or earlier false positive).
   // NEVER clear a room that is still scheduled to depart today or already
