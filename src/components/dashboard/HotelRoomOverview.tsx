@@ -489,6 +489,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   };
 
   const isEarlyCheckout = (room: RoomData) => {
+    // Only surface the Early Checkout badge on real checkout rooms. A daily
+    // room whose notes still contain "Early Checkout" from yesterday must
+    // not display the badge.
+    if (!room.is_checkout_room) return false;
     return room.notes?.toLowerCase().includes('early checkout') || false;
   };
 
