@@ -449,8 +449,31 @@ export function AutoRoomAssignment({
     const previews = bestPreviews || autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, {
       ...hotelConfig, hotelName: hotelName || undefined
     });
-    setAssignmentPreviews(previews);
-    setFairnessMetrics(bestMetrics || computeFairnessMetrics(previews));
+
+    // Rebalance already-departed checkout rooms across housekeepers so every
+    // housekeeper starts their shift with a real RTC checkout when supply
+    // allows. This does not change the total workload — it only reshuffles
+    // departed checkouts one-per-housekeeper via round-robin.
+    const hasDeparted = (r: RoomForAssignment) =>
+      (r.pms_metadata as any)?.checkedOutToday === true || !!r.checkout_time;
+    const departedPool: RoomForAssignment[] = [];
+    const rebalanced = previews.map(p => {
+      const kept: RoomForAssignment[] = [];
+      for (const r of p.rooms) {
+        if (hasDeparted(r)) departedPool.push(r);
+        else kept.push(r);
+      }
+      return { ...p, rooms: kept };
+    });
+    if (rebalanced.length > 0 && departedPool.length > 0) {
+      let i = 0;
+      for (const room of departedPool) {
+        rebalanced[i % rebalanced.length].rooms.push(room);
+        i++;
+      }
+    }
+    setAssignmentPreviews(rebalanced);
+    setFairnessMetrics(bestMetrics || computeFairnessMetrics(rebalanced));
     setPreviewHistory([]);
     setStep('preview');
   };
