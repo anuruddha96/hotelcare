@@ -104,6 +104,8 @@ interface PollResult {
   reservationFetchError: string | null;
   departed: number;
   diagnostics: Array<Record<string, unknown>>;
+  revertedCheckedOut: number;
+  heldAssignments: number;
 }
 
 async function pollOneHotel(
