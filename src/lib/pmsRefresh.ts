@@ -327,12 +327,16 @@ export async function runPmsRefresh(
         }
       }
       // PMS sync is authoritative for today's buckets: rooms that no longer
-      // depart today must be reset back to Daily Rooms. If the PMS response
-      // contains no checkout signals at all, treat it as a weak/partial feed
-      // and never clear an existing checkout flag from that response.
+      // depart today must be reset back to Daily Rooms. Two exceptions:
+      //   1. Weak/partial feed (no checkout signals at all) — never clear.
+      //   2. Manager-staged manual checkout (pms_metadata.manual_checkout) —
+      //      preserve until the manager clears it or the room is actually
+      //      cleaned, so drag-to-checkout moves aren't silently reverted.
+      const manualOverride = existingMetadata?.manual_checkout === true;
       if (!preserveExistingCheckout) {
-        updateData.is_checkout_room = shouldBeCheckoutRoom;
+        updateData.is_checkout_room = manualOverride ? true : shouldBeCheckoutRoom;
       }
+
       if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
