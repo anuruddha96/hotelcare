@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, AlertTriangle, Wrench, XCircle, MapPin, UserX, User } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Wrench, XCircle, MapPin, UserX, User, Wine } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { MobileOptimizedCard } from './MobileOptimizedCard';
 import { useIsMobile } from '@/hooks/use-mobile';

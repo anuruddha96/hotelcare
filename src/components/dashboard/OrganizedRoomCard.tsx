@@ -11,7 +11,8 @@ import {
   XCircle,
   Clock,
   Users,
-  Coffee
+  Coffee,
+  Wine
 } from 'lucide-react';
 import { format } from 'date-fns';
 
