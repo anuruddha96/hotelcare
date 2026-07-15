@@ -250,10 +250,20 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(
     async (task?: TaskName): Promise<RefreshOutcome | void> => {
-      if (task === "pms") return await runPms(true);
+      if (task === "pms") {
+        const r = await runPms(true);
+        // After a manual PMS sync, immediately poll checkouts so RTC updates
+        // land without waiting for the next interval tick.
+        void runCheckouts(true);
+        return r;
+      }
       else if (task === "revenue") await runRevenue(true);
       else if (task === "checkouts") await runCheckouts(true);
-      else await Promise.all([runPms(true), runRevenue(true), runCheckouts(true)]);
+      else {
+        const r = await runPms(true);
+        await Promise.all([runRevenue(true), runCheckouts(true)]);
+        return r;
+      }
     },
     [runPms, runRevenue, runCheckouts],
   );
@@ -265,16 +275,25 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!enabled) return;
     void runRevenue();
-    void runCheckouts();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      const pending = await runCheckouts();
+      if (cancelled) return;
+      const delay = pending > 0 ? CHECKOUTS_ACTIVE_INTERVAL_MS : CHECKOUTS_IDLE_INTERVAL_MS;
+      timer = setTimeout(tick, delay);
+    };
+    void tick();
     const onFocus = () => {
       void runRevenue();
       void runCheckouts();
     };
     window.addEventListener("focus", onFocus);
-    const checkoutsTimer = setInterval(() => void runCheckouts(), CHECKOUTS_INTERVAL_MS);
     return () => {
+      cancelled = true;
       window.removeEventListener("focus", onFocus);
-      clearInterval(checkoutsTimer);
+      if (timer) clearTimeout(timer);
     };
   }, [enabled, runRevenue, runCheckouts]);
 
