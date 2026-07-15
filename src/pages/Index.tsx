@@ -9,17 +9,52 @@ import { isReceptionRole } from '@/lib/roleAccess';
 
 const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager'];
 
+// Local (not UTC) date key so the "once per day" gate follows the manager's
+// wall clock and doesn't re-trigger when UTC rolls over hours before local
+// midnight in Europe.
+const getLocalDateKey = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const readHotelSelectedForToday = (userId?: string) => {
+  const todayKey = getLocalDateKey();
+  try {
+    if (userId && localStorage.getItem(`hotel_selected_date:${userId}`) === todayKey) return true;
+    if (localStorage.getItem('hotel_selected_date') === todayKey) return true;
+    if (sessionStorage.getItem('hotel_selected') === 'true') return true;
+  } catch { /* storage blocked */ }
+  return false;
+};
+
 const Index = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
-  // Managers pick a hotel once per day (local date). Stored in localStorage so
-  // it survives app reloads and PWA re-opens throughout the working day, and
-  // auto-expires when the date rolls over so the picker shows again next morning.
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const [hotelSelected, setHotelSelected] = useState(
-    () => localStorage.getItem('hotel_selected_date') === todayKey
-      || sessionStorage.getItem('hotel_selected') === 'true'
-  );
+  const [hotelSelected, setHotelSelected] = useState(() => readHotelSelectedForToday());
+
+  // Re-check with the real user id once auth resolves, and silently carry a
+  // manager's existing assigned_hotel over for the current local day if storage
+  // was evicted (PWA/iOS). Prevents the picker from re-appearing mid-day while
+  // still triggering it fresh the next local morning.
+  useEffect(() => {
+    if (!user?.id || !profile) return;
+    if (readHotelSelectedForToday(user.id)) {
+      if (!hotelSelected) setHotelSelected(true);
+      return;
+    }
+    if (MANAGER_ROLES.includes(profile.role) && profile.assigned_hotel) {
+      const todayKey = getLocalDateKey();
+      try {
+        localStorage.setItem(`hotel_selected_date:${user.id}`, todayKey);
+        localStorage.setItem('hotel_selected_date', todayKey);
+        sessionStorage.setItem('hotel_selected', 'true');
+      } catch { /* ignore */ }
+      setHotelSelected(true);
+    }
+  }, [user?.id, profile?.role, profile?.assigned_hotel, hotelSelected]);
 
   // Breakfast staff: hard-redirect to public /bb so PublicBreakfastApp mounts
   // (no manager realtime/notification providers).
@@ -55,8 +90,15 @@ const Index = () => {
     );
   }
 
-  // Show hotel picker once per session for managers/admins
-  if (profile && MANAGER_ROLES.includes(profile.role) && !hotelSelected) {
+  // Show hotel picker once per local day for managers/admins.
+  // Skipped if storage records today's selection, OR if the profile already
+  // has an assigned_hotel (the useEffect above will backfill today's date key).
+  if (
+    profile &&
+    MANAGER_ROLES.includes(profile.role) &&
+    !hotelSelected &&
+    !profile.assigned_hotel
+  ) {
     return <HotelSelectionScreen onHotelSelected={() => setHotelSelected(true)} />;
   }
 
