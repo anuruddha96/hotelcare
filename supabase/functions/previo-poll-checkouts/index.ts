@@ -118,6 +118,7 @@ async function pollOneHotel(
     hotel_id: hotelId,
     checked: 0, marked: 0, cleared: 0, events: 0, conflicts: 0,
     errors: [], unmatched: [], reservationFetchError: null, departed: 0, diagnostics: [],
+    revertedCheckedOut: 0, heldAssignments: 0,
   };
 
   const { data: hotelCfg } = await service
