@@ -520,7 +520,13 @@ export async function runPmsRefresh(
       if (isCheckedOut) {
         await supabase
           .from("room_assignments")
-          .update({ ready_to_clean: true, updated_at: new Date().toISOString() } as any)
+          .update({
+            ready_to_clean: true,
+            pms_hold: false,
+            pms_hold_reason: null,
+            pms_hold_event_id: null,
+            updated_at: new Date().toISOString(),
+          } as any)
           .eq("room_id", room.id)
           .eq("assignment_date", today)
           .eq("assignment_type", "checkout_cleaning")

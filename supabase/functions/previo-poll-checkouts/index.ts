@@ -443,7 +443,13 @@ async function pollOneHotel(
       // Auto-release checkout-cleaning assignments (they're now safe to start).
       const { data: released } = await service
         .from("room_assignments")
-        .update({ ready_to_clean: true, updated_at: nowIso() })
+        .update({
+          ready_to_clean: true,
+          pms_hold: false,
+          pms_hold_reason: null,
+          pms_hold_event_id: null,
+          updated_at: nowIso(),
+        })
         .select("id")
         .eq("room_id", localRoom.id)
         .eq("assignment_date", today)
