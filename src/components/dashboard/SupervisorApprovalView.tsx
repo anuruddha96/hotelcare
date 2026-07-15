@@ -152,6 +152,52 @@ export function SupervisorApprovalView() {
   const [housekeeperNotes, setHousekeeperNotes] = useState<Record<string, any[]>>({});
   const [translatedApprovalMsgs, setTranslatedApprovalMsgs] = useState<Record<string, string>>({});
   const [translatingApprovalMsg, setTranslatingApprovalMsg] = useState<string | null>(null);
+
+  // Minibar gate: when a manager tries to approve a room (or bulk of rooms)
+  // that has minibar consumption logged today, hold the approval and force
+  // them to confirm (a) the minibar was refilled and (b) they added the
+  // charge to Previo manually — since minibar consumption is not synced.
+  type MinibarGateItem = { room: string; qty: number; name: string; price: number };
+  const [minibarGate, setMinibarGate] = useState<{
+    title: string;
+    items: MinibarGateItem[];
+    total: number;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+  const [gateRefilled, setGateRefilled] = useState(false);
+  const [gateAddedToPrevio, setGateAddedToPrevio] = useState(false);
+  const [gateBusy, setGateBusy] = useState(false);
+
+  const fetchMinibarForRooms = async (
+    roomIds: string[],
+    roomNumberByRoomId: Record<string, string>,
+  ): Promise<{ items: MinibarGateItem[]; total: number }> => {
+    if (roomIds.length === 0) return { items: [], total: 0 };
+    const { data, error } = await supabase
+      .from('room_minibar_usage')
+      .select('room_id, quantity_used, minibar_items:minibar_item_id(name, price)')
+      .in('room_id', roomIds)
+      .eq('is_cleared', false);
+    if (error || !data) return { items: [], total: 0 };
+    const items: MinibarGateItem[] = data
+      .filter((u: any) => (u.quantity_used || 0) > 0)
+      .map((u: any) => ({
+        room: roomNumberByRoomId[u.room_id] || '—',
+        qty: u.quantity_used || 0,
+        name: u.minibar_items?.name || 'Item',
+        price: (u.minibar_items?.price || 0) * (u.quantity_used || 0),
+      }));
+    const total = items.reduce((s, i) => s + i.price, 0);
+    return { items, total };
+  };
+
+  const resetMinibarGate = () => {
+    setMinibarGate(null);
+    setGateRefilled(false);
+    setGateAddedToPrevio(false);
+    setGateBusy(false);
+  };
+
   // Group assignments by hotel
   const hotelGroups = useMemo(() => {
     const groups: Record<string, PendingAssignment[]> = {};
