@@ -25,6 +25,7 @@ const HOTEL_TERMS: Record<LangCode, PropertyTerms> = {
   es: { singular: 'Hotel', plural: 'Hoteles', pickLabel: 'Elegir hotel', isProperty: false },
   vi: { singular: 'Khách sạn', plural: 'Khách sạn', pickLabel: 'Chọn khách sạn', isProperty: false },
   mn: { singular: 'Зочид буудал', plural: 'Зочид буудлууд', pickLabel: 'Буудлаа сонго', isProperty: false },
+  uk: { singular: 'Готель', plural: 'Готелі', pickLabel: 'Оберіть готель', isProperty: false },
 };
 
 const PROPERTY_TERMS: Record<LangCode, PropertyTerms> = {
@@ -33,6 +34,7 @@ const PROPERTY_TERMS: Record<LangCode, PropertyTerms> = {
   es: { singular: 'Propiedad', plural: 'Propiedades', pickLabel: 'Elegir propiedad', isProperty: true },
   vi: { singular: 'Tài sản', plural: 'Tài sản', pickLabel: 'Chọn tài sản', isProperty: true },
   mn: { singular: 'Байр', plural: 'Байрууд', pickLabel: 'Байраа сонго', isProperty: true },
+  uk: { singular: 'Об’єкт', plural: 'Об’єкти', pickLabel: 'Оберіть об’єкт', isProperty: true },
 };
 
 /** Orgs that use "Property" terminology. Extend when new rental-style orgs onboard. */

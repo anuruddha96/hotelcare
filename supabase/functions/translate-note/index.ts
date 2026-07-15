@@ -32,6 +32,7 @@ serve(async (req) => {
       es: "Spanish",
       mn: "Mongolian",
       vi: "Vietnamese",
+      uk: "Ukrainian",
     };
 
     const targetName = languageNames[targetLanguage] || targetLanguage;
