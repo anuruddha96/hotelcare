@@ -258,6 +258,12 @@ serve(async (req) => {
           if (!fromStr || !toStr) continue;
           const arrival = fromStr.slice(0, 10);
           const departure = toStr.slice(0, 10);
+          // Previo <to> is sometimes "YYYY-MM-DD" only; sometimes
+          // "YYYY-MM-DD HH:MM(:SS)" or ISO with "T". Extract the HH:MM
+          // portion when present so housekeepers see the real checkout time.
+          let departureTime: string | null = null;
+          const timeMatch = toStr.match(/[T\s](\d{2}:\d{2})/);
+          if (timeMatch) departureTime = timeMatch[1];
           const statusId = parseInt(grab(block, "statusId") || "0", 10);
           if (statusId === 7 || statusId === 8) continue;
           const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
@@ -271,6 +277,7 @@ serve(async (req) => {
             roomName,
             arrivalDate: arrival,
             departureDate: departure,
+            departureTime,
             statusId,
             guestsCount,
             note: noteMatch ? noteMatch[1].trim() || null : null,
