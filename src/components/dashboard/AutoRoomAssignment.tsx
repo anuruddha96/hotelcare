@@ -241,7 +241,7 @@ export function AutoRoomAssignment({
       const { data: staffData } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
-        .eq('role', 'housekeeping')
+        .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
         .eq('assigned_hotel', hotelName)
         .eq('organization_slug', profile?.organization_slug)
         .order('full_name');

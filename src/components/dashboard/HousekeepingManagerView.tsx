@@ -225,7 +225,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       let query = supabase
         .from('profiles')
         .select('id, full_name, nickname, email, assigned_hotel, organization_slug')
-        .eq('role', 'housekeeping')
+        .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
         .eq('organization_slug', profileData.organization_slug)
         .order('full_name');
 

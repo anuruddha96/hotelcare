@@ -3171,6 +3171,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          acts_as_housekeeper: boolean
           assigned_hotel: string | null
           created_at: string | null
           email: string
@@ -3188,6 +3189,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          acts_as_housekeeper?: boolean
           assigned_hotel?: string | null
           created_at?: string | null
           email: string
@@ -3205,6 +3207,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          acts_as_housekeeper?: boolean
           assigned_hotel?: string | null
           created_at?: string | null
           email?: string
