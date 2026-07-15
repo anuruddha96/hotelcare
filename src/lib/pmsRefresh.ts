@@ -8,6 +8,38 @@ import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
+const MANUAL_ROOM_OVERRIDE_KEYS = [
+  "manual_checkout", "manual_checkout_at", "manual_checkout_by",
+  "manual_daily", "manual_daily_at", "manual_daily_by",
+  "manual_moved_at", "manual_moved_by",
+];
+
+const getDateOnly = (value: unknown): string | null => {
+  if (!value) return null;
+  const raw = String(value);
+  const direct = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  if (direct) return direct;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().split("T")[0];
+};
+
+const hasManualRoomOverride = (meta?: Record<string, any> | null): boolean =>
+  !!meta && (meta.manual_checkout === true || meta.manual_daily === true || "manual_checkout" in meta || "manual_daily" in meta);
+
+const isStaleManualRoomOverride = (meta: Record<string, any> | undefined, today: string): boolean => {
+  if (!hasManualRoomOverride(meta)) return false;
+  const manualDate = getDateOnly(meta?.manual_moved_at ?? meta?.manual_checkout_at ?? meta?.manual_daily_at);
+  if (manualDate) return manualDate < today;
+  const syncDate = getDateOnly(meta?.pmsSyncDate ?? meta?.lastPmsRefreshDate);
+  return !!syncDate && syncDate < today;
+};
+
+const stripManualRoomOverride = (meta: Record<string, any> | undefined): Record<string, any> | undefined => {
+  if (!meta) return undefined;
+  const cleaned = { ...meta };
+  for (const key of MANUAL_ROOM_OVERRIDE_KEYS) delete cleaned[key];
+  return cleaned;
+};
 
 export type PmsSyncStatus = "success" | "partial" | "error" | "idle";
 
@@ -175,10 +207,7 @@ export async function runPmsRefresh(
           const patch: Record<string, any> = {};
           if (meta) {
             let changed = false;
-            for (const k of [
-              "manual_checkout", "manual_checkout_at", "manual_checkout_by",
-              "manual_daily", "manual_daily_at", "manual_daily_by",
-            ]) {
+            for (const k of MANUAL_ROOM_OVERRIDE_KEYS) {
               if (k in meta) { delete meta[k]; changed = true; }
             }
             if (changed) patch.pms_metadata = meta;
@@ -268,9 +297,13 @@ export async function runPmsRefresh(
       // daily and are marked via the C/O+1 badge.
       const shouldBeCheckoutRoom = classification.isCheckoutRoom;
 
-      const existingMetadata = room.pms_metadata && typeof room.pms_metadata === "object"
+      const rawExistingMetadata = room.pms_metadata && typeof room.pms_metadata === "object"
         ? room.pms_metadata
         : undefined;
+      const staleManualOverride = isStaleManualRoomOverride(rawExistingMetadata, today);
+      const existingMetadata = staleManualOverride
+        ? stripManualRoomOverride(rawExistingMetadata)
+        : rawExistingMetadata;
 
       const nightTotal = classification.nightTotal;
       let guestNightsStayed = 0;
@@ -328,6 +361,14 @@ export async function runPmsRefresh(
                 : "No checkout";
         changeFields.push({
           field: "Checkout room", before: currentCheckoutFlag, after: `${effectiveCheckoutFlag} (${label})`, category: "checkout",
+        });
+      }
+      if (staleManualOverride) {
+        changeFields.push({
+          field: "Manual marker",
+          before: rawExistingMetadata?.manual_checkout === true ? "Manual checkout" : "Manual daily",
+          after: "Cleared (previous work day)",
+          category: "checkout",
         });
       }
       if (towel || linen) {
