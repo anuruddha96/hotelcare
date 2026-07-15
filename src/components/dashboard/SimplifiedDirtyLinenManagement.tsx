@@ -29,10 +29,20 @@ export function SimplifiedDirtyLinenManagement() {
   const { profile } = useAuth();
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const [isNarrow, setIsNarrow] = useState<boolean>(
+    typeof window !== 'undefined' ? window.innerWidth < 1024 : false,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onResize = () => setIsNarrow(window.innerWidth < 1024);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date(),
     to: new Date()
   });
+
   const [allLinenItems, setAllLinenItems] = useState<LinenItem[]>([]);
   const [itemTotals, setItemTotals] = useState<Map<string, number>>(new Map());
   const [housekeeperData, setHousekeeperData] = useState<HousekeeperData[]>([]);
@@ -334,7 +344,7 @@ export function SimplifiedDirtyLinenManagement() {
         onDateRangeChange={setDateRange}
       />
 
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6 overflow-hidden">
         {/* Summary Stats */}
         <div className="mb-6 grid grid-cols-2 gap-4">
           <div className="flex items-center gap-3 p-4 bg-primary/5 rounded-lg">
@@ -351,7 +361,7 @@ export function SimplifiedDirtyLinenManagement() {
           </div>
         </div>
 
-        {(isMobile || (typeof window !== 'undefined' && window.innerWidth < 1024 && allLinenItems.length >= 6)) ? renderMobileCards() : renderDesktopTable()}
+        {(isMobile || isNarrow) ? renderMobileCards() : renderDesktopTable()}
       </Card>
     </div>
   );
