@@ -478,11 +478,36 @@ async function pollOneHotel(
           || (previoName && roomsByName.get(previoName))
           || null;
         const res: any = pr?.reservation;
-        if (!res) continue; // no positive evidence either way — leave as-is
-        if (reservationLooksCheckedOut(res)) continue; // Previo confirms departure — keep flagged
-        const dep = cleanDate(res.departureDate ?? res.departure ?? res.to);
-        const stillInHouse = dep && dep > today; // departs later => guest still here
-        if (!stillInHouse) continue;
+        let revertReason = "";
+        if (res && reservationLooksCheckedOut(res)) {
+          continue; // Previo confirms departure — keep flagged
+        }
+        if (res) {
+          const dep = cleanDate(res.departureDate ?? res.departure ?? res.to);
+          if (dep && dep > today) {
+            revertReason = `Previo still reports active reservation (departure=${dep})`;
+          } else {
+            continue; // reservation present, departs today, not marked checked-out — ambiguous, leave as-is
+          }
+        } else if (pr) {
+          // Previo returned this room in the roster but with NO reservation
+          // payload. That alone is not proof of checkout — earlier versions of
+          // this poll wrongly stamped this as a departure. Require a real
+          // corroborating event (from either the accept path today OR a prior
+          // legitimate checkout_confirmed row) before trusting the flag.
+          const { data: confirmEvt } = await service
+            .from("pms_change_events")
+            .select("id")
+            .eq("hotel_id", hotelId)
+            .eq("room_id", local.id)
+            .eq("event_type", "checkout_confirmed")
+            .gte("detected_at", `${today}T00:00:00Z`)
+            .limit(1);
+          if ((confirmEvt ?? []).length > 0) continue; // legitimately confirmed earlier today
+          revertReason = "no reservation payload from Previo and no confirming checkout event today";
+        } else {
+          continue; // room not in Previo roster at all — do not touch
+        }
 
         const { checkedOutAt: _a, readyToClean: _b, ...restMeta } = meta;
         const newMeta = { ...restMeta, checkedOutToday: false };
