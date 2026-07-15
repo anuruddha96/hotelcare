@@ -1634,6 +1634,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
               const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room || isScheduledCheckoutRoom(selectedRoom);
+              const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
               const roomStatus = selectedRoom.status;
               return (
                 <>
@@ -1848,7 +1849,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   <div className="space-y-2 pb-3 border-b">
                     <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">⚡ Quick Actions</label>
                     {/* Mark Ready to Clean */}
-                    {isCheckout && isManagerOrAdmin && (
+                    {canMarkReadyToClean && isManagerOrAdmin && (
                       <Button
                         variant="outline"
                         size="sm"
