@@ -22,6 +22,7 @@ interface Room {
   };
   checkout_time?: string;
   is_checkout_room?: boolean;
+  pms_metadata?: Record<string, any> | null;
   minibar_usage?: Array<{
     id: string;
     quantity_used: number;
