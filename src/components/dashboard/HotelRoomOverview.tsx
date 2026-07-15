@@ -55,6 +55,7 @@ interface AssignmentData {
   started_at: string | null;
   supervisor_approved: boolean | null;
   ready_to_clean: boolean | null;
+  pms_hold?: boolean | null;
   notes: string | null;
 }
 
