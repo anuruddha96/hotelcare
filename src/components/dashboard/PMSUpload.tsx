@@ -651,13 +651,13 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const noteVal = getField(row, columnMap, 'Note');
           const statusVal = getField(row, columnMap, 'Status');
           const statusText = statusVal ? String(statusVal).trim().toLowerCase().replace(/[\s_-]+/g, '') : '';
+          // Any room with a departure time needs checkout cleaning (regardless of current occupancy)
+          const departureParsed = excelTimeToString(departureVal);
           const pmsCheckedOut = departureParsed !== null && (
             isOccupiedNo(occupiedVal) ||
             ['checkedout', 'departed', 'departure', 'left', 'leaved', '5', '9'].includes(statusText)
           );
 
-          // Any room with a departure time needs checkout cleaning (regardless of current occupancy)
-          const departureParsed = excelTimeToString(departureVal);
           if (departureParsed !== null) {
             // Checkout room - needs checkout cleaning
             newStatus = 'dirty';
