@@ -339,6 +339,20 @@ export async function runPmsRefresh(
         changeFields.push({ field: "PMS note", before: "-", after: String(row.Note), category: "note" });
       }
 
+      // Auto-detect bed configuration from PMS note when the room does not
+      // already have a manager-set value. Never overwrite an existing value.
+      const inferredBed = inferBedConfigFromNote(row.Note ? String(row.Note) : null);
+      const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
+      const shouldSetBedConfig = !!inferredBed && !currentBedConfig;
+      if (shouldSetBedConfig) {
+        changeFields.push({
+          field: "Bed config (auto from PMS)",
+          before: currentBedConfig ?? "-",
+          after: `${inferredBed!.value} (matched "${inferredBed!.matchedKeyword}")`,
+          category: "note",
+        });
+      }
+
       proposedChanges.push({
         roomKey: `id:${room.id}`,
         roomLabel: room.room_number || rawRoomName,
@@ -393,6 +407,14 @@ export async function runPmsRefresh(
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
       if (row.Note) updateData.notes = String(row.Note);
+      if (shouldSetBedConfig && inferredBed) {
+        updateData.bed_configuration = inferredBed.value;
+        updateData.pms_metadata.inferredBedConfig = {
+          value: inferredBed.value,
+          keyword: inferredBed.matchedKeyword,
+          at: new Date().toISOString(),
+        };
+      }
 
       // Emit pms_change_events for material changes.
       const eventInserts: any[] = [];
