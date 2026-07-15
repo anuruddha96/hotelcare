@@ -27,6 +27,7 @@ export interface RoomForAssignment {
   room_category?: string | null;
   bed_configuration?: string | null;
   ready_to_clean?: boolean;
+  checkout_time?: string | null;
 }
 
 export interface StaffForAssignment {

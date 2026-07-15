@@ -275,7 +275,7 @@ export function AutoRoomAssignment({
       const keys = hotelKeys.length ? hotelKeys : [hotelName];
       const { data: roomsData } = await supabase
         .from('rooms')
-        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration')
+        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, checkout_time')
         .in('hotel', keys)
         .eq('status', 'dirty');
 
@@ -449,8 +449,31 @@ export function AutoRoomAssignment({
     const previews = bestPreviews || autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, {
       ...hotelConfig, hotelName: hotelName || undefined
     });
-    setAssignmentPreviews(previews);
-    setFairnessMetrics(bestMetrics || computeFairnessMetrics(previews));
+
+    // Rebalance already-departed checkout rooms across housekeepers so every
+    // housekeeper starts their shift with a real RTC checkout when supply
+    // allows. This does not change the total workload — it only reshuffles
+    // departed checkouts one-per-housekeeper via round-robin.
+    const hasDeparted = (r: RoomForAssignment) =>
+      (r.pms_metadata as any)?.checkedOutToday === true || !!r.checkout_time;
+    const departedPool: RoomForAssignment[] = [];
+    const rebalanced = previews.map(p => {
+      const kept: RoomForAssignment[] = [];
+      for (const r of p.rooms) {
+        if (hasDeparted(r)) departedPool.push(r);
+        else kept.push(r);
+      }
+      return { ...p, rooms: kept };
+    });
+    if (rebalanced.length > 0 && departedPool.length > 0) {
+      let i = 0;
+      for (const room of departedPool) {
+        rebalanced[i % rebalanced.length].rooms.push(room);
+        i++;
+      }
+    }
+    setAssignmentPreviews(rebalanced);
+    setFairnessMetrics(bestMetrics || computeFairnessMetrics(rebalanced));
     setPreviewHistory([]);
     setStep('preview');
   };
@@ -488,6 +511,9 @@ export function AutoRoomAssignment({
     setSubmitting(true);
     try {
       // Create all assignments with checkout-first priority ordering
+      const hasDeparted = (room: RoomForAssignment): boolean =>
+        (room.pms_metadata as any)?.checkedOutToday === true || !!room.checkout_time;
+
       const assignments = assignmentPreviews.flatMap(preview => {
         // Assign priority based on room type urgency:
         // Priority 1: Checkout rooms (guest departed, needs deep clean ASAP for next guest)
@@ -508,17 +534,23 @@ export function AutoRoomAssignment({
           return parseInt(a.room_number) - parseInt(b.room_number);
         });
 
-        return sorted.map((room) => ({
-          room_id: room.id,
-          assigned_to: preview.staffId,
-          assigned_by: user.id,
-          assignment_date: selectedDate,
-          assignment_type: ((room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
-          status: 'assigned' as const,
-          priority: getRoomPriority(room),
-          organization_slug: profile?.organization_slug,
-          ready_to_clean: !(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true)
-        }));
+        return sorted.map((room) => {
+          const isCheckout = room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true;
+          // Departed guests → Ready-to-Clean the moment we assign. Not-yet-
+          // departed checkouts stay non-RTC until front desk confirms.
+          const rtc = hasDeparted(room) ? true : !isCheckout;
+          return {
+            room_id: room.id,
+            assigned_to: preview.staffId,
+            assigned_by: user.id,
+            assignment_date: selectedDate,
+            assignment_type: (isCheckout ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
+            status: 'assigned' as const,
+            priority: getRoomPriority(room),
+            organization_slug: profile?.organization_slug,
+            ready_to_clean: rtc,
+          };
+        });
       });
 
       if (assignments.length === 0) {
