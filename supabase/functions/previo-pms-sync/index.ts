@@ -338,6 +338,7 @@ serve(async (req) => {
             roomName,
             arrivalDate: arrival,
             departureDate: today,
+            departureTime: item?.departureTime ? String(item.departureTime) : null,
             statusId: item?.status === "checked_out" ? 5 : 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
             note: item?.notes ? String(item.notes) : null,
