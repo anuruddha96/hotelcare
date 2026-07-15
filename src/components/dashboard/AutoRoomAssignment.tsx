@@ -488,6 +488,9 @@ export function AutoRoomAssignment({
     setSubmitting(true);
     try {
       // Create all assignments with checkout-first priority ordering
+      const hasDeparted = (room: RoomForAssignment): boolean =>
+        (room.pms_metadata as any)?.checkedOutToday === true || !!room.checkout_time;
+
       const assignments = assignmentPreviews.flatMap(preview => {
         // Assign priority based on room type urgency:
         // Priority 1: Checkout rooms (guest departed, needs deep clean ASAP for next guest)
@@ -508,17 +511,23 @@ export function AutoRoomAssignment({
           return parseInt(a.room_number) - parseInt(b.room_number);
         });
 
-        return sorted.map((room) => ({
-          room_id: room.id,
-          assigned_to: preview.staffId,
-          assigned_by: user.id,
-          assignment_date: selectedDate,
-          assignment_type: ((room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
-          status: 'assigned' as const,
-          priority: getRoomPriority(room),
-          organization_slug: profile?.organization_slug,
-          ready_to_clean: !(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true)
-        }));
+        return sorted.map((room) => {
+          const isCheckout = room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true;
+          // Departed guests → Ready-to-Clean the moment we assign. Not-yet-
+          // departed checkouts stay non-RTC until front desk confirms.
+          const rtc = hasDeparted(room) ? true : !isCheckout;
+          return {
+            room_id: room.id,
+            assigned_to: preview.staffId,
+            assigned_by: user.id,
+            assignment_date: selectedDate,
+            assignment_type: (isCheckout ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
+            status: 'assigned' as const,
+            priority: getRoomPriority(room),
+            organization_slug: profile?.organization_slug,
+            ready_to_clean: rtc,
+          };
+        });
       });
 
       if (assignments.length === 0) {
