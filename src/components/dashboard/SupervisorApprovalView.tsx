@@ -1694,6 +1694,88 @@ export function SupervisorApprovalView() {
 
       {/* Shared Reassign Dialog */}
       {renderReassignDialog()}
+
+      {/* Minibar confirmation gate — blocks approval until manager confirms
+          the minibar was refilled AND the charge was added to Previo (since
+          minibar consumption is NOT auto-synced to Previo). */}
+      <Dialog open={!!minibarGate} onOpenChange={(o) => { if (!o && !gateBusy) resetMinibarGate(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wine className="h-5 w-5 text-amber-600" />
+              Confirm before approving
+            </DialogTitle>
+          </DialogHeader>
+
+          {minibarGate && (
+            <div className="space-y-4">
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-semibold">{minibarGate.title}</p>
+                <p className="text-xs mt-1">
+                  Minibar consumption is <strong>not synced to Previo</strong>. Please refill the
+                  minibar and add the charge to Previo manually before approving.
+                </p>
+              </div>
+
+              <div className="max-h-40 overflow-y-auto rounded border bg-muted/30 p-2 text-xs space-y-1">
+                {minibarGate.items.map((it, i) => (
+                  <div key={i} className="flex justify-between">
+                    <span>Room {it.room} · {it.qty}× {it.name}</span>
+                    <span className="font-mono">€{it.price.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between pt-1 mt-1 border-t font-semibold">
+                  <span>Total</span>
+                  <span className="font-mono">€{minibarGate.total.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={gateRefilled}
+                    onCheckedChange={(v) => setGateRefilled(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span>I confirm the minibar has been <strong>refilled</strong>.</span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={gateAddedToPrevio}
+                    onCheckedChange={(v) => setGateAddedToPrevio(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span>I have <strong>added the charge in Previo</strong> (manual — not auto-synced).</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" disabled={gateBusy} onClick={resetMinibarGate}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!gateRefilled || !gateAddedToPrevio || gateBusy}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={async () => {
+                    if (!minibarGate) return;
+                    setGateBusy(true);
+                    try {
+                      await minibarGate.onConfirm();
+                    } finally {
+                      resetMinibarGate();
+                    }
+                  }}
+                >
+                  {gateBusy ? <LucideLoader className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5 mr-1" />}
+                  Confirm & Approve
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+
   );
 }
