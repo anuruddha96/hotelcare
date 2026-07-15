@@ -1,27 +1,31 @@
-Current findings:
-- Hotel Ottofiori currently has 10 `checkout_cleaning` assignments, matching your memory: 102, 104, 201, 203, 303, 305, 401, 403, 404, 405.
-- The wrong extra room is not in the checkout-assignment count; it is the room-level PMS checkout flags on 301 and 401.
-- 301 is incorrectly flagged as `is_checkout_room=true` / `checkedOutToday=true` even though Previo metadata says it is not scheduled for departure today.
-- 401 is also flagged as checked out, but you clarified it is still occupied and must not be RTC.
-- The latest cron runs are reading Previo REST room data, but that payload has no reservation checkout payload; the function is therefore not safely correcting these two occupied rooms.
+## Fix: only 305 should not be RTC
 
-Plan:
-1. Correct the live Ottofiori state immediately:
-   - Clear room-level checkout/RTC flags for 301 and 401.
-   - Clear `checkout_time` for 301 and 401.
-   - Set today’s assignments for 301 and 401 to not `ready_to_clean`.
-   - Keep 301 as daily cleaning and change 401 away from checkout/RTC so it does not appear in the checkout RTC list.
+PMS export confirms:
+- **10 checkouts today**: 102, 104, 201, 203, 303, **305**, 401, 403, 404, 405
+- **301 = Occupied (daily)** — leave as-is, do not touch
+- **305** = scheduled checkout but guest hasn't left Previo yet → must stay non-RTC on `pms_hold`
+- **All other 9 checkouts** = RTC (401 now confirmed by Previo)
 
-2. Preserve the real checkout list:
-   - Keep the checkout-cleaning rooms that are valid RTC: 102, 104, 201, 203, 303, 305, 403, 404, 405.
-   - After removing 401 from checkout, Ottofiori will show 9 checkout rooms unless another room is confirmed from Previo as checkout. If you still expect exactly 10 after excluding 301 and 401, I will verify which missing room should be the 10th from the assignment/Previo data before changing it.
+### Data corrections (insert tool only — no schema, no code changes)
 
-3. Fix the cron logic so this does not recur:
-   - Update `previo-poll-checkouts` so room-clean-status alone cannot mark or preserve checkout/RTC.
-   - Add a room-specific correction path for Previo REST diagnostics: if a local room is marked checkout/RTC but Previo does not provide a valid checkout/departure confirmation, the cron clears those flags instead of keeping stale RTC.
-   - Ensure assignments are reconciled too, not only `rooms` table fields.
+1. **Room 305 (Ottofiori, today)**
+   - `rooms`: `is_checkout_room=true`, `checkedOutToday=false`, `pms_hold=true`, `checkout_time=null`.
+   - `room_assignments` (today, 305): keep `assignment_type='checkout_cleaning'`, force `status` back from `ready_to_clean` to its pre-RTC state (`pending`/`assigned`), set hold flag consistent with other held rooms.
+   - Remove any stale `checkout_confirmed` / `manager_verified_previo` event for 305 today so the cron will fire cleanly when Previo confirms.
 
-4. Verify after implementation:
-   - Run the edge function once and check `pms_sync_history`.
-   - Query Ottofiori rooms and today’s assignments to confirm 301 and 401 are not RTC.
-   - Confirm the checkout list count and room numbers shown by the database match the intended current state.
+2. **Room 401 (Ottofiori, today)** — Previo now confirms departure
+   - `rooms`: clear `pms_hold`, ensure `is_checkout_room=true`, `checkedOutToday=true`, `checkout_time=now()` if empty.
+   - `room_assignments`: `status='ready_to_clean'`.
+
+3. **Room 301** — no changes. Verify it's `daily_cleaning`, `is_checkout_room=false`, no hold. If a prior correction wrongly flipped it, revert to daily/occupied.
+
+### Cron behavior (no code change needed)
+
+The existing `previo-poll-checkouts` self-heal already:
+- Clears `pms_hold` and sets `ready_to_clean` when Previo reports the guest as departed.
+So once the 305 guest actually checks out in Previo, the next 5-minute poll will flip 305 to RTC automatically. No code patch required.
+
+### Verification
+
+- Query Ottofiori assignments for today → expect 10 checkout rows, 9 RTC, 305 held/non-RTC, 301 untouched as daily.
+- Trigger `previo-poll-checkouts` once and re-query to confirm nothing regresses.
