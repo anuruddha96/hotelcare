@@ -94,6 +94,7 @@ const SKIP_TOAST_LABELS: Record<LangCode, string> = {
   es: 'Omitido — lo mostraremos cuando sea relevante.',
   vi: 'Đã bỏ qua — sẽ hiển thị khi liên quan.',
   mn: 'Алгасав — холбогдох үед үзүүлнэ.',
+  uk: 'Пропущено — покажемо, коли це буде доречно.',
 };
 
 const RESUME_TOAST_LABELS: Record<LangCode, { title: string; action: string }> = {
@@ -102,6 +103,7 @@ const RESUME_TOAST_LABELS: Record<LangCode, { title: string; action: string }> =
   es: { title: '¿Listo para continuar tu formación?', action: 'Continuar' },
   vi: { title: 'Tiếp tục đào tạo?', action: 'Tiếp tục' },
   mn: { title: 'Сургалтаа үргэлжлүүлэх үү?', action: 'Үргэлжлүүлэх' },
+  uk: { title: 'Готові продовжити навчання?', action: 'Продовжити' },
 };
 
 export function TrainingV2Provider({ children }: { children: ReactNode }) {
