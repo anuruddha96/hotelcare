@@ -797,6 +797,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           es: 'Ahora no',
           vi: 'Để sau',
           mn: 'Одоохондоо үгүй',
+          uk: 'Не зараз',
         };
         toast(`${labels.title} — ${tx(cur.name, lang)}`, {
           id: `training-resume-${entry.slug}`,
