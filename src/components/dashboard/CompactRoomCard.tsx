@@ -162,6 +162,9 @@ export function CompactRoomCard({ room, onClick }: CompactRoomCardProps) {
                   {format(new Date(room.checkout_time), 'MMM d, HH:mm')}
                 </span>
               )}
+              {(room.pms_metadata?.checkedOutToday === true || room.pms_metadata?.readyToClean === true) && (
+                <span className="ml-1 px-1 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
+              )}
             </Badge>
           ) : (
             <Badge variant="outline" className="text-xs px-1.5 py-0.5">
