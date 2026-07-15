@@ -26,6 +26,7 @@ interface Room {
   minibar_usage?: Array<{
     id: string;
     quantity_used: number;
+    source?: string | null;
     minibar_item: {
       name: string;
       price: number;
@@ -180,11 +181,23 @@ export function CompactRoomCard({ room, onClick }: CompactRoomCardProps) {
             </Badge>
           )}
           
-          {minibarTotal > 0 && (
-            <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
-              €{minibarTotal.toFixed(2)}
-            </Badge>
-          )}
+          {minibarTotal > 0 && (() => {
+            const count = room.minibar_usage!.reduce((s, u) => s + (u.quantity_used || 0), 0);
+            const hasGuest = room.minibar_usage!.some(u => u.source === 'guest');
+            const hasStaff = room.minibar_usage!.some(u => u.source && u.source !== 'guest');
+            return (
+              <Badge
+                variant="secondary"
+                className="text-xs px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-200"
+                title="Minibar usage — charge in Previo manually"
+              >
+                <Wine className="h-2.5 w-2.5 mr-1" />
+                {count} · €{minibarTotal.toFixed(2)}
+                {hasGuest && <span className="ml-1" title="Includes guest QR entry">📱</span>}
+                {hasStaff && <span className="ml-0.5" title="Includes housekeeper entry">🧹</span>}
+              </Badge>
+            );
+          })()}
           
           {room.recent_tickets && room.recent_tickets.length > 0 && (
             <Badge variant="outline" className="text-xs px-1.5 py-0.5">

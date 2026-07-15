@@ -883,11 +883,8 @@ export function MinibarTrackingView() {
         </Card>
       </div>
 
-      {/* Perishable Item Alerts */}
-      <PerishablePlacementManager
-        hotel={profile?.assigned_hotel || ''}
-        organizationSlug={profile?.organization_slug || 'rdhotels'}
-      />
+      {/* Perishable Item Alerts — hidden: brownies no longer stocked in minibars.
+          Restore this block if perishable placements return. */}
 
       {/* Stay info subtitle */}
       {viewMode === 'current' && (
