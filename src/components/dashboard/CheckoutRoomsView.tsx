@@ -70,7 +70,8 @@ export function CheckoutRoomsView({ checkoutRooms, dailyCleaningRooms }: Checkou
         )}
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
