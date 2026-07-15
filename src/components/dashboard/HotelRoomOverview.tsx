@@ -259,7 +259,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, notes')
+          .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -304,7 +304,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           if (prevDate) {
             const { data: prevAssignRows } = await supabase
               .from('room_assignments')
-              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, notes, completed_at, assignment_date')
+              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, completed_at, assignment_date')
               .in('room_id', roomIdList)
               .eq('assignment_date', prevDate);
             const map = new Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>();
