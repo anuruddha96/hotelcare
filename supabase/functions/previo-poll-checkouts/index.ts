@@ -104,6 +104,8 @@ interface PollResult {
   reservationFetchError: string | null;
   departed: number;
   diagnostics: Array<Record<string, unknown>>;
+  revertedCheckedOut: number;
+  heldAssignments: number;
 }
 
 async function pollOneHotel(
@@ -116,6 +118,7 @@ async function pollOneHotel(
     hotel_id: hotelId,
     checked: 0, marked: 0, cleared: 0, events: 0, conflicts: 0,
     errors: [], unmatched: [], reservationFetchError: null, departed: 0, diagnostics: [],
+    revertedCheckedOut: 0, heldAssignments: 0,
   };
 
   const { data: hotelCfg } = await service
@@ -444,6 +447,126 @@ async function pollOneHotel(
     }
   }
 
+  // 3.5. Reconcile false positives: any local room currently flagged as
+  // checkedOutToday whose Previo REST payload still shows an active in-house
+  // reservation (departure later than today, or departure=today without a
+  // checked-out status) is reverted so HC does not send housekeepers to an
+  // occupied room. This self-heals stale flags stamped by earlier versions
+  // of the poll or by aggressive manual marking.
+  try {
+    if (!dryRun) {
+      const { data: flagged } = await service
+        .from("rooms")
+        .select("id, room_number, status, pms_metadata, is_checkout_room")
+        .in("hotel", hotelKeys)
+        .filter("pms_metadata->>checkedOutToday", "eq", "true");
+      const roomsByObjId = new Map<number, PrevioRoom>();
+      const roomsByName = new Map<string, PrevioRoom>();
+      for (const pr of rooms) {
+        const oid = Number(pr.roomId);
+        if (Number.isFinite(oid) && oid > 0) roomsByObjId.set(oid, pr);
+        const nm = String(pr.name ?? "").trim();
+        if (nm) roomsByName.set(nm, pr);
+      }
+      const revertEvents: any[] = [];
+      for (const local of (flagged ?? []) as any[]) {
+        if (trueCheckoutRoomIds.has(local.id)) continue; // just re-verified this run
+        const meta = local.pms_metadata || {};
+        const objId = Number(meta.roomId);
+        const previoName = String(meta.previoName ?? "").trim();
+        const pr = (Number.isFinite(objId) && objId > 0 && roomsByObjId.get(objId))
+          || (previoName && roomsByName.get(previoName))
+          || null;
+        const res: any = pr?.reservation;
+        let revertReason = "";
+        if (res && reservationLooksCheckedOut(res)) {
+          continue; // Previo confirms departure — keep flagged
+        }
+        if (res) {
+          const dep = cleanDate(res.departureDate ?? res.departure ?? res.to);
+          if (dep && dep > today) {
+            revertReason = `Previo still reports active reservation (departure=${dep})`;
+          } else {
+            continue; // reservation present, departs today, not marked checked-out — ambiguous, leave as-is
+          }
+        } else if (pr) {
+          // Previo returned this room in the roster but with NO reservation
+          // payload. That alone is not proof of checkout — earlier versions of
+          // this poll wrongly stamped this as a departure. Require a real
+          // corroborating event (from either the accept path today OR a prior
+          // legitimate checkout_confirmed row) before trusting the flag.
+          const { data: confirmEvt } = await service
+            .from("pms_change_events")
+            .select("id")
+            .eq("hotel_id", hotelId)
+            .eq("room_id", local.id)
+            .eq("event_type", "checkout_confirmed")
+            .gte("detected_at", `${today}T00:00:00Z`)
+            .limit(1);
+          if ((confirmEvt ?? []).length > 0) continue; // legitimately confirmed earlier today
+          revertReason = "no reservation payload from Previo and no confirming checkout event today";
+        } else {
+          continue; // room not in Previo roster at all — do not touch
+        }
+
+        const { checkedOutAt: _a, readyToClean: _b, ...restMeta } = meta;
+        const newMeta = { ...restMeta, checkedOutToday: false };
+        const { error: updErr } = await service.from("rooms").update({
+          is_checkout_room: false,
+          checkout_time: null,
+          pms_metadata: newMeta,
+          updated_at: nowIso(),
+        }).eq("id", local.id);
+        if (updErr) {
+          result.errors.push(`reconcile ${local.room_number}: ${updErr.message}`);
+          continue;
+        }
+
+        // Hold any active checkout_cleaning assignment for today so the HK
+        // does not walk into an occupied room. Preserve in-progress work.
+        const { data: held } = await service
+          .from("room_assignments")
+          .update({
+            pms_hold: true,
+            pms_hold_reason: "Previo still shows guest in-house — checkout flag was reverted",
+            ready_to_clean: false,
+            updated_at: nowIso(),
+          })
+          .select("id")
+          .eq("room_id", local.id)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .in("status", ["assigned", "in_progress"]);
+        result.heldAssignments += held?.length ?? 0;
+
+        revertEvents.push({
+          hotel_id: hotelId,
+          room_id: local.id,
+          room_label: local.room_number,
+          event_type: "checkout_reverted",
+          source: "poll_checkouts_reconcile",
+          before: { is_checkout_room: true, checkedOutToday: true },
+          after: { is_checkout_room: false, checkedOutToday: false },
+          is_conflict: false,
+        });
+        result.diagnostics.push({
+          source: "reconcile",
+          room: local.room_number,
+          roomId: objId || null,
+          reason: `${revertReason}; reverting false checkout`,
+          accepted: false,
+        });
+        result.revertedCheckedOut++;
+      }
+      if (revertEvents.length) {
+        await service.from("pms_change_events").insert(revertEvents);
+        result.events += revertEvents.length;
+      }
+    }
+  } catch (e: any) {
+    result.errors.push(`reconcile: ${e?.message || e}`);
+  }
+
   // 4. Clear stale checkout flags (guest now back, or earlier false positive).
   // NEVER clear a room that is still scheduled to depart today or already
   // marked checked-out today via the PMS upload / sync — otherwise a poll
@@ -601,6 +724,7 @@ serve(async (req) => {
           hotel_id: t.hotel_id, checked: 0, marked: 0, cleared: 0,
           events: 0, conflicts: 0, errors: [e?.message || String(e)],
           unmatched: [], reservationFetchError: null, departed: 0, diagnostics: [],
+          revertedCheckedOut: 0, heldAssignments: 0,
         });
       }
     }
