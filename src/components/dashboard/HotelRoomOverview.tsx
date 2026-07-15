@@ -625,6 +625,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             const meta: any = room.pms_metadata || {};
             if (meta.scheduledDepartureTomorrow !== true) return null;
             if (meta.scheduledDepartureToday) return null;
+            // Never show C/O+1 on a room that is already checking out today
+            // (manual C/O, checkout assignment, PMS scheduled departure, or
+            // checked-out flag). The guest is leaving today, so a
+            // "departs tomorrow" hint would be misleading noise.
+            if (isCheckout) return null;
+            if (meta.checkedOutToday === true) return null;
             // Extra safety: if the PMS also gave us night counts, only paint
             // C/O+1 when this is the guest's LAST night (currentNight === totalNights).
             const cn = Number(meta.currentNight);
