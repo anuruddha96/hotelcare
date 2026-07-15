@@ -26,6 +26,7 @@ interface WorkingAssignment {
   started_at: string;
   estimated_duration: number;
   ready_to_clean: boolean;
+  pms_hold?: boolean | null;
   status: string;
   room_status: string;
   is_checkout_room: boolean;
@@ -61,6 +62,7 @@ export function WorkingRoomDetailDialog({
           started_at,
           estimated_duration,
           ready_to_clean,
+          pms_hold,
           status,
           assignment_type,
           rooms!inner(
@@ -86,6 +88,7 @@ export function WorkingRoomDetailDialog({
         started_at: item.started_at,
         estimated_duration: item.estimated_duration,
         ready_to_clean: item.ready_to_clean,
+        pms_hold: item.pms_hold,
         status: item.status,
         room_status: item.rooms.status,
         is_checkout_room: item.rooms.is_checkout_room,
@@ -227,7 +230,7 @@ export function WorkingRoomDetailDialog({
                           <p className="text-xs text-yellow-700 mt-1">
                             {t('manager.markReadyWhenGuestLeaves')}
                           </p>
-                          {canReleaseCheckout && <Button
+                          {canReleaseCheckout && !assignment.pms_hold && <Button
                             size="sm"
                             variant="outline"
                             className="mt-2 border-yellow-300 hover:bg-yellow-100"
