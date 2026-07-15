@@ -2362,7 +2362,7 @@ const translations = {
 type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.en;
 
-const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl'];
+const supportedLanguages: Language[] = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk'];
 const LANGUAGE_STORAGE_KEYS = ['preferred_language', 'preferred-language'] as const;
 const TRANSLATION_BUNDLE_CACHE_PREFIX = 'translation_bundle_';
 
