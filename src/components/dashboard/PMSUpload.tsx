@@ -650,6 +650,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const peopleVal = getField(row, columnMap, 'People');
           const noteVal = getField(row, columnMap, 'Note');
           const statusVal = getField(row, columnMap, 'Status');
+          const statusText = statusVal ? String(statusVal).trim().toLowerCase().replace(/[\s_-]+/g, '') : '';
+          const pmsCheckedOut = departureParsed !== null && (
+            isOccupiedNo(occupiedVal) ||
+            ['checkedout', 'departed', 'departure', 'left', 'leaved', '5', '9'].includes(statusText)
+          );
 
           // Any room with a departure time needs checkout cleaning (regardless of current occupancy)
           const departureParsed = excelTimeToString(departureVal);
@@ -796,7 +801,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               scheduledDepartureToday: isCheckout,
               scheduledDepartureTomorrow: !isCheckout && parsedNightTotal && guestNightsStayed > 0 && guestNightsStayed === totalNights,
               departureTime: isCheckout ? departureParsed : null,
-              checkedOutToday: false,
+              checkedOutToday: pmsCheckedOut,
+              ...(pmsCheckedOut ? { readyToClean: true, checkedOutAt: new Date().toISOString() } : {}),
               currentNight: guestNightsStayed || null,
               totalNights: totalNights || null,
               pmsUploadDate: new Date().toISOString().split('T')[0],
@@ -825,9 +831,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           }
 
           // A departure time in the PMS file is only the scheduled checkout
-          // time. Do not mark RTC/actual checkout until PMS or front desk
-          // confirms the guest has departed.
-          updateData.checkout_time = null;
+          // time. Mark RTC only when PMS also confirms vacancy / checked-out status.
+          updateData.checkout_time = pmsCheckedOut ? new Date().toISOString() : null;
           if (!isCheckout) {
             updateData.checkout_time = null;
             updateData.is_checkout_room = false;
@@ -841,6 +846,15 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
           if (!updateError) {
             processed.updated++;
+            if (pmsCheckedOut) {
+              await supabase
+                .from('room_assignments')
+                .update({ ready_to_clean: true, updated_at: new Date().toISOString() } as any)
+                .eq('room_id', room.id)
+                .eq('assignment_date', today)
+                .eq('assignment_type', 'checkout_cleaning')
+                .in('status', ['assigned', 'in_progress']);
+            }
           }
 
           // Note: PMS upload only updates room statuses. Managers must manually assign rooms to housekeepers.
