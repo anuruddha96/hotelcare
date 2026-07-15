@@ -88,6 +88,23 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
     }
   }, [refreshTenant]);
 
+  const getLocalDateKey = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const persistSelection = () => {
+    const todayKey = getLocalDateKey();
+    try {
+      if (profile?.id) localStorage.setItem(`hotel_selected_date:${profile.id}`, todayKey);
+      localStorage.setItem('hotel_selected_date', todayKey);
+      sessionStorage.setItem('hotel_selected', 'true');
+    } catch { /* storage blocked */ }
+  };
+
   const handleSelectHotel = async (hotelId: string, hotelName: string) => {
     if (!profile) return;
     setSelecting(hotelId);
@@ -100,9 +117,7 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
       if (error) throw error;
 
       toast.success(`Working in ${hotelName}`);
-      const todayKey = new Date().toISOString().slice(0, 10);
-      localStorage.setItem('hotel_selected_date', todayKey);
-      sessionStorage.setItem('hotel_selected', 'true');
+      persistSelection();
       onHotelSelected();
       window.location.reload();
     } catch (err) {
@@ -114,11 +129,10 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
   };
 
   const handleContinue = () => {
-    const todayKey = new Date().toISOString().slice(0, 10);
-    localStorage.setItem('hotel_selected_date', todayKey);
-    sessionStorage.setItem('hotel_selected', 'true');
+    persistSelection();
     onHotelSelected();
   };
+
 
   if (tenantLoading) {
     return (
