@@ -189,12 +189,19 @@ serve(async (req) => {
     const today = todayUtcDate();
     const tomorrow = addDays(today, 1);
     const windowEnd = addDays(today, 3);
+    // Widen the *arrival-side* window backwards so mid-stay guests (who
+    // arrived days/weeks ago) are still returned. Previo's <term> filters
+    // by arrival date, so a today-only window silently drops every
+    // stay-through and today-departing reservation → they'd fall into
+    // the !res branch and get mis-flagged as no-shows.
+    const windowStart = addDays(today, -30);
 
     interface ParsedReservation {
       objId: number | null;
       roomName: string;
       arrivalDate: string;
       departureDate: string;
+      departureTime: string | null;
       statusId: number;
       guestsCount: number;
       note: string | null;
@@ -233,7 +240,7 @@ serve(async (req) => {
         method: "searchReservations",
         creds,
         pmsHotelId: String(cfg.pms_hotel_id || ""),
-        extraXml: `<term><from>${today}</from><to>${windowEnd}</to></term>`,
+        extraXml: `<term><from>${windowStart}</from><to>${windowEnd}</to></term>`,
       });
       const xmlText = xmlResult.text;
       if (!xmlResult.ok) {
@@ -251,6 +258,12 @@ serve(async (req) => {
           if (!fromStr || !toStr) continue;
           const arrival = fromStr.slice(0, 10);
           const departure = toStr.slice(0, 10);
+          // Previo <to> is sometimes "YYYY-MM-DD" only; sometimes
+          // "YYYY-MM-DD HH:MM(:SS)" or ISO with "T". Extract the HH:MM
+          // portion when present so housekeepers see the real checkout time.
+          let departureTime: string | null = null;
+          const timeMatch = toStr.match(/[T\s](\d{2}:\d{2})/);
+          if (timeMatch) departureTime = timeMatch[1];
           const statusId = parseInt(grab(block, "statusId") || "0", 10);
           if (statusId === 7 || statusId === 8) continue;
           const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
@@ -264,6 +277,7 @@ serve(async (req) => {
             roomName,
             arrivalDate: arrival,
             departureDate: departure,
+            departureTime,
             statusId,
             guestsCount,
             note: noteMatch ? noteMatch[1].trim() || null : null,
@@ -324,6 +338,7 @@ serve(async (req) => {
             roomName,
             arrivalDate: arrival,
             departureDate: today,
+            departureTime: item?.departureTime ? String(item.departureTime) : null,
             statusId: item?.status === "checked_out" ? 5 : 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
             note: item?.notes ? String(item.notes) : null,
@@ -344,6 +359,7 @@ serve(async (req) => {
             roomName,
             arrivalDate: arrival,
             departureDate: departure,
+            departureTime: null,
             statusId: 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
             note: item?.notes ? String(item.notes) : null,
@@ -405,18 +421,23 @@ serve(async (req) => {
       const departureTomorrowConfirmed =
         isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
 
-      // No-show: PMS has no reservation for this room today (not occupied,
-      // no arrival, no departure, no night counts). Managers still need to
-      // see and clean these rooms, but flagged so they know the guest
-      // didn't arrive.
-      const isNoShow = !res && !isOccupied && !isDeparture && !isArrival && !isDepartureTomorrow;
+      // No-show is a RESERVATION state, not "the room has no reservation".
+      // Real definition: reception booked a guest to arrive today and they
+      // never checked in. Previo marks such reservations with statusId 6.
+      // A room with no reservation at all is simply vacant.
+      const noteLower = (res?.note ?? "").toLowerCase();
+      const isNoShow = !!res
+        && res.arrivalDate === today
+        && (res.statusId === 6 || noteLower.includes("no show") || noteLower.includes("no-show"));
 
       return {
         Room: r.name,
         RoomId: r.roomId,
         RoomKindName: r.roomKindName,
         Occupied: isOccupied || isDeparture ? "Yes" : "No",
-        Departure: isDeparture ? "12:00" : null,
+        // Prefer the real reservation departure time; fall back to 11:00
+        // (Ottofiori standard check-out) so the chip is never blank.
+        Departure: isDeparture ? (res?.departureTime || "11:00") : null,
         DepartureTomorrow: departureTomorrowConfirmed,
         DepartureDate: res?.departureDate ?? null,
         ArrivalDate: res?.arrivalDate ?? null,
