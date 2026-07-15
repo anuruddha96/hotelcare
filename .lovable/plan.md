@@ -1,31 +1,24 @@
-## Fix: only 305 should not be RTC
+## Show manager assignees in Team View + chip name labels
 
-PMS export confirms:
-- **10 checkouts today**: 102, 104, 201, 203, 303, **305**, 401, 403, 404, 405
-- **301 = Occupied (daily)** — leave as-is, do not touch
-- **305** = scheduled checkout but guest hasn't left Previo yet → must stay non-RTC on `pms_hold`
-- **All other 9 checkouts** = RTC (401 now confirmed by Previo)
+**Root cause:** Both name-lookup sources (`HousekeepingManagerView.fetchHousekeepingStaff` and `Dashboard.receptionStaffMap`) filter `role='housekeeping'`. When a manager like Nykipanchuk_073 (`housekeeping_manager` / `manager`) is the assignee for rooms 201/203, their id is missing from `staffMap` → chip renders with no name, and no card appears in Team View.
 
-### Data corrections (insert tool only — no schema, no code changes)
+## Changes (frontend only, no schema, no business logic changes)
 
-1. **Room 305 (Ottofiori, today)**
-   - `rooms`: `is_checkout_room=true`, `checkedOutToday=false`, `pms_hold=true`, `checkout_time=null`.
-   - `room_assignments` (today, 305): keep `assignment_type='checkout_cleaning'`, force `status` back from `ready_to_clean` to its pre-RTC state (`pending`/`assigned`), set hold flag consistent with other held rooms.
-   - Remove any stale `checkout_confirmed` / `manager_verified_previo` event for 305 today so the cron will fire cleanly when Previo confirms.
+### 1. `src/components/dashboard/HousekeepingManagerView.tsx`
+- After `fetchHousekeepingStaff` (or as a second query inside it): also fetch profiles for any `assigned_to` id present in today's `room_assignments` for the current hotel(s) that is NOT already in `housekeepingStaff`. Only these "extra" profiles (managers who happen to have rooms today) get appended so the card list shows their name.
+- Guard: only append when that profile has ≥1 assignment for `selectedDate`. If they have zero assignments, no extra card is shown — matches "only if there are active rooms".
+- The existing render loop over `housekeepingStaff` then naturally produces a card for Nykipanchuk with her real assignment counts, without adding empty cards for other managers.
+- The `staffMap` passed to `HotelRoomOverview` (built from `housekeepingStaff`) now includes managers with assignments, so 201/203 chips show her name.
 
-2. **Room 401 (Ottofiori, today)** — Previo now confirms departure
-   - `rooms`: clear `pms_hold`, ensure `is_checkout_room=true`, `checkedOutToday=true`, `checkout_time=now()` if empty.
-   - `room_assignments`: `status='ready_to_clean'`.
+### 2. `src/components/dashboard/Dashboard.tsx` (`receptionStaffMap`)
+- Broaden the reception-mode name lookup so chips also resolve manager names: fetch profiles where `role IN ('housekeeping','housekeeping_manager','manager')` for the reception's hotel. Reception still doesn't get any new actions — just correct labels on chips.
 
-3. **Room 301** — no changes. Verify it's `daily_cleaning`, `is_checkout_room=false`, no hold. If a prior correction wrongly flipped it, revert to daily/occupied.
+### 3. No changes to
+- Assignment logic, auto-assign eligibility, or role permissions
+- Team View for managers who have no rooms today (they will not appear as cards)
+- Any styling/design tokens
 
-### Cron behavior (no code change needed)
-
-The existing `previo-poll-checkouts` self-heal already:
-- Clears `pms_hold` and sets `ready_to_clean` when Previo reports the guest as departed.
-So once the 305 guest actually checks out in Previo, the next 5-minute poll will flip 305 to RTC automatically. No code patch required.
-
-### Verification
-
-- Query Ottofiori assignments for today → expect 10 checkout rows, 9 RTC, 305 held/non-RTC, 301 untouched as daily.
-- Trigger `previo-poll-checkouts` once and re-query to confirm nothing regresses.
+## Verification
+- Reload `/rdhotels` as an admin/manager: chips for 201/203 show "Nykipanchuk" (or her nickname/full name); a card labeled with her name appears in Team View with her room count and Done/Working/Pending stats.
+- Managers with 0 rooms today do NOT get cards.
+- Existing housekeeper cards and assignments are unchanged.
