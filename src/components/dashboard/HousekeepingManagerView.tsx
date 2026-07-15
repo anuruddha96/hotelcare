@@ -236,7 +236,49 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       const { data: filteredStaff, error } = await query;
       if (error) throw error;
 
-      setHousekeepingStaff(filteredStaff || []);
+      const baseStaff = filteredStaff || [];
+
+      // Also include any non-housekeeping profile (e.g. managers who clean rooms)
+      // that has at least one room assignment for the selected date in this hotel.
+      try {
+        const { data: todaysAssignments } = await supabase
+          .from('room_assignments')
+          .select('assigned_to, rooms!inner(hotel)')
+          .eq('assignment_date', selectedDate);
+
+        const assigneeIds = new Set<string>();
+        (todaysAssignments || []).forEach((row: any) => {
+          if (!row.assigned_to) return;
+          if (hotelKeys.length > 0 && !hotelKeys.includes(row.rooms?.hotel)) return;
+          assigneeIds.add(row.assigned_to);
+        });
+
+        const knownIds = new Set(baseStaff.map(s => s.id));
+        const extraIds = Array.from(assigneeIds).filter(id => !knownIds.has(id));
+
+        if (extraIds.length > 0) {
+          const { data: extraProfiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, nickname, email, assigned_hotel, organization_slug, role')
+            .in('id', extraIds)
+            .eq('organization_slug', profileData.organization_slug);
+
+          if (extraProfiles && extraProfiles.length > 0) {
+            baseStaff.push(...extraProfiles.map((p: any) => ({
+              id: p.id,
+              full_name: p.full_name,
+              nickname: p.nickname,
+              email: p.email,
+              assigned_hotel: p.assigned_hotel,
+              organization_slug: p.organization_slug,
+            })));
+          }
+        }
+      } catch (extraErr) {
+        console.warn('Failed to load non-housekeeping assignees:', extraErr);
+      }
+
+      setHousekeepingStaff(baseStaff);
     } catch (error) {
       console.error('Error fetching housekeeping staff:', error);
       toast.error('Failed to load housekeeping staff');
