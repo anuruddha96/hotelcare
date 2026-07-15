@@ -44,7 +44,8 @@ const ELIGIBLE_ROLES = new Set([
 ]);
 
 const THROTTLE_MS = 2 * 60 * 1000; // 2 min
-const CHECKOUTS_INTERVAL_MS = 10 * 60 * 1000; // 10 min
+const CHECKOUTS_ACTIVE_INTERVAL_MS = 5 * 60 * 1000; // 5 min while pending checkouts remain
+const CHECKOUTS_IDLE_INTERVAL_MS = 30 * 60 * 1000; // 30 min once all RTC (safety net)
 
 const initialTask: TaskState = { status: "idle", lastAt: null };
 
