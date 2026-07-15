@@ -100,6 +100,8 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
       if (error) throw error;
 
       toast.success(`Working in ${hotelName}`);
+      const todayKey = new Date().toISOString().slice(0, 10);
+      localStorage.setItem('hotel_selected_date', todayKey);
       sessionStorage.setItem('hotel_selected', 'true');
       onHotelSelected();
       window.location.reload();
@@ -112,6 +114,8 @@ export function HotelSelectionScreen({ onHotelSelected }: HotelSelectionScreenPr
   };
 
   const handleContinue = () => {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    localStorage.setItem('hotel_selected_date', todayKey);
     sessionStorage.setItem('hotel_selected', 'true');
     onHotelSelected();
   };
