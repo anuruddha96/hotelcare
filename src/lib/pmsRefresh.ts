@@ -191,7 +191,9 @@ export async function runPmsRefresh(
           if (Object.keys(patch).length > 0) {
             patch.updated_at = new Date().toISOString();
             cleanupUpdates.push(
-              supabase.from("rooms").update(patch).eq("id", (r as any).id),
+              (async () => {
+                await supabase.from("rooms").update(patch).eq("id", (r as any).id);
+              })(),
             );
           }
         }
