@@ -12,8 +12,13 @@ const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager'];
 const Index = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  // Managers pick a hotel once per day (local date). Stored in localStorage so
+  // it survives app reloads and PWA re-opens throughout the working day, and
+  // auto-expires when the date rolls over so the picker shows again next morning.
+  const todayKey = new Date().toISOString().slice(0, 10);
   const [hotelSelected, setHotelSelected] = useState(
-    () => sessionStorage.getItem('hotel_selected') === 'true'
+    () => localStorage.getItem('hotel_selected_date') === todayKey
+      || sessionStorage.getItem('hotel_selected') === 'true'
   );
 
   // Breakfast staff: hard-redirect to public /bb so PublicBreakfastApp mounts
