@@ -207,21 +207,42 @@ async function pollOneHotel(
       ?? localScheduledByName.get(String(r.name ?? "").trim())
       ?? localScheduledByName.get(extractNum(String(r.name ?? "")));
     const localScheduledDepartureToday = localMatch?.pms_metadata?.scheduledDepartureToday === true;
+    const localCurrentNight = Number(localMatch?.pms_metadata?.currentNight ?? 0);
+    const cleanStatusRaw = r.roomCleanStatusId ?? r.cleanStatusId ?? null;
+    const cleanStatusNum = Number(cleanStatusRaw);
+    // Previo roomCleanStatusId: 1 = dirty / ready-to-clean, 2 = touch-up,
+    // 3 = clean/inspected. Anything that is NOT clean(3) counts as ready.
+    const cleanStatusReady = Number.isFinite(cleanStatusNum) && cleanStatusNum !== 3 && cleanStatusNum > 0;
     if (!res) {
-      if (localMatch) {
-        result.diagnostics.push({
-          source: "rest-room",
-          room: r.name,
-          roomId: r.roomId,
-          localRoom: localMatch.room_number,
-          localScheduledDepartureToday,
-          localIsCheckoutRoom: localMatch.is_checkout_room === true,
-          roomCleanStatus: r.roomCleanStatusId ?? r.cleanStatusId ?? null,
-          reservationPresent: false,
-          accepted: false,
-          reason: "no reservation payload from Previo REST; room clean status alone is not enough evidence to mark checked-out",
-        });
-      }
+      if (!localMatch) continue;
+      // Reservation is missing from the room record. In Previo this is what
+      // "guest is no longer occupying the room" looks like — after reception
+      // marks a checkout the reservation drops off the room's live payload
+      // and the clean-status flips to dirty. We treat this as a checkout ONLY
+      // when the local room was recently occupied, so we don't misclassify
+      // permanently vacant rooms or rooms Previo simply omits data for.
+      const wasOccupied = localCurrentNight >= 1
+        || localScheduledDepartureToday
+        || localMatch.is_checkout_room === true;
+      const accept = wasOccupied && cleanStatusReady;
+      result.diagnostics.push({
+        source: "rest-room",
+        room: r.name,
+        roomId: r.roomId,
+        localRoom: localMatch.room_number,
+        localScheduledDepartureToday,
+        localCurrentNight,
+        localIsCheckoutRoom: localMatch.is_checkout_room === true,
+        roomCleanStatus: cleanStatusRaw,
+        reservationPresent: false,
+        accepted: accept,
+        reason: accept
+          ? "reservation dropped from Previo REST and room clean status is dirty/ready — treating as checkout"
+          : (wasOccupied
+              ? "reservation missing but Previo clean status is not dirty/ready — waiting"
+              : "reservation missing and local room shows no prior occupancy — leaving as-is"),
+      });
+      if (accept) addCheckoutSignal(r.name, r.roomId, "", "rest-room-clean-status");
       continue;
     }
     const departure = cleanDate(res.departureDate ?? res.departure ?? res.to);
@@ -242,7 +263,7 @@ async function pollOneHotel(
         commissionStatusId: res.commissionStatusId ?? null,
         roomReservationStatusId: res.roomReservationStatusId ?? null,
         status: typeof res.status === "object" ? JSON.stringify(res.status).slice(0, 120) : res.status ?? null,
-        roomCleanStatus: r.roomCleanStatusId ?? r.cleanStatusId ?? null,
+        roomCleanStatus: cleanStatusRaw,
         checkedOut,
         accepted: checkedOut && departure === today,
       });
@@ -250,6 +271,7 @@ async function pollOneHotel(
     if (!checkedOut || departure !== today) continue;
     addCheckoutSignal(r.name, r.roomId, res.reservationId ?? res.id ?? "", "rest-room-reservation");
   }
+
 
   try {
     const creds = loadPrevioCredentials(cfg.credentials_secret_name);
