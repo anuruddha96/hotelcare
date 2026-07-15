@@ -523,6 +523,9 @@ serve(async (req) => {
     const departureTomorrowCount = rows.filter((r) => r.DepartureTomorrow).length;
     const checkedOutCount = rows.filter((r) => r.CheckedOut).length;
     const arrivalCount = rows.filter((r) => r.Arrival).length;
+    const reservationSource = reservationsByRoomName.size > 0
+      ? reservationFallbackSource ?? (restReservationsIndexed > 0 ? "rest_rooms_embedded_reservation" : "xml_searchReservations")
+      : null;
     console.log(`[previo-pms-sync] emitted ${rows.length} rows (${departureCount} depart today, ${departureTomorrowCount} depart tomorrow, ${checkedOutCount} checked-out, ${arrivalCount} arrivals; roster=${rosterSource}, dryRun=${dryRun})`);
 
     return new Response(
@@ -537,6 +540,8 @@ serve(async (req) => {
         checkedOutToday: checkedOutCount,
         arrivalsToday: arrivalCount,
         reservationsAvailable: reservationsByRoomName.size,
+        reservationDataAuthoritative: reservationsByRoomName.size > 0,
+        reservationSource,
         reservationFetchError,
         reservationFallbackSource,
         rows,

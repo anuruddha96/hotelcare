@@ -83,6 +83,7 @@ export async function runPmsRefresh(
     throw new Error((data as any)?.error || error?.message || "PMS sync failed");
   }
   const rows: any[] = (data as any)?.rows || [];
+  const reservationDataAuthoritative = (data as any)?.reservationDataAuthoritative !== false;
   if (rows.length === 0) {
     return {
       status: "success", updated: 0, total: 0, notFound: 0, checkouts: 0, errors: [],
@@ -103,6 +104,10 @@ export async function runPmsRefresh(
   const today = new Date().toISOString().split("T")[0];
   const matchedRoomIds = new Set<string>();
   const protectedCheckoutAssignmentRoomIds = new Set<string>();
+
+  if (!reservationDataAuthoritative) {
+    errors.push("Previo reservation/departure data is unavailable; checkout buckets were preserved from the last authoritative PMS data.");
+  }
 
   try {
     const { data: protectedAssignments } = await supabase
@@ -251,7 +256,9 @@ export async function runPmsRefresh(
       const currentCheckoutFlag = !!room.is_checkout_room;
       const manualOverride = existingMetadata?.manual_checkout === true;
       const hasProtectedCheckoutAssignment = protectedCheckoutAssignmentRoomIds.has(room.id);
-      const preserveExistingCheckout = currentCheckoutFlag && !shouldBeCheckoutRoom && (manualOverride || hasProtectedCheckoutAssignment);
+      const preserveExistingCheckout = currentCheckoutFlag && !shouldBeCheckoutRoom && (
+        !reservationDataAuthoritative || manualOverride || hasProtectedCheckoutAssignment
+      );
       const effectiveCheckoutFlag = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
       if (effectiveCheckoutFlag !== currentCheckoutFlag) {
         const label = isCheckedOut
@@ -263,7 +270,9 @@ export async function runPmsRefresh(
               : preserveExistingCheckout
                 ? manualOverride
                   ? "Preserved — manual checkout"
-                  : "Preserved — checkout cleaning in progress"
+                  : hasProtectedCheckoutAssignment
+                    ? "Preserved — checkout cleaning in progress"
+                    : "Preserved — PMS reservation data unavailable"
                 : "No checkout";
         changeFields.push({
           field: "Checkout room", before: currentCheckoutFlag, after: `${effectiveCheckoutFlag} (${label})`, category: "checkout",
@@ -321,9 +330,10 @@ export async function runPmsRefresh(
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
-      // PMS sync is authoritative for today's buckets: rooms that no longer
-      // depart today must be reset back to Daily Rooms. Preserve only explicit
-      // manager checkout moves and checkout cleans already in progress.
+      // PMS sync is authoritative for today's buckets only when the snapshot
+      // contains reservation/departure data (live API or today's upload
+      // fallback). Otherwise preserve checkout flags instead of wiping true
+      // checkouts based on a status-only room roster.
       updateData.is_checkout_room = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
 
       if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
