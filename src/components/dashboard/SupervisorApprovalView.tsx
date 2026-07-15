@@ -754,7 +754,9 @@ export function SupervisorApprovalView() {
     });
   };
 
+  const handleReassignment = async () => {
     if (!selectedAssignment || !selectedHousekeeper) return;
+
 
     try {
       const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
