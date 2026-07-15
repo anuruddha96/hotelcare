@@ -561,6 +561,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || room.is_checkout_room || isScheduledCheckoutRoom(room);
+    const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
     const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms;
 
     const chipContent = (
@@ -716,7 +717,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </div>
 
               {/* Ready to Clean - PROMINENT for checkout rooms */}
-              {isCheckout && assignment && !assignment.ready_to_clean && isManagerOrAdmin && (
+              {canMarkReadyToClean && assignment && !assignment.ready_to_clean && isManagerOrAdmin && (
                 <button
                   className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
                   disabled={actionLoading === `ready-${room.id}`}
@@ -735,7 +736,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   <CheckCircle className="h-4 w-4" /> ✅ {t('roomOverview.markReadyToClean')}
                 </button>
               )}
-              {isCheckout && assignment?.ready_to_clean && (
+              {canMarkReadyToClean && assignment?.ready_to_clean && (
                 <div className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
                   ✅ {t('roomOverview.readyToClean')}
                 </div>
