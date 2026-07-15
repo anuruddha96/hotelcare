@@ -120,6 +120,41 @@ export async function runPmsRefresh(
   const today = new Date().toISOString().split("T")[0];
   const matchedRoomIds = new Set<string>();
 
+  // New-day DND reset: when the most recent PMS refresh for this hotel was
+  // on an earlier calendar day, clear all DND flags so the new day starts
+  // fresh. Runs once per calendar day (subsequent same-day refreshes are
+  // no-ops because lastPmsRefreshDate is already today).
+  if (!dryRun) {
+    try {
+      const { data: probe } = await supabase
+        .from("rooms")
+        .select("pms_metadata")
+        .in("hotel", hotelKeys)
+        .not("pms_metadata->>lastPmsRefreshDate", "is", null)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const lastRefresh = (probe as any)?.pms_metadata?.lastPmsRefreshDate ?? null;
+      if (!lastRefresh || lastRefresh < today) {
+        await supabase
+          .from("rooms")
+          .update({
+            is_dnd: false,
+            dnd_marked_at: null,
+            dnd_marked_by: null,
+            updated_at: new Date().toISOString(),
+          })
+          .in("hotel", hotelKeys)
+          .eq("is_dnd", true);
+        console.log(`[pmsRefresh] Cleared previous-day DND for hotel ${hotelId} (last refresh ${lastRefresh ?? "never"})`);
+      }
+    } catch (e) {
+      console.warn("[pmsRefresh] DND reset skipped:", e);
+    }
+  }
+
+
+
   for (const row of rows) {
     try {
       const rawRoomName = String(row.Room ?? "").trim();
