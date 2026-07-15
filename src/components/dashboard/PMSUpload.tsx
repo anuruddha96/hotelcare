@@ -824,9 +824,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             updateData.last_linen_change = today;
           }
 
-          if (isCheckout && departureParsed !== null) {
-            updateData.checkout_time = new Date().toISOString();
-          } else if (!isCheckout) {
+          // A departure time in the PMS file is only the scheduled checkout
+          // time. Do not mark RTC/actual checkout until PMS or front desk
+          // confirms the guest has departed.
+          updateData.checkout_time = null;
+          if (!isCheckout) {
             updateData.checkout_time = null;
             updateData.is_checkout_room = false;
           }

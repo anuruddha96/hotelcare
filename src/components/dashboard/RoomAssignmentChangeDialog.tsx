@@ -57,7 +57,7 @@ export function RoomAssignmentChangeDialog({
         .from('rooms')
         .update({ 
           is_checkout_room: true,
-          checkout_time: new Date().toISOString()
+          checkout_time: null
         })
         .eq('id', roomId);
 

@@ -450,17 +450,15 @@ export function AutoRoomAssignment({
       ...hotelConfig, hotelName: hotelName || undefined
     });
 
-    // Rebalance already-departed checkout rooms across housekeepers so every
-    // housekeeper starts their shift with a real RTC checkout when supply
-    // allows. This does not change the total workload — it only reshuffles
-    // departed checkouts one-per-housekeeper via round-robin.
-    const hasDeparted = (r: RoomForAssignment) =>
-      (r.pms_metadata as any)?.checkedOutToday === true || !!r.checkout_time;
+    // Rebalance only PMS-confirmed departed checkout rooms. A scheduled
+    // checkout time (for example 11:00) is not enough to mark RTC.
+    const isPmsConfirmedReadyToClean = (r: RoomForAssignment) =>
+      (r.pms_metadata as any)?.checkedOutToday === true;
     const departedPool: RoomForAssignment[] = [];
     const rebalanced = previews.map(p => {
       const kept: RoomForAssignment[] = [];
       for (const r of p.rooms) {
-        if (hasDeparted(r)) departedPool.push(r);
+        if (isPmsConfirmedReadyToClean(r)) departedPool.push(r);
         else kept.push(r);
       }
       return { ...p, rooms: kept };
@@ -511,8 +509,8 @@ export function AutoRoomAssignment({
     setSubmitting(true);
     try {
       // Create all assignments with checkout-first priority ordering
-      const hasDeparted = (room: RoomForAssignment): boolean =>
-        (room.pms_metadata as any)?.checkedOutToday === true || !!room.checkout_time;
+      const isPmsConfirmedReadyToClean = (room: RoomForAssignment): boolean =>
+        (room.pms_metadata as any)?.checkedOutToday === true;
 
       const assignments = assignmentPreviews.flatMap(preview => {
         // Assign priority based on room type urgency:
@@ -536,9 +534,9 @@ export function AutoRoomAssignment({
 
         return sorted.map((room) => {
           const isCheckout = room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true;
-          // Departed guests → Ready-to-Clean the moment we assign. Not-yet-
-          // departed checkouts stay non-RTC until front desk confirms.
-          const rtc = hasDeparted(room) ? true : !isCheckout;
+          // Only PMS-confirmed departed checkout rooms start as RTC. A normal
+          // scheduled checkout time does not mean the guest has left.
+          const rtc = isPmsConfirmedReadyToClean(room) ? true : !isCheckout;
           return {
             room_id: room.id,
             assigned_to: preview.staffId,

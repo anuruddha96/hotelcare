@@ -431,6 +431,10 @@ export async function runPmsRefresh(
           isNoShow: row.IsNoShow === true,
         },
       };
+      if (!isCheckedOut) {
+        delete updateData.pms_metadata.readyToClean;
+        delete updateData.pms_metadata.checkedOutAt;
+      }
       if (mappedStatus) {
         updateData.status = mappedStatus;
         if (mappedStatus === "clean") {
@@ -443,8 +447,10 @@ export async function runPmsRefresh(
       // checkouts based on a status-only room roster.
       updateData.is_checkout_room = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
 
-      if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
-      else if (!updateData.is_checkout_room) updateData.checkout_time = null;
+      // `checkout_time` is an actual departed timestamp, not the scheduled
+      // departure time from PMS. Scheduled checkouts stay blocked until PMS
+      // confirms the guest has checked out.
+      updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
       if (row.Note) updateData.notes = String(row.Note);
