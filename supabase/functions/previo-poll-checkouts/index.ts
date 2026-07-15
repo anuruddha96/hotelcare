@@ -128,24 +128,23 @@ async function pollOneHotel(
     .maybeSingle();
   const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
 
-  // Early exit: if there are no checkout_cleaning assignments still waiting for
-  // RTC today, there is nothing for this cron run to do. This satisfies the
-  // requirement that the poll effectively stops once all checkout rooms are RTC.
-  if (!dryRun) {
-    const today0 = todayUtc();
-    const { data: pendingAsg } = await service
-      .from("room_assignments")
-      .select("id, rooms!inner(hotel)")
-      .eq("assignment_date", today0)
-      .eq("assignment_type", "checkout_cleaning")
-      .eq("ready_to_clean", false)
-      .in("status", ["assigned", "in_progress"])
-      .in("rooms.hotel", hotelKeys)
-      .limit(1);
-    if (!pendingAsg || pendingAsg.length === 0) {
-      result.diagnostics.push({ source: "early-exit", reason: "no pending checkout_cleaning assignments waiting for RTC" });
-      return result;
-    }
+  // Load all pending checkout_cleaning assignments for today (waiting for RTC).
+  // Used both for early-exit and as the guard for signal (c) below.
+  const today0 = todayUtc();
+  const { data: pendingAsg } = await service
+    .from("room_assignments")
+    .select("id, room_id, rooms!inner(hotel)")
+    .eq("assignment_date", today0)
+    .eq("assignment_type", "checkout_cleaning")
+    .eq("ready_to_clean", false)
+    .in("status", ["assigned", "in_progress"])
+    .in("rooms.hotel", hotelKeys);
+  const pendingCheckoutRoomIds = new Set<string>(
+    (pendingAsg ?? []).map((a: any) => a.room_id).filter(Boolean),
+  );
+  if (!dryRun && pendingCheckoutRoomIds.size === 0) {
+    result.diagnostics.push({ source: "early-exit", reason: "no pending checkout_cleaning assignments waiting for RTC" });
+    return result;
   }
 
   // Load every locally mapped room for this hotel so we can recognise
@@ -232,6 +231,13 @@ async function pollOneHotel(
     const localScheduledDepartureToday = localMatch?.pms_metadata?.scheduledDepartureToday === true;
     if (!res) {
       if (localMatch) {
+        // Signal (c): scheduled to depart today AND still has a pending
+        // checkout_cleaning assignment waiting for RTC AND Previo REST no
+        // longer attaches a reservation for the room → reception completed
+        // the checkout in Previo. Safe because the pending-assignment guard
+        // prevents this from touching any in-house room.
+        const pendingHere = pendingCheckoutRoomIds.has(localMatch.id);
+        const acceptScheduledGone = localScheduledDepartureToday && pendingHere;
         result.diagnostics.push({
           source: "rest-room",
           room: r.name,
@@ -241,9 +247,15 @@ async function pollOneHotel(
           localIsCheckoutRoom: localMatch.is_checkout_room === true,
           roomCleanStatus: cleanStatusRaw,
           reservationPresent: false,
-          accepted: false,
-          reason: "no reservation payload from Previo REST; room clean status alone is not enough evidence to mark checked-out",
+          pendingCheckoutAssignment: pendingHere,
+          accepted: acceptScheduledGone,
+          reason: acceptScheduledGone
+            ? "scheduled departure today + pending checkout assignment + Previo dropped the reservation → guest is checked out"
+            : "no reservation payload from Previo REST; not scheduled-depart-today or not a pending checkout assignment",
         });
+        if (acceptScheduledGone) {
+          addCheckoutSignal(r.name, r.roomId, "", "rest-room-scheduled-gone");
+        }
       }
       continue;
     }

@@ -1,45 +1,50 @@
-## Fix Previo cron sync + let managers toggle RTC
+## Fix: cron isn't marking 305 as RTC even though Previo shows it checked out
 
-### Root cause (why 401 keeps flipping off RTC)
+### Diagnosis (from live poll diagnostics, hotel `ottofiori`)
 
-Timeline for 401 today (from `pms_change_events`):
-- 09:34 poll marked 401 checkout_confirmed → RTC.
-- 09:43 manager reverted (manual clarification).
-- 09:36 manager re-verified → RTC.
-- **10:00 cron reconcile step (3.5) reverted again** with reason "no reservation payload from Previo and no confirming checkout event today".
+Every room in Ottofiori's `/rest/rooms` response comes back **without any reservation payload** (`reservationPresent: false`). Example rows from the latest poll:
 
-Ottofiori's Previo REST returns **no reservation payload** on `/rest/rooms`, and its XML `searchReservations` fails with 401. The reconcile step therefore reverts every legitimately-RTC checkout room on every 5-min run. Same story for 305 (it stays on hold, which is correct, but for the wrong reason — it's held by reconcile, not by real Previo data).
+- `DB/TW-305 → localScheduledDepartureToday=true, roomCleanStatus=1, reservationPresent=false → accepted=false`
+- `DB/TW-401 → localScheduledDepartureToday=true, localIsCheckoutRoom=true, reservationPresent=false → accepted=false` (401 is RTC only because a manager toggled it manually)
 
-### Requirements from user
+Meanwhile Ottofiori's XML `searchReservations` returns 401 (ApiKey tenant, XML endpoint refuses). So today's poll has **zero signals** it accepts, `departed=0`, `marked=0`. That is why 305 sits at `pms_hold=true, ready_to_clean=false` forever — not a bug in the assignment or UI, but a missing signal path in the poller for this tenant class.
 
-1. Cron every 5 min pulls Previo, marks checkout rooms RTC when Previo confirms. Once all today's checkout rooms are RTC → cron becomes a no-op (still scheduled, just returns early).
-2. Trust Previo, not manual data — but never remove an RTC flag automatically.
-3. Managers/admins can click a room chip to manually toggle RTC on/off.
+The rule in the current code is "reservation payload required to accept a checkout". That rule can never be satisfied on Ottofiori, so cron never marks RTC on its own for any Ottofiori checkout room.
 
-### Changes
+### Fix (poller-only; no manual data changes, no schema changes)
 
-#### 1. `supabase/functions/previo-poll-checkouts/index.ts` — rewrite the pipeline
+Add a third checkout signal to `supabase/functions/previo-poll-checkouts/index.ts` — the one the earlier plan already described but that never landed. Keep the two existing signals unchanged.
 
-- **Early exit**: at the top of `pollOneHotel`, load today's `room_assignments` for the hotel where `assignment_type='checkout_cleaning'` and `ready_to_clean=false`. If zero rows → return an "idle" result immediately. This satisfies "cron doesn't need to run after all are RTC".
-- **Signal sources for RTC** (any one is sufficient for a room already scoped as a checkout):
-  a. Previo REST reservation `statusId=5/9` or checked-out tokens (existing).
-  b. Previo XML `searchReservations` departure today with checked-out status (existing).
-  c. Previo REST `roomCleanStatusId` transitioning to a "guest gone" value (typically 1/dirty after reception clears the room). This is scoped **only to rooms whose local assignment is a not-yet-RTC checkout_cleaning today** — so it cannot mark unrelated in-house rooms as checked out (the earlier false-positive class stays impossible).
-- **Never revert RTC**: delete the reconcile step (3.5) that flips `ready_to_clean` back to false and re-applies `pms_hold` based on missing reservation payloads. Reconcile is the exact code that breaks Ottofiori and violates "don't auto-remove RTC".
-- **Never clear checkout flag** on rooms that have an `checkout_confirmed` / `manager_verified_previo` event today — tighten step 4 (stale cleanup) accordingly.
-- Keep `pms_hold` behavior for **not-yet-RTC** rooms: if Previo actively reports the reservation is still in-house (departure > today, or reservation present without departed status), keep the hold reason updated. Do not touch RTC rooms.
+**New signal (c) — "scheduled departure + guest no longer in Previo":**
 
-#### 2. `HotelRoomOverview.tsx` — manager/admin RTC toggle from chip popover
+For each Previo REST room where:
+1. `localScheduledDepartureToday === true` on the mapped local room, AND
+2. There is a matching **local `checkout_cleaning` assignment today with `ready_to_clean=false`** (this is the guard — we only ever act on rooms already scoped as today's checkouts), AND
+3. Previo's REST payload for that room has **no active reservation object** (or the reservation's `departureDate` is today and `arrivalDate <= today`, meaning the stay has ended),
 
-- Below the existing "Mark ready to clean" button, add a "Revert ready to clean" button visible only to admin / manager / housekeeping_manager / top_management when `assignment?.ready_to_clean === true`.
-- Handler: update `room_assignments.ready_to_clean = false`, `pms_hold = false`, insert a `pms_change_events` row (`event_type='rtc_reverted_manual'`, source='manager_ui') so cron won't immediately re-flip and there's an audit trail.
-- Wrap both buttons so admin/manager can toggle RTC either direction from the chip popover.
+→ treat this as `checkout_confirmed`, source `poll_checkouts_rest_scheduled_gone`.
 
-#### 3. No schema changes, no cron schedule change (already every 5 min)
+Rationale: on Ottofiori the reservation object drops off `/rest/rooms` the moment reception completes the checkout in Previo. Combined with the local "scheduled to depart today + still waiting for RTC" guard, this cannot mark unrelated in-house rooms — those rooms don't have a not-yet-RTC checkout_cleaning assignment today.
+
+Signals (a) statusId=5/9 in REST reservation and (b) XML `searchReservations` remain as-is for tenants where they do fire (Privio-test etc.).
+
+### Explicit non-changes
+
+- Do **not** manually flip 305 in the DB — the user asked for cron to do it.
+- Do **not** touch the "never auto-revert RTC" rule or the stale-cleanup filter — 401 must stay RTC.
+- Do **not** widen the signal to any room with `roomCleanStatusId=1` — that would false-positive on in-house rooms. The guard is the local `checkout_cleaning + ready_to_clean=false` assignment today.
+- No cron schedule change (already every 5 min); early-exit stays in place so once all today's checkouts are RTC the run is a no-op.
 
 ### Verification
 
-1. Deploy edge function → invoke once via `supabase--curl_edge_functions` with `{trigger:"cron"}` and confirm 401 flips to RTC and stays RTC across two consecutive runs.
-2. Query `room_assignments` for Ottofiori today: expect 401 RTC, 305 held (not RTC).
-3. In the UI as admin: open room chip → toggle RTC off → wait 5 min → confirm it does NOT get auto-restored (only re-flipped when Previo reports checkout again OR admin toggles it back).
-4. Confirm the 9 other Ottofiori checkout rooms remain RTC unchanged.
+1. After deploy, invoke `previo-poll-checkouts` with `{hotelId:"ottofiori"}` and confirm 305 diagnostic flips to `accepted: true, source: "rest-room-scheduled-gone"`, `marked >= 1`, and `pms_change_events` gets a new `checkout_confirmed` row for 305.
+2. Requery `room_assignments` for 305 today: expect `ready_to_clean=true, pms_hold=false`.
+3. Requery 401: still `ready_to_clean=true` (untouched — reconcile is still deleted).
+4. Second run 5 min later: early-exit fires for Ottofiori if all remaining checkouts are RTC (`marked=0`, diagnostics = `early-exit`).
+
+### Technical notes
+
+- File touched: `supabase/functions/previo-poll-checkouts/index.ts` only.
+- Load the pending checkout_cleaning assignments once at the top of `pollOneHotel` (already loaded for early-exit — reuse the set of `room_id`s).
+- In the `for (const r of rooms)` loop, when `!res` and `localMatch` and `localMatch.id ∈ pendingCheckoutRoomIds`, call `addCheckoutSignal(r.name, r.roomId, "", "rest-room-scheduled-gone")` and add a matching diagnostic with `accepted: true`.
+- No change to Section 3 (per-departed-room processing), Section 3.5 (still removed), or Section 4 (stale cleanup).
