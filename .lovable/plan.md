@@ -1,47 +1,54 @@
-I’ll fix this as a PMS sync classification bug, not just a UI issue.
+## Add Ukrainian (uk) language support
 
-## Findings from the uploaded sheet
-For 2026-07-15, the sheet’s rule is clear:
+Add Ukrainian as a supported UI language across the app for all roles (housekeepers, managers, admins, etc.), matching how existing languages (en/hu/es/vi/mn/az/tl) are wired.
 
-- **Checkout Rooms**: only rooms with a value in `Departure`.
-  - CQ-405, Q-201, Q-403, DB/TW-203, DB/TW-303, DB/TW-401, DB/TW-404, TRP-104, TRP-305
-- **Daily Rooms**: occupied rooms with no `Departure`, even when `Night / Total` is on the last night.
-  - Q-101, Q-301, DB/TW-102, DB/TW-103, DB/TW-202, DB/TW-302, DB/TW-304, DB/TW-402, TRP-105, TRP-204, TRP-205, QRP-406
+### 1. Language switcher & type system
+- `src/components/dashboard/LanguageSwitcher.tsx`: add `{ code: 'uk', name: 'Українська', flag: '🇺🇦' }` to the `languages` array.
+- `src/hooks/useTranslation.tsx`: extend the `Language` union type to include `'uk'` and register the Ukrainian dictionary.
+- `src/components/training/v2/types.ts`: add `'uk'` to `LangCode` and make `uk?: string` available on `I18nText`.
+- Any other place enumerating supported language codes (memory index note, `preferred_language` handling, etc.) — codebase-wide sweep to catch `'en' | 'hu' | 'es' | 'vi' | 'mn' | 'az' | 'tl'` unions.
 
-So **QRP-406 must be Daily today**, with departure-tomorrow metadata/badge where applicable, not Checkout.
+### 2. Translation dictionaries
+Add a `uk` entry to every translation map. Files to update:
+- `src/hooks/useTranslation.tsx` (core `translations` object)
+- `src/lib/expanded-translations.ts`
+- `src/lib/highlighted-translations.ts`
+- `src/lib/screen-translations.ts`
+- `src/lib/breakfast-translations.ts`
+- `src/lib/guest-minibar-translations.ts`
+- `src/lib/linen-item-i18n.ts`
+- `src/lib/location-translations.ts`
+- `src/lib/maintenance-translations.ts`
+- `src/lib/notification-translations.ts`
+- `src/lib/pms-translations.ts`
+- `src/lib/purchase-invoice-translations.ts`
+- `src/lib/room-overview-translations.ts`
+- `src/lib/training-translations.ts`
+- `src/lib/translation-utils.ts` (fallback logic if it hardcodes language list)
 
-## Root cause
-The live `previo-pms-sync` is currently logging **0 departures** because the XML reservation lookup for Ottofiori is failing with `401 Invalid login or password`, and REST `/rest/rooms` is only returning the room roster/clean status, not the same reservation/departure data as the Excel export.
+Approach: for each key that currently has en/hu/es/vi/mn/az/tl variants, add a `uk` string. Translations will be produced natively (professional Ukrainian for hotel-operations vocabulary — housekeeping, checkout, maintenance, minibar, breakfast, reception, revenue, training). Where a key currently lacks some non-EN languages, `uk` will be added alongside the existing set and the runtime fallback to English remains.
 
-Because the sync treats that as a weak PMS snapshot, it preserves old checkout flags instead of clearing them. That is why stale data like QRP-406 can remain in Checkout even though today’s sheet says it is Daily.
+### 3. Backend edge functions with language maps
+- `supabase/functions/translate-note/index.ts`: add `uk: "Ukrainian"` to `languageNames`.
+- Grep other edge functions for similar language dictionaries (e.g. notification/email/SMS senders) and add `uk` where present.
 
-## Implementation plan
-1. **Make PMS refresh clear stale checkout flags when the live API has no reservation data but the room has stale same-day checkout metadata.**
-   - Do not preserve `is_checkout_room=true` just because the API has zero departure signals.
-   - Preserve only manager manual checkout overrides (`manual_checkout=true`) and rooms with active checkout-cleaning assignment protection.
-   - For QRP-406-like stale PMS flags, reset:
-     - `is_checkout_room=false`
-     - `scheduledDepartureToday=false`
-     - `checkedOutToday=false`
-     - `departureTime=null`
-     - `checkout_time=null`
+### 4. Training v2 curricula
+Curriculum step titles/bodies use `I18nText`. Since `uk` is optional on `I18nText`, existing curricula keep working (fall back to English). To give Ukrainian housekeepers/managers a translated tour, add `uk` strings to:
+- `src/components/training/v2/curricula/housekeeper.ts`
+- `src/components/training/v2/curricula/manager*.ts` (all manager modules)
+- `src/components/training/v2/curricula/admin-pms-overview.ts`
+- `src/components/training/v2/curricula/autoAssignPromo.ts`
+- Header/label constants in `TrainingHelpButtonV2.tsx` and any other `txt(...)` maps.
 
-2. **Strengthen classification rules to match the uploaded sheet.**
-   - `Departure` present = Checkout.
-   - `Night / Total` present with no `Departure` = Daily.
-   - Last-night rows like `2/2` or `3/3` are still Daily today, and only get `scheduledDepartureTomorrow=true` / C/O+1.
-   - No-show remains only a true PMS no-show reservation state, not a missing departure.
+### 5. Persistence
+No schema changes needed. `profiles.preferred_language` is a free-text column; storing `'uk'` works with existing `useLanguagePreference` hook. Verify no CHECK constraint restricts allowed codes (quick DB check during build).
 
-3. **Improve the Previo API retrieval path.**
-   - Keep REST `/rest/rooms` for room roster/status.
-   - Add a safer reservation-data attempt using Previo REST/XML-compatible reservation lookup where available.
-   - If Ottofiori credentials cannot access reservation data, expose this clearly in sync diagnostics instead of silently preserving stale checkout buckets.
+### 6. Verification
+- Build passes (tsgo).
+- Switching to Українська in the header updates: dashboard, housekeeper room cards, manager Team View, PMS labels, maintenance tickets, breakfast, minibar, training tooltips.
+- `preferred_language='uk'` persists across reload.
+- Run `useTranslation.test.tsx` to confirm no regressions; extend it with a `uk` smoke assertion.
 
-4. **Add a regression test for the uploaded sheet cases.**
-   - Verify QRP-406, DB/TW-102, DB/TW-103, DB/TW-202, TRP-205 are Daily.
-   - Verify Q-403, DB/TW-203, TRP-305 are Checkout.
-   - Verify `2/2` and `3/3` with blank `Departure` do not become Checkout.
-
-5. **After implementation, deploy the updated edge function and validate against current database state.**
-   - Confirm QRP-406 no longer remains checkout after PMS refresh.
-   - Confirm checkout count from the uploaded sheet should be 9 and daily count should be 12 for today’s data.
+### Notes for the user
+- Ukrainian strings will be written by the AI (not a professional translator). If you have a preferred glossary for specific hotel terms (e.g. "Checkout room", "Daily", "DND"), share it and it will be applied; otherwise standard hospitality Ukrainian is used.
+- Emoji flag used: 🇺🇦.
