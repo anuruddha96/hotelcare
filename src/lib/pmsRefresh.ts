@@ -4,6 +4,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
+import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 
 export type PmsSyncStatus = "success" | "partial" | "error" | "idle";
 
@@ -47,19 +48,6 @@ const extractRoomNumber = (raw: string): string => {
   return m ? m[0] : String(raw).trim();
 };
 
-const excelTimeToString = (val: any): string | null => {
-  if (val === null || val === undefined || val === "") return null;
-  const s = String(val).trim();
-  return s.length > 0 ? s : null;
-};
-
-const parseNightTotal = (val: any): { currentNight: number; totalNights: number } | null => {
-  if (!val) return null;
-  const m = String(val).match(/(\d+)\s*\/\s*(\d+)/);
-  if (!m) return null;
-  return { currentNight: parseInt(m[1], 10), totalNights: parseInt(m[2], 10) };
-};
-
 /**
  * Fetch the PMS snapshot and (optionally) apply it to the `rooms` table.
  * When `dryRun` is true, no writes are performed and `proposedChanges` is
@@ -95,11 +83,7 @@ export async function runPmsRefresh(
     throw new Error((data as any)?.error || error?.message || "PMS sync failed");
   }
   const rows: any[] = (data as any)?.rows || [];
-  const pmsCheckoutSignals =
-    Number((data as any)?.departuresToday ?? 0) +
-    Number((data as any)?.departuresTomorrow ?? 0) +
-    Number((data as any)?.checkedOutToday ?? 0);
-  const weakReservationSnapshot = rows.length > 0 && pmsCheckoutSignals === 0;
+  const reservationDataAuthoritative = (data as any)?.reservationDataAuthoritative !== false;
   if (rows.length === 0) {
     return {
       status: "success", updated: 0, total: 0, notFound: 0, checkouts: 0, errors: [],
@@ -119,6 +103,25 @@ export async function runPmsRefresh(
   const proposedChanges: ProposedRoomChange[] = [];
   const today = new Date().toISOString().split("T")[0];
   const matchedRoomIds = new Set<string>();
+  const protectedCheckoutAssignmentRoomIds = new Set<string>();
+
+  if (!reservationDataAuthoritative) {
+    errors.push("Previo reservation/departure data is unavailable; checkout buckets were preserved from the last authoritative PMS data.");
+  }
+
+  try {
+    const { data: protectedAssignments } = await supabase
+      .from("room_assignments")
+      .select("room_id")
+      .eq("assignment_date", today)
+      .eq("assignment_type", "checkout_cleaning")
+      .eq("status", "in_progress");
+    for (const assignment of protectedAssignments ?? []) {
+      if ((assignment as any).room_id) protectedCheckoutAssignmentRoomIds.add((assignment as any).room_id);
+    }
+  } catch (e) {
+    console.warn("[pmsRefresh] checkout assignment protection skipped:", e);
+  }
 
   // New-day DND reset: when the most recent PMS refresh for this hotel was
   // on an earlier calendar day, clear all DND flags so the new day starts
@@ -203,20 +206,21 @@ export async function runPmsRefresh(
       })[0];
       matchedRoomIds.add(room.id);
 
-      const departureParsed = excelTimeToString(row.Departure);
-      const isScheduledDeparture = departureParsed !== null;
-      const isDepartureTomorrow = row.DepartureTomorrow === true;
-      const isCheckedOut = row.CheckedOut === true;
+      const classification = classifyPmsHousekeepingRow(row);
+      const departureParsed = classification.departureTime;
+      const isScheduledDeparture = classification.isScheduledDeparture;
+      const isDepartureTomorrow = classification.isDepartureTomorrow;
+      const isCheckedOut = classification.isCheckedOut;
       // Authoritative checkout-room flag: only real checkout or scheduled
-      // departure TODAY. Departure-tomorrow rooms remain daily rooms and
-      // are marked via the C/O+1 badge (scheduledDepartureTomorrow metadata).
-      const shouldBeCheckoutRoom = row.IsCheckoutRoom === true || isCheckedOut || isScheduledDeparture;
+      // departure TODAY. Last-night Night/Total rows with blank Departure stay
+      // daily and are marked via the C/O+1 badge.
+      const shouldBeCheckoutRoom = classification.isCheckoutRoom;
 
       const existingMetadata = room.pms_metadata && typeof room.pms_metadata === "object"
         ? room.pms_metadata
         : undefined;
 
-      const nightTotal = parseNightTotal(row["Night / Total"]);
+      const nightTotal = classification.nightTotal;
       let guestNightsStayed = 0;
       let towel = false;
       let linen = false;
@@ -250,7 +254,11 @@ export async function runPmsRefresh(
         });
       }
       const currentCheckoutFlag = !!room.is_checkout_room;
-      const preserveExistingCheckout = weakReservationSnapshot && currentCheckoutFlag && !shouldBeCheckoutRoom;
+      const manualOverride = existingMetadata?.manual_checkout === true;
+      const hasProtectedCheckoutAssignment = protectedCheckoutAssignmentRoomIds.has(room.id);
+      const preserveExistingCheckout = currentCheckoutFlag && !shouldBeCheckoutRoom && (
+        !reservationDataAuthoritative || manualOverride || hasProtectedCheckoutAssignment
+      );
       const effectiveCheckoutFlag = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
       if (effectiveCheckoutFlag !== currentCheckoutFlag) {
         const label = isCheckedOut
@@ -260,7 +268,11 @@ export async function runPmsRefresh(
             : isDepartureTomorrow
               ? "Departure tomorrow"
               : preserveExistingCheckout
-                ? "Preserved — PMS reservation data unavailable"
+                ? manualOverride
+                  ? "Preserved — manual checkout"
+                  : hasProtectedCheckoutAssignment
+                    ? "Preserved — checkout cleaning in progress"
+                    : "Preserved — PMS reservation data unavailable"
                 : "No checkout";
         changeFields.push({
           field: "Checkout room", before: currentCheckoutFlag, after: `${effectiveCheckoutFlag} (${label})`, category: "checkout",
@@ -303,18 +315,10 @@ export async function runPmsRefresh(
           ...(existingMetadata ?? {}),
           pmsSyncDate: today,
           lastPmsRefreshDate: today,
-          scheduledDepartureToday: preserveExistingCheckout
-            ? existingMetadata?.scheduledDepartureToday
-            : isScheduledDeparture,
-          scheduledDepartureTomorrow: preserveExistingCheckout
-            ? existingMetadata?.scheduledDepartureTomorrow
-            : isDepartureTomorrow,
-          departureTime: preserveExistingCheckout
-            ? existingMetadata?.departureTime
-            : departureParsed,
-          checkedOutToday: preserveExistingCheckout
-            ? existingMetadata?.checkedOutToday
-            : isCheckedOut,
+          scheduledDepartureToday: isScheduledDeparture,
+          scheduledDepartureTomorrow: isDepartureTomorrow,
+          departureTime: departureParsed,
+          checkedOutToday: isCheckedOut,
           currentNight: nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null,
           totalNights: nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null,
           isNoShow: row.IsNoShow === true,
@@ -326,18 +330,14 @@ export async function runPmsRefresh(
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
-      // PMS sync is authoritative for today's buckets: rooms that no longer
-      // depart today must be reset back to Daily Rooms. Two exceptions:
-      //   1. Weak/partial feed (no checkout signals at all) — never clear.
-      //   2. Manager-staged manual checkout (pms_metadata.manual_checkout) —
-      //      preserve until the manager clears it or the room is actually
-      //      cleaned, so drag-to-checkout moves aren't silently reverted.
-      const manualOverride = existingMetadata?.manual_checkout === true;
-      if (!preserveExistingCheckout) {
-        updateData.is_checkout_room = manualOverride ? true : shouldBeCheckoutRoom;
-      }
+      // PMS sync is authoritative for today's buckets only when the snapshot
+      // contains reservation/departure data (live API or today's upload
+      // fallback). Otherwise preserve checkout flags instead of wiping true
+      // checkouts based on a status-only room roster.
+      updateData.is_checkout_room = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
 
       if (isCheckedOut) updateData.checkout_time = new Date().toISOString();
+      else if (!updateData.is_checkout_room) updateData.checkout_time = null;
       if (towel) updateData.last_towel_change = today;
       if (linen) updateData.last_linen_change = today;
       if (row.Note) updateData.notes = String(row.Note);
@@ -390,7 +390,7 @@ export async function runPmsRefresh(
         continue;
       }
       updated++;
-      if (shouldBeCheckoutRoom || preserveExistingCheckout) checkouts++;
+      if (updateData.is_checkout_room) checkouts++;
 
       if (eventInserts.length > 0) {
         const insertRes: any = await supabase
