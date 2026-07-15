@@ -38,4 +38,10 @@ describe("PMS housekeeping classification", () => {
       expect(result.departureTime, room.Room).toBe("11:00");
     }
   });
+
+  it("marks departure rows as checked out only when PMS confirms vacancy/status", () => {
+    expect(classifyPmsHousekeepingRow(row("Q-201", "11:00", null)).isCheckedOut).toBe(false);
+    expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), Occupied: "No" }).isCheckedOut).toBe(true);
+    expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), Status: "Checked out" }).isCheckedOut).toBe(true);
+  });
 });
