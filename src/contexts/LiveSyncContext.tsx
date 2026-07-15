@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
+import { resolveHotelKeys } from "@/lib/hotelKeys";
 
 export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
@@ -216,10 +217,12 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
 
       // Count checkout rooms for today that are not yet RTC.
       try {
+        const hotelKeys = await resolveHotelKeys(hotelId);
+        const keys = hotelKeys.length ? hotelKeys : [hotelId];
         const { data: rows } = await (supabase as any)
           .from("rooms")
           .select("id, pms_metadata")
-          .eq("hotel", hotelId)
+          .in("hotel", keys)
           .eq("is_checkout_room", true);
         pendingCheckouts = (rows ?? []).filter((r: any) => {
           const m = r.pms_metadata || {};

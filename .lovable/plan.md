@@ -1,54 +1,50 @@
 ## Goal
 
-Make PMS-confirmed "Ready To Clean" (RTC) status visible on both room cards and the Auto-Assign room chips, and keep the app actively polling Previo for new checkouts until every checkout room for the day is RTC — so HK managers no longer need to open Previo.
+Fix the automatic Ready To Clean flow so the 5-minute cron detects newly checked-out rooms from Previo and the app refreshes/render RTC badges without manual room changes.
 
-## 1. Show RTC on the Auto-Assign room chips
+## What is wrong now
 
-File: `src/components/dashboard/AutoRoomAssignment.tsx` (`renderRoomChip`, ~L839)
+- The 5-minute cron is already active and running.
+- The poll function is executing successfully, but for Ottofiori it records `departed: 0` every run.
+- The latest poll diagnostics show Previo `/rest/rooms` returns the scheduled checkout rooms, but their `reservation` payload is missing, so the current code refuses to mark them RTC.
+- The XML fallback also fails for Ottofiori with `401 Invalid login or password`, so the poll has no accepted departure signal.
+- UI rendering is mostly wired, but Auto-Assign only treats `checkedOutToday` as RTC in some places, while other places also accept `readyToClean`. This can hide RTC for rooms manually or server-marked with only `readyToClean=true`.
+- Room overview realtime refresh subscribes to all room changes and assignment changes, but it does not filter by hotel and its fallback is 60 seconds. It should reliably refetch when cron updates the current hotel's checkout metadata.
 
-- Compute `isRtc = room.is_checkout_room && (room.pms_metadata?.checkedOutToday === true || room.pms_metadata?.readyToClean === true)`.
-- When true, append a small green `RTC` pill inside the chip (same green as the room-card RTC badge: `bg-green-600 text-white text-[9px] font-extrabold px-0.5 rounded`).
-- Update the chip `title` to include "· RTC" when applicable.
-- No change to assignment logic — RTC is already written to `room_assignments.ready_to_clean` in `handleConfirmAssignment`.
+## Fix plan
 
-## 2. Show RTC on the room cards before assignment exists
+1. **Make cron checkout detection use the working Previo clean-status signal**
+   - Update `supabase/functions/previo-poll-checkouts/index.ts` so Ottofiori/API-key tenants do not depend only on missing REST reservation payloads or the failing XML reservation search.
+   - Treat a local scheduled checkout room as RTC when Previo's room clean/status payload indicates the room is ready/dirty after checkout, using the same infrastructure already available in `/rest/rooms`.
+   - Keep the current safeguards: only scheduled/current checkout rooms are eligible, never daily rooms, and never mark rooms RTC from a scheduled departure time alone.
+   - Add clearer diagnostics for why each candidate was accepted or rejected (`accepted: true`, source, room clean status, local room number).
 
-Today the green `RTC` badge in `HotelRoomOverview.tsx` only renders when `assignment?.ready_to_clean` is true. Between a PMS sync and Auto-Assign confirmation, PMS-confirmed departures already carry `pms_metadata.checkedOutToday=true` / `readyToClean=true` on the `rooms` row but no chip is shown.
+2. **Keep assignment status in sync after cron marks a room RTC**
+   - Ensure when a room is accepted as checked out, the function writes both:
+     - `rooms.pms_metadata.checkedOutToday=true` and `readyToClean=true`
+     - today's active checkout assignment `room_assignments.ready_to_clean=true`
+   - This preserves both room-card and already-assigned HK views.
 
-Files:
-- `src/components/dashboard/HotelRoomOverview.tsx`
-  - Extend the RTC render condition (~L632) to also fire when there's no assignment yet and `room.pms_metadata?.checkedOutToday === true` (or `readyToClean === true`) and `room.is_checkout_room`.
-  - Make sure the `select('...')` on `rooms` includes `pms_metadata` (already does).
-- `src/components/dashboard/CompactRoomCard.tsx`
-  - Add the same small `RTC` pill next to the "Checkout Room" badge when `room.is_checkout_room` and `room.pms_metadata?.checkedOutToday === true`.
-  - Add `pms_metadata?: any` to the local `Room` interface.
+3. **Make Auto-Assign use one RTC rule everywhere**
+   - In `AutoRoomAssignment.tsx`, update the preview rebalance and assignment confirmation logic to treat a room as PMS-confirmed RTC if either `pms_metadata.checkedOutToday === true` OR `pms_metadata.readyToClean === true`.
+   - This matches the chip rendering and avoids RTC rooms being hidden or not prioritized when only `readyToClean` is present.
 
-Legend entry in `HotelRoomOverview.tsx` (already present) stays unchanged.
+4. **Make room cards refresh reliably after cron updates**
+   - In `HotelRoomOverview.tsx`, tighten the realtime subscription callback so it refetches when `rooms` rows for the selected hotel change and today's `room_assignments` change.
+   - Dispatch/consume the existing refresh path so manager screens update shortly after cron writes the DB, without requiring manual refresh.
+   - Keep the existing 60-second visible-tab fallback as a safety net.
 
-## 3. Proactive checkout polling until all RTC
+5. **Fix manual PMS refresh post-checkout poll gate**
+   - In `src/lib/pmsRefresh.ts`, remove the old `hotelId === "previo-test"` condition so after a manager runs PMS sync, the checkout poll runs for their actual hotel too.
+   - This does not manually mark rooms; it only lets the automated detection run immediately after PMS sync.
 
-File: `src/contexts/LiveSyncContext.tsx` (`runCheckouts`, useEffect at ~L228)
+6. **Verification**
+   - Check latest `pms_sync_history` after the next cron run: Ottofiori should show accepted diagnostics and nonzero `departed` when Previo reports newly checked-out rooms.
+   - Verify the relevant room rows have `pms_metadata.readyToClean=true` / `checkedOutToday=true`.
+   - Verify room cards and Auto-Assign chips show the RTC badge after data refresh.
 
-Current behavior: `runCheckouts` is hard-gated to `hotelId === "previo-test"` and runs every 10 min. We remove the test-hotel gate for enabled hotels with an active Previo config, and add an adaptive interval:
+## Not included
 
-- Keep the existing `previo-poll-checkouts` edge function call (it already flips `pms_metadata.readyToClean` + `room_assignments.ready_to_clean`, and emits `pms_change_events`).
-- Remove the `hotelId !== "previo-test"` guard.
-- After each poll, query how many `is_checkout_room=true` rooms for today are NOT yet RTC (either `pms_metadata->>readyToClean != 'true'` OR no matching row in `room_assignments` with `ready_to_clean=true` for `assignment_date=today, assignment_type='checkout_cleaning'`). Store this count in the `checkouts` task meta so we can show it later if needed.
-- Interval logic:
-  - If `pendingCheckouts > 0`: poll every 5 min.
-  - If `pendingCheckouts === 0`: stop the interval (clear it) and only re-poll on window focus or manual PMS refresh.
-  - Recreate the interval whenever the pending count transitions back above 0 (e.g. after a new PMS sync brings in fresh checkouts).
-- Also trigger `runCheckouts(true)` immediately after a successful manual `runPms` finishes, so managers see RTC updates without waiting for the next tick.
-
-No schema changes. No new edge function.
-
-## 4. Verification
-
-- `bunx vitest run` for any affected tests.
-- Manual: on a hotel with pending checkouts, confirm the auto-assign chip shows `RTC` for departed rooms, the room card shows the `RTC` badge before assignment, and the `LiveSyncIndicator` "checkouts" task ticks every ~5 min until all checkout rooms are RTC, then goes quiet.
-
-## Technical notes
-
-- RTC source of truth on the `rooms` row: `pms_metadata.checkedOutToday === true` (set by `previo-poll-checkouts` and by `pmsRefresh` when PMS reports the guest has departed). `readyToClean` mirror kept for backwards compatibility.
-- RTC source of truth on `room_assignments`: `ready_to_clean=true` (already written by both flows).
-- Polling stop condition is calculated after each poll from a lightweight `select('id, pms_metadata')` on `rooms` filtered by `hotel = profile.assigned_hotel` and `is_checkout_room = true` for today.
+- No manual DB updates to mark specific rooms RTC.
+- No cron schedule changes; it is already every 5 minutes.
+- No schema changes.

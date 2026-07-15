@@ -29,11 +29,21 @@ interface PrevioRoom {
   roomId: number;
   name: string;
   roomCleanStatusId?: number;
+  cleanStatusId?: number;
+  roomCleanStatus?: number | string | { id?: number | string; name?: string };
+  cleanStatus?: number | string | { id?: number | string; name?: string };
   reservation?: {
     arrivalDate?: string;
     departureDate?: string;
+    arrival?: string;
+    departure?: string;
+    from?: string;
+    to?: string;
     statusId?: number | string;
     reservationStatusId?: number | string;
+    cosId?: number | string;
+    commissionStatusId?: number | string;
+    roomReservationStatusId?: number | string;
     status?: number | string | { id?: number | string; name?: string };
     state?: string;
   } | null;
@@ -63,14 +73,17 @@ const statusToken = (raw: unknown): string => {
 };
 const isCheckedOutStatus = (raw: unknown) => {
   const n = Number(raw);
-  if (Number.isFinite(n) && n === 5) return true;
+  if (Number.isFinite(n) && (n === 5 || n === 9)) return true;
   const t = statusToken(raw);
-  return ["5", "checkedout", "checkedouttoday", "departed", "departure", "left", "leaved"].includes(t);
+  return ["5", "9", "checkedout", "checkedouttoday", "departed", "departure", "left", "leaved"].includes(t);
 };
 const reservationLooksCheckedOut = (res: any) => {
   if (!res || typeof res !== "object") return false;
   return isCheckedOutStatus(res.statusId)
     || isCheckedOutStatus(res.reservationStatusId)
+    || isCheckedOutStatus(res.cosId)
+    || isCheckedOutStatus(res.commissionStatusId)
+    || isCheckedOutStatus(res.roomReservationStatusId)
     || isCheckedOutStatus(res.status)
     || isCheckedOutStatus(res.state)
     || res.checkedOut === true
@@ -97,6 +110,7 @@ async function pollOneHotel(
   service: any,
   hotelId: string,
   cfg: { credentials_secret_name: string; pms_hotel_id: any },
+  dryRun = false,
 ): Promise<PollResult> {
   const result: PollResult = {
     hotel_id: hotelId,
@@ -186,6 +200,7 @@ async function pollOneHotel(
     const localMatch = exactLocalMatch
       ?? localScheduledByName.get(String(r.name ?? "").trim())
       ?? localScheduledByName.get(extractNum(String(r.name ?? "")));
+    const localScheduledDepartureToday = localMatch?.pms_metadata?.scheduledDepartureToday === true;
     if (!res) {
       if (localMatch) {
         result.diagnostics.push({
@@ -193,11 +208,12 @@ async function pollOneHotel(
           room: r.name,
           roomId: r.roomId,
           localRoom: localMatch.room_number,
-          localScheduledDepartureToday: localMatch.pms_metadata?.scheduledDepartureToday === true,
+          localScheduledDepartureToday,
           localIsCheckoutRoom: localMatch.is_checkout_room === true,
+          roomCleanStatus: r.roomCleanStatusId ?? r.cleanStatusId ?? null,
           reservationPresent: false,
           accepted: false,
-          reason: "no reservation payload from Previo REST; not enough evidence to mark checked-out",
+          reason: "no reservation payload from Previo REST; room clean status alone is not enough evidence to mark checked-out",
         });
       }
       continue;
@@ -210,13 +226,17 @@ async function pollOneHotel(
         room: r.name,
         roomId: r.roomId,
         localRoom: localMatch?.room_number ?? null,
-        localScheduledDepartureToday: localMatch?.pms_metadata?.scheduledDepartureToday === true,
+        localScheduledDepartureToday,
         localIsCheckoutRoom: localMatch?.is_checkout_room === true,
         reservationPresent: true,
         departure,
         statusId: res.statusId ?? null,
         reservationStatusId: res.reservationStatusId ?? null,
+        cosId: res.cosId ?? null,
+        commissionStatusId: res.commissionStatusId ?? null,
+        roomReservationStatusId: res.roomReservationStatusId ?? null,
         status: typeof res.status === "object" ? JSON.stringify(res.status).slice(0, 120) : res.status ?? null,
+        roomCleanStatus: r.roomCleanStatusId ?? r.cleanStatusId ?? null,
         checkedOut,
         accepted: checkedOut && departure === today,
       });
@@ -342,6 +362,12 @@ async function pollOneHotel(
 
       const existingMeta = (localRoom.pms_metadata && typeof localRoom.pms_metadata === "object")
         ? localRoom.pms_metadata : {};
+
+      if (dryRun) {
+        result.marked += (existingAsg ?? []).filter((a: any) => a.assignment_type === "checkout_cleaning").length;
+        continue;
+      }
+
       const updateData: Record<string, any> = {
         is_checkout_room: true,
         checkout_time: nowIso(),
@@ -424,6 +450,7 @@ async function pollOneHotel(
   // that only sees statusId=5 (already-departed) reservations would wipe
   // legitimate scheduled-departure rooms out of the checkout bucket.
   try {
+    if (dryRun) return result;
     const { data: stale } = await service
       .from("rooms")
       .select("id, room_number, pms_metadata")
@@ -473,6 +500,7 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({} as any));
     const hotelIdInput: string = body?.hotelId || "";
     const isCronTrigger = body?.trigger === "cron";
+    const dryRun = body?.dryRun === true;
 
     const authHeader = req.headers.get("Authorization") || "";
     const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -555,17 +583,19 @@ serve(async (req) => {
     const perHotel: PollResult[] = [];
     for (const t of targets) {
       try {
-        const r = await pollOneHotel(service, t.hotel_id, t);
+        const r = await pollOneHotel(service, t.hotel_id, t, dryRun);
         perHotel.push(r);
-        await service.from("pms_sync_history").insert({
-          sync_type: "checkouts_poll",
-          direction: "from_previo",
-          hotel_id: t.hotel_id,
-          data: r,
-          changed_by: userId,
-          sync_status: r.errors.length ? "partial" : "success",
-          error_message: r.errors.length ? r.errors.slice(0, 5).join(" | ") : null,
-        });
+        if (!dryRun) {
+          await service.from("pms_sync_history").insert({
+            sync_type: "checkouts_poll",
+            direction: "from_previo",
+            hotel_id: t.hotel_id,
+            data: r,
+            changed_by: userId,
+            sync_status: r.errors.length ? "partial" : "success",
+            error_message: r.errors.length ? r.errors.slice(0, 5).join(" | ") : null,
+          });
+        }
       } catch (e: any) {
         perHotel.push({
           hotel_id: t.hotel_id, checked: 0, marked: 0, cleared: 0,
@@ -586,7 +616,7 @@ serve(async (req) => {
       { marked: 0, cleared: 0, events: 0, conflicts: 0, errors: 0 },
     );
 
-    return new Response(JSON.stringify({ ok: true, hotels: perHotel.length, ...totals, perHotel }), {
+    return new Response(JSON.stringify({ ok: true, dryRun, hotels: perHotel.length, ...totals, perHotel }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e: any) {

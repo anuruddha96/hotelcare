@@ -549,12 +549,10 @@ export async function runPmsRefresh(
   const status: PmsSyncStatus = errors.length ? "partial" : "success";
 
   if (!dryRun) {
-    if (hotelId === "previo-test") {
-      try {
-        await supabase.functions.invoke("previo-poll-checkouts", { body: { hotelId } });
-      } catch (e) {
-        console.warn("[pmsRefresh] poll-checkouts warning:", e);
-      }
+    try {
+      await supabase.functions.invoke("previo-poll-checkouts", { body: { hotelId } });
+    } catch (e) {
+      console.warn("[pmsRefresh] poll-checkouts warning:", e);
     }
 
     try {
