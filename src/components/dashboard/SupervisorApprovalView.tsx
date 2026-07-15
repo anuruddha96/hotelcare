@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Progress } from '@/components/ui/progress';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Wine } from 'lucide-react';
 import { 
   CheckCircle, 
   RefreshCw, 
@@ -150,6 +152,52 @@ export function SupervisorApprovalView() {
   const [housekeeperNotes, setHousekeeperNotes] = useState<Record<string, any[]>>({});
   const [translatedApprovalMsgs, setTranslatedApprovalMsgs] = useState<Record<string, string>>({});
   const [translatingApprovalMsg, setTranslatingApprovalMsg] = useState<string | null>(null);
+
+  // Minibar gate: when a manager tries to approve a room (or bulk of rooms)
+  // that has minibar consumption logged today, hold the approval and force
+  // them to confirm (a) the minibar was refilled and (b) they added the
+  // charge to Previo manually — since minibar consumption is not synced.
+  type MinibarGateItem = { room: string; qty: number; name: string; price: number };
+  const [minibarGate, setMinibarGate] = useState<{
+    title: string;
+    items: MinibarGateItem[];
+    total: number;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+  const [gateRefilled, setGateRefilled] = useState(false);
+  const [gateAddedToPrevio, setGateAddedToPrevio] = useState(false);
+  const [gateBusy, setGateBusy] = useState(false);
+
+  const fetchMinibarForRooms = async (
+    roomIds: string[],
+    roomNumberByRoomId: Record<string, string>,
+  ): Promise<{ items: MinibarGateItem[]; total: number }> => {
+    if (roomIds.length === 0) return { items: [], total: 0 };
+    const { data, error } = await supabase
+      .from('room_minibar_usage')
+      .select('room_id, quantity_used, minibar_items:minibar_item_id(name, price)')
+      .in('room_id', roomIds)
+      .eq('is_cleared', false);
+    if (error || !data) return { items: [], total: 0 };
+    const items: MinibarGateItem[] = data
+      .filter((u: any) => (u.quantity_used || 0) > 0)
+      .map((u: any) => ({
+        room: roomNumberByRoomId[u.room_id] || '—',
+        qty: u.quantity_used || 0,
+        name: u.minibar_items?.name || 'Item',
+        price: (u.minibar_items?.price || 0) * (u.quantity_used || 0),
+      }));
+    const total = items.reduce((s, i) => s + i.price, 0);
+    return { items, total };
+  };
+
+  const resetMinibarGate = () => {
+    setMinibarGate(null);
+    setGateRefilled(false);
+    setGateAddedToPrevio(false);
+    setGateBusy(false);
+  };
+
   // Group assignments by hotel
   const hotelGroups = useMemo(() => {
     const groups: Record<string, PendingAssignment[]> = {};
@@ -542,12 +590,12 @@ export function SupervisorApprovalView() {
     return `${minutes}m`;
   };
 
-  const handleApproval = async (assignmentId: string) => {
+  const performApproval = async (assignmentId: string) => {
     const previousAssignments = [...pendingAssignments];
     setPendingAssignments(prev => prev.filter(a => a.id !== assignmentId));
     try {
       const assignment = previousAssignments.find(a => a.id === assignmentId);
-      
+
       const updateData: any = {
         supervisor_approved: true,
         supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
@@ -581,6 +629,29 @@ export function SupervisorApprovalView() {
     }
   };
 
+  const handleApproval = async (assignmentId: string) => {
+    const assignment = pendingAssignments.find(a => a.id === assignmentId);
+    if (!assignment?.room_id) {
+      return performApproval(assignmentId);
+    }
+    const roomNumberByRoomId: Record<string, string> = {
+      [assignment.room_id]: assignment.rooms?.room_number || '—',
+    };
+    const { items, total } = await fetchMinibarForRooms([assignment.room_id], roomNumberByRoomId);
+    if (items.length === 0) {
+      return performApproval(assignmentId);
+    }
+    setGateRefilled(false);
+    setGateAddedToPrevio(false);
+    setMinibarGate({
+      title: `Room ${assignment.rooms?.room_number || ''} — minibar used`,
+      items,
+      total,
+      onConfirm: () => performApproval(assignmentId),
+    });
+  };
+
+
   /**
    * Push a room's clean status to Previo via the edge function.
    * The edge function is currently gated to the `previo-test` hotel only —
@@ -607,9 +678,10 @@ export function SupervisorApprovalView() {
     }
   };
 
-  const handleBulkApprove = async (hotelName: string) => {
+  const performBulkApprove = async (hotelName: string) => {
     const assignments = hotelGroups[hotelName];
     if (!assignments || assignments.length === 0) return;
+
 
     setBulkApproving(hotelName);
     setBulkProgress(0);
@@ -660,8 +732,31 @@ export function SupervisorApprovalView() {
     fetchPendingAssignments();
   };
 
+  const handleBulkApprove = async (hotelName: string) => {
+    const assignments = hotelGroups[hotelName];
+    if (!assignments || assignments.length === 0) return;
+    const roomIds = assignments.map(a => a.room_id).filter(Boolean) as string[];
+    const roomNumberByRoomId: Record<string, string> = {};
+    for (const a of assignments) {
+      if (a.room_id) roomNumberByRoomId[a.room_id] = a.rooms?.room_number || '—';
+    }
+    const { items, total } = await fetchMinibarForRooms(roomIds, roomNumberByRoomId);
+    if (items.length === 0) {
+      return performBulkApprove(hotelName);
+    }
+    setGateRefilled(false);
+    setGateAddedToPrevio(false);
+    setMinibarGate({
+      title: `${hotelName} — ${items.length} minibar item(s) across rooms`,
+      items,
+      total,
+      onConfirm: () => performBulkApprove(hotelName),
+    });
+  };
+
   const handleReassignment = async () => {
     if (!selectedAssignment || !selectedHousekeeper) return;
+
 
     try {
       const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
@@ -1599,6 +1694,88 @@ export function SupervisorApprovalView() {
 
       {/* Shared Reassign Dialog */}
       {renderReassignDialog()}
+
+      {/* Minibar confirmation gate — blocks approval until manager confirms
+          the minibar was refilled AND the charge was added to Previo (since
+          minibar consumption is NOT auto-synced to Previo). */}
+      <Dialog open={!!minibarGate} onOpenChange={(o) => { if (!o && !gateBusy) resetMinibarGate(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wine className="h-5 w-5 text-amber-600" />
+              Confirm before approving
+            </DialogTitle>
+          </DialogHeader>
+
+          {minibarGate && (
+            <div className="space-y-4">
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-semibold">{minibarGate.title}</p>
+                <p className="text-xs mt-1">
+                  Minibar consumption is <strong>not synced to Previo</strong>. Please refill the
+                  minibar and add the charge to Previo manually before approving.
+                </p>
+              </div>
+
+              <div className="max-h-40 overflow-y-auto rounded border bg-muted/30 p-2 text-xs space-y-1">
+                {minibarGate.items.map((it, i) => (
+                  <div key={i} className="flex justify-between">
+                    <span>Room {it.room} · {it.qty}× {it.name}</span>
+                    <span className="font-mono">€{it.price.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between pt-1 mt-1 border-t font-semibold">
+                  <span>Total</span>
+                  <span className="font-mono">€{minibarGate.total.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={gateRefilled}
+                    onCheckedChange={(v) => setGateRefilled(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span>I confirm the minibar has been <strong>refilled</strong>.</span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={gateAddedToPrevio}
+                    onCheckedChange={(v) => setGateAddedToPrevio(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span>I have <strong>added the charge in Previo</strong> (manual — not auto-synced).</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" size="sm" disabled={gateBusy} onClick={resetMinibarGate}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!gateRefilled || !gateAddedToPrevio || gateBusy}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={async () => {
+                    if (!minibarGate) return;
+                    setGateBusy(true);
+                    try {
+                      await minibarGate.onConfirm();
+                    } finally {
+                      resetMinibarGate();
+                    }
+                  }}
+                >
+                  {gateBusy ? <LucideLoader className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5 mr-1" />}
+                  Confirm & Approve
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+
   );
 }
