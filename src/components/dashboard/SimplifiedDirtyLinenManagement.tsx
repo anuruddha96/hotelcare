@@ -344,7 +344,29 @@ export function SimplifiedDirtyLinenManagement() {
         onDateRangeChange={setDateRange}
       />
 
-      <Card className="p-6">
+      <Card className="p-4 sm:p-6 overflow-hidden">
+        {/* Summary Stats */}
+        <div className="mb-6 grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-3 p-4 bg-primary/5 rounded-lg">
+            <Shirt className="h-8 w-8 text-primary" />
+            <div>
+              <p className="text-sm text-muted-foreground">{t('linen.totalCollected')}</p>
+              <p className="text-2xl font-bold">{grandTotal}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-4 bg-secondary/50 rounded-lg">
+            <Badge variant="secondary" className="text-lg px-4 py-2">
+              {t('linen.housekeepersCount').replace('{count}', String(housekeeperData.length))}
+            </Badge>
+          </div>
+        </div>
+
+        {(isMobile || isNarrow) ? renderMobileCards() : renderDesktopTable()}
+      </Card>
+    </div>
+  );
+}
+
         {/* Summary Stats */}
         <div className="mb-6 grid grid-cols-2 gap-4">
           <div className="flex items-center gap-3 p-4 bg-primary/5 rounded-lg">
