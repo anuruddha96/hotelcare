@@ -553,7 +553,7 @@ async function pollOneHotel(
           source: "reconcile",
           room: local.room_number,
           roomId: objId || null,
-          reason: `Previo still reports active reservation (departure=${dep}); reverting false checkout`,
+          reason: `${revertReason}; reverting false checkout`,
           accepted: false,
         });
         result.revertedCheckedOut++;
