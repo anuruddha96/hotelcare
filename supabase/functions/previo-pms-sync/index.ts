@@ -33,6 +33,7 @@ interface PrevioRoom {
   roomCleanStatusId: number;
   capacity: number;
   extraCapacity: number;
+  reservation?: Record<string, unknown> | null;
 }
 
 function todayUtcDate(): string {
@@ -54,6 +55,34 @@ function diffDays(from: string, to: string): number {
 function extractRoomNumber(raw: string): string {
   const match = String(raw ?? "").match(/(\d{3})(?:\D*)$/) ?? String(raw ?? "").match(/\d+/);
   return match ? match[1] : String(raw ?? "").trim();
+}
+
+function cleanDate(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : "";
+}
+
+function cleanTime(raw: unknown): string | null {
+  const s = String(raw ?? "").trim();
+  const match = s.match(/[T\s](\d{2}:\d{2})/) ?? s.match(/^(\d{2}:\d{2})/);
+  return match ? match[1] : null;
+}
+
+function statusIdFrom(raw: any): number {
+  if (!raw || typeof raw !== "object") return 0;
+  const status = raw.status;
+  const value = raw.statusId ?? raw.reservationStatusId ?? raw.cosId ?? raw.commissionStatusId
+    ?? (status && typeof status === "object" ? status.id : status);
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function isCheckedOutStatus(statusId: number): boolean {
+  return statusId === 5 || statusId === 9;
+}
+
+function isNoShowStatus(statusId: number): boolean {
+  return statusId === 6 || statusId === 8;
 }
 
 serve(async (req) => {
@@ -265,7 +294,7 @@ serve(async (req) => {
           const timeMatch = toStr.match(/[T\s](\d{2}:\d{2})/);
           if (timeMatch) departureTime = timeMatch[1];
           const statusId = parseInt(grab(block, "statusId") || "0", 10);
-          if (statusId === 7 || statusId === 8) continue;
+          if (statusId === 7) continue;
           const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
           const objId = objMatch ? parseInt(objMatch[1], 10) : null;
           const roomName = objMatch ? objMatch[2].trim() : "";
@@ -294,6 +323,39 @@ serve(async (req) => {
     } catch (e: any) {
       reservationFetchError = e?.message || String(e);
       console.warn(`[previo-pms-sync] XML reservations threw: ${reservationFetchError}`);
+    }
+
+    // REST /rest/rooms sometimes embeds the current reservation object. Use it
+    // when present so API sync can match the same departure/stay-through data
+    // as the cleaning export without relying only on XML searchReservations.
+    let restReservationsIndexed = 0;
+    for (const room of rooms) {
+      const res: any = (room as any).reservation;
+      if (!res || typeof res !== "object") continue;
+      const arrivalRaw = res.arrivalDate ?? res.arrival ?? res.from ?? res.dateFrom ?? res.startDate ?? res.checkIn;
+      const departureRaw = res.departureDate ?? res.departure ?? res.to ?? res.dateTo ?? res.endDate ?? res.checkOut;
+      const arrivalDate = cleanDate(arrivalRaw);
+      const departureDate = cleanDate(departureRaw);
+      if (!arrivalDate || !departureDate) continue;
+      const statusId = statusIdFrom(res);
+      if (statusId === 7) continue;
+      const guests = Array.isArray(res.guests) ? res.guests.length
+        : Array.isArray(res.guestList) ? res.guestList.length
+          : Number(res.guestsCount ?? res.people ?? res.persons ?? res.pax ?? 0) || 0;
+      indexReservation({
+        objId: Number.isFinite(Number(room.roomId)) && Number(room.roomId) > 0 ? Number(room.roomId) : null,
+        roomName: String(room.name ?? "").trim(),
+        arrivalDate,
+        departureDate,
+        departureTime: cleanTime(departureRaw),
+        statusId,
+        guestsCount: guests,
+        note: res.note || res.notes || res.comment ? String(res.note ?? res.notes ?? res.comment).trim() : null,
+      });
+      restReservationsIndexed++;
+    }
+    if (restReservationsIndexed > 0) {
+      console.log(`[previo-pms-sync] REST room payload indexed ${restReservationsIndexed} embedded reservations`);
     }
 
     // Safety net: if the live XML reservation feed is unavailable/empty, do
@@ -403,7 +465,7 @@ serve(async (req) => {
       const isDeparture = !!res && res.departureDate === today;
       const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
       const isArrival = !!res && res.arrivalDate === today;
-      const isCheckedOut = !!res && res.statusId === 5 && isDeparture;
+      const isCheckedOut = !!res && isCheckedOutStatus(res.statusId) && isDeparture;
       // Only real checkouts (today or already checked out) belong in the
       // Checkout Rooms bucket. "Departs tomorrow" stays a daily room but
       // still surfaces via the C/O+1 badge (DepartureTomorrow flag below).
@@ -428,7 +490,7 @@ serve(async (req) => {
       const noteLower = (res?.note ?? "").toLowerCase();
       const isNoShow = !!res
         && res.arrivalDate === today
-        && (res.statusId === 6 || noteLower.includes("no show") || noteLower.includes("no-show"));
+        && (isNoShowStatus(res.statusId) || noteLower.includes("no show") || noteLower.includes("no-show"));
 
       return {
         Room: r.name,

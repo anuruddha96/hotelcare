@@ -187,8 +187,6 @@ async function pollOneHotel(
       ?? localScheduledByName.get(String(r.name ?? "").trim())
       ?? localScheduledByName.get(extractNum(String(r.name ?? "")));
     if (!res) {
-      const exactScheduledCheckout = exactLocalMatch?.pms_metadata?.scheduledDepartureToday === true
-        && exactLocalMatch?.is_checkout_room === true;
       if (localMatch) {
         result.diagnostics.push({
           source: "rest-room",
@@ -198,14 +196,9 @@ async function pollOneHotel(
           localScheduledDepartureToday: localMatch.pms_metadata?.scheduledDepartureToday === true,
           localIsCheckoutRoom: localMatch.is_checkout_room === true,
           reservationPresent: false,
-          accepted: exactScheduledCheckout,
-          reason: exactScheduledCheckout
-            ? "scheduled checkout room has exact Previo roomId match and reservation is now absent"
-            : "no reservation, but not an exact scheduled-checkout roomId match",
+          accepted: false,
+          reason: "no reservation payload from Previo REST; not enough evidence to mark checked-out",
         });
-      }
-      if (exactScheduledCheckout) {
-        addCheckoutSignal(r.name, r.roomId, "", "rest-room-reservation-cleared");
       }
       continue;
     }
