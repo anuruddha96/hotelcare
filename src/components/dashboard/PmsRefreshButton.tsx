@@ -158,7 +158,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
     const updatedCount = meta.updated ?? meta.upserted ?? 0;
     const totalCount = meta.total ?? meta.rowCount ?? 0;
     if (result.status === 'partial') {
-      toast.warning('PMS sync partial', {
+      toast.warning('PMS data incomplete', {
         description: result.message || `${updatedCount}/${totalCount} rooms synced. Please review PMS sync history.`,
         duration: 6000,
       });

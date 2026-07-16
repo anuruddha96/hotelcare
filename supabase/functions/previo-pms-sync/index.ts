@@ -78,6 +78,40 @@ function statusIdFrom(raw: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function listFromRestPayload(payload: any): any[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.reservations)) return payload.reservations;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+function roomNameFromRestReservation(raw: any): string {
+  const candidates = [
+    raw?.roomName,
+    raw?.room_name,
+    raw?.room,
+    raw?.objectName,
+    raw?.object?.name,
+    raw?.rooms?.[0]?.name,
+    raw?.roomReservations?.[0]?.room?.name,
+    raw?.reservationRooms?.[0]?.room?.name,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (candidate && typeof candidate === "object" && typeof candidate.name === "string" && candidate.name.trim()) return candidate.name.trim();
+  }
+  return "";
+}
+
+function roomIdFromRestReservation(raw: any): number | null {
+  const value = raw?.roomId ?? raw?.room_id ?? raw?.objId ?? raw?.objectId ?? raw?.object?.objId
+    ?? raw?.room?.roomId ?? raw?.rooms?.[0]?.roomId ?? raw?.roomReservations?.[0]?.roomId
+    ?? raw?.roomReservations?.[0]?.room?.roomId ?? raw?.reservationRooms?.[0]?.room?.roomId;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function isCheckedOutStatus(statusId: number): boolean {
   return statusId === 5 || statusId === 9;
 }
@@ -87,7 +121,7 @@ function isNoShowStatus(statusId: number): boolean {
 }
 
 const RESERVATION_UNAVAILABLE_MANAGER_MESSAGE =
-  "Previo room list synced. Checkout data is protected from the last known PMS state.";
+  "PMS room list synced, but Previo did not send checkout/daily data. Room buckets were not changed.";
 
 function isAuthFailure(status: number, message: string | null, text = ""): boolean {
   const haystack = `${message || ""} ${text.slice(0, 500)}`;
@@ -249,7 +283,6 @@ serve(async (req) => {
     let reservationFetchError: string | null = null;
     let reservationFallbackSource: string | null = null;
     let reservationIssue: Record<string, unknown> | null = null;
-    let restRoomSyncOk = false;
 
     const indexReservation = (rec: ParsedReservation) => {
       const rank = (r: ParsedReservation) => {
@@ -390,7 +423,61 @@ serve(async (req) => {
     if (restReservationsIndexed > 0) {
       console.log(`[previo-pms-sync] REST room payload indexed ${restReservationsIndexed} embedded reservations`);
     }
-    restRoomSyncOk = rosterSource === "rest" && rooms.length > 0;
+    if (reservationsByRoomName.size === 0 && credsProtocol === "rest") {
+      const restReservationPaths = [
+        `/rest/reservations?from=${windowStart}&to=${windowEnd}`,
+        `/rest/reservations?dateFrom=${windowStart}&dateTo=${windowEnd}`,
+        `/rest/reservations?arrivalDateFrom=${windowStart}&arrivalDateTo=${windowEnd}`,
+        `/rest/reservations?departureDateFrom=${today}&departureDateTo=${windowEnd}`,
+      ];
+      for (const path of restReservationPaths) {
+        try {
+          const { response } = await fetchPrevioWithAuth({
+            credentialsSecretName: cfg.credentials_secret_name,
+            path,
+            pmsHotelId: String(cfg.pms_hotel_id || ""),
+          });
+          if (!response.ok) {
+            const text = await response.text();
+            console.warn(`[previo-pms-sync] REST reservation probe ${path} returned ${response.status}: ${text.slice(0, 120)}`);
+            continue;
+          }
+          const payload = await response.json().catch(() => null);
+          const items = listFromRestPayload(payload);
+          let indexed = 0;
+          for (const item of items) {
+            const arrivalDate = cleanDate(item?.arrivalDate ?? item?.arrival ?? item?.from ?? item?.dateFrom ?? item?.startDate ?? item?.checkIn);
+            const departureDate = cleanDate(item?.departureDate ?? item?.departure ?? item?.to ?? item?.dateTo ?? item?.endDate ?? item?.checkOut);
+            if (!arrivalDate || !departureDate) continue;
+            const roomName = roomNameFromRestReservation(item);
+            const objId = roomIdFromRestReservation(item);
+            if (!roomName && !objId) continue;
+            const guests = Array.isArray(item?.guests) ? item.guests.length
+              : Array.isArray(item?.guestList) ? item.guestList.length
+                : Number(item?.guestsCount ?? item?.people ?? item?.persons ?? item?.pax ?? item?.guestCount ?? 0) || 0;
+            indexReservation({
+              objId,
+              roomName,
+              arrivalDate,
+              departureDate,
+              departureTime: cleanTime(item?.departureDate ?? item?.departure ?? item?.to ?? item?.dateTo ?? item?.endDate ?? item?.checkOut),
+              statusId: statusIdFrom(item),
+              guestsCount: guests,
+              note: item?.note || item?.notes || item?.comment ? String(item.note ?? item.notes ?? item.comment).trim() : null,
+            });
+            indexed++;
+          }
+          console.log(`[previo-pms-sync] REST reservation endpoint ${path} returned ${items.length} rows, indexed ${indexed}`);
+          if (indexed > 0) {
+            reservationFallbackSource = "rest_reservations";
+            reservationIssue = null;
+            break;
+          }
+        } catch (e: any) {
+          console.warn(`[previo-pms-sync] REST reservation probe ${path} failed: ${e?.message || String(e)}`);
+        }
+      }
+    }
 
     // Safety net: if the live reservation feed is unavailable/empty, do NOT
     // let the REST room roster (which may have clean statuses but no departure
@@ -563,7 +650,7 @@ serve(async (req) => {
       ? reservationFallbackSource ?? (restReservationsIndexed > 0 ? "rest_rooms_embedded_reservation" : "xml_searchReservations")
       : null;
     const reservationDataAuthoritative = reservationsByRoomName.size > 0;
-    const managerFacingSuccess = reservationsByRoomName.size > 0 || restRoomSyncOk;
+    const managerFacingSuccess = reservationDataAuthoritative;
     const managerMessage = managerFacingSuccess
       ? null
       : RESERVATION_UNAVAILABLE_MANAGER_MESSAGE;

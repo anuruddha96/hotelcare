@@ -83,9 +83,15 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
     setSyncing(true);
     try {
       const result = await runPmsRefresh(cfg.hotel_id);
-      toast.success("✨ PMS sync completed", {
-        description: `${result.updated} rooms updated · ${result.checkouts} checkout rooms`,
-      });
+      if (result.status === "partial") {
+        toast.warning("PMS data incomplete", {
+          description: result.managerMessage || `${result.updated} rooms updated, but checkout/daily data was not complete.`,
+        });
+      } else {
+        toast.success("✨ PMS sync completed", {
+          description: `${result.updated} rooms updated · ${result.checkouts} checkout rooms`,
+        });
+      }
       setSuccessPulse(true);
       try { window.dispatchEvent(new CustomEvent('pms-sync-completed')); } catch { /* noop */ }
       setTimeout(() => setSuccessPulse(false), 1400);

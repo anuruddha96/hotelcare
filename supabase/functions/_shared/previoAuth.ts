@@ -160,15 +160,15 @@ export function getPrevioCredentialCandidates(credentialsSecretName?: string | n
   pushCandidate(
     candidates,
     seen,
-    Deno.env.get("PREVIO_API_USERNAME"),
-    Deno.env.get("PREVIO_API_PASSWORD"),
+    Deno.env.get("PREVIO_API_USERNAME") ?? "",
+    Deno.env.get("PREVIO_API_PASSWORD") ?? "",
     "PREVIO_API_USERNAME/PASSWORD",
   );
   pushCandidate(
     candidates,
     seen,
-    Deno.env.get("PREVIO_API_USER"),
-    Deno.env.get("PREVIO_API_PASSWORD"),
+    Deno.env.get("PREVIO_API_USER") ?? "",
+    Deno.env.get("PREVIO_API_PASSWORD") ?? "",
     "PREVIO_API_USER/PASSWORD",
   );
 

@@ -182,7 +182,7 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
   const lastErrors: string[] = lastResult.errors || (lastSync?.error_message ? [lastSync.error_message] : []);
   const reservationIssue = lastResult.reservationIssue || null;
   const reservationWarning = lastResult.reservationDataAuthoritative === false
-    ? (lastResult.managerMessage || 'Previo room list synced, but checkout/departure data was unavailable. Please verify checkout rooms manually.')
+    ? (lastResult.managerMessage || 'PMS room list synced, but checkout/daily data was not received. Room buckets were not changed.')
     : null;
 
   return (
