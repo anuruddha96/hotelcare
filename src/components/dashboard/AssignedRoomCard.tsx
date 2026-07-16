@@ -750,8 +750,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         )}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <CardTitle className="text-xl sm:text-2xl font-bold text-foreground truncate">
+          <div className="flex items-center gap-3 flex-wrap min-w-0 flex-1">
+            <CardTitle className="text-xl sm:text-2xl font-bold text-foreground break-words">
               {t('common.room')} {assignment.rooms?.room_number || 'N/A'}
             </CardTitle>
             <Badge 
