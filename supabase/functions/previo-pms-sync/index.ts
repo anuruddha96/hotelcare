@@ -283,7 +283,6 @@ serve(async (req) => {
     let reservationFetchError: string | null = null;
     let reservationFallbackSource: string | null = null;
     let reservationIssue: Record<string, unknown> | null = null;
-    let restRoomSyncOk = false;
 
     const indexReservation = (rec: ParsedReservation) => {
       const rank = (r: ParsedReservation) => {
@@ -424,8 +423,6 @@ serve(async (req) => {
     if (restReservationsIndexed > 0) {
       console.log(`[previo-pms-sync] REST room payload indexed ${restReservationsIndexed} embedded reservations`);
     }
-    restRoomSyncOk = rosterSource === "rest" && rooms.length > 0;
-
     if (reservationsByRoomName.size === 0 && credsProtocol === "rest") {
       const restReservationPaths = [
         `/rest/reservations?from=${windowStart}&to=${windowEnd}`,
