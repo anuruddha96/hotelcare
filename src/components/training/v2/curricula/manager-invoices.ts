@@ -9,6 +9,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
     es: 'Facturas de Compra',
     vi: 'Hóa đơn Mua hàng',
     mn: 'Худалдан авалтын Нэхэмжлэх',
+    uk: 'Рахунки на закупівлю',
   },
   description: {
     en: 'Upload, AI extraction, line-item review and approval workflow.',
@@ -16,6 +17,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
     es: 'Carga, extracción IA, revisión de líneas y aprobación.',
     vi: 'Tải lên, AI trích xuất, kiểm tra dòng và phê duyệt.',
     mn: 'Оруулах, AI задлах, мөр шалгах ба зөвшөөрөл.',
+    uk: 'Завантаження, AI-розбір, перевірка позицій та погодження.',
   },
   roles: ['top_management', 'top_management_manager', 'admin'],
   category: 'feature_promo',
@@ -31,6 +33,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         es: 'Abrir Facturas de Compra',
         vi: 'Mở Hóa đơn Mua hàng',
         mn: 'Худалдан авалтын Нэхэмжлэх нээх',
+        uk: 'Відкрити «Рахунки на закупівлю»',
       },
       body: {
         en: 'Top tab "Invoices" opens the upload + queue + analytics view for the selected hotel.',
@@ -38,6 +41,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         es: 'La pestaña Invoices abre la vista de carga, cola y analítica.',
         vi: 'Tab Invoices mở giao diện tải, hàng đợi và phân tích.',
         mn: '"Invoices" таб оруулах, дараалал, аналитик нээнэ.',
+        uk: 'Вкладка «Invoices» відкриває завантаження, чергу та аналітику для готелю.',
       },
       route: '/:org/purchase-invoices',
     },
@@ -49,6 +53,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         es: 'Subir PDF o foto',
         vi: 'Tải PDF hoặc ảnh',
         mn: 'PDF эсвэл зураг оруулах',
+        uk: 'Завантажити PDF або фото',
       },
       body: {
         en: 'Drop the supplier invoice here — AI extracts vendor, dates, totals, VAT and line items in seconds. Multi-page PDFs work too.',
@@ -56,6 +61,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         es: 'Suelta la factura — la IA extrae proveedor, fechas, totales y líneas.',
         vi: 'Thả hóa đơn vào — AI trích xuất nhà cung cấp, ngày, tổng, dòng.',
         mn: 'Нэхэмжлэхээ оруулахад AI нийлүүлэгч, огноо, дүн, мөрийг гаргана.',
+        uk: 'Перетягніть рахунок — AI за секунди витягне постачальника, дати, суми, ПДВ і позиції.',
       },
       route: '/:org/purchase-invoices',
       selector: '[data-training="invoice-upload"]',
@@ -68,6 +74,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         es: 'Revisar líneas extraídas',
         vi: 'Kiểm tra dòng được trích',
         mn: 'Задалсан мөрүүдийг шалгах',
+        uk: 'Перевірити витягнуті позиції',
       },
       body: {
         en: 'Open any queued invoice to see side-by-side: original document on the left, editable extracted fields on the right. Fix anything wrong before approving.',
@@ -75,6 +82,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         es: 'Abre la factura — original a la izquierda, campos editables a la derecha.',
         vi: 'Mở hóa đơn — gốc bên trái, trường có thể sửa bên phải.',
         mn: 'Нэхэмжлэх нээхэд зүүн талд эх, баруун талд засварлах талбарууд.',
+        uk: 'Відкрийте рахунок — ліворуч оригінал, праворуч поля для редагування. Виправте перед погодженням.',
       },
     },
     {
@@ -85,6 +93,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         es: 'Aprobar y bloquear',
         vi: 'Phê duyệt & khóa',
         mn: 'Зөвшөөрч түгжих',
+        uk: 'Погодити та заблокувати',
       },
       body: {
         en: 'Approval locks the invoice (no further edits) and feeds the Analytics tab — vendor totals, monthly spend and top categories update instantly.',
@@ -92,6 +101,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
         es: 'La aprobación bloquea la factura y actualiza la analítica.',
         vi: 'Phê duyệt khóa hóa đơn và cập nhật phân tích.',
         mn: 'Зөвшөөрөл нь нэхэмжлэхийг түгжиж аналитикийг шинэчилнэ.',
+        uk: 'Погодження блокує рахунок і одразу оновлює аналітику: суми постачальників, витрати, топ-категорії.',
       },
     },
   ],

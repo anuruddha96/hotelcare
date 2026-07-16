@@ -9,6 +9,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
     es: 'Asistencia y Nómina',
     vi: 'Chấm công & Lương',
     mn: 'Ирц ба Цалин',
+    uk: 'Відвідуваність та Зарплата',
   },
   description: {
     en: 'Live attendance, daily timesheet, approvals and payroll export.',
@@ -16,6 +17,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
     es: 'Asistencia en vivo, parte diario, aprobaciones y exportación.',
     vi: 'Chấm công thời gian thực, bảng chấm công, phê duyệt, xuất lương.',
     mn: 'Шууд ирц, өдрийн цаг, зөвшөөрөл, цалин экспорт.',
+    uk: 'Онлайн відвідуваність, табель, погодження та експорт зарплати.',
   },
   roles: [
     'manager',
@@ -39,6 +41,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         es: 'Quién está en turno ahora',
         vi: 'Ai đang trong ca',
         mn: 'Одоо ажиллаж буй хүмүүс',
+        uk: 'Хто зараз на зміні',
       },
       body: {
         en: 'Live grid of everyone signed in, on break or signed out. Refreshes in real time as staff slide in/out.',
@@ -46,6 +49,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         es: 'Cuadrícula en vivo — quién entró, descansa o cerró sesión.',
         vi: 'Lưới thời gian thực — ai đang vào / nghỉ / ra ca.',
         mn: 'Шууд хүснэгт — хэн нэвтэрсэн, амарч буй, гарсан.',
+        uk: 'Онлайн-таблиця: хто увійшов, на перерві або вийшов. Оновлюється в реальному часі.',
       },
       route: '/:org',
       tab: 'attendance',
@@ -59,6 +63,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         es: 'Parte diario de horas',
         vi: 'Bảng chấm công ngày',
         mn: 'Өдрийн цагийн хуудас',
+        uk: 'Щоденний табель',
       },
       body: {
         en: 'Per-staff start, breaks, end and total hours for any day. Click a row to see the location pings and any manual corrections.',
@@ -66,6 +71,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         es: 'Por empleado: entrada, pausas, salida y horas totales.',
         vi: 'Theo nhân viên: vào, nghỉ, ra, tổng giờ.',
         mn: 'Ажилтан тус бүрийн орох, амрах, гарах, нийт цаг.',
+        uk: 'По кожному працівнику: початок, перерви, завершення та всього годин.',
       },
       route: '/:org',
       tab: 'attendance',
@@ -80,6 +86,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         es: 'Aprobar salidas anticipadas',
         vi: 'Duyệt yêu cầu ra ca sớm',
         mn: 'Эрт гарах хүсэлт батлах',
+        uk: 'Погодження раннього виходу та правок',
       },
       body: {
         en: 'When a housekeeper requests early sign-out or a time correction, you get a banner here. One tap approves; the timesheet updates instantly.',
@@ -87,6 +94,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         es: 'Cuando alguien pide salir antes o corregir hora, aparece aquí — un toque aprueba.',
         vi: 'Yêu cầu ra sớm hoặc chỉnh giờ hiện ở đây — một chạm để duyệt.',
         mn: 'Эрт гарах эсвэл цаг засах хүсэлт энд гарна — нэг товшилтоор зөвшөөрнө.',
+        uk: 'Запити на ранній вихід чи правку часу зʼявляються тут — один дотик і погоджено.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -101,6 +109,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         es: 'Exportar para nómina',
         vi: 'Xuất cho bộ phận lương',
         mn: 'Цалинд экспортлох',
+        uk: 'Експорт для зарплати',
       },
       body: {
         en: 'Pick a date range and download CSV per staff member — total hours, breaks and overtime broken out, ready for payroll.',
@@ -108,6 +117,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
         es: 'Elige rango y descarga CSV — horas, pausas y horas extra.',
         vi: 'Chọn khoảng ngày và tải CSV — tổng giờ, nghỉ, OT.',
         mn: 'Огнооны муж сонгож CSV татах — нийт цаг, амралт, нэмэлт цаг.',
+        uk: 'Оберіть діапазон дат і завантажте CSV — усього годин, перерви, понаднормові.',
       },
       route: '/:org',
       tab: 'attendance',
