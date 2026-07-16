@@ -13,6 +13,8 @@ import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban } from 'lucide-react';
+import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
+import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 
 import { Textarea } from '@/components/ui/textarea';
@@ -683,7 +685,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             </span>
           )}
           {roomFlags.cleanNotes && (
-            <span className="text-[8px]" title={roomFlags.cleanNotes}>📝</span>
+            <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
           {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
@@ -999,7 +1001,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
               {/* Notes - auto-save on blur */}
               {isManagerOrAdmin && (
-                <div className="border-t border-border pt-1.5">
+                <div className="border-t border-border pt-1.5 space-y-1.5">
+                  {room.notes && (
+                    <StructuredRoomNote notes={room.notes} />
+                  )}
                   <textarea
                     className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     placeholder={t('roomOverview.managerNotes')}
@@ -1260,7 +1265,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             </span>
           )}
           {roomFlags.cleanNotes && (
-            <span className="text-[8px]" title={roomFlags.cleanNotes}>📝</span>
+            <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
           {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">{staffName}</span>
@@ -1854,6 +1859,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {isManagerOrAdmin && (
                     <div className="space-y-2 pb-3 border-b">
                       <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">📝 Manager Notes</label>
+                      {selectedRoom?.notes && (
+                        <StructuredRoomNote notes={selectedRoom.notes} />
+                      )}
                       <Textarea
                         value={roomNotes}
                         onChange={(e) => setRoomNotes(e.target.value)}
