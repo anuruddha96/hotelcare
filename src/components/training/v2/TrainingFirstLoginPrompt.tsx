@@ -10,6 +10,7 @@ const TXT = {
     es: '¿Listo para un recorrido guiado?',
     vi: 'Sẵn sàng cho hướng dẫn nhanh?',
     mn: 'Богино танилцуулгад бэлэн үү?',
+    uk: 'Готові до швидкого туру?',
   },
   body: {
     en: "We'll walk you through every module one after another: HR, PMS, Team, Tickets, Revenue and Invoices. You can pause anytime — we'll resume where you left off.",
@@ -17,10 +18,11 @@ const TXT = {
     es: 'Recorreremos cada módulo: HR, PMS, Equipo, Tickets, Ingresos, Facturas. Puedes pausar cuando quieras.',
     vi: 'Đi qua từng mô-đun: HR, PMS, Nhóm, Phiếu, Doanh thu, Hóa đơn. Có thể tạm dừng bất cứ lúc nào.',
     mn: 'HR, PMS, Баг, Тасалбар, Орлого, Нэхэмжлэх — модуль бүрээр явна. Хүссэн үедээ түр зогсоож болно.',
+    uk: 'Ми проведемо вас через кожен модуль по черзі. Можна призупинити будь-коли — ми продовжимо з того ж місця.',
   },
-  start: { en: 'Start tour', hu: 'Indítás', es: 'Comenzar', vi: 'Bắt đầu', mn: 'Эхлэх' },
-  later: { en: 'Remind me tomorrow', hu: 'Emlékeztess holnap', es: 'Recuérdame mañana', vi: 'Nhắc lại vào ngày mai', mn: 'Маргааш сануул' },
-  skip: { en: 'Skip', hu: 'Kihagyás', es: 'Omitir', vi: 'Bỏ qua', mn: 'Алгасах' },
+  start: { en: 'Start tour', hu: 'Indítás', es: 'Comenzar', vi: 'Bắt đầu', mn: 'Эхлэх', uk: 'Розпочати тур' },
+  later: { en: 'Remind me tomorrow', hu: 'Emlékeztess holnap', es: 'Recuérdame mañana', vi: 'Nhắc lại vào ngày mai', mn: 'Маргааш сануул', uk: 'Нагадати завтра' },
+  skip: { en: 'Skip', hu: 'Kihagyás', es: 'Omitir', vi: 'Bỏ qua', mn: 'Алгасах', uk: 'Пропустити' },
 };
 
 export function TrainingFirstLoginPrompt() {

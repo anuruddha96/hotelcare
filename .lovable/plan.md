@@ -1,73 +1,52 @@
-# Fix bed-configuration inference from PMS notes
 
-## Root cause
+## Plan
 
-`src/lib/pmsRefresh.ts` calls `inferBedConfigFromNote(row.Note)` with the **full raw Previo note** — which includes Booking.com policy boilerplate like:
+Five focused changes. All UI/presentation — no business-logic rewrites.
 
-- "You **haven't added any extra beds**." → matches keyword `extra bed` → sets **Extra Cot Added**
-- "The maximum number of cots is 1." → matches `cot` → could set **Baby Bed**
-- "Deluxe Double or Twin Room" (partner category label) → matches `double` / `twin`
+### 1. Ukrainian training translations
+**Problem:** `LangCode` includes `'uk'` but none of the curricula in `src/components/training/v2/curricula/*.ts` have a `uk:` field, so `tx()` falls back to English for every step title, body, and CTA even when the housekeeper's UI is Ukrainian.
 
-`bedConfigInference.ts` does naive `haystack.includes(keyword)` with no word boundaries and no negation handling, so any occurrence — even inside a negation or a room-category label — flips `rooms.bed_configuration`.
+**Fix:** Add `uk:` translations to every `I18nText` block in:
+- `housekeeper.ts` (13 steps + curriculum name/description)
+- `manager-complete.ts`, `manager.ts`, `manager-attendance.ts`, `manager-team.ts`, `manager-tickets.ts`, `manager-reception.ts`, `manager-revenue.ts`, `manager-invoices.ts`
+- `autoAssignPromo.ts`, `admin-pms-overview.ts`
+- Also fill `uk` entries in the toast label maps inside `TrainingV2Provider.tsx` (SKIP_TOAST_LABELS, RESUME_TOAST_LABELS, notNowLabel, HEADER in `TrainingHelpButtonV2.tsx`, "Start tour" / "Remind me tomorrow" / "Skip" strings in `TrainingFirstLoginPrompt.tsx`).
 
-Confirmed on live DB: rooms 103, 105, 201, 202, 304, 406 (Hotel Ottofiori) all have `bed_configuration = "Extra Cot Added"` written by the algorithm with `pms_metadata.inferredBedConfig.keyword = "extra bed"`, but there is no real guest request.
+### 2. Redesign the "Required Actions" panel (AssignedRoomCard.tsx lines 1109-1206)
+Current UI reads like an error banner (red gradient + pulsing warning + "MANDATORY" chip). Replace with a modern, inviting checklist card:
 
-## Fix (all algorithmic — no AI)
+- Container: soft neutral surface (`bg-card` with `border-border`), rounded-2xl, subtle shadow. No red gradient, no pulse.
+- Header: small icon (ClipboardCheck) + "Room checklist" title in `text-foreground`, muted subtitle "Complete any that apply before finishing".
+- Buttons: keep 6 actions but restyle as uniform tile cards (icon in a tinted circle, label below). Each tile uses a single tonal accent (primary/secondary) instead of 6 different colored borders. Add subtle hover lift.
+- Fix maintenance UK overflow: use `text-[11px] leading-tight break-words hyphens-auto` with `min-h-[72px]` so long words like "Технічне обслуговування" wrap cleanly.
+- Show a small green check dot on tiles the housekeeper has already interacted with (dirty linen submitted, minibar recorded, etc.) using existing state flags already available on the card.
 
-### 1. `src/lib/bedConfigInference.ts`
-- Match keywords with **word boundaries** (`\b<kw>\b`) instead of substring `includes`.
-- Reject matches whose preceding ~30 chars contain a **negation** (`no`, `not`, `without`, `haven't`, `hasn't`, `don't`, `doesn't`, `any` after `haven't added`, `0 `, `zero`).
-- Reject matches inside a **capacity/policy phrase** window: `maximum number of`, `policy`, `included`, `commission`, `you haven't`, `extra bed policy`.
-- Keep the existing priority order (separated > extra cot > baby bed > twin > single > double).
+### 3. Pre-completion confirmation dialog
+Before `updateAssignmentStatus('completed')` fires from the Complete hold-button, open a small confirmation dialog asking:
+- "Have you added all dirty linen collected from this room?" (Yes / Go back)
+- "Have you recorded minibar consumption (if any was used)?" (Yes / Go back)
 
-### 2. `src/lib/pmsRefresh.ts` (line ~413)
-Replace `inferBedConfigFromNote(row.Note ...)` with a call that **only inspects the guest special-requests slice**, reusing the existing `parsePmsNote` logic:
+Implementation: new `PreCompleteChecklistDialog.tsx` (two checkboxes + primary "Complete room" button, secondary "Not yet"). Wire it into `AssignedRoomCard` — the hold-complete handler opens the dialog; only when both are checked does it call the existing completion mutation. No backend changes.
 
-```ts
-import { parsePmsNote } from "@/lib/pmsNoteParser";
-const parsed = parsePmsNote(row.Note ? String(row.Note) : null);
-const inferredBed = reservationDataAuthoritative && parsed.bedArrangement
-  ? { value: parsed.bedArrangement, matchedKeyword: "special-requests" }
-  : null;
-```
+### 4. Lost & Found dialog UX overhaul (`LostAndFoundDialog.tsx`)
+Reorder + upgrade to a 3-step flow inside the same dialog:
 
-This reuses the parser that already:
-- extracts only the `Special requests…` segment,
-- ignores the "Double or Twin" partner room-name ambiguity,
-- drops finance / policy noise.
+1. **Photo first** — big camera CTA (Take photo / Upload) with a preview thumb.
+2. **Item picker** — replace the free-text `Input` with a Command/Combobox (shadcn `Command`) seeded with a curated list of ~40 common lost items (umbrella, wallet, passport, phone charger, sunglasses, laptop, headphones, jewellery, keys, book, cosmetics, clothing items, toys, medication, etc.), translated for all supported UI languages including `uk`. As the user types, filter by prefix and rank by a small "most-used" weight (static ordering per item). Allow free-text "Custom item" fallback.
+3. **Description / notes** — optional textarea, then Report.
 
-### 3. Tests
-Extend `bedConfigInference.test.ts` with negative cases that currently regress:
+Add a stepper indicator at the top; keep Cancel + Report actions in the footer. Item list lives in a new `src/lib/lostFoundItems.ts`.
 
-- `"You haven't added any extra beds. The maximum number of cots is 1."` → `null`
-- `"Children and Extra Bed Policy: children of any age are allowed."` → `null`
-- `"The maximum number of guests is 2."` → `null`
-- `"Deluxe Double or Twin Room"` → `null`
+### 5. Minibar dialog polish
+Sweep the existing minibar dialog(s) opened from `RoomDetailDialog` / minibar tile:
+- Larger touch targets, grouped by category (Drinks, Snacks, Other) with sticky category chips.
+- Quantity stepper (− / value / +) instead of tiny inputs.
+- Running total pill at the bottom with clear "Save" primary button.
+- Empty state illustration + "Nothing consumed" quick-confirm button so housekeepers can dismiss in one tap.
+- Full UK translations for all labels.
 
-Extend `pmsNoteParser.test.ts` with the full Booking.com sample already in the file, asserting `bedArrangement === null` when the only "extra bed" mention is in the policy block.
-
-### 4. Data repair (one-off SQL migration)
-For every room whose `pms_metadata->'inferredBedConfig'->>'keyword'` is set AND whose current raw note (or absence of note) no longer justifies it under the new algorithm:
-
-```sql
-UPDATE rooms
-SET bed_configuration = NULL,
-    pms_metadata = pms_metadata - 'inferredBedConfig'
-WHERE pms_metadata ? 'inferredBedConfig'
-  AND pms_metadata->'inferredBedConfig'->>'keyword' IN ('extra bed','cot','twin','double','king','queen');
-```
-
-Scoped only to algorithm-written values (rows carrying the `inferredBedConfig` marker) — manager-set bed configs never had that marker and are untouched.
-
-### 5. Verification
-- `bun run test src/lib/bedConfigInference.test.ts src/lib/pmsNoteParser.test.ts`.
-- Query the same 6 Ottofiori rooms — `bed_configuration` should be `NULL`.
-- Trigger a PMS refresh from the client; confirm the same rooms stay `NULL` (no note has a real special-request bed phrase).
-- Confirm rooms with a **real** request (e.g. "Special requests: twin beds separated") still get the correct value on next refresh.
-
-## Files changed
-- `src/lib/bedConfigInference.ts` — word-boundary + negation guards
-- `src/lib/pmsRefresh.ts` — route inference through `parsePmsNote`
-- `src/lib/bedConfigInference.test.ts` — new negative cases
-- `src/lib/pmsNoteParser.test.ts` — assert Booking.com sample yields no bed arrangement
-- new migration under `supabase/migrations/` — clears algorithm-written false positives
+### Technical notes
+- No schema changes, no edge-function changes.
+- New files: `src/components/dashboard/PreCompleteChecklistDialog.tsx`, `src/lib/lostFoundItems.ts`.
+- Edited: all curricula files, `TrainingV2Provider.tsx`, `TrainingHelpButtonV2.tsx`, `TrainingFirstLoginPrompt.tsx`, `AssignedRoomCard.tsx`, `LostAndFoundDialog.tsx`, minibar dialog component(s) under `src/components/dashboard/`, `useTranslation.tsx` (new UK strings for checklist + lost&found + minibar labels).
+- Verify with existing curricula tests (`__tests__/curricula.test.ts`) and a UK-language pass on the housekeeping dashboard.

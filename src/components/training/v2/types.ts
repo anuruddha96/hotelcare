@@ -32,6 +32,7 @@ export interface I18nText {
   es?: string;
   vi?: string;
   mn?: string;
+  uk?: string;
 }
 
 export interface TrainingStepV2 {

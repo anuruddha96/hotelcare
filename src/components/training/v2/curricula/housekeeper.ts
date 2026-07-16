@@ -1,17 +1,4 @@
 // Housekeeper "Your First Day" curriculum.
-//
-// Designed so a brand-new housekeeper can follow it on their phone with no
-// prior coaching. The flow mirrors the real work order:
-//   1. Grant location access  →  2. Sign in (slider / button)
-//   3. Take a break / end a break (so they know how)
-//   4. Open My Tasks  →  5. (proactive) Start the first room when one is
-//      actually assigned and waiting  →  6. In-room tools  →
-//   7. Complete the room  →  8. Sign out at end of shift.
-//
-// Steps 5–7 are gated on `has_active_assignment` / `has_in_progress_cleaning`
-// so they appear PROACTIVELY only when the housekeeper actually has work,
-// instead of being shown as abstract slides. Selectors point at real anchors
-// (`data-training="…"`) that already exist in the dashboard components.
 import type { TrainingCurriculum } from '../types';
 
 export const housekeeperCurriculum: TrainingCurriculum = {
@@ -22,6 +9,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
     es: 'Tu primer día — Camarera',
     vi: 'Ngày đầu tiên của bạn',
     mn: 'Анхны ажлын өдөр',
+    uk: 'Ваш перший день — покоївка',
   },
   description: {
     en: 'A friendly walkthrough of everything you need to clean rooms confidently.',
@@ -29,6 +17,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
     es: 'Un recorrido amable de todo lo que necesitas para limpiar habitaciones con confianza.',
     vi: 'Hướng dẫn thân thiện về mọi thứ bạn cần để dọn phòng tự tin.',
     mn: 'Өрөө цэвэрлэхэд хэрэгтэй бүхнийг танилцуулах.',
+    uk: 'Дружній огляд усього, що потрібно, щоб впевнено прибирати номери.',
   },
   roles: ['housekeeping'],
   category: 'core',
@@ -44,6 +33,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Bienvenido a Hotel Care 👋',
         vi: 'Chào mừng đến Hotel Care 👋',
         mn: 'Hotel Care-д тавтай морил 👋',
+        uk: 'Ласкаво просимо до Hotel Care 👋',
       },
       body: {
         en: 'This short tour shows you how to sign in, find your rooms, clean them, and finish your shift. We will pause and wait for you at each step.',
@@ -51,10 +41,10 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Este breve recorrido te muestra cómo iniciar sesión, encontrar tus habitaciones, limpiarlas y terminar tu turno.',
         vi: 'Hướng dẫn ngắn này chỉ cho bạn cách đăng nhập, tìm phòng, dọn dẹp và kết thúc ca làm.',
         mn: 'Энэ богино заавар нь нэвтрэх, өрөөгөө олох, цэвэрлэх, ээлжээ дуусгахыг заана.',
+        uk: 'Цей короткий тур покаже, як увійти, знайти свої номери, прибрати їх і завершити зміну. Ми будемо чекати на вас на кожному кроці.',
       },
     },
 
-    // ── 1. Attendance: grant location access first ─────────────────────────
     {
       key: 'grant_location',
       title: {
@@ -63,6 +53,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Permite acceso a la ubicación',
         vi: 'Cho phép truy cập vị trí',
         mn: 'Байршил руу хандах зөвшөөрөл',
+        uk: 'Дозвольте доступ до геолокації',
       },
       body: {
         en: 'Sign-in needs your location so the hotel knows you are on site. When the phone asks, tap Allow. If you already denied it, open the Location help link on the Attendance tab.',
@@ -70,13 +61,13 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'El registro necesita tu ubicación. Cuando el teléfono pregunte, toca Permitir.',
         vi: 'Đăng nhập cần vị trí của bạn. Khi điện thoại hỏi, hãy bấm Cho phép.',
         mn: 'Бүртгүүлэхэд таны байршил хэрэгтэй. Утас асуухад "Зөвшөөрөх" дар.',
+        uk: 'Для входу потрібна ваша геолокація, щоб готель бачив, що ви на місці. Коли телефон запитає, натисніть «Дозволити». Якщо вже відмовили — відкрийте посилання «Довідка про геолокацію» на вкладці Відвідуваність.',
       },
       route: '/:org',
       tab: 'attendance',
       selector: '[data-training="check-in-button"]',
     },
 
-    // ── 2. Sign in (slider / button) ───────────────────────────────────────
     {
       key: 'signin',
       title: {
@@ -85,6 +76,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Desliza / toca para iniciar sesión',
         vi: 'Trượt / chạm để đăng nhập',
         mn: 'Гүйлгэж / товшиж бүртгүүл',
+        uk: 'Проведіть / натисніть, щоб увійти',
       },
       body: {
         en: 'On the Attendance tab use the Sign In control to start your shift. We will wait here until you are signed in.',
@@ -92,6 +84,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'En la pestaña Asistencia usa el control Iniciar Sesión. Esperaremos.',
         vi: 'Tại tab Chấm công, dùng nút Đăng nhập. Chúng tôi sẽ chờ.',
         mn: 'Ирц табд Бүртгүүлэх товчийг ашиглан ээлжээ эхлүүл.',
+        uk: 'На вкладці Відвідуваність скористайтеся кнопкою «Увійти», щоб розпочати зміну. Ми зачекаємо тут, поки ви увійдете.',
       },
       route: '/:org',
       tab: 'attendance',
@@ -99,7 +92,6 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       waitFor: 'is_signed_in',
     },
 
-    // ── 3. Breaks ──────────────────────────────────────────────────────────
     {
       key: 'breaks',
       title: {
@@ -108,6 +100,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Toma un descanso',
         vi: 'Nghỉ giải lao',
         mn: 'Завсарлах',
+        uk: 'Зробіть перерву',
       },
       body: {
         en: 'When you need a break, pick the type (lunch, rest, personal) and press Start Break. Press End Break to come back. Your shift time stops and resumes automatically.',
@@ -115,6 +108,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Cuando necesites un descanso, elige el tipo y pulsa Iniciar Descanso.',
         vi: 'Khi cần nghỉ, chọn loại và bấm Bắt đầu nghỉ.',
         mn: 'Завсарлахдаа төрлийг сонгож "Завсар эхлүүлэх" дар.',
+        uk: 'Коли потрібна перерва, оберіть тип (обід, відпочинок, особиста) і натисніть «Розпочати перерву». Натисніть «Завершити перерву», щоб повернутися. Час зміни зупиняється і поновлюється автоматично.',
       },
       route: '/:org',
       tab: 'attendance',
@@ -123,7 +117,6 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       optional: true,
     },
 
-    // ── 4. Open the My Tasks list ──────────────────────────────────────────
     {
       key: 'my_tasks',
       title: {
@@ -132,6 +125,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Tus habitaciones de hoy',
         vi: 'Phòng hôm nay',
         mn: 'Өнөөдрийн өрөөнүүд',
+        uk: 'Ваші номери на сьогодні',
       },
       body: {
         en: 'My Tasks shows the rooms assigned to you. Each card has the room number, type (Daily / Checkout), priority and any guest notes.',
@@ -139,6 +133,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Mis Tareas muestra tus habitaciones asignadas.',
         vi: 'Nhiệm vụ của tôi hiển thị các phòng được giao.',
         mn: '"Миний даалгавар" танд хуваарилсан өрөөг харуулна.',
+        uk: '«Мої завдання» показує кімнати, призначені вам. На кожній картці — номер кімнати, тип (щоденне / після виїзду), пріоритет і примітки гостя.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -146,7 +141,6 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       precondition: 'is_signed_in',
     },
 
-    // ── 5. PROACTIVE: only fires when an active room is assigned & waiting ─
     {
       key: 'start_cleaning',
       title: {
@@ -155,6 +149,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Comienza tu primera habitación',
         vi: 'Bắt đầu phòng đầu tiên',
         mn: 'Эхний өрөөгөө эхлүүл',
+        uk: 'Розпочніть перший номер',
       },
       body: {
         en: 'You have a room waiting. Tap Start Cleaning on the card to open the in-room tools. We will continue once you start.',
@@ -162,6 +157,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Tienes una habitación esperando. Toca Comenzar Limpieza.',
         vi: 'Bạn có phòng đang chờ. Bấm Bắt đầu Dọn.',
         mn: 'Танд өрөө хүлээж байна. "Цэвэрлэж эхлэх" дар.',
+        uk: 'Вас чекає номер. Натисніть «Початок» на картці, щоб відкрити інструменти в номері. Продовжимо, коли ви почнете.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -171,7 +167,6 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       optional: true,
     },
 
-    // ── 6. In-room tools (only relevant once a room is in progress) ────────
     {
       key: 'in_session_photos',
       title: {
@@ -180,6 +175,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Toma las fotos requeridas',
         vi: 'Chụp ảnh bắt buộc',
         mn: 'Шаардлагатай зургуудыг ав',
+        uk: 'Додайте обовʼязкові фото',
       },
       body: {
         en: 'Tap Photos and capture bathroom, bed and floor. You cannot complete the room without them.',
@@ -187,6 +183,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Toca Fotos y captura baño, cama y suelo.',
         vi: 'Bấm Ảnh và chụp phòng tắm, giường, sàn.',
         mn: '"Зураг" товч дээр дарж угаалгын өрөө, ор, шалыг ав.',
+        uk: 'Натисніть «Фото кімнати» та зробіть фото ванної, ліжка і підлоги. Без них завершити номер неможливо.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -202,6 +199,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: '¿Algo está roto?',
         vi: 'Có gì hỏng?',
         mn: 'Эвдэрсэн зүйл байна уу?',
+        uk: 'Знайшли щось зламане?',
       },
       body: {
         en: 'Tap Maintenance to create a ticket with a photo. The maintenance team gets it instantly.',
@@ -209,6 +207,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Toca Mantenimiento para crear un ticket con foto.',
         vi: 'Bấm Bảo trì để tạo phiếu kèm ảnh.',
         mn: 'Засвар үйлчилгээ дээр дарж зураг хавсаргасан тасалбар үүсгэ.',
+        uk: 'Натисніть «Технічне обслуговування», щоб створити заявку з фото. Команда обслуговування отримає її одразу.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -224,6 +223,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Registra ropa sucia',
         vi: 'Ghi nhận khăn bẩn',
         mn: 'Бохир даавууг бүртгэ',
+        uk: 'Запишіть брудну білизну',
       },
       body: {
         en: 'Use Dirty Linen to count what you removed. Laundry uses this for the next delivery.',
@@ -231,6 +231,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Usa Ropa Sucia para contar lo que retiraste.',
         vi: 'Dùng Khăn Bẩn để đếm những gì bạn đã lấy ra.',
         mn: '"Бохир даавуу" товчоор хассан зүйлээ тоол.',
+        uk: 'Використовуйте «Брудна білизна», щоб порахувати те, що ви зібрали. Пральня використає це для наступної доставки.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -246,6 +247,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Objetos perdidos',
         vi: 'Mất & tìm',
         mn: 'Олдсон зүйл',
+        uk: 'Загублені речі',
       },
       body: {
         en: 'Found something a guest left? Tap Lost & Found and log it with a photo so reception can return it.',
@@ -253,6 +255,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: '¿Encontraste algo? Toca Perdidos y Encontrados.',
         vi: 'Tìm thấy gì? Bấm Mất & Tìm.',
         mn: 'Олсон зүйлийг "Олдсон зүйл" дээр бүртгэ.',
+        uk: 'Знайшли річ, яку залишив гість? Натисніть «Загублені речі» і додайте її з фото, щоб рецепція могла її повернути.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -268,6 +271,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'No molestar / rechazado',
         vi: 'DND / từ chối',
         mn: 'Бүү саатуул / татгалзсан',
+        uk: 'Не турбувати / відмова від обслуговування',
       },
       body: {
         en: 'If the guest has DND or refuses cleaning, tap the orange No Service / DND button instead of completing the room.',
@@ -275,6 +279,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Si hay DND o rechazo, usa el botón naranja.',
         vi: 'Nếu DND hoặc bị từ chối, dùng nút cam.',
         mn: 'DND эсвэл татгалзвал улбар шар товчийг ашигла.',
+        uk: 'Якщо гість поставив «Не турбувати» або відмовився від прибирання, натисніть помаранчеву кнопку «Без обслуговування / Не турбувати» замість завершення номера.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -290,6 +295,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Terminar la habitación',
         vi: 'Hoàn tất phòng',
         mn: 'Өрөөг дуусгах',
+        uk: 'Завершіть номер',
       },
       body: {
         en: 'When the photos are in and the room is ready, tap Mark Complete. It becomes ready for inspection.',
@@ -297,6 +303,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Cuando termines, pulsa Marcar Completo.',
         vi: 'Khi xong, bấm Hoàn tất.',
         mn: 'Дууссан үед "Дуусгах" дар.',
+        uk: 'Коли фото додані, а номер готовий, натисніть «Завершити». Він стане готовим до перевірки.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -305,7 +312,6 @@ export const housekeeperCurriculum: TrainingCurriculum = {
       optional: true,
     },
 
-    // ── 7. End of shift ────────────────────────────────────────────────────
     {
       key: 'signout',
       title: {
@@ -314,6 +320,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Fin de turno — cierra sesión',
         vi: 'Kết thúc ca — đăng xuất',
         mn: 'Ээлжээ дуусгах',
+        uk: 'Кінець зміни — вийдіть',
       },
       body: {
         en: 'When all rooms are done, go back to Attendance and tap Sign Out. Your manager sees your finish time automatically.',
@@ -321,6 +328,7 @@ export const housekeeperCurriculum: TrainingCurriculum = {
         es: 'Cuando termines, abre Asistencia y toca Cerrar Sesión.',
         vi: 'Khi xong, mở Chấm công và bấm Đăng xuất.',
         mn: 'Бүх өрөө дууссан үед Ирц рүү ороод "Гарах" дарна уу.',
+        uk: 'Коли всі номери готові, поверніться до вкладки Відвідуваність і натисніть «Завершити зміну». Менеджер побачить ваш час завершення автоматично.',
       },
       route: '/:org',
       tab: 'attendance',
