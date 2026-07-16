@@ -583,32 +583,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
             </Card>
           )}
 
-          {/* Perishable Item Alerts */}
-          {perishableAlerts.length > 0 && (
-            <Card className="border-amber-300 bg-amber-50/50">
-              <CardContent className="pt-4 space-y-2">
-                {perishableAlerts.map((alert: any) => {
-                  const isOverdue = new Date(alert.expires_at) < new Date(new Date().toDateString());
-                  return (
-                    <div key={alert.id} className={`flex items-center justify-between p-3 rounded-lg border ${isOverdue ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${isOverdue ? 'text-red-600' : 'text-amber-600'}`} />
-                        <span className="text-sm font-medium truncate">
-                          Collect {alert.minibar_items?.name || 'item'} from minibar
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          (placed {new Date(alert.placed_at).toLocaleDateString()}{isOverdue ? ', expired' : ', expires today'})
-                        </span>
-                      </div>
-                      <Button size="sm" variant="outline" onClick={() => handleCollectPerishable(alert.id)} className="gap-1 text-xs flex-shrink-0 ml-2">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Collected
-                      </Button>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          )}
+          {/* Perishable item alerts removed per product decision — collection now handled elsewhere. */}
 
           {/* Minibar Section */}
           <Card>
