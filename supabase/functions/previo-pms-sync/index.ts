@@ -673,7 +673,11 @@ serve(async (req) => {
         CheckedOut: isCheckedOut,
         IsCheckoutRoom: isCheckoutRoom,
         IsNoShow: isNoShow,
-        ReservationStatusId: res?.statusId ?? null,
+        // Keep the legacy field safe for stale browser bundles that used to
+        // treat statusId=5 as checked-out. Raw value remains available below
+        // for audit/storage, but only true checkout statuses are exposed here.
+        ReservationStatusId: isCheckedOut ? (res?.statusId ?? null) : null,
+        RawReservationStatusId: res?.statusId ?? null,
         People: res?.guestsCount ?? (isOccupied || isDeparture ? r.capacity : 0),
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
         CurrentNight: currentNight || null,
