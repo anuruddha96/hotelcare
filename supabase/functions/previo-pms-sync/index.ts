@@ -85,6 +85,14 @@ function isNoShowStatus(statusId: number): boolean {
   return statusId === 6 || statusId === 8;
 }
 
+const RESERVATION_UNAVAILABLE_MANAGER_MESSAGE =
+  "Previo room list synced, but checkout/departure data was unavailable. Please verify checkout rooms manually.";
+
+function isAuthFailure(status: number, message: string | null, text = ""): boolean {
+  const haystack = `${message || ""} ${text.slice(0, 500)}`;
+  return status === 401 || status === 403 || /invalid login|invalid password|unauthori[sz]ed|forbidden/i.test(haystack);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -239,6 +247,7 @@ serve(async (req) => {
     const reservationsByObjId = new Map<number, ParsedReservation>();
     let reservationFetchError: string | null = null;
     let reservationFallbackSource: string | null = null;
+    let reservationIssue: Record<string, unknown> | null = null;
 
     const indexReservation = (rec: ParsedReservation) => {
       const rank = (r: ParsedReservation) => {
@@ -273,7 +282,19 @@ serve(async (req) => {
       });
       const xmlText = xmlResult.text;
       if (!xmlResult.ok) {
-        reservationFetchError = `XML API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
+        const authFailure = isAuthFailure(xmlResult.status, xmlResult.errorMessage, xmlText);
+        reservationFetchError = authFailure
+          ? "Previo rejected reservation/departure API login."
+          : `Previo reservation/departure API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
+        reservationIssue = {
+          type: authFailure ? "previo_reservation_auth" : "previo_reservation_unavailable",
+          status: xmlResult.status,
+          protocol: credsProtocol,
+          usedAuthVariant: xmlResult.usedAuthVariant ?? null,
+          managerMessage: RESERVATION_UNAVAILABLE_MANAGER_MESSAGE,
+          adminMessage: reservationFetchError,
+          detail: xmlResult.errorMessage || null,
+        };
         console.warn(`[previo-pms-sync] XML reservations failed: ${reservationFetchError}`);
       } else {
         const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
@@ -322,6 +343,12 @@ serve(async (req) => {
       }
     } catch (e: any) {
       reservationFetchError = e?.message || String(e);
+      reservationIssue = {
+        type: "previo_reservation_unavailable",
+        protocol: credsProtocol,
+        managerMessage: RESERVATION_UNAVAILABLE_MANAGER_MESSAGE,
+        adminMessage: reservationFetchError,
+      };
       console.warn(`[previo-pms-sync] XML reservations threw: ${reservationFetchError}`);
     }
 
@@ -429,6 +456,7 @@ serve(async (req) => {
         }
         if (checkoutRows.length || dailyRows.length) {
           reservationFallbackSource = "latest_pms_upload_summary";
+          reservationIssue = null;
           console.log(`[previo-pms-sync] XML unavailable/empty; recovered ${checkoutRows.length} checkout and ${dailyRows.length} daily rooms from latest PMS upload`);
         }
       } catch (e: any) {
@@ -543,6 +571,8 @@ serve(async (req) => {
         reservationDataAuthoritative: reservationsByRoomName.size > 0,
         reservationSource,
         reservationFetchError,
+        reservationIssue,
+        managerMessage: reservationsByRoomName.size > 0 ? null : RESERVATION_UNAVAILABLE_MANAGER_MESSAGE,
         reservationFallbackSource,
         rows,
       }),
