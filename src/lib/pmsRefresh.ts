@@ -304,8 +304,8 @@ export async function runPmsRefresh(
       const isScheduledDeparture = classification.isScheduledDeparture;
       const isDepartureTomorrow = classification.isDepartureTomorrow;
       const explicitCheckoutStatus = row.CheckedOut === true
-        || row.ReservationStatusId === 6
-        || row.ReservationStatusId === 9
+        || Number(row.ReservationStatusId) === 6
+        || Number(row.ReservationStatusId) === 9
         || String(row.Status ?? row.ReservationStatus ?? "")
           .trim()
           .toLowerCase()
