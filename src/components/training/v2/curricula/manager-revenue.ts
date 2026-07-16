@@ -11,6 +11,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
     es: 'Revenue Management',
     vi: 'Revenue Management',
     mn: 'Revenue Management',
+    uk: 'Revenue Management',
   },
   description: {
     en: '120-day grid, pickup vs ADR vs RevPAR, AI analyst suggestions and rate-plan mapping.',
@@ -18,6 +19,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
     es: 'Cuadrícula de 120 días, pickup vs ADR vs RevPAR y analista IA.',
     vi: 'Lưới 120 ngày, pickup vs ADR vs RevPAR và phân tích AI.',
     mn: '120 хоногийн хүснэгт, pickup/ADR/RevPAR, AI шинжээч.',
+    uk: 'Сітка на 120 днів, pickup / ADR / RevPAR, поради AI-аналітика та мапінг тарифів.',
   },
   roles: ['top_management', 'top_management_manager', 'admin'],
   category: 'feature_promo',
@@ -33,6 +35,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'Abrir Revenue Management',
         vi: 'Mở Revenue Management',
         mn: 'Revenue Management нээх',
+        uk: 'Відкрити Revenue Management',
       },
       body: {
         en: 'Top tab "Revenue Management" opens the 120-day strategy grid for the selected hotel.',
@@ -40,6 +43,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'La pestaña Revenue Management abre la cuadrícula de 120 días.',
         vi: 'Tab Revenue Management mở lưới chiến lược 120 ngày.',
         mn: '"Revenue Management" таб 120 хоногийн хүснэгтийг нээнэ.',
+        uk: 'Вкладка «Revenue Management» відкриває стратегічну сітку на 120 днів для готелю.',
       },
       route: '/:org/revenue',
     },
@@ -51,6 +55,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'La cuadrícula de 120 días',
         vi: 'Lưới 120 ngày',
         mn: '120 хоногийн хүснэгт',
+        uk: 'Сітка на 120 днів',
       },
       body: {
         en: 'Each cell is one date. Color encodes the recommended move: green = increase, red = decrease, grey = hold. A purple ring marks an event; deep red flags abnormal pickup.',
@@ -58,6 +63,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'Cada celda es un día. Verde = subir, rojo = bajar, gris = mantener.',
         vi: 'Mỗi ô là một ngày. Xanh = tăng, đỏ = giảm, xám = giữ.',
         mn: 'Нэг нүд = нэг өдөр. Ногоон = өсгөх, улаан = бууруулах, саарал = барих.',
+        uk: 'Кожна клітинка — день. Зелений = підняти, червоний = знизити, сірий = тримати; фіолетова рамка — подія.',
       },
       route: '/:org/revenue',
       selector: '[data-training="revenue-grid"]',
@@ -72,6 +78,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'Pickup, ADR, RevPAR',
         vi: 'Pickup, ADR, RevPAR',
         mn: 'Pickup, ADR, RevPAR',
+        uk: 'Pickup, ADR, RevPAR',
       },
       body: {
         en: 'Pickup = net rooms booked in the last N days. ADR = revenue / sold rooms. RevPAR = revenue / available rooms. All three roll up across the date range you select.',
@@ -79,6 +86,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'Pickup = reservas netas N días. ADR = ingresos/habitaciones vendidas. RevPAR = ingresos/habitaciones disponibles.',
         vi: 'Pickup = đặt phòng ròng N ngày. ADR = doanh thu/phòng bán. RevPAR = doanh thu/phòng có.',
         mn: 'Pickup = сүүлийн N хоногийн цэвэр захиалга. ADR = орлого/борлуулсан өрөө. RevPAR = орлого/нийт өрөө.',
+        uk: 'Pickup = чисті бронювання за N днів. ADR = дохід / продані номери. RevPAR = дохід / усі доступні номери.',
       },
     },
     {
@@ -89,6 +97,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'Analista IA — sugerencias del autopiloto',
         vi: 'Phân tích AI — gợi ý autopilot',
         mn: 'AI Шинжээч — autopilot санал',
+        uk: 'AI-аналітик — поради автопілота',
       },
       body: {
         en: 'The analyst card lists every rate move it would make and why (pickup velocity, comp set, event). Tap "Run" to apply, or click a single suggestion to override before pushing to Previo.',
@@ -96,6 +105,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'El analista lista cada cambio sugerido con motivo — puedes anular antes de enviar.',
         vi: 'Phân tích liệt kê các thay đổi giá đề xuất kèm lý do — có thể ghi đè.',
         mn: 'Шинжээч санал бүрийг шалтгаантай харуулна — Previo руу илгээхээс өмнө засаж болно.',
+        uk: 'Картка аналітика показує кожну зміну ціни й причину — натисніть «Run» або відредагуйте окремо перед відправкою в Previo.',
       },
       route: '/:org/revenue',
       selector: '[data-training="ai-analyst-card"]',
@@ -109,6 +119,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'Calendario y mapeo de planes de tarifa',
         vi: 'Lịch chiến lược & ánh xạ rate plan',
         mn: 'Стратеги хуанли ба rate plan тохиргоо',
+        uk: 'Стратегічний календар і мапінг тарифів',
       },
       body: {
         en: 'Settings → Rate Plans maps each Previo rate plan to a base price + derivation rule (% off BAR, fixed delta, etc.). The grid uses that mapping when it pushes rates.',
@@ -116,6 +127,7 @@ export const managerRevenueCurriculum: TrainingCurriculum = {
         es: 'Ajustes → Planes: mapea cada plan Previo a precio base y regla.',
         vi: 'Cài đặt → Rate Plan: ánh xạ mỗi plan Previo về giá gốc + quy tắc.',
         mn: 'Тохиргоо → Rate Plan: Previo plan тус бүрийг үндсэн үнэ ба дүрэмд хуваарилна.',
+        uk: 'Налаштування → Rate Plans: кожен тариф Previo мапиться на базову ціну та правило (% від BAR, фікс. дельта тощо).',
       },
     },
   ],

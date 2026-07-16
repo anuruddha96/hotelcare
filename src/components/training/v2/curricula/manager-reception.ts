@@ -9,6 +9,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
     es: 'Entrega de Recepción',
     vi: 'Bàn giao Lễ tân',
     mn: 'Ресепшнээс хүлээн авах',
+    uk: 'Передача зміни рецепції',
   },
   description: {
     en: 'Daily Overview upload, /bb breakfast lookup, check-in/out and guest minibar.',
@@ -16,6 +17,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
     es: 'Carga del resumen diario, búsqueda de desayuno, check-in/out y minibar.',
     vi: 'Tải tổng quan ngày, tra cứu bữa sáng, check-in/out, minibar.',
     mn: 'Өдрийн тойм оруулах, өглөөний хайлт, бүртгэл, мини-бар.',
+    uk: 'Завантаження щоденного огляду, пошук сніданків /bb, заселення/виселення та мінібар.',
   },
   roles: ['manager', 'reception_manager', 'admin', 'top_management_manager'],
   category: 'feature_promo',
@@ -31,6 +33,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         es: 'Carga nocturna del Resumen Diario',
         vi: 'Tải Tổng quan ngày hàng đêm',
         mn: 'Шөнийн Өдрийн тойм оруулах',
+        uk: 'Нічне завантаження щоденного огляду',
       },
       body: {
         en: 'Night reception exports the Previo Daily Overview XLSX and uploads it from their landing page. This powers the next morning\'s breakfast lookup at /bb.',
@@ -38,6 +41,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         es: 'La recepción nocturna sube el XLSX del Daily Overview de Previo.',
         vi: 'Lễ tân ca đêm tải file XLSX Daily Overview của Previo.',
         mn: 'Шөнийн ресепшн Previo Daily Overview XLSX оруулна.',
+        uk: 'Нічний рецепціоніст експортує XLSX Previo Daily Overview і завантажує зі своєї сторінки. Це живить пошук сніданків /bb вранці.',
       },
       route: '/:org',
       tab: 'housekeeping',
@@ -52,6 +56,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         es: 'Búsqueda de desayuno (/bb)',
         vi: 'Tra cứu bữa sáng (/bb)',
         mn: 'Өглөөний хайлт (/bb)',
+        uk: 'Пошук сніданків (/bb)',
       },
       body: {
         en: 'Public page — staff at the breakfast door type the room number and instantly see name, package and adults/children, then mark "served".',
@@ -59,6 +64,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         es: 'Página pública — escriben el número de habitación y ven el paquete.',
         vi: 'Trang công khai — nhập số phòng để xem gói bữa sáng.',
         mn: 'Олон нийтэд нээлттэй — өрөөний дугаар оруулж багц харна.',
+        uk: 'Публічна сторінка — біля входу вводять номер кімнати, бачать імʼя, пакет, дорослих/дітей і ставлять «подано».',
       },
     },
     {
@@ -69,6 +75,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         es: 'Check-in / check-out',
         vi: 'Nhận / trả phòng',
         mn: 'Бүртгэл / гарах',
+        uk: 'Заселення / виселення',
       },
       body: {
         en: 'FrontDesk shows today\'s arrivals and departures from Previo. Check-in writes back to Previo and unlocks the room for housekeeping prep.',
@@ -76,6 +83,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         es: 'FrontDesk muestra llegadas y salidas de hoy desde Previo.',
         vi: 'FrontDesk hiển thị đến/đi hôm nay từ Previo.',
         mn: 'FrontDesk нь Previo-оос өнөөдрийн ирэх/гарахыг харуулна.',
+        uk: 'FrontDesk показує сьогоднішні заїзди та виїзди з Previo. Заселення записується назад у Previo і відкриває кімнату для покоївок.',
       },
       route: '/:org',
       tab: 'rooms',
@@ -90,6 +98,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         es: 'Conciliación del minibar',
         vi: 'Đối soát minibar',
         mn: 'Зочны мини-бар тооцоо',
+        uk: 'Звірка мінібару гостя',
       },
       body: {
         en: 'Guests self-report consumption via the in-room QR. Reception confirms or edits at check-out; the line items push to the Previo folio automatically.',
@@ -97,6 +106,7 @@ export const managerReceptionCurriculum: TrainingCurriculum = {
         es: 'El huésped reporta por QR; recepción confirma y se envía al folio en Previo.',
         vi: 'Khách báo qua QR; lễ tân xác nhận và đẩy về hóa đơn Previo.',
         mn: 'Зочин QR-аар мэдээлэх — ресепшн баталгаажуулж Previo руу илгээнэ.',
+        uk: 'Гість повідомляє через QR-код у номері. Рецепція підтверджує/редагує при виїзді, позиції автоматично йдуть у рахунок Previo.',
       },
       route: '/:org',
       tab: 'rooms',
