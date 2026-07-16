@@ -86,7 +86,7 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
       .from('pms_sync_history')
       .select('id, changed_at, sync_status, error_message, data')
       .eq('hotel_id', hotelId)
-      .eq('sync_type', 'rooms')
+      .in('sync_type', ['rooms', 'rooms_refresh'])
       .order('changed_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -180,6 +180,10 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
   const lastResult = lastSync?.data || {};
   const lastImported = lastResult.upserted ?? lastResult.updated ?? 0;
   const lastErrors: string[] = lastResult.errors || (lastSync?.error_message ? [lastSync.error_message] : []);
+  const reservationIssue = lastResult.reservationIssue || null;
+  const reservationWarning = lastResult.reservationDataAuthoritative === false
+    ? (lastResult.managerMessage || 'Previo room list synced, but checkout/departure data was unavailable. Please verify checkout rooms manually.')
+    : null;
 
   return (
     <Card className="p-4 space-y-3">
@@ -228,6 +232,21 @@ export default function PmsSyncStatus({ hotelId, compact = false }: Props) {
           {lastNightly.data?.rooms_created ? (
             <span className="text-emerald-700 ml-2">· {lastNightly.data.rooms_created} new</span>
           ) : null}
+        </div>
+      )}
+
+      {reservationWarning && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <div className="font-medium text-amber-900 dark:text-amber-200">Reservation/departure feed needs attention</div>
+              <div className="text-muted-foreground">{reservationWarning}</div>
+              {reservationIssue?.adminMessage && (
+                <div className="text-xs text-muted-foreground">Admin detail: {reservationIssue.adminMessage}</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

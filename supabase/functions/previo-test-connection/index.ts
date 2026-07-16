@@ -64,7 +64,7 @@ serve(async (req) => {
 
     const { data: cfg } = await service
       .from("pms_configurations")
-      .select("id, hotel_id, pms_type, pms_hotel_id, credentials_secret_name, is_active")
+      .select("id, hotel_id, pms_type, pms_hotel_id, credentials_secret_name, is_active, settings")
       .eq("hotel_id", hotelId)
       .eq("pms_type", "previo")
       .maybeSingle();
@@ -156,7 +156,18 @@ serve(async (req) => {
         });
       }
 
-      await recordResult("ok", null);
+      await service
+        .from("pms_configurations")
+        .update({
+          last_test_at: new Date().toISOString(),
+          last_test_status: "ok",
+          last_test_error: null,
+          settings: {
+            ...(((cfg as any).settings && typeof (cfg as any).settings === "object") ? (cfg as any).settings : {}),
+            previo_xml_auth_variant: winning.variant,
+          },
+        })
+        .eq("id", cfg.id);
       return new Response(
         JSON.stringify({
           ok: true,
