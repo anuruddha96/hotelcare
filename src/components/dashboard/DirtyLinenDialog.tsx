@@ -349,12 +349,12 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
               {t('dirtyLinen.title')} - {t('common.room')} {roomNumber}
             </DialogTitle>
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end w-full">
             <Button
               variant={showMyRecords ? "default" : "outline"}
               size="sm"
               onClick={() => setShowMyRecords(!showMyRecords)}
-              className={showMyRecords ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "border-primary text-primary hover:bg-primary/10"}
+              className={`max-w-full whitespace-normal text-left h-auto py-1.5 text-xs leading-tight ${showMyRecords ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "border-primary text-primary hover:bg-primary/10"}`}
             >
               🛒 {t('dirtyLinen.myCart')} ({myRecords.length})
             </Button>
