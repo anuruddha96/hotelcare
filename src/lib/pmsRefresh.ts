@@ -126,7 +126,7 @@ export async function runPmsRefresh(
   const reservationIssue = (data as any)?.reservationIssue ?? null;
   const reservationFetchError = (data as any)?.reservationFetchError ?? null;
   const reservationManagerMessage = !reservationDataAuthoritative && !managerFacingSuccess
-    ? "Previo room list synced, but checkout/departure data was unavailable. Please verify checkout rooms manually."
+    ? "PMS room list synced, but Previo did not send checkout/daily data. Room buckets were not changed."
     : undefined;
   if (rows.length === 0) {
     return {

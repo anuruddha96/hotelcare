@@ -140,6 +140,43 @@ serve(async (req) => {
       };
     };
 
+    const testRestReservationEndpoints = async () => {
+      const paths = [
+        `/rest/reservations?from=${today}&to=${tomorrow}`,
+        `/rest/reservations?dateFrom=${today}&dateTo=${tomorrow}`,
+        `/rest/reservations?arrivalDateFrom=${today}&arrivalDateTo=${tomorrow}`,
+        `/rest/reservations?departureDateFrom=${today}&departureDateTo=${tomorrow}`,
+      ];
+      const results: Array<{ path: string; ok: boolean; status: number; contentType: string | null; itemCount: number | null; sampleKeys?: string[]; error?: string }> = [];
+      for (const path of paths) {
+        try {
+          const { response } = await fetchPrevioWithAuth({
+            credentialsSecretName: cfg.credentials_secret_name,
+            path,
+            pmsHotelId,
+          });
+          const contentType = response.headers.get("content-type");
+          const text = await response.text();
+          let itemCount: number | null = null;
+          let sampleKeys: string[] | undefined;
+          if (response.ok && /json/i.test(contentType || "")) {
+            try {
+              const parsed = JSON.parse(text);
+              const items = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : Array.isArray(parsed?.reservations) ? parsed.reservations : [];
+              itemCount = items.length;
+              if (items[0] && typeof items[0] === "object") sampleKeys = Object.keys(items[0]).slice(0, 12);
+            } catch {
+              itemCount = null;
+            }
+          }
+          results.push({ path, ok: response.ok, status: response.status, contentType, itemCount, sampleKeys, error: response.ok ? undefined : text.slice(0, 160) });
+        } catch (e: any) {
+          results.push({ path, ok: false, status: 0, contentType: null, itemCount: null, error: e?.message || String(e) });
+        }
+      }
+      return results;
+    };
+
     // -------- XML protocol (single-key auth, e.g. Ottofiori) ---------------
     if (creds.protocol === "xml") {
       // Try the documented XML auth header first. Older body/header variants
@@ -240,6 +277,7 @@ serve(async (req) => {
 
     const data = await safePrevioJson<unknown>(resp, { path: "/rest/rooms", source });
     const roomCount = Array.isArray(data) ? data.length : 0;
+    const restReservationEndpoints = await testRestReservationEndpoints();
     const reservations = await testReservations(
       typeof (cfg as any).settings?.previo_xml_auth_variant === "string"
         ? ((cfg as any).settings.previo_xml_auth_variant as PrevioXmlAuthVariant)
@@ -249,7 +287,7 @@ serve(async (req) => {
     if (!reservations.ok) {
       const msg = `Previo room list works, but reservation/departure feed failed (${reservations.status}${reservations.error ? `: ${reservations.error}` : ""}).`;
       await recordResult("error", msg);
-      return new Response(JSON.stringify({ ok: false, error: msg, latencyMs, protocol: "rest", roomCatalog: { ok: true, roomCount, credentialSource: source }, reservations }), {
+      return new Response(JSON.stringify({ ok: false, error: msg, latencyMs, protocol: "rest", roomCatalog: { ok: true, roomCount, credentialSource: source }, reservations, restReservationEndpoints }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -269,7 +307,7 @@ serve(async (req) => {
       .eq("id", cfg.id);
 
     return new Response(
-      JSON.stringify({ ok: true, protocol: "rest", roomCatalog: { ok: true, roomCount, credentialSource: source }, reservations, latencyMs }),
+      JSON.stringify({ ok: true, protocol: "rest", roomCatalog: { ok: true, roomCount, credentialSource: source }, reservations, restReservationEndpoints, latencyMs }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e: any) {

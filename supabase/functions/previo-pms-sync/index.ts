@@ -87,7 +87,7 @@ function isNoShowStatus(statusId: number): boolean {
 }
 
 const RESERVATION_UNAVAILABLE_MANAGER_MESSAGE =
-  "Previo room list synced. Checkout data is protected from the last known PMS state.";
+  "PMS room list synced, but Previo did not send checkout/daily data. Room buckets were not changed.";
 
 function isAuthFailure(status: number, message: string | null, text = ""): boolean {
   const haystack = `${message || ""} ${text.slice(0, 500)}`;
