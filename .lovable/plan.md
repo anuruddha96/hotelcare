@@ -1,32 +1,52 @@
 ## What I found
 
-The warning in your screenshot is coming from the automatic/manual Previo refresh path. The room list sync succeeds, but the reservation/departure lookup fails with:
+There are two separate issues.
 
-`XML API 401: Invalid login or password`
+### PMS sync root cause
+The saved Previo credential is working for the room-list endpoint:
 
-Because departure data is missing, the app protects existing checkout buckets and shows **PMS sync partial** instead of risking moving checkout rooms into Daily Rooms incorrectly.
+`/rest/rooms` succeeds for Ottofiori.
+
+The failure is only on the reservation/departure endpoint:
+
+`searchReservations` returns `401 Invalid login or password`.
+
+So this is probably not “the password is wrong”. The app is currently using the same saved credential in two different ways:
+
+- Room list sync tries the saved value as a Previo API key and succeeds.
+- Reservation/departure sync sends it through the XML login/password flow and Previo rejects it.
+
+That means the auth handling is inconsistent, not necessarily that the hotel credential changed.
+
+### Team View issue
+Managers land on the main **Housekeeping** section, but `HousekeepingTab` briefly starts on `assignments` and only later decides which manager tab to show. On mobile this can leave the tab strip visible but no Team View content selected until the manager taps it.
 
 ## Plan
 
-1. **Make the sync message manager-friendly**
-   - Replace the long technical toast text with a short message like:
-     - **“Previo room list synced, but checkout/departure data was unavailable. Please verify checkout rooms manually.”**
-   - Keep technical details only in logs/admin sync history.
+1. **Fix Previo reservation/departure auth properly**
+   - Update the shared Previo XML credential helper so REST-style saved credentials that work as an API key are also tried as an XML/API-key auth variant for `searchReservations`.
+   - Keep existing XML login/password support for tenants that really use XML credentials.
+   - Do not mark the whole PMS password as wrong when only the reservation feed rejects one auth method.
 
-2. **Stop showing this as a generic row error**
-   - Treat missing reservation/departure data as a specific PMS auth/data issue, not “rooms failed”.
-   - Continue syncing room clean status where safe.
-   - Keep checkout/daily grouping protected when departure data is unavailable.
+2. **Make PMS sync truly validate both feeds**
+   - Update the Previo connection test to test:
+     - Room list feed: `/rest/rooms`
+     - Reservation/departure feed: `searchReservations`
+   - Store a clear result in PMS configuration/history so admins can see whether room status and checkout/departure data are both working.
 
-3. **Improve Previo XML credential handling**
-   - Update the Previo reservation call to use the same successful auth variant detected by the connection test when available, instead of retrying blindly each morning.
-   - If Previo still returns 401, record a clear admin-facing error that the reservation/departure API credentials need updating.
+3. **Improve PMS sync behavior after the auth fix**
+   - Run `previo-pms-sync` using the corrected auth handling.
+   - Confirm it reports real reservation availability instead of `0 depart today / 0 depart tomorrow` caused by reservation auth failure.
+   - Keep the safety guard: if Previo truly provides no reservation data, checkout rooms are preserved rather than incorrectly moved to Daily Rooms.
 
-4. **Add better admin diagnostics**
-   - In PMS sync status/history, show that the room catalog succeeded but reservation/departure feed failed.
-   - Include the exact non-secret reason: **“Previo rejected reservation/departure API login.”**
+4. **Fix manager Team View default**
+   - Initialize `HousekeepingTab` directly to the manager default tab instead of `assignments`.
+   - For managers/admin/housekeeping managers, default to:
+     - `supervisor` if pending approvals exist
+     - otherwise `manage` / Team View
+   - Ensure the parent breadcrumb state is also updated immediately so the UI and content match.
 
-5. **Verify after implementation**
-   - Run the Previo sync function for the affected hotel.
-   - Confirm the manager sees the short warning and that checkout rooms are preserved safely.
-   - Check edge logs/history for the clean diagnostic message.
+5. **Verify**
+   - Deploy the affected Previo edge functions.
+   - Check edge logs for `searchReservations` success/failure after the fix.
+   - Confirm managers opening the app see Housekeeping with Team View content selected automatically.
