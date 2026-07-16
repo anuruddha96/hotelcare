@@ -973,22 +973,24 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           )}
         </div>
 
-        {/* Timer - compact for in-progress */}
-        {assignment.estimated_duration && assignment.status === 'in_progress' && (
+        {/* Timer - always visible while in-progress so housekeepers see time spent per room */}
+        {assignment.status === 'in_progress' && assignment.started_at && (
           <div className="flex items-center justify-between p-2 bg-muted/30 rounded-lg">
             <div className="flex items-center gap-2 text-sm">
               <Clock className="h-4 w-4 text-primary" />
-              <span className="font-medium">{assignment.estimated_duration} {t('common.minutes')}</span>
+              <span className="font-medium">
+                {assignment.estimated_duration
+                  ? `${assignment.estimated_duration} ${t('common.minutes')}`
+                  : t('completion.timeOnRoom') || 'Time on this room'}
+              </span>
             </div>
-            {assignment.started_at && (
-              <div className="bg-background px-2 py-1 rounded-md shadow-sm border border-border">
-                <PausableTimerComponent 
-                  assignmentId={assignment.id}
-                  startedAt={assignment.started_at} 
-                  userId={user?.id || ''}
-                />
-              </div>
-            )}
+            <div className="bg-background px-2 py-1 rounded-md shadow-sm border border-border">
+              <PausableTimerComponent
+                assignmentId={assignment.id}
+                startedAt={assignment.started_at}
+                userId={user?.id || ''}
+              />
+            </div>
           </div>
         )}
 
