@@ -1,77 +1,69 @@
-## Goal
-Turn the raw HTML/PMS "notes" blob into a clean, manager-friendly summary that shows only what housekeeping/reception actually need: **bed arrangement** and **special guest requests**. Hide all the noise (commission, VCC, cancellation policy, partner XML metadata, HTML tags, etc.).
+## Root cause
 
-## What the raw note contains today
-Example fields Previo dumps into `Note`:
-- Recepce line (VCC price, reservation code, guest name, "Breakfast in")
-- Systém block: Partner, Total price, Price per room, Commission, Created, Meals, Partner's room name, Note, Comment, Payment
-- Booking.com "Special requests" (smoking preference, bed preference, late arrival, etc.)
-- Children / extra bed / cot policy
-- Cancellation policy
-- Payment / VCC instructions
+Previo reservation `statusId` values are being misinterpreted. Previo's actual reservation states are:
 
-Of these, managers/housekeepers only need:
-1. **Bed arrangement** (double / twin / twin separated / extra cot / baby cot)
-2. **Special guest requests** (smoking preference, late arrival, high floor, quiet room, allergies, early check-in, etc.)
-3. Optional light context: meals (breakfast yes/no), guests count, cot count
+- `4` = confirmed
+- `5` = **checked-in** (guest in-house)
+- `6` = **checked-out**
+- `8` = no-show
 
-Everything else (VCC, commission, cancellation, partner XML, "You have received a virtual credit card…") is finance/reception noise and should be stripped from the housekeeping note.
+But our code treats `statusId === 5` as checked-out in three places:
 
-## Implementation plan
+1. `supabase/functions/previo-pms-sync/index.ts` line 113 → `isCheckedOutStatus(statusId) { return statusId === 5 || statusId === 9; }`
+2. `supabase/functions/previo-poll-checkouts/index.ts` lines 74–79 → same 5/9 test plus a token list containing `"5"` and `"9"`.
+3. `src/lib/pmsClassification.ts` line 54 → `s === "5" || s === "9"` in `statusLooksCheckedOut`.
 
-1. **New parser: `src/lib/pmsNoteParser.ts`**
-   - Input: raw note string (HTML-encoded, may contain `&lt;br&gt;`, `&amp;039;`, `<span>` blocks, "Systém - …" segments).
-   - Steps:
-     a. HTML-decode entities (`&lt;`, `&gt;`, `&amp;`, `&039;`, `&nbsp;`).
-     b. Strip all HTML tags.
-     c. Split into labelled segments using the `Label value` pattern Previo emits (Partner, Total price, Commission, Meals, Partner's room name, Note, Comment, Payment, etc.).
-     d. Extract only whitelisted fields:
-        - `specialRequests` (from the Booking.com "Special requests…" substring, up to next known section)
-        - `mealsIncluded` (breakfast / half-board / none)
-        - `bedPreferenceRaw` (any bed hint inside Special requests / Partner's room name / Note)
-        - `extraCot`, `babyCot`, `guestsMax` (from Children and Extra Bed Policy text)
-        - `smokingPreference`
-        - `arrivalTimeHint` (e.g. "late arrival", "early check-in")
-     e. Feed `bedPreferenceRaw` + partner room name through the existing `inferBedConfigFromNote` to get a canonical bed arrangement (`Double Bed`, `Twin Beds`, `Twin Beds Separated`, `Extra Cot Added`, `Baby Bed`).
-     f. Drop everything else (VCC, commission, cancellation policy, created timestamp, price, "Recepce" line, RDO reservation code, payment instructions).
-   - Output shape:
-     ```ts
-     {
-       bedArrangement: string | null,          // canonical
-       specialRequests: string[],              // short bullet strings
-       meals: 'Breakfast' | 'Half board' | 'Full board' | null,
-       smoking: 'Non-smoking' | 'Smoking' | null,
-       extras: { babyCotMax?: number, guestsMax?: number, extraBeds?: number },
-       raw: string                             // kept for debug/tooltip
-     }
-     ```
+Because of this, every guest who is currently **checked in and scheduled to depart today** (statusId 5, departureDate = today) gets `CheckedOut: true` from the sync. That flips `pms_metadata.checkedOutToday`, `readyToClean`, and auto‑releases the `checkout_cleaning` assignment to RTC. That is why 15 rooms show RTC today when Previo's own "checked-out" filter only lists 5 (Q‑101, DB/TW‑102, DB/TW‑302, DB/TW‑304, QRP‑406).
 
-2. **Unit tests: `src/lib/pmsNoteParser.test.ts`**
-   - Cover the exact sample the user pasted (must return: no bed arrangement stated, Non-smoking, Breakfast, guestsMax 2, cotsMax 1, no VCC/commission text leaking).
-   - Cover twin/twin-separated/extra cot/baby cot variants.
-   - Cover plain empty / unstructured note (returns nulls, `raw` unchanged, no crash).
+The `is_checkout_room` flag itself is not wrong for today — every one of those 15 rooms does depart today (`isCheckoutRoom = isCheckedOut || isDeparture`). The bug is specifically the **premature RTC / checked-out flip** for guests still in-house.
 
-3. **Render the structured note in the UI**
-   - Add a small presentational component `src/components/pms/StructuredRoomNote.tsx` that takes the raw note and renders:
-     - Bed arrangement chip (if detected)
-     - "Special requests" list (only the bulletable requests)
-     - Meals + smoking as small tags
-     - Collapsible "Show original PMS note" for the raw text (so nothing is lost)
-   - Wire it in where the pencil/note icon currently shows the raw string on the Checkout/Daily room chips (the same place shown in the screenshot). Only change the presentation — do not change data storage, PMS sync logic, or note persistence.
+## Fix
 
-4. **Keep raw notes intact in the database**
-   - Parsing is display-only. The `rooms.notes` (and PMS-derived note field) still stores the original string so reception/finance workflows and existing bed-config inference keep working.
+### 1. Correct the Previo status mapping (3 files)
 
-5. **Verification**
-   - Run vitest for the new parser tests.
-   - Visually confirm on the current preview that the sample note renders as:
-     - Meals: Breakfast
-     - Smoking: Non-smoking
-     - Max guests: 2, Max cots: 1
-     - Special requests: (empty in this sample — Booking.com only sent "smoking preference Non-Smoking")
-     - No VCC / commission / cancellation text visible
-   - Confirm no regression on rooms whose note is already clean free text.
+Treat only `6` (Previo "checked out") as checked-out. Keep `9` as a legacy alias just in case some tenants still emit it, but remove `5` everywhere.
+
+- `supabase/functions/previo-pms-sync/index.ts`
+  ```ts
+  function isCheckedOutStatus(statusId: number): boolean {
+    return statusId === 6 || statusId === 9;
+  }
+  ```
+- `supabase/functions/previo-poll-checkouts/index.ts` — update the `n === 5 || n === 9` check to `n === 6 || n === 9`, and drop `"5"` from the token list (keep `"6"`, `"9"`, `"checkedout"`, `"departed"`, …).
+- `src/lib/pmsClassification.ts` — in `statusLooksCheckedOut`, replace `s === "5"` with `s === "6"`.
+
+### 2. Persist the raw reservation statusId for auditability
+
+Currently `pms_metadata.reservationStatusId` is null on every synced room (see the query I just ran). Add it in `src/lib/pmsRefresh.ts` alongside the existing metadata write:
+
+```ts
+updateData.pms_metadata.reservationStatusId = row.ReservationStatusId ?? null;
+```
+
+The sync already emits `ReservationStatusId` in each row (line 673 of `previo-pms-sync/index.ts`), so this is a one-line addition. This makes future incidents diagnosable from the DB without re-reading Previo.
+
+### 3. Revert today's incorrect RTC / checked-out flags
+
+Ten Ottofiori rooms are currently wrongly flagged as checked-out for today (`checkedOutToday=true` and RTC). Revert only these — keep the 5 that Previo truly reports as checked out (101, 102, 302, 304, 406):
+
+Rooms to revert: **103, 105, 201, 202, 205, 305, 402, 403, 404, 405**
+
+For each:
+- `rooms`: set `is_checkout_room = false`, `checkout_time = NULL`; in `pms_metadata` remove `checkedOutToday`, `readyToClean`, `checkedOutAt`; keep `scheduledDepartureToday = true` (they still depart today) and set `status = 'dirty'` only if the room already had housekeeping activity — otherwise leave `status` as-is.
+- `room_assignments` where `assignment_date = today`, `assignment_type = 'checkout_cleaning'`, `room_id` in the reverted set: set `ready_to_clean = false`.
+- Insert a `pms_change_events` row per reverted room with `event_type = 'checkout_cleared'`, `source = 'manual_correction'` for audit.
+
+These will be executed as a single SQL update via the insert/update tool after code changes land, scoped to `hotel = 'Hotel Ottofiori'` and today's date.
+
+### 4. Verification
+
+After the code fix and revert:
+
+- Query `rooms` where `pms_metadata->>'checkedOutToday' = 'true'` → must equal exactly the 5 Previo-confirmed checkouts.
+- Query `room_assignments` where `ready_to_clean = true AND assignment_date = today AND assignment_type = 'checkout_cleaning'` → same 5 rooms.
+- Trigger a manual PMS Refresh and re-run the same two queries — count must not grow.
 
 ## Out of scope
-- PMS sync/API changes (separate ongoing issue).
-- Persisting the structured fields to the DB (can be a later step if managers want to filter/report on them).
+
+- No change to the "departs today" bucket logic (`is_checkout_room` remains driven by `isCheckoutRoom = isCheckedOut || isDeparture`), so the Checkout Rooms list on the housekeeping board still correctly shows all 15 rooms departing today. Only the RTC / physically-checked-out signal is being corrected.
+- No change to `isNoShowStatus` (statusId 8 is correct).
