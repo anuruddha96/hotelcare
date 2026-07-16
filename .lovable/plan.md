@@ -1,46 +1,73 @@
-## Plan: make RTC accurate and immediate
+# Fix bed-configuration inference from PMS notes
 
-### Problem to fix
-The live data shows all 15 Ottofiori checkout rooms are RTC again. The statusId `5 → 6` mapping fix is present, but another path is still treating **scheduled departure today** as **physically checked out**.
+## Root cause
 
-The main culprit is the manual/client PMS refresh path:
-- `previo-pms-sync` emits `Occupied: "Yes"` for every departure-today room.
-- `pmsClassification.ts` currently marks any scheduled departure with `Occupied: "No"` as checked out, but the row generation/fallbacks and upload-derived data can still convert departure rows into `CheckedOut=true` without a real Previo checkout confirmation.
-- Once `CheckedOut=true`, `pmsRefresh.ts` sets `pms_metadata.readyToClean=true`, `checkedOutToday=true`, `checkout_time`, and `room_assignments.ready_to_clean=true`.
+`src/lib/pmsRefresh.ts` calls `inferBedConfigFromNote(row.Note)` with the **full raw Previo note** — which includes Booking.com policy boilerplate like:
 
-Separately, the cron poll currently exits early when no `ready_to_clean=false` assignments exist, which is bad after a false RTC event because it stops checking/reconciling.
+- "You **haven't added any extra beds**." → matches keyword `extra bed` → sets **Extra Cot Added**
+- "The maximum number of cots is 1." → matches `cot` → could set **Baby Bed**
+- "Deluxe Double or Twin Room" (partner category label) → matches `double` / `twin`
 
-### Changes I will make
+`bedConfigInference.ts` does naive `haystack.includes(keyword)` with no word boundaries and no negation handling, so any occurrence — even inside a negation or a room-category label — flips `rooms.bed_configuration`.
 
-1. **Make RTC require explicit Previo checkout confirmation**
-   - Update PMS classification so scheduled departure alone never means checked out.
-   - `CheckedOut=true` must come from one of:
-     - Previo reservation statusId `6` (or legacy `9`),
-     - explicit status text like `checked out/departed`,
-     - an explicit boolean `CheckedOut=true` emitted by backend.
-   - Remove the unsafe shortcut: `scheduled departure + Occupied: No = checked out`.
+Confirmed on live DB: rooms 103, 105, 201, 202, 304, 406 (Hotel Ottofiori) all have `bed_configuration = "Extra Cot Added"` written by the algorithm with `pms_metadata.inferredBedConfig.keyword = "extra bed"`, but there is no real guest request.
 
-2. **Fix the upload fallback status bug**
-   - In `previo-pms-sync`, the fallback from today’s PMS upload currently synthesizes checkout rows with `statusId: 5` when `item.status === "checked_out"`.
-   - Change that to `statusId: 6` so every source uses the same Previo mapping.
+## Fix (all algorithmic — no AI)
 
-3. **Make cron poll continue until true RTC is correct**
-   - Remove/relax the early exit in `previo-poll-checkouts` so it still fetches Previo when assignments are already RTC, allowing correction and diagnostics.
-   - Keep the strict rule that only real checkout signals release RTC.
-   - Reintroduce a safe reconciliation step: if a room is marked RTC but Previo reservation feed says it is only scheduled departure / checked-in (`statusId=5`) and not checked out, clear RTC back to waiting.
-   - Do not clear rooms that are already cleaned/in approval/completed or manually overridden.
+### 1. `src/lib/bedConfigInference.ts`
+- Match keywords with **word boundaries** (`\b<kw>\b`) instead of substring `includes`.
+- Reject matches whose preceding ~30 chars contain a **negation** (`no`, `not`, `without`, `haven't`, `hasn't`, `don't`, `doesn't`, `any` after `haven't added`, `0 `, `zero`).
+- Reject matches inside a **capacity/policy phrase** window: `maximum number of`, `policy`, `included`, `commission`, `you haven't`, `extra bed policy`.
+- Keep the existing priority order (separated > extra cot > baby bed > twin > single > double).
 
-4. **Immediately correct today’s Ottofiori data**
-   - Keep the 5 rooms Previo confirmed as checked out: `101, 102, 302, 304, 406`.
-   - Clear false RTC/checkout flags for the other 10: `103, 105, 201, 202, 205, 305, 402, 403, 404, 405`.
-   - Keep them in Checkout Rooms as scheduled departures, but not RTC.
-   - Set their `checkout_cleaning.ready_to_clean=false` and clear `checkedOutToday`, `readyToClean`, `checkedOutAt`, `checkout_time`.
+### 2. `src/lib/pmsRefresh.ts` (line ~413)
+Replace `inferBedConfigFromNote(row.Note ...)` with a call that **only inspects the guest special-requests slice**, reusing the existing `parsePmsNote` logic:
 
-5. **Verification**
-   - Run targeted tests for PMS classification.
-   - Deploy the changed Previo edge functions.
-   - Run a dry/live checkout poll for Ottofiori.
-   - Query live data and confirm:
-     - RTC/`ready_to_clean=true` is exactly `101, 102, 302, 304, 406`.
-     - The other 10 remain Checkout Rooms but are not RTC.
-     - Future cron runs can add new RTC rooms when Previo changes their status to checked out.
+```ts
+import { parsePmsNote } from "@/lib/pmsNoteParser";
+const parsed = parsePmsNote(row.Note ? String(row.Note) : null);
+const inferredBed = reservationDataAuthoritative && parsed.bedArrangement
+  ? { value: parsed.bedArrangement, matchedKeyword: "special-requests" }
+  : null;
+```
+
+This reuses the parser that already:
+- extracts only the `Special requests…` segment,
+- ignores the "Double or Twin" partner room-name ambiguity,
+- drops finance / policy noise.
+
+### 3. Tests
+Extend `bedConfigInference.test.ts` with negative cases that currently regress:
+
+- `"You haven't added any extra beds. The maximum number of cots is 1."` → `null`
+- `"Children and Extra Bed Policy: children of any age are allowed."` → `null`
+- `"The maximum number of guests is 2."` → `null`
+- `"Deluxe Double or Twin Room"` → `null`
+
+Extend `pmsNoteParser.test.ts` with the full Booking.com sample already in the file, asserting `bedArrangement === null` when the only "extra bed" mention is in the policy block.
+
+### 4. Data repair (one-off SQL migration)
+For every room whose `pms_metadata->'inferredBedConfig'->>'keyword'` is set AND whose current raw note (or absence of note) no longer justifies it under the new algorithm:
+
+```sql
+UPDATE rooms
+SET bed_configuration = NULL,
+    pms_metadata = pms_metadata - 'inferredBedConfig'
+WHERE pms_metadata ? 'inferredBedConfig'
+  AND pms_metadata->'inferredBedConfig'->>'keyword' IN ('extra bed','cot','twin','double','king','queen');
+```
+
+Scoped only to algorithm-written values (rows carrying the `inferredBedConfig` marker) — manager-set bed configs never had that marker and are untouched.
+
+### 5. Verification
+- `bun run test src/lib/bedConfigInference.test.ts src/lib/pmsNoteParser.test.ts`.
+- Query the same 6 Ottofiori rooms — `bed_configuration` should be `NULL`.
+- Trigger a PMS refresh from the client; confirm the same rooms stay `NULL` (no note has a real special-request bed phrase).
+- Confirm rooms with a **real** request (e.g. "Special requests: twin beds separated") still get the correct value on next refresh.
+
+## Files changed
+- `src/lib/bedConfigInference.ts` — word-boundary + negation guards
+- `src/lib/pmsRefresh.ts` — route inference through `parsePmsNote`
+- `src/lib/bedConfigInference.test.ts` — new negative cases
+- `src/lib/pmsNoteParser.test.ts` — assert Booking.com sample yields no bed arrangement
+- new migration under `supabase/migrations/` — clears algorithm-written false positives

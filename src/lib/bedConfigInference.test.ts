@@ -55,4 +55,39 @@ describe("inferBedConfigFromNote", () => {
       inferBedConfigFromNote("twin beds separated for couple")?.value,
     ).toBe("Twin Beds Separated");
   });
+
+  describe("ignores Booking.com policy / capacity boilerplate", () => {
+    it("does not match 'haven't added any extra beds'", () => {
+      expect(
+        inferBedConfigFromNote(
+          "You haven't added any extra beds. The maximum number of cots is 1.",
+        ),
+      ).toBeNull();
+    });
+
+    it("does not match 'Children and Extra Bed Policy'", () => {
+      expect(
+        inferBedConfigFromNote(
+          "Children and Extra Bed Policy: children of any age are allowed.",
+        ),
+      ).toBeNull();
+    });
+
+    it("does not match 'maximum number of guests is 2'", () => {
+      expect(inferBedConfigFromNote("The maximum number of guests is 2.")).toBeNull();
+    });
+
+    it("does not match the ambiguous partner room name 'Deluxe Double or Twin Room'", () => {
+      expect(inferBedConfigFromNote("Deluxe Double or Twin Room")).toBeNull();
+    });
+
+    it("does not match 'no extra bed'", () => {
+      expect(inferBedConfigFromNote("Guest requested no extra bed")).toBeNull();
+    });
+
+    it("does not match 'without crib'", () => {
+      expect(inferBedConfigFromNote("Room without crib")).toBeNull();
+    });
+  });
 });
+
