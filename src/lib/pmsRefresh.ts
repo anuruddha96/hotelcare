@@ -303,7 +303,15 @@ export async function runPmsRefresh(
       const departureParsed = classification.departureTime;
       const isScheduledDeparture = classification.isScheduledDeparture;
       const isDepartureTomorrow = classification.isDepartureTomorrow;
-      const isCheckedOut = classification.isCheckedOut;
+      const explicitCheckoutStatus = row.CheckedOut === true
+        || row.ReservationStatusId === 6
+        || row.ReservationStatusId === 9
+        || String(row.Status ?? row.ReservationStatus ?? "")
+          .trim()
+          .toLowerCase()
+          .replace(/[\s_-]+/g, "")
+          .match(/^(checkedout|departed|left|leaved)$/) !== null;
+      const isCheckedOut = classification.isCheckedOut && explicitCheckoutStatus;
       // Authoritative checkout-room flag: only real checkout or scheduled
       // departure TODAY. Last-night Night/Total rows with blank Departure stay
       // daily and are marked via the C/O+1 badge.
