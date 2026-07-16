@@ -158,7 +158,8 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   // Executive read-only viewers (Top Management): see informational tabs, skip operational ones
   const isExecutiveReadOnly = ['top_management', 'top_management_manager'].includes(userRole);
   
-  // Set the default active tab based on manager access and PMS upload status
+  // Set the default active tab. Managers should land directly on Team View
+  // (or pending approvals when action is needed), not an empty/staff task view.
   useEffect(() => {
     const applyDefaultTab = (nextTab: string) => {
       setActiveTab(nextTab);
@@ -173,32 +174,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         return;
       }
       if (hasManagerAccess) {
-        // For hotels where the PMS Upload tab is hidden (managed via Team
-        // View → PMS Refresh), default straight to Team View / approvals.
-        if (hidePmsUploadTab) {
-          applyDefaultTab(pendingCount > 0 ? 'supervisor' : 'manage');
-          return;
-        }
-
-        // Check if PMS upload has been done today
-        const today = new Date().toISOString().split('T')[0];
-        const { data: pmsData } = await supabase
-          .from('pms_upload_summary')
-          .select('id')
-          .gte('upload_date', `${today}T00:00:00`)
-          .lte('upload_date', `${today}T23:59:59`)
-          .limit(1);
-
-        // If no upload today, default to PMS upload tab
-        if (!pmsData || pmsData.length === 0) {
-          applyDefaultTab('pms-upload');
-        } else if (pendingCount > 0) {
-          // If there are pending approvals, show that
-          applyDefaultTab('supervisor');
-        } else {
-          // Otherwise, default to team view
-          applyDefaultTab('manage');
-        }
+        applyDefaultTab(pendingCount > 0 ? 'supervisor' : 'manage');
       } else if (userRole === 'reception') {
         applyDefaultTab('manage');
       } else {
