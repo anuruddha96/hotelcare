@@ -345,7 +345,7 @@ export async function runPmsRefresh(
           field: "Clean status", before: room.status, after: mappedStatus, category: "status",
         });
       }
-      if (typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
+      if (reservationDataAuthoritative && typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
         changeFields.push({
           field: "Guests", before: room.guest_count, after: nextGuestCount, category: "guest",
         });
@@ -357,7 +357,7 @@ export async function runPmsRefresh(
         !reservationDataAuthoritative || manualOverride || hasProtectedCheckoutAssignment
       );
       const effectiveCheckoutFlag = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
-      if (effectiveCheckoutFlag !== currentCheckoutFlag) {
+      if (reservationDataAuthoritative && effectiveCheckoutFlag !== currentCheckoutFlag) {
         const label = isCheckedOut
           ? "Checked out"
           : isScheduledDeparture
@@ -383,18 +383,18 @@ export async function runPmsRefresh(
           category: "checkout",
         });
       }
-      if (towel || linen) {
+      if (reservationDataAuthoritative && (towel || linen)) {
         changeFields.push({
           field: "Linen/towel", before: "-", after: `${linen ? "linen" : ""}${towel && linen ? " + " : ""}${towel ? "towel" : ""}`, category: "linen",
         });
       }
-      if (row.Note) {
+      if (reservationDataAuthoritative && row.Note) {
         changeFields.push({ field: "PMS note", before: "-", after: String(row.Note), category: "note" });
       }
 
       // Auto-detect bed configuration from PMS note when the room does not
       // already have a manager-set value. Never overwrite an existing value.
-      const inferredBed = inferBedConfigFromNote(row.Note ? String(row.Note) : null);
+      const inferredBed = reservationDataAuthoritative ? inferBedConfigFromNote(row.Note ? String(row.Note) : null) : null;
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
       const shouldSetBedConfig = !!inferredBed && !currentBedConfig;
       if (shouldSetBedConfig) {
@@ -425,31 +425,33 @@ export async function runPmsRefresh(
       }
 
       const updateData: Record<string, any> = {
-        guest_count: nextGuestCount,
-        guest_nights_stayed: guestNightsStayed,
-        towel_change_required: towel,
-        linen_change_required: linen,
         updated_at: new Date().toISOString(),
         pms_metadata: {
           ...(existingMetadata ?? {}),
           pmsSyncDate: today,
           lastPmsRefreshDate: today,
-          scheduledDepartureToday: isScheduledDeparture,
-          scheduledDepartureTomorrow: isDepartureTomorrow,
-          departureTime: departureParsed,
-          checkedOutToday: isCheckedOut,
-          currentNight: nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null,
-          totalNights: nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null,
-          isNoShow: row.IsNoShow === true,
         },
       };
-      if (isCheckedOut) {
-        updateData.pms_metadata.readyToClean = true;
-        updateData.pms_metadata.checkedOutAt = new Date().toISOString();
-      }
-      if (!isCheckedOut) {
-        delete updateData.pms_metadata.readyToClean;
-        delete updateData.pms_metadata.checkedOutAt;
+      if (reservationDataAuthoritative) {
+        updateData.guest_count = nextGuestCount;
+        updateData.guest_nights_stayed = guestNightsStayed;
+        updateData.towel_change_required = towel;
+        updateData.linen_change_required = linen;
+        updateData.pms_metadata.scheduledDepartureToday = isScheduledDeparture;
+        updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
+        updateData.pms_metadata.departureTime = departureParsed;
+        updateData.pms_metadata.checkedOutToday = isCheckedOut;
+        updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
+        updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
+        updateData.pms_metadata.isNoShow = row.IsNoShow === true;
+        if (isCheckedOut) {
+          updateData.pms_metadata.readyToClean = true;
+          updateData.pms_metadata.checkedOutAt = new Date().toISOString();
+        }
+        if (!isCheckedOut) {
+          delete updateData.pms_metadata.readyToClean;
+          delete updateData.pms_metadata.checkedOutAt;
+        }
       }
       if (mappedStatus) {
         updateData.status = mappedStatus;
@@ -461,15 +463,19 @@ export async function runPmsRefresh(
       // contains reservation/departure data (live API or today's upload
       // fallback). Otherwise preserve checkout flags instead of wiping true
       // checkouts based on a status-only room roster.
-      updateData.is_checkout_room = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+      if (reservationDataAuthoritative) {
+        updateData.is_checkout_room = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+      }
 
       // `checkout_time` is an actual departed timestamp, not the scheduled
       // departure time from PMS. Scheduled checkouts stay blocked until PMS
       // confirms the guest has checked out.
-      updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
-      if (towel) updateData.last_towel_change = today;
-      if (linen) updateData.last_linen_change = today;
-      if (row.Note) updateData.notes = String(row.Note);
+      if (reservationDataAuthoritative) {
+        updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
+        if (towel) updateData.last_towel_change = today;
+        if (linen) updateData.last_linen_change = today;
+        if (row.Note) updateData.notes = String(row.Note);
+      }
       if (shouldSetBedConfig && inferredBed) {
         updateData.bed_configuration = inferredBed.value;
         updateData.pms_metadata.inferredBedConfig = {
@@ -494,19 +500,19 @@ export async function runPmsRefresh(
       if (mappedStatus && room.status && mappedStatus !== room.status) {
         pushEvent("status_changed", { status: room.status }, { status: mappedStatus }, false);
       }
-      if (isCheckedOut && !currentCheckoutFlag) {
+      if (reservationDataAuthoritative && isCheckedOut && !currentCheckoutFlag) {
         pushEvent("checkout_confirmed", { is_checkout_room: false }, { is_checkout_room: true }, false);
       }
-      if (isDepartureTomorrow && !currentCheckoutFlag) {
+      if (reservationDataAuthoritative && isDepartureTomorrow && !currentCheckoutFlag) {
         pushEvent("status_changed",
           { scheduledDepartureTomorrow: false },
           { scheduledDepartureTomorrow: true, reason: "departure_tomorrow_daily_room" }, false);
       }
       const wasNoShow = existingMetadata?.isNoShow === true;
-      if (row.IsNoShow === true && !wasNoShow) {
+      if (reservationDataAuthoritative && row.IsNoShow === true && !wasNoShow) {
         pushEvent("no_show_detected", { isNoShow: false }, { isNoShow: true }, false);
       }
-      if (typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
+      if (reservationDataAuthoritative && typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
         const wasVacant = room.guest_count === 0;
         const nowOccupied = nextGuestCount > 0;
         const isConflict = wasVacant && nowOccupied;
@@ -529,7 +535,7 @@ export async function runPmsRefresh(
       updated++;
       if (updateData.is_checkout_room) checkouts++;
 
-      if (isCheckedOut) {
+      if (reservationDataAuthoritative && isCheckedOut) {
         await supabase
           .from("room_assignments")
           .update({
