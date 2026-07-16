@@ -137,7 +137,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         ...p,
         pms: { status: r.status, lastAt: new Date(), meta: r },
       }));
-      return { ran: true, status: r.status, meta: r, message: r.errors?.[0] };
+      return { ran: true, status: r.status, meta: r, message: r.managerMessage || r.errors?.[0] };
     } catch (e: any) {
       const message = e?.message || "PMS sync failed";
       setTasks((p) => ({
