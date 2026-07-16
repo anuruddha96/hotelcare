@@ -577,8 +577,9 @@ serve(async (req) => {
     const reservationSource = reservationsByRoomName.size > 0
       ? reservationFallbackSource ?? (restReservationsIndexed > 0 ? "rest_rooms_embedded_reservation" : "xml_searchReservations")
       : null;
-    const reservationDataAuthoritative = reservationsByRoomName.size > 0 || restRoomSyncOk;
-    const managerMessage = reservationsByRoomName.size > 0 || restRoomSyncOk
+    const reservationDataAuthoritative = reservationsByRoomName.size > 0;
+    const managerFacingSuccess = reservationsByRoomName.size > 0 || restRoomSyncOk;
+    const managerMessage = managerFacingSuccess
       ? null
       : RESERVATION_UNAVAILABLE_MANAGER_MESSAGE;
     console.log(`[previo-pms-sync] emitted ${rows.length} rows (${departureCount} depart today, ${departureTomorrowCount} depart tomorrow, ${checkedOutCount} checked-out, ${arrivalCount} arrivals; roster=${rosterSource}, dryRun=${dryRun})`);
@@ -596,6 +597,7 @@ serve(async (req) => {
         arrivalsToday: arrivalCount,
         reservationsAvailable: reservationsByRoomName.size,
         reservationDataAuthoritative,
+        managerFacingSuccess,
         reservationSource,
         reservationFetchError,
         reservationIssue,
