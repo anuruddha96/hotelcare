@@ -50,6 +50,9 @@ export interface PmsSyncResult {
   notFound: number;
   checkouts: number;
   errors: string[];
+  managerMessage?: string;
+  reservationDataAuthoritative?: boolean;
+  reservationIssue?: Record<string, any> | null;
   proposedChanges?: ProposedRoomChange[];
   unmapped?: Array<{ pms_room_id: string; pms_room_name: string; room_kind_name: string; extracted_number: string }>;
 }
@@ -119,9 +122,17 @@ export async function runPmsRefresh(
   }
   const rows: any[] = (data as any)?.rows || [];
   const reservationDataAuthoritative = (data as any)?.reservationDataAuthoritative !== false;
+  const reservationIssue = (data as any)?.reservationIssue ?? null;
+  const reservationFetchError = (data as any)?.reservationFetchError ?? null;
+  const reservationManagerMessage = !reservationDataAuthoritative
+    ? "Previo room list synced, but checkout/departure data was unavailable. Please verify checkout rooms manually."
+    : undefined;
   if (rows.length === 0) {
     return {
       status: "success", updated: 0, total: 0, notFound: 0, checkouts: 0, errors: [],
+      managerMessage: reservationManagerMessage,
+      reservationDataAuthoritative,
+      reservationIssue,
       proposedChanges: dryRun ? [] : undefined,
       unmapped,
     };
@@ -141,7 +152,7 @@ export async function runPmsRefresh(
   const protectedCheckoutAssignmentRoomIds = new Set<string>();
 
   if (!reservationDataAuthoritative) {
-    errors.push("Previo reservation/departure data is unavailable; checkout buckets were preserved from the last authoritative PMS data.");
+    errors.push(reservationManagerMessage!);
   }
 
   try {
@@ -581,13 +592,27 @@ export async function runPmsRefresh(
         sync_type: "rooms_refresh",
         sync_status: status,
         error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
-        data: { updated, notFound, total: rows.length, checkouts },
+        data: {
+          updated,
+          notFound,
+          total: rows.length,
+          checkouts,
+          reservationDataAuthoritative,
+          reservationSource: (data as any)?.reservationSource ?? null,
+          reservationFallbackSource: (data as any)?.reservationFallbackSource ?? null,
+          reservationFetchError,
+          reservationIssue,
+          managerMessage: reservationManagerMessage ?? null,
+        },
       } as any);
     } catch { /* non-fatal */ }
   }
 
   return {
     status, updated, total: rows.length, notFound, checkouts, errors,
+    managerMessage: reservationManagerMessage,
+    reservationDataAuthoritative,
+    reservationIssue,
     proposedChanges: dryRun ? proposedChanges : undefined,
     unmapped,
   };
