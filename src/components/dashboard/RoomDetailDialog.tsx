@@ -590,22 +590,22 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
             <CardHeader className="pb-3 sm:pb-4">
               <div className="flex items-center justify-between gap-2 w-full">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-                  <Wine className="h-4 w-4 sm:h-5 sm:w-5" />
-                  <span>Minibar Usage</span>
+                  <Wine className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                  <span>{t('minibar.usage')}</span>
                 </CardTitle>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Badge className="text-base sm:text-lg font-bold px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md">
-                    Total: €{getTotalMinibarValue().toFixed(2)}
+                    {t('minibar.total')}: €{getTotalMinibarValue().toFixed(2)}
                   </Badge>
                   {minibarUsage.length > 0 && (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={clearMinibarUsage}
                       className="text-xs sm:text-sm"
                     >
-                      <span className="hidden sm:inline">Clear for Checkout</span>
-                      <span className="sm:hidden">Clear</span>
+                      <span className="hidden sm:inline">{t('minibar.clearForCheckout')}</span>
+                      <span className="sm:hidden">{t('minibar.clear')}</span>
                     </Button>
                   )}
                 </div>
@@ -615,7 +615,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
               {minibarUsage.length > 0 && (
                 <div className="mb-4 space-y-2">
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    <strong>Reminder:</strong> These items are <u>not</u> pushed to Previo automatically. Charge the guest in Previo manually before checkout.
+                    {t('minibar.previoManualReminder')}
                   </div>
                   <div className="rounded-md border bg-muted/20 divide-y">
                     {[...minibarUsage]
@@ -623,9 +623,9 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                       .map((u) => {
                         const src = (u.source || 'staff').toLowerCase();
                         const srcLabel =
-                          src === 'guest' ? { icon: '📱', label: 'Guest QR', cls: 'bg-blue-100 text-blue-800 border-blue-200' } :
-                          src === 'reception' ? { icon: '🛎️', label: 'Reception', cls: 'bg-purple-100 text-purple-800 border-purple-200' } :
-                          { icon: '🧹', label: 'Housekeeper', cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' };
+                          src === 'guest' ? { icon: '📱', label: t('minibar.sourceGuestQr'), cls: 'bg-blue-100 text-blue-800 border-blue-200' } :
+                          src === 'reception' ? { icon: '🛎️', label: t('minibar.sourceReception'), cls: 'bg-purple-100 text-purple-800 border-purple-200' } :
+                          { icon: '🧹', label: t('minibar.sourceHousekeeper'), cls: 'bg-emerald-100 text-emerald-800 border-emerald-200' };
                         return (
                           <div key={u.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs sm:text-sm">
                             <div className="flex-1 min-w-0">
@@ -649,18 +649,59 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                   </div>
                 </div>
               )}
+
+              {/* Category filter chips */}
+              {minibarItems.length > 0 && (() => {
+                const cats = Array.from(new Set(minibarItems.map(i => (i.category || 'other').toLowerCase())));
+                if (cats.length <= 1) return null;
+                return (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setMinibarCategory(null)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        minibarCategory === null
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background text-foreground border-border hover:bg-accent/30'
+                      }`}
+                    >
+                      {t('minibar.filterAll')} ({minibarItems.length})
+                    </button>
+                    {cats.map(cat => {
+                      const count = minibarItems.filter(i => (i.category || 'other').toLowerCase() === cat).length;
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setMinibarCategory(cat)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-medium border capitalize transition-colors ${
+                            minibarCategory === cat
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-background text-foreground border-border hover:bg-accent/30'
+                          }`}
+                        >
+                          {cat} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
               <div className="space-y-2 sm:space-y-3">
-              {minibarItems.map((item) => {
+              {minibarItems
+                .filter(item => !minibarCategory || (item.category || 'other').toLowerCase() === minibarCategory)
+                .map((item) => {
                   const currentUsage = getCurrentUsage(item.id);
                   const isGuestReported = guestReportedItems.has(item.id);
                   return (
-                    <div key={item.id} className={`flex flex-col gap-3 p-3 border rounded-lg transition-colors sm:flex-row sm:items-center sm:justify-between ${isGuestReported ? 'bg-amber-50 border-amber-200' : 'bg-card hover:bg-muted/20'}`}>
+                    <div key={item.id} className={`flex flex-col gap-3 p-3 border rounded-xl transition-colors sm:flex-row sm:items-center sm:justify-between ${isGuestReported ? 'bg-amber-50 border-amber-200' : currentUsage > 0 ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-muted/20'}`}>
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm sm:text-base">{item.name}</span>
                           {isGuestReported && (
                             <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] gap-1">
-                              <User className="h-3 w-3" /> Guest reported
+                              <User className="h-3 w-3" /> {t('minibar.guestReported')}
                             </Badge>
                           )}
                         </div>
@@ -673,11 +714,11 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                           </span>
                         </div>
                       </div>
-                      
+
                       {isGuestReported ? (
                         <div className="flex items-center gap-2 justify-center text-amber-700 text-xs font-medium">
                           <CheckCircle2 className="h-4 w-4" />
-                          Already recorded by guest
+                          {t('minibar.alreadyRecordedByGuest')}
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 justify-center">
@@ -686,38 +727,41 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                             size="sm"
                             onClick={() => updateMinibarUsage(item.id, -1)}
                             disabled={currentUsage === 0}
-                            className="h-8 w-8 p-0"
+                            className="h-11 w-11 p-0 rounded-full"
+                            aria-label="Decrease"
                           >
-                            <Minus className="h-4 w-4" />
+                            <Minus className="h-5 w-5" />
                           </Button>
-                          
-                          <span className="w-10 text-center font-semibold text-base sm:text-lg">
+
+                          <span className="w-10 text-center font-semibold text-lg tabular-nums">
                             {currentUsage}
                           </span>
-                          
+
                           <Button
-                            variant="outline"
+                            variant={currentUsage > 0 ? 'default' : 'outline'}
                             size="sm"
                             onClick={() => updateMinibarUsage(item.id, 1)}
-                            className="h-8 w-8 p-0"
+                            className="h-11 w-11 p-0 rounded-full"
+                            aria-label="Increase"
                           >
-                            <Plus className="h-4 w-4" />
+                            <Plus className="h-5 w-5" />
                           </Button>
                         </div>
                       )}
                     </div>
                   );
                 })}
-                
+
                 {minibarItems.length === 0 && (
                   <div className="text-center py-8">
                     <Wine className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">No minibar items available</p>
+                    <p className="text-muted-foreground">{t('minibar.noItemsAvailable')}</p>
                   </div>
                 )}
               </div>
             </CardContent>
           </Card>
+
 
           {/* Recent Tickets Section */}
           <Card>
