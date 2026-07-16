@@ -111,7 +111,10 @@ function roomIdFromRestReservation(raw: any): number | null {
 }
 
 function isCheckedOutStatus(statusId: number): boolean {
-  return statusId === 5 || statusId === 9;
+  // Previo reservation states: 5=checked-in (in-house), 6=checked-out.
+  // Treating 5 as checked-out incorrectly flipped every in-house guest with
+  // a departure today into RTC. Only 6 (and legacy 9) means truly departed.
+  return statusId === 6 || statusId === 9;
 }
 
 function isNoShowStatus(statusId: number): boolean {
