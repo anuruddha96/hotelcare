@@ -563,7 +563,7 @@ serve(async (req) => {
       ? reservationFallbackSource ?? (restReservationsIndexed > 0 ? "rest_rooms_embedded_reservation" : "xml_searchReservations")
       : null;
     const reservationDataAuthoritative = reservationsByRoomName.size > 0;
-    const managerFacingSuccess = reservationsByRoomName.size > 0 || restRoomSyncOk;
+    const managerFacingSuccess = reservationDataAuthoritative;
     const managerMessage = managerFacingSuccess
       ? null
       : RESERVATION_UNAVAILABLE_MANAGER_MESSAGE;
