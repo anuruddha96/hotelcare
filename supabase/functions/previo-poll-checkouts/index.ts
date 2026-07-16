@@ -258,13 +258,11 @@ async function pollOneHotel(
     const localScheduledDepartureToday = localMatch?.pms_metadata?.scheduledDepartureToday === true;
     if (!res) {
       if (localMatch) {
-        // Signal (c): scheduled to depart today AND still has a pending
-        // checkout_cleaning assignment waiting for RTC AND Previo REST no
-        // longer attaches a reservation for the room → reception completed
-        // the checkout in Previo. Safe because the pending-assignment guard
-        // prevents this from touching any in-house room.
+        // Missing reservation data is not a checkout signal. Some Previo REST
+        // tenants omit embedded reservation objects for in-house departures,
+        // so treating "scheduled departure + reservation missing" as RTC
+        // re-flags every checkout room prematurely.
         const pendingHere = pendingCheckoutRoomIds.has(localMatch.id);
-        const acceptScheduledGone = localScheduledDepartureToday && pendingHere;
         result.diagnostics.push({
           source: "rest-room",
           room: r.name,
@@ -275,14 +273,9 @@ async function pollOneHotel(
           roomCleanStatus: cleanStatusRaw,
           reservationPresent: false,
           pendingCheckoutAssignment: pendingHere,
-          accepted: acceptScheduledGone,
-          reason: acceptScheduledGone
-            ? "scheduled departure today + pending checkout assignment + Previo dropped the reservation → guest is checked out"
-            : "no reservation payload from Previo REST; not scheduled-depart-today or not a pending checkout assignment",
+          accepted: false,
+          reason: "no reservation payload from Previo REST; waiting for explicit checked-out status",
         });
-        if (acceptScheduledGone) {
-          addCheckoutSignal(r.name, r.roomId, "", "rest-room-scheduled-gone");
-        }
       }
       continue;
     }
