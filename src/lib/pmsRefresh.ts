@@ -338,11 +338,11 @@ export async function runPmsRefresh(
       const pmsNeedsCleaning = reservationDataAuthoritative && (
         shouldBeCheckoutRoom || classification.isDailyRoom || row.IsNoShow === true
       );
-      const effectiveStatus = mappedStatus ?? (pmsNeedsCleaning
+      const effectiveStatus = pmsNeedsCleaning
         ? row.IsNoShow === true
           ? "clean"
           : "dirty"
-        : null);
+        : mappedStatus;
 
       const nextGuestCount = Number(row.People ?? 0);
 
