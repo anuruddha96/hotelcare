@@ -123,11 +123,14 @@ serve(async (req) => {
     const tomorrow = tomorrowDate.toISOString().slice(0, 10);
 
     const testReservations = async (preferredVariant?: PrevioXmlAuthVariant) => {
+      const dayAfterTomorrowDate = new Date(`${today}T00:00:00Z`);
+      dayAfterTomorrowDate.setUTCDate(dayAfterTomorrowDate.getUTCDate() + 2);
+      const dayAfterTomorrow = dayAfterTomorrowDate.toISOString().slice(0, 10);
       const r = await callPrevioXml({
         method: "searchReservations",
         creds,
         pmsHotelId,
-        extraXml: `<term><from>${today}</from><to>${tomorrow}</to></term>`,
+        extraXml: `<term><from>${today}</from><to>${dayAfterTomorrow}</to><termType>overlap</termType></term>`,
         authVariant: preferredVariant,
       });
       const reservationCount = r.ok ? (r.text.match(/<reservation>[\s\S]*?<\/reservation>/g) || []).length : 0;
