@@ -17,7 +17,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
-import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { callPrevioXml, loadPrevioCredentials, type PrevioXmlAuthVariant } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -145,7 +145,7 @@ serve(async (req) => {
 
     const { data: cfg } = await service
       .from("pms_configurations")
-      .select("id, hotel_id, pms_hotel_id, credentials_secret_name")
+      .select("id, hotel_id, pms_hotel_id, credentials_secret_name, settings")
       .eq("hotel_id", targetHotel)
       .eq("pms_type", "previo")
       .maybeSingle();
@@ -274,11 +274,15 @@ serve(async (req) => {
     };
     try {
       const creds = loadPrevioCredentials(cfg.credentials_secret_name);
+      const configuredXmlVariant = typeof (cfg as any).settings?.previo_xml_auth_variant === "string"
+        ? ((cfg as any).settings.previo_xml_auth_variant as PrevioXmlAuthVariant)
+        : undefined;
       const xmlResult = await callPrevioXml({
         method: "searchReservations",
         creds,
         pmsHotelId: String(cfg.pms_hotel_id || ""),
         extraXml: `<term><from>${windowStart}</from><to>${windowEnd}</to></term>`,
+        authVariant: configuredXmlVariant,
       });
       const xmlText = xmlResult.text;
       if (!xmlResult.ok) {
