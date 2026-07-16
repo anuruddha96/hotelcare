@@ -460,7 +460,8 @@ serve(async (req) => {
     if (restReservationsIndexed > 0) {
       console.log(`[previo-pms-sync] REST room payload indexed ${restReservationsIndexed} embedded reservations`);
     }
-    if (reservationsByRoomName.size === 0 && credsProtocol === "rest") {
+    const restReservationProbeEnabled = (cfg as any).settings?.previo_rest_reservation_probe_enabled === true;
+    if (reservationsByRoomName.size === 0 && credsProtocol === "rest" && restReservationProbeEnabled) {
       const restReservationPaths = [
         `/rest/reservations?from=${windowStart}&to=${windowEnd}`,
         `/rest/reservations?dateFrom=${windowStart}&dateTo=${windowEnd}`,
