@@ -5,6 +5,7 @@ import {
   loadPrevioCredentials,
   callPrevioXml,
   PrevioCredentialParseError,
+  type PrevioXmlAuthVariant,
 } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
@@ -106,22 +107,44 @@ serve(async (req) => {
     }
 
     const startedAt = Date.now();
+    const pmsHotelId = String(cfg.pms_hotel_id || "");
+    if (!pmsHotelId) {
+      const msg = "pms_hotel_id (Previo hotId) is not set on this configuration.";
+      await recordResult("error", msg);
+      return new Response(JSON.stringify({ ok: false, error: msg }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrowDate = new Date(`${today}T00:00:00Z`);
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10);
+
+    const testReservations = async (preferredVariant?: PrevioXmlAuthVariant) => {
+      const r = await callPrevioXml({
+        method: "searchReservations",
+        creds,
+        pmsHotelId,
+        extraXml: `<term><from>${today}</from><to>${tomorrow}</to></term>`,
+        authVariant: preferredVariant,
+      });
+      const reservationCount = r.ok ? (r.text.match(/<reservation>[\s\S]*?<\/reservation>/g) || []).length : 0;
+      return {
+        ok: r.ok,
+        status: r.status,
+        error: r.errorMessage,
+        usedAuthVariant: r.usedAuthVariant ?? null,
+        reservationCount,
+      };
+    };
 
     // -------- XML protocol (single-key auth, e.g. Ottofiori) ---------------
     if (creds.protocol === "xml") {
-      const pmsHotelId = String(cfg.pms_hotel_id || "");
-      if (!pmsHotelId) {
-        const msg = "pms_hotel_id (Previo hotId) is not set on this configuration.";
-        await recordResult("error", msg);
-        return new Response(JSON.stringify({ ok: false, error: msg }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
       // Try the documented XML auth header first. Older body/header variants
       // remain as fallbacks for legacy tenants.
-      const variants: Array<"authorizationApiKey" | "apiKey" | "login" | "password" | "loginPassword" | "header"> = [
+      const variants: PrevioXmlAuthVariant[] = [
         "authorizationApiKey", "apiKey", "login", "password", "loginPassword", "header",
       ];
       const attempts: Array<{ variant: string; status: number; error: string | null }> = [];
@@ -156,6 +179,16 @@ serve(async (req) => {
         });
       }
 
+      const reservations = await testReservations(winning.variant as PrevioXmlAuthVariant);
+      if (!reservations.ok) {
+        const msg = `Previo room catalog works, but reservation/departure feed failed (${reservations.status}${reservations.error ? `: ${reservations.error}` : ""}).`;
+        await recordResult("error", msg);
+        return new Response(JSON.stringify({ ok: false, error: msg, latencyMs, protocol: "xml", roomCatalog: { ok: true, roomKindCount }, reservations }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       await service
         .from("pms_configurations")
         .update({
@@ -164,7 +197,7 @@ serve(async (req) => {
           last_test_error: null,
           settings: {
             ...(((cfg as any).settings && typeof (cfg as any).settings === "object") ? (cfg as any).settings : {}),
-            previo_xml_auth_variant: winning.variant,
+            previo_xml_auth_variant: reservations.usedAuthVariant || winning.variant,
           },
         })
         .eq("id", cfg.id);
@@ -172,14 +205,14 @@ serve(async (req) => {
         JSON.stringify({
           ok: true,
           protocol: "xml",
-          method: "Hotel.getRoomKinds",
-          xmlAuthVariant: winning.variant,
-          roomKindCount,
+          roomCatalog: { ok: true, method: "Hotel.getRoomKinds", roomKindCount },
+          reservations,
+          xmlAuthVariant: reservations.usedAuthVariant || winning.variant,
           hotIdConfirmed: returnedHotId ?? pmsHotelId,
           latencyMs,
-          note: winning.variant === "authorizationApiKey"
+          note: (reservations.usedAuthVariant || winning.variant) === "authorizationApiKey"
             ? `Using Previo's documented Authorization: ApiKey header.`
-            : `Legacy auth variant ${winning.variant} worked for this tenant.`,
+            : `Legacy auth variant ${reservations.usedAuthVariant || winning.variant} worked for this tenant.`,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -207,11 +240,36 @@ serve(async (req) => {
 
     const data = await safePrevioJson<unknown>(resp, { path: "/rest/rooms", source });
     const roomCount = Array.isArray(data) ? data.length : 0;
+    const reservations = await testReservations(
+      typeof (cfg as any).settings?.previo_xml_auth_variant === "string"
+        ? ((cfg as any).settings.previo_xml_auth_variant as PrevioXmlAuthVariant)
+        : undefined,
+    );
 
-    await recordResult("ok", null);
+    if (!reservations.ok) {
+      const msg = `Previo room list works, but reservation/departure feed failed (${reservations.status}${reservations.error ? `: ${reservations.error}` : ""}).`;
+      await recordResult("error", msg);
+      return new Response(JSON.stringify({ ok: false, error: msg, latencyMs, protocol: "rest", roomCatalog: { ok: true, roomCount, credentialSource: source }, reservations }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    await service
+      .from("pms_configurations")
+      .update({
+        last_test_at: new Date().toISOString(),
+        last_test_status: "ok",
+        last_test_error: null,
+        settings: {
+          ...(((cfg as any).settings && typeof (cfg as any).settings === "object") ? (cfg as any).settings : {}),
+          previo_xml_auth_variant: reservations.usedAuthVariant,
+        },
+      })
+      .eq("id", cfg.id);
 
     return new Response(
-      JSON.stringify({ ok: true, protocol: "rest", roomCount, latencyMs, credentialSource: source }),
+      JSON.stringify({ ok: true, protocol: "rest", roomCatalog: { ok: true, roomCount, credentialSource: source }, reservations, latencyMs }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e: any) {
