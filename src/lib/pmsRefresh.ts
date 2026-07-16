@@ -5,7 +5,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
-import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
+import { parsePmsNote } from "@/lib/pmsNoteParser";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
 const MANUAL_ROOM_OVERRIDE_KEYS = [
