@@ -27,6 +27,8 @@ import {
   Info,
   Globe,
   Ban,
+  ClipboardList,
+  Wrench,
   Loader2 as LucideLoader
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
@@ -39,6 +41,7 @@ import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
 import { LostAndFoundDialog } from './LostAndFoundDialog';
+import { PreCompleteChecklistDialog } from './PreCompleteChecklistDialog';
 import { PausableTimerComponent } from './PausableTimerComponent';
 import { RoomAssignmentChangeDialog } from './RoomAssignmentChangeDialog';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -104,6 +107,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noServiceLoading, setNoServiceLoading] = useState(false);
   const [noServiceConsent, setNoServiceConsent] = useState(false);
   const [warningInfoOpen, setWarningInfoOpen] = useState(false);
+  const [preCompleteOpen, setPreCompleteOpen] = useState(false);
 
   // Messaging state
   const [messages, setMessages] = useState<any[]>([]);
@@ -1106,112 +1110,112 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             )}
           </div>
 
-          {/* Required Actions Section - Daily Photo, DND Photo and Dirty Linen for In-Progress Tasks */}
-          {assignment.status === 'in_progress' && (
-            <div className="p-4 bg-gradient-to-r from-red-50 to-amber-50 rounded-lg border-2 border-red-300 shadow-sm ring-1 ring-red-200">
-              <div className="flex items-start gap-2 mb-1">
-                <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5 animate-pulse" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-red-800 uppercase tracking-wide text-sm">{t('actions.required')}</span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-600 text-white tracking-wider">
-                      {t('actions.mandatoryBadge')}
-                    </span>
+          {/* Room checklist — modern, friendly card of optional in-room tools */}
+          {assignment.status === 'in_progress' && (() => {
+            const tileBase = 'group flex flex-col items-center justify-center gap-1.5 h-auto min-h-[76px] py-3 px-2 rounded-xl border bg-card hover:bg-accent/40 hover:-translate-y-0.5 transition-all shadow-sm';
+            const iconWrap = 'flex items-center justify-center h-8 w-8 rounded-full';
+            const label = 'text-[11px] leading-tight text-center break-words hyphens-auto text-foreground/80 font-medium';
+            return (
+              <div className="p-4 bg-card rounded-2xl border border-border shadow-sm">
+                <div className="flex items-start gap-2 mb-3">
+                  <div className="flex items-center justify-center h-9 w-9 rounded-full bg-primary/10 shrink-0">
+                    <ClipboardList className="h-4 w-4 text-primary" />
                   </div>
-                  <p className="text-xs text-red-700/90 mt-1 leading-snug">
-                    {t('actions.requiredSubtitle')}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-foreground text-sm">
+                      {t('actions.checklistTitle')}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
+                      {t('actions.checklistSubtitle')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {assignment.assignment_type !== 'checkout_cleaning' && (
+                    <button
+                      type="button"
+                      onClick={() => setDailyPhotoDialogOpen(true)}
+                      className={`${tileBase} border-border`}
+                      data-training="room-photos-button"
+                    >
+                      <span className={`${iconWrap} bg-blue-100 text-blue-700`}>
+                        <Camera className="h-4 w-4" />
+                      </span>
+                      <span className={label}>{t('actions.roomPhotos')}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setEnhancedDndPhotoDialogOpen(true)}
+                    className={`${tileBase} border-border`}
+                    data-training="dnd-button"
+                  >
+                    <span className={`${iconWrap} bg-orange-100 text-orange-700`}>
+                      <AlertTriangle className="h-4 w-4" />
+                    </span>
+                    <span className={label}>{t('actions.dndPhoto')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDirtyLinenDialogOpen(true)}
+                    className={`${tileBase} border-border`}
+                    data-training="dirty-linen-button"
+                  >
+                    <span className={`${iconWrap} bg-amber-100 text-amber-700`}>
+                      <Shirt className="h-4 w-4" />
+                    </span>
+                    <span className={label}>{t('actions.dirtyLinen')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRoomDetailOpen(true)}
+                    className={`${tileBase} border-border`}
+                  >
+                    <span className={`${iconWrap} bg-purple-100 text-purple-700`}>
+                      <BedDouble className="h-4 w-4" />
+                    </span>
+                    <span className={label}>{t('actions.minibar')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLostFoundDialogOpen(true)}
+                    className={`${tileBase} border-border`}
+                    data-training="lost-found-button"
+                  >
+                    <span className={`${iconWrap} bg-emerald-100 text-emerald-700`}>
+                      <Package className="h-4 w-4" />
+                    </span>
+                    <span className={label}>{t('actions.lostAndFound')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMaintenanceDialogOpen(true)}
+                    className={`${tileBase} border-border`}
+                    data-training="maintenance-button"
+                  >
+                    <span className={`${iconWrap} bg-rose-100 text-rose-700`}>
+                      <Wrench className="h-4 w-4" />
+                    </span>
+                    <span className={label}>{t('actions.maintenance')}</span>
+                  </button>
                 </div>
               </div>
-              <div className="text-[10px] text-amber-700 font-medium mb-2 mt-2 italic">
-                · {t('actions.ifApplicable')} ·
-              </div>
-
-              
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {/* Room Photos Button - Only show for daily cleaning rooms, not checkout rooms */}
-                {assignment.assignment_type !== 'checkout_cleaning' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setDailyPhotoDialogOpen(true)}
-                    className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
-                    data-training="room-photos-button"
-                  >
-                    <Camera className="h-4 w-4 flex-shrink-0" />
-                    <span className="text-[10px] leading-tight text-center break-words">{t('actions.roomPhotos')}</span>
-                  </Button>
-                )}
-
-                {/* DND Photo Button */}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEnhancedDndPhotoDialogOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-orange-300 text-orange-700 hover:bg-orange-100"
-                  data-training="dnd-button"
-                >
-                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.dndPhoto')}</span>
-                </Button>
-
-                {/* Dirty Linen Button */}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setDirtyLinenDialogOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-amber-300 text-amber-700 hover:bg-amber-100"
-                  data-training="dirty-linen-button"
-                >
-                  <Shirt className="h-4 w-4 flex-shrink-0" />
-                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.dirtyLinen')}</span>
-                </Button>
-
-                {/* Minibar Consumption Button */}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setRoomDetailOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-purple-300 text-purple-700 hover:bg-purple-100"
-                >
-                  <BedDouble className="h-4 w-4 flex-shrink-0" />
-                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.minibar')}</span>
-                </Button>
-
-                {/* Lost & Found Button */}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setLostFoundDialogOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-green-300 text-green-700 hover:bg-green-100"
-                  data-training="lost-found-button"
-                >
-                  <Package className="h-4 w-4 flex-shrink-0" />
-                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.lostAndFound')}</span>
-                </Button>
-
-                {/* Maintenance Issue Button */}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setMaintenanceDialogOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1 h-auto min-h-16 py-2 px-2 border-red-300 text-red-700 hover:bg-red-100"
-                  data-training="maintenance-button"
-                >
-                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                  <span className="text-[10px] leading-tight text-center break-words">{t('actions.maintenance')}</span>
-                </Button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Complete, Add Note, Details Buttons - After Required Actions */}
           {assignment.status === 'in_progress' && (
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative pb-8 w-full sm:w-auto">
                 <HoldButton 
-                  onClick={() => updateAssignmentStatus('completed')}
-                  onHoldComplete={() => updateAssignmentStatus('completed')}
+                  onClick={() => setPreCompleteOpen(true)}
+                  onHoldComplete={() => setPreCompleteOpen(true)}
                   holdDuration={2000}
                   disabled={loading}
                   className="w-full h-12 bg-green-600 hover:bg-green-700 text-white"
@@ -1516,6 +1520,26 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           toast.success('Lost & Found item reported successfully');
         }}
       />
+
+      {/* Pre-complete confirmation dialog */}
+      <PreCompleteChecklistDialog
+        open={preCompleteOpen}
+        onOpenChange={setPreCompleteOpen}
+        loading={loading}
+        onOpenDirtyLinen={() => {
+          setPreCompleteOpen(false);
+          setDirtyLinenDialogOpen(true);
+        }}
+        onOpenMinibar={() => {
+          setPreCompleteOpen(false);
+          setRoomDetailOpen(true);
+        }}
+        onConfirm={async () => {
+          setPreCompleteOpen(false);
+          await updateAssignmentStatus('completed');
+        }}
+      />
+
 
       {/* Room Assignment Change Dialog - For changing daily to checkout */}
       <RoomAssignmentChangeDialog

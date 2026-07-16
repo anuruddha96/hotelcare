@@ -18,6 +18,7 @@ const HEADER = {
   es: 'Ayuda y entrenamiento',
   vi: 'Trợ giúp & Đào tạo',
   mn: 'Тусламж ба сургалт',
+  uk: 'Довідка та навчання',
 };
 
 export function TrainingHelpButtonV2() {
