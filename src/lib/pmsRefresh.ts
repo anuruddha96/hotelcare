@@ -335,14 +335,22 @@ export async function runPmsRefresh(
         previoStatusRaw === "" ? null
         : previoStatusRaw.startsWith("clean") ? "clean"
         : "dirty";
+      const pmsNeedsCleaning = reservationDataAuthoritative && (
+        shouldBeCheckoutRoom || classification.isDailyRoom || row.IsNoShow === true
+      );
+      const effectiveStatus = pmsNeedsCleaning
+        ? row.IsNoShow === true
+          ? "clean"
+          : "dirty"
+        : mappedStatus;
 
       const nextGuestCount = Number(row.People ?? 0);
 
       // Compute the diff for the preview.
       const changeFields: ProposedRoomChange["fields"] = [];
-      if (mappedStatus && room.status && mappedStatus !== room.status) {
+      if (effectiveStatus && room.status && effectiveStatus !== room.status) {
         changeFields.push({
-          field: "Clean status", before: room.status, after: mappedStatus, category: "status",
+          field: "Clean status", before: room.status, after: effectiveStatus, category: "status",
         });
       }
       if (reservationDataAuthoritative && typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
@@ -453,9 +461,9 @@ export async function runPmsRefresh(
           delete updateData.pms_metadata.checkedOutAt;
         }
       }
-      if (mappedStatus) {
-        updateData.status = mappedStatus;
-        if (mappedStatus === "clean") {
+      if (effectiveStatus) {
+        updateData.status = effectiveStatus;
+        if (effectiveStatus === "clean") {
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
@@ -497,8 +505,8 @@ export async function runPmsRefresh(
           before, after, is_conflict,
         });
       };
-      if (mappedStatus && room.status && mappedStatus !== room.status) {
-        pushEvent("status_changed", { status: room.status }, { status: mappedStatus }, false);
+      if (effectiveStatus && room.status && effectiveStatus !== room.status) {
+        pushEvent("status_changed", { status: room.status }, { status: effectiveStatus }, false);
       }
       if (reservationDataAuthoritative && isCheckedOut && !currentCheckoutFlag) {
         pushEvent("checkout_confirmed", { is_checkout_room: false }, { is_checkout_room: true }, false);

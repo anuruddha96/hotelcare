@@ -79,9 +79,9 @@ function parseSecretCandidates(secretValue: string, source: string): PrevioCrede
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object") {
-      const apiKey = parsed.apiKey ?? parsed.api_key ?? parsed.key ?? parsed.token;
-      const user = parsed.username ?? parsed.user ?? parsed.login ?? parsed.email;
-      const pass = parsed.password ?? parsed.pass ?? parsed.secret;
+      const apiKey = parsed.apiKey ?? parsed.api_key ?? parsed.key ?? parsed.token ?? parsed.accessKey ?? parsed.access_key;
+      const user = parsed.username ?? parsed.user ?? parsed.login ?? parsed.email ?? parsed.accessKey ?? parsed.access_key;
+      const pass = parsed.password ?? parsed.pass ?? parsed.secret ?? parsed.secretKey ?? parsed.secret_key ?? parsed.clientSecret ?? parsed.client_secret;
       pushApiKeyCandidate(candidates, seen, apiKey, source);
       // Previo REST/XML docs authenticate with Authorization: ApiKey. If a
       // user saved the API key as the "password" alongside the API user email,
@@ -97,20 +97,20 @@ function parseSecretCandidates(secretValue: string, source: string): PrevioCrede
   pushApiKeyCandidate(
     candidates,
     seen,
-    named.apikey ?? named.api_key ?? named.key ?? named.token,
+    named.apikey ?? named.api_key ?? named.key ?? named.token ?? named.accesskey ?? named.access_key,
     source,
   );
   pushApiKeyCandidate(
     candidates,
     seen,
-    named.password ?? named.pass ?? named.secret,
+    named.secretkey ?? named.secret_key ?? named.password ?? named.pass ?? named.secret ?? named.clientsecret ?? named.client_secret,
     source,
   );
   pushCandidate(
     candidates,
     seen,
-    named.username ?? named.user ?? named.login ?? named.email,
-    named.password ?? named.pass ?? named.secret,
+    named.username ?? named.user ?? named.login ?? named.email ?? named.accesskey ?? named.access_key,
+    named.password ?? named.pass ?? named.secret ?? named.secretkey ?? named.secret_key ?? named.clientsecret ?? named.client_secret,
     source,
   );
 

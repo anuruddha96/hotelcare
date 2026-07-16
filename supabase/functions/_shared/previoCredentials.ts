@@ -81,10 +81,10 @@ export function parsePrevioCredentialValue(
     const j = JSON.parse(raw);
     if (j && typeof j === "object") {
       const protocol = clean(j.protocol).toLowerCase();
-      const apiKey = clean(j.apiKey ?? j.api_key ?? j.key ?? j.token);
-      const username = clean(j.username ?? j.user ?? j.login ?? j.email);
-      const password = clean(j.password ?? j.pass ?? j.secret);
-      const xmlApiKey = clean(j.xmlApiKey ?? j.xml_api_key ?? apiKey ?? j.token ?? password) || undefined;
+      const apiKey = clean(j.apiKey ?? j.api_key ?? j.key ?? j.token ?? j.accessKey ?? j.access_key);
+      const username = clean(j.username ?? j.user ?? j.login ?? j.email ?? j.accessKey ?? j.access_key);
+      const password = clean(j.password ?? j.pass ?? j.secret ?? j.secretKey ?? j.secret_key ?? j.clientSecret ?? j.client_secret);
+      const xmlApiKey = clean(j.xmlApiKey ?? j.xml_api_key ?? j.apiKey ?? j.api_key ?? j.key ?? j.token ?? j.secretKey ?? j.secret_key ?? password) || undefined;
       const authElement = clean(j.authElement ?? j.auth_element) || "apiKey";
       const xmlLogin = clean(j.xmlLogin ?? j.xml_login ?? j.xmlUsername ?? j.xml_username) || undefined;
       const xmlPassword = clean(j.xmlPassword ?? j.xml_password) || undefined;
@@ -124,10 +124,10 @@ export function parsePrevioCredentialValue(
 
   // 2) Named pairs — USERNAME=..., PASSWORD=..., or APIKEY=...
   const named = parseNamedPairs(raw);
-  const namedApiKey = clean(named.apikey ?? named.api_key ?? named.key ?? named.token);
-  const namedXmlApiKey = clean(named.xmlapikey ?? named.xml_api_key ?? namedApiKey ?? named.password ?? named.pass ?? named.secret) || undefined;
-  const namedUser = clean(named.username ?? named.user ?? named.login ?? named.email);
-  const namedPass = clean(named.password ?? named.pass ?? named.secret);
+  const namedApiKey = clean(named.apikey ?? named.api_key ?? named.key ?? named.token ?? named.accesskey ?? named.access_key);
+  const namedXmlApiKey = clean(named.xmlapikey ?? named.xml_api_key ?? namedApiKey ?? named.secretkey ?? named.secret_key ?? named.password ?? named.pass ?? named.secret) || undefined;
+  const namedUser = clean(named.username ?? named.user ?? named.login ?? named.email ?? named.accesskey ?? named.access_key);
+  const namedPass = clean(named.password ?? named.pass ?? named.secret ?? named.secretkey ?? named.secret_key ?? named.clientsecret ?? named.client_secret);
   if (namedApiKey && !namedUser && !namedPass) {
     return { protocol: "xml", apiKey: namedApiKey, authElement: "apiKey", source: sourceName };
   }
@@ -277,7 +277,7 @@ ${auth}
 ${opts.extraXml ?? ""}
 </request>`;
 
-  const headers: Record<string, string> = { "Content-Type": "text/xml; charset=UTF-8" };
+  const headers: Record<string, string> = { "Content-Type": "application/xml" };
   const hasDedicatedXmlLogin = !!(opts.creds.xmlLogin && opts.creds.xmlPassword);
   const effectiveXmlAuthVariant = hasDedicatedXmlLogin
     ? ("login" as PrevioXmlAuthVariant)
@@ -296,7 +296,7 @@ ${opts.extraXml ?? ""}
   }
 
   const methodPath = opts.method.includes("/") ? opts.method : `hotel/${opts.method}`;
-  const resp = await fetch(`${PREVIO_XML_ENDPOINT}/${methodPath}/`, {
+  const resp = await fetch(`${PREVIO_XML_ENDPOINT}/${methodPath}`, {
     method: "POST",
     headers,
     body,
@@ -304,9 +304,11 @@ ${opts.extraXml ?? ""}
   });
   const text = await resp.text();
   const errMatch = text.match(/<error>[\s\S]*?<message>([^<]*)<\/message>[\s\S]*?<\/error>/i)
-    ?? text.match(/<message>([^<]*)<\/message>/i);
+    ?? text.match(/<message>([^<]*)<\/message>/i)
+    ?? text.match(/^\s*\d{4}\s+([^\n\r<]+)/i);
   const errorMessage = errMatch ? errMatch[1].trim() : null;
-  const ok = resp.ok && !/<error>/i.test(text);
+  const plainError = /^\s*\d{4}\s+/i.test(text) || /invalid login|invalid password|unauthori[sz]ed|forbidden/i.test(text.slice(0, 500));
+  const ok = resp.ok && !/<error>/i.test(text) && !plainError;
   return { ok, status: resp.status, text, errorMessage, usedAuthVariant: effectiveXmlAuthVariant };
 }
 
@@ -342,7 +344,7 @@ export async function callPrevioXml(opts: PrevioXmlCallOptions): Promise<PrevioX
     // variants. For validation/rate-limit/server errors, return immediately so
     // callers see the real Previo error instead of masking it with retries.
     const authRejected = result.status === 401 || result.status === 403
-      || /invalid login|invalid password|unauthori[sz]ed|forbidden/i.test(result.errorMessage || result.text.slice(0, 500));
+      || /\b2004\b|invalid login|invalid password|unauthori[sz]ed|forbidden/i.test(result.errorMessage || result.text.slice(0, 500));
     if (!authRejected) return result;
   }
 
