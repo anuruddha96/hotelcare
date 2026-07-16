@@ -394,9 +394,9 @@ serve(async (req) => {
 
     // Safety net: if the live reservation feed is unavailable/empty, do NOT
     // let the REST room roster (which may have clean statuses but no departure
-    // data) wipe checkout rooms back into daily rooms. Rehydrate the
-    // housekeeping picture from today's upload if present; otherwise use the
-    // latest recent PMS upload as a last-known-good bucket source.
+    // data) wipe checkout rooms back into daily rooms. Rehydrate from today's
+    // PMS upload if present; otherwise the frontend preserves current checkout
+    // flags because reservationDataAuthoritative remains false.
     if (reservationsByRoomName.size === 0) {
       try {
         const { data: hotelCfg } = await service
@@ -407,7 +407,7 @@ serve(async (req) => {
         const hotelFilters = Array.from(new Set([targetHotel, (hotelCfg as any)?.hotel_name].filter(Boolean)));
         const todayStart = `${today}T00:00:00Z`;
         const todayEnd = `${tomorrow}T00:00:00Z`;
-        const { data: todaysUpload } = await service
+        const { data: latestUpload } = await service
           .from("pms_upload_summary")
           .select("checkout_rooms, daily_cleaning_rooms, upload_date")
           .in("hotel_filter", hotelFilters)
@@ -416,21 +416,6 @@ serve(async (req) => {
           .order("upload_date", { ascending: false })
           .limit(1)
           .maybeSingle();
-        let latestUpload = todaysUpload;
-        let fallbackIsToday = !!todaysUpload;
-        if (!latestUpload) {
-          const fallbackStart = `${addDays(today, -3)}T00:00:00Z`;
-          const { data: recentUpload } = await service
-            .from("pms_upload_summary")
-            .select("checkout_rooms, daily_cleaning_rooms, upload_date")
-            .in("hotel_filter", hotelFilters)
-            .gte("upload_date", fallbackStart)
-            .lt("upload_date", todayEnd)
-            .order("upload_date", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          latestUpload = recentUpload;
-        }
 
         const checkoutRows = Array.isArray((latestUpload as any)?.checkout_rooms)
           ? (latestUpload as any).checkout_rooms
@@ -478,7 +463,7 @@ serve(async (req) => {
           });
         }
         if (checkoutRows.length || dailyRows.length) {
-          reservationFallbackSource = fallbackIsToday ? "today_pms_upload_summary" : "recent_pms_upload_summary";
+          reservationFallbackSource = "today_pms_upload_summary";
           reservationIssue = null;
           console.log(`[previo-pms-sync] reservation feed unavailable/empty; recovered ${checkoutRows.length} checkout and ${dailyRows.length} daily rooms from ${reservationFallbackSource}`);
         }
