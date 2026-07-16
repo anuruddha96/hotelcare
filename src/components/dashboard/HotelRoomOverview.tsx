@@ -1262,7 +1262,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             </span>
           )}
           {roomFlags.cleanNotes && (
-            <span className="text-[8px]" title={roomFlags.cleanNotes}>📝</span>
+            <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
           {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">{staffName}</span>
