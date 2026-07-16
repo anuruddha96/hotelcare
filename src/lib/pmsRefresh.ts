@@ -449,6 +449,7 @@ export async function runPmsRefresh(
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
         updateData.pms_metadata.departureTime = departureParsed;
         updateData.pms_metadata.checkedOutToday = isCheckedOut;
+        updateData.pms_metadata.reservationStatusId = row.ReservationStatusId ?? null;
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
         updateData.pms_metadata.isNoShow = row.IsNoShow === true;
