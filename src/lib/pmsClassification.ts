@@ -61,8 +61,7 @@ export const classifyPmsHousekeepingRow = (row: any): PmsHousekeepingClassificat
   const nightTotal = parseNightTotal(row["Night / Total"]);
   const isScheduledDeparture = departureTime !== null;
   const isCheckedOut = row.CheckedOut === true
-    || statusLooksCheckedOut(row.Status ?? row.ReservationStatus ?? row.ReservationStatusId)
-    || (isScheduledDeparture && occupiedNo(row.Occupied));
+    || statusLooksCheckedOut(row.Status ?? row.ReservationStatus ?? row.ReservationStatusId);
 
   // Checkout is intentionally strict: a room belongs in Checkout Rooms only
   // when PMS gives a real departure time/date for today or says the guest has

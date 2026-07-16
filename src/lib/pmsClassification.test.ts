@@ -39,9 +39,11 @@ describe("PMS housekeeping classification", () => {
     }
   });
 
-  it("marks departure rows as checked out only when PMS confirms vacancy/status", () => {
+  it("does not mark scheduled departures as checked out from occupancy alone", () => {
     expect(classifyPmsHousekeepingRow(row("Q-201", "11:00", null)).isCheckedOut).toBe(false);
-    expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), Occupied: "No" }).isCheckedOut).toBe(true);
+    expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), Occupied: "No" }).isCheckedOut).toBe(false);
     expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), Status: "Checked out" }).isCheckedOut).toBe(true);
+    expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), ReservationStatusId: 6 }).isCheckedOut).toBe(true);
+    expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), ReservationStatusId: 5 }).isCheckedOut).toBe(false);
   });
 });
