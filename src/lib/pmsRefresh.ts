@@ -408,19 +408,29 @@ export async function runPmsRefresh(
         changeFields.push({ field: "PMS note", before: "-", after: String(row.Note), category: "note" });
       }
 
-      // Auto-detect bed configuration from PMS note when the room does not
-      // already have a manager-set value. Never overwrite an existing value.
-      const inferredBed = reservationDataAuthoritative ? inferBedConfigFromNote(row.Note ? String(row.Note) : null) : null;
+      // Auto-detect bed configuration from the guest "Special requests" slice
+      // of the PMS note only. `parsePmsNote` already strips policy/finance
+      // boilerplate (VCC, commission, "You haven't added any extra beds",
+      // "maximum number of cots") and ignores ambiguous partner room-name
+      // labels like "Deluxe Double or Twin Room". Never overwrite a
+      // manager-set value.
+      const parsedNote = reservationDataAuthoritative
+        ? parsePmsNote(row.Note ? String(row.Note) : null)
+        : null;
+      const inferredBed = parsedNote?.bedArrangement
+        ? { value: parsedNote.bedArrangement, matchedKeyword: "special-requests" }
+        : null;
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
       const shouldSetBedConfig = !!inferredBed && !currentBedConfig;
       if (shouldSetBedConfig) {
         changeFields.push({
           field: "Bed config (auto from PMS)",
           before: currentBedConfig ?? "-",
-          after: `${inferredBed!.value} (matched "${inferredBed!.matchedKeyword}")`,
+          after: `${inferredBed!.value} (from guest special requests)`,
           category: "note",
         });
       }
+
 
       proposedChanges.push({
         roomKey: `id:${room.id}`,
