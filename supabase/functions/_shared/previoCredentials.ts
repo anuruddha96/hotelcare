@@ -81,10 +81,10 @@ export function parsePrevioCredentialValue(
     const j = JSON.parse(raw);
     if (j && typeof j === "object") {
       const protocol = clean(j.protocol).toLowerCase();
-      const apiKey = clean(j.apiKey ?? j.api_key ?? j.key ?? j.token);
-      const username = clean(j.username ?? j.user ?? j.login ?? j.email);
-      const password = clean(j.password ?? j.pass ?? j.secret);
-      const xmlApiKey = clean(j.xmlApiKey ?? j.xml_api_key ?? apiKey ?? j.token ?? password) || undefined;
+      const apiKey = clean(j.apiKey ?? j.api_key ?? j.key ?? j.token ?? j.accessKey ?? j.access_key);
+      const username = clean(j.username ?? j.user ?? j.login ?? j.email ?? j.accessKey ?? j.access_key);
+      const password = clean(j.password ?? j.pass ?? j.secret ?? j.secretKey ?? j.secret_key ?? j.clientSecret ?? j.client_secret);
+      const xmlApiKey = clean(j.xmlApiKey ?? j.xml_api_key ?? j.apiKey ?? j.api_key ?? j.key ?? j.token ?? j.secretKey ?? j.secret_key ?? password) || undefined;
       const authElement = clean(j.authElement ?? j.auth_element) || "apiKey";
       const xmlLogin = clean(j.xmlLogin ?? j.xml_login ?? j.xmlUsername ?? j.xml_username) || undefined;
       const xmlPassword = clean(j.xmlPassword ?? j.xml_password) || undefined;
@@ -124,10 +124,10 @@ export function parsePrevioCredentialValue(
 
   // 2) Named pairs — USERNAME=..., PASSWORD=..., or APIKEY=...
   const named = parseNamedPairs(raw);
-  const namedApiKey = clean(named.apikey ?? named.api_key ?? named.key ?? named.token);
-  const namedXmlApiKey = clean(named.xmlapikey ?? named.xml_api_key ?? namedApiKey ?? named.password ?? named.pass ?? named.secret) || undefined;
-  const namedUser = clean(named.username ?? named.user ?? named.login ?? named.email);
-  const namedPass = clean(named.password ?? named.pass ?? named.secret);
+  const namedApiKey = clean(named.apikey ?? named.api_key ?? named.key ?? named.token ?? named.accesskey ?? named.access_key);
+  const namedXmlApiKey = clean(named.xmlapikey ?? named.xml_api_key ?? namedApiKey ?? named.secretkey ?? named.secret_key ?? named.password ?? named.pass ?? named.secret) || undefined;
+  const namedUser = clean(named.username ?? named.user ?? named.login ?? named.email ?? named.accesskey ?? named.access_key);
+  const namedPass = clean(named.password ?? named.pass ?? named.secret ?? named.secretkey ?? named.secret_key ?? named.clientsecret ?? named.client_secret);
   if (namedApiKey && !namedUser && !namedPass) {
     return { protocol: "xml", apiKey: namedApiKey, authElement: "apiKey", source: sourceName };
   }
@@ -296,7 +296,7 @@ ${opts.extraXml ?? ""}
   }
 
   const methodPath = opts.method.includes("/") ? opts.method : `hotel/${opts.method}`;
-  const resp = await fetch(`${PREVIO_XML_ENDPOINT}/${methodPath}/`, {
+  const resp = await fetch(`${PREVIO_XML_ENDPOINT}/${methodPath}`, {
     method: "POST",
     headers,
     body,
