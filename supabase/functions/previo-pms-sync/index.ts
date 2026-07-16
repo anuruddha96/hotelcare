@@ -3,12 +3,13 @@
 // feed them into the same processing pipeline used for manual file uploads.
 //
 // Roster strategy:
-//   - REST tenants: fetch rooms from /rest/rooms (includes clean status).
-//   - XML tenants (e.g. Ottofiori): use the local `rooms` table for the hotel
-//     as the authoritative roster (every physical room), then enrich with
-//     reservations pulled from Previo XML `searchReservations`. This
-//     guarantees every room is included in the sync even when it has no
-//     reservation in the window.
+//   - REST tenants: fetch rooms from /rest/rooms (includes clean status and,
+//     for some hotels, reservation data).
+//   - XML searchReservations is optional enrichment only. Some REST/API-key
+//     tenants reject the XML endpoint even though REST works, so XML failure
+//     must never make the manager-facing morning sync look failed/partial.
+//   - If live reservation enrichment is unavailable, keep REST room sync as a
+//     success and protect existing/fallback housekeeping buckets.
 //
 // Window: [today, today+3) so that reservations departing tomorrow are
 // visible and rooms can be flagged `DepartureTomorrow` / `IsCheckoutRoom`
@@ -86,7 +87,7 @@ function isNoShowStatus(statusId: number): boolean {
 }
 
 const RESERVATION_UNAVAILABLE_MANAGER_MESSAGE =
-  "Previo room list synced, but checkout/departure data was unavailable. Please verify checkout rooms manually.";
+  "Previo room list synced. Checkout data is protected from the last known PMS state.";
 
 function isAuthFailure(status: number, message: string | null, text = ""): boolean {
   const haystack = `${message || ""} ${text.slice(0, 500)}`;
@@ -248,6 +249,7 @@ serve(async (req) => {
     let reservationFetchError: string | null = null;
     let reservationFallbackSource: string | null = null;
     let reservationIssue: Record<string, unknown> | null = null;
+    let restRoomSyncOk = false;
 
     const indexReservation = (rec: ParsedReservation) => {
       const rank = (r: ParsedReservation) => {
@@ -295,7 +297,7 @@ serve(async (req) => {
           status: xmlResult.status,
           protocol: credsProtocol,
           usedAuthVariant: xmlResult.usedAuthVariant ?? null,
-          managerMessage: RESERVATION_UNAVAILABLE_MANAGER_MESSAGE,
+          managerMessage: null,
           adminMessage: reservationFetchError,
           detail: xmlResult.errorMessage || null,
         };
@@ -350,7 +352,7 @@ serve(async (req) => {
       reservationIssue = {
         type: "previo_reservation_unavailable",
         protocol: credsProtocol,
-        managerMessage: RESERVATION_UNAVAILABLE_MANAGER_MESSAGE,
+        managerMessage: null,
         adminMessage: reservationFetchError,
       };
       console.warn(`[previo-pms-sync] XML reservations threw: ${reservationFetchError}`);
@@ -388,11 +390,13 @@ serve(async (req) => {
     if (restReservationsIndexed > 0) {
       console.log(`[previo-pms-sync] REST room payload indexed ${restReservationsIndexed} embedded reservations`);
     }
+    restRoomSyncOk = rosterSource === "rest" && rooms.length > 0;
 
-    // Safety net: if the live XML reservation feed is unavailable/empty, do
-    // NOT let the REST room roster (which has clean statuses but no departure
-    // data) wipe checkout rooms back into daily rooms. Rehydrate today's
-    // housekeeping picture from the latest successful manual PMS upload.
+    // Safety net: if the live reservation feed is unavailable/empty, do NOT
+    // let the REST room roster (which may have clean statuses but no departure
+    // data) wipe checkout rooms back into daily rooms. Rehydrate from today's
+    // PMS upload if present; otherwise the frontend preserves current checkout
+    // flags because reservationDataAuthoritative remains false.
     if (reservationsByRoomName.size === 0) {
       try {
         const { data: hotelCfg } = await service
@@ -401,14 +405,14 @@ serve(async (req) => {
           .eq("hotel_id", targetHotel)
           .maybeSingle();
         const hotelFilters = Array.from(new Set([targetHotel, (hotelCfg as any)?.hotel_name].filter(Boolean)));
-        const start = `${today}T00:00:00Z`;
-        const end = `${tomorrow}T00:00:00Z`;
+        const todayStart = `${today}T00:00:00Z`;
+        const todayEnd = `${tomorrow}T00:00:00Z`;
         const { data: latestUpload } = await service
           .from("pms_upload_summary")
           .select("checkout_rooms, daily_cleaning_rooms, upload_date")
           .in("hotel_filter", hotelFilters)
-          .gte("upload_date", start)
-          .lt("upload_date", end)
+          .gte("upload_date", todayStart)
+          .lt("upload_date", todayEnd)
           .order("upload_date", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -459,9 +463,9 @@ serve(async (req) => {
           });
         }
         if (checkoutRows.length || dailyRows.length) {
-          reservationFallbackSource = "latest_pms_upload_summary";
+          reservationFallbackSource = "today_pms_upload_summary";
           reservationIssue = null;
-          console.log(`[previo-pms-sync] XML unavailable/empty; recovered ${checkoutRows.length} checkout and ${dailyRows.length} daily rooms from latest PMS upload`);
+          console.log(`[previo-pms-sync] reservation feed unavailable/empty; recovered ${checkoutRows.length} checkout and ${dailyRows.length} daily rooms from ${reservationFallbackSource}`);
         }
       } catch (e: any) {
         console.warn(`[previo-pms-sync] PMS upload fallback failed: ${e?.message || String(e)}`);
@@ -558,6 +562,11 @@ serve(async (req) => {
     const reservationSource = reservationsByRoomName.size > 0
       ? reservationFallbackSource ?? (restReservationsIndexed > 0 ? "rest_rooms_embedded_reservation" : "xml_searchReservations")
       : null;
+    const reservationDataAuthoritative = reservationsByRoomName.size > 0;
+    const managerFacingSuccess = reservationsByRoomName.size > 0 || restRoomSyncOk;
+    const managerMessage = managerFacingSuccess
+      ? null
+      : RESERVATION_UNAVAILABLE_MANAGER_MESSAGE;
     console.log(`[previo-pms-sync] emitted ${rows.length} rows (${departureCount} depart today, ${departureTomorrowCount} depart tomorrow, ${checkedOutCount} checked-out, ${arrivalCount} arrivals; roster=${rosterSource}, dryRun=${dryRun})`);
 
     return new Response(
@@ -572,11 +581,12 @@ serve(async (req) => {
         checkedOutToday: checkedOutCount,
         arrivalsToday: arrivalCount,
         reservationsAvailable: reservationsByRoomName.size,
-        reservationDataAuthoritative: reservationsByRoomName.size > 0,
+        reservationDataAuthoritative,
+        managerFacingSuccess,
         reservationSource,
         reservationFetchError,
         reservationIssue,
-        managerMessage: reservationsByRoomName.size > 0 ? null : RESERVATION_UNAVAILABLE_MANAGER_MESSAGE,
+        managerMessage,
         reservationFallbackSource,
         rows,
       }),

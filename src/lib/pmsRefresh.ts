@@ -122,9 +122,10 @@ export async function runPmsRefresh(
   }
   const rows: any[] = (data as any)?.rows || [];
   const reservationDataAuthoritative = (data as any)?.reservationDataAuthoritative !== false;
+  const managerFacingSuccess = (data as any)?.managerFacingSuccess === true;
   const reservationIssue = (data as any)?.reservationIssue ?? null;
   const reservationFetchError = (data as any)?.reservationFetchError ?? null;
-  const reservationManagerMessage = !reservationDataAuthoritative
+  const reservationManagerMessage = !reservationDataAuthoritative && !managerFacingSuccess
     ? "Previo room list synced, but checkout/departure data was unavailable. Please verify checkout rooms manually."
     : undefined;
   if (rows.length === 0) {
@@ -151,7 +152,7 @@ export async function runPmsRefresh(
   const matchedRoomIds = new Set<string>();
   const protectedCheckoutAssignmentRoomIds = new Set<string>();
 
-  if (!reservationDataAuthoritative) {
+  if (reservationManagerMessage) {
     errors.push(reservationManagerMessage!);
   }
 
@@ -598,6 +599,7 @@ export async function runPmsRefresh(
           total: rows.length,
           checkouts,
           reservationDataAuthoritative,
+          managerFacingSuccess,
           reservationSource: (data as any)?.reservationSource ?? null,
           reservationFallbackSource: (data as any)?.reservationFallbackSource ?? null,
           reservationFetchError,
