@@ -3,13 +3,11 @@
 // feed them into the same processing pipeline used for manual file uploads.
 //
 // Roster strategy:
-//   - REST tenants: fetch rooms from /rest/rooms (includes clean status and,
-//     for some hotels, reservation data).
-//   - XML searchReservations is optional enrichment only. Some REST/API-key
-//     tenants reject the XML endpoint even though REST works, so XML failure
-//     must never make the manager-facing morning sync look failed/partial.
-//   - If live reservation enrichment is unavailable, keep REST room sync as a
-//     success and protect existing/fallback housekeeping buckets.
+//   - REST tenants: fetch rooms from /rest/rooms for room roster / clean status.
+//   - XML Hotel.searchReservations is the authoritative source for today's
+//     checkout/daily/no-show buckets because it contains stay dates, room
+//     objects, statuses, guest counts, and night totals.
+//   - A roster-only REST sync is never reported as a complete PMS bucket sync.
 //
 // Window: [today, today+3) so that reservations departing tomorrow are
 // visible and rooms can be flagged `DepartureTomorrow` / `IsCheckoutRoom`
@@ -117,7 +115,7 @@ function isCheckedOutStatus(statusId: number): boolean {
 }
 
 function isNoShowStatus(statusId: number): boolean {
-  return statusId === 6 || statusId === 8;
+  return statusId === 8;
 }
 
 const RESERVATION_UNAVAILABLE_MANAGER_MESSAGE =
@@ -283,6 +281,8 @@ serve(async (req) => {
     let reservationFetchError: string | null = null;
     let reservationFallbackSource: string | null = null;
     let reservationIssue: Record<string, unknown> | null = null;
+    let reservationSource: string | null = null;
+    const reservationDiagnostics: Array<Record<string, unknown>> = [];
 
     const indexReservation = (rec: ParsedReservation) => {
       const rank = (r: ParsedReservation) => {
@@ -307,79 +307,116 @@ serve(async (req) => {
         reservationsByObjId.set(rec.objId, rec);
       }
     };
+    const parseReservationXml = (xmlText: string, source: string) => {
+      const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
+      const grab = (s: string, tag: string) => {
+        const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+        return m ? m[1].trim() : "";
+      };
+      let indexed = 0;
+      for (const block of blocks) {
+        const fromStr = grab(block, "from");
+        const toStr = grab(block, "to");
+        if (!fromStr || !toStr) continue;
+        const arrival = fromStr.slice(0, 10);
+        const departure = toStr.slice(0, 10);
+        let departureTime: string | null = null;
+        const timeMatch = toStr.match(/[T\s](\d{2}:\d{2})/);
+        if (timeMatch) departureTime = timeMatch[1];
+        const statusId = parseInt(grab(block, "statusId") || grab(block, "cosId") || "0", 10);
+        if (statusId === 7) continue;
+        const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
+        const objId = objMatch ? parseInt(objMatch[1], 10) : null;
+        const roomName = objMatch ? objMatch[2].trim() : "";
+        if (!roomName && !objId) continue;
+        const guestsCount = (block.match(/<guest>/g) || []).length
+          || Number(grab(block, "numOfGuests") || grab(block, "persons") || grab(block, "pax") || 0)
+          || 0;
+        const noteMatch = block.match(/<note>([^<]*)<\/note>/);
+        indexReservation({
+          objId,
+          roomName,
+          arrivalDate: arrival,
+          departureDate: departure,
+          departureTime,
+          statusId,
+          guestsCount,
+          note: noteMatch ? noteMatch[1].trim() || null : null,
+        });
+        indexed++;
+      }
+      reservationDiagnostics.push({ source, blocks: blocks.length, indexed });
+      return indexed;
+    };
+
     try {
       const creds = loadPrevioCredentials(cfg.credentials_secret_name);
       const configuredXmlVariant = typeof (cfg as any).settings?.previo_xml_auth_variant === "string"
         ? ((cfg as any).settings.previo_xml_auth_variant as PrevioXmlAuthVariant)
         : undefined;
-      const xmlResult = await callPrevioXml({
-        method: "searchReservations",
-        creds,
-        pmsHotelId: String(cfg.pms_hotel_id || ""),
-        extraXml: `<term><from>${windowStart}</from><to>${windowEnd}</to></term>`,
-        authVariant: configuredXmlVariant,
-      });
-      const xmlText = xmlResult.text;
-      if (!xmlResult.ok) {
-        const authFailure = isAuthFailure(xmlResult.status, xmlResult.errorMessage, xmlText);
-        reservationFetchError = authFailure
-          ? "Previo rejected reservation/departure API login."
-          : `Previo reservation/departure API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
-        reservationIssue = {
-          type: authFailure ? "previo_reservation_auth" : "previo_reservation_unavailable",
-          status: xmlResult.status,
-          protocol: credsProtocol,
-          usedAuthVariant: xmlResult.usedAuthVariant ?? null,
-          managerMessage: null,
-          adminMessage: reservationFetchError,
-          detail: xmlResult.errorMessage || null,
-        };
-        console.warn(`[previo-pms-sync] XML reservations failed: ${reservationFetchError}`);
-      } else {
-        const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
-        const grab = (s: string, tag: string) => {
-          const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
-          return m ? m[1].trim() : "";
-        };
-        for (const block of blocks) {
-          const fromStr = grab(block, "from");
-          const toStr = grab(block, "to");
-          if (!fromStr || !toStr) continue;
-          const arrival = fromStr.slice(0, 10);
-          const departure = toStr.slice(0, 10);
-          // Previo <to> is sometimes "YYYY-MM-DD" only; sometimes
-          // "YYYY-MM-DD HH:MM(:SS)" or ISO with "T". Extract the HH:MM
-          // portion when present so housekeepers see the real checkout time.
-          let departureTime: string | null = null;
-          const timeMatch = toStr.match(/[T\s](\d{2}:\d{2})/);
-          if (timeMatch) departureTime = timeMatch[1];
-          const statusId = parseInt(grab(block, "statusId") || "0", 10);
-          if (statusId === 7) continue;
-          const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
-          const objId = objMatch ? parseInt(objMatch[1], 10) : null;
-          const roomName = objMatch ? objMatch[2].trim() : "";
-          if (!roomName && !objId) continue;
-          const guestsCount = (block.match(/<guest>/g) || []).length;
-          const noteMatch = block.match(/<note>([^<]*)<\/note>/);
-          const rec: ParsedReservation = {
-            objId,
-            roomName,
-            arrivalDate: arrival,
-            departureDate: departure,
-            departureTime,
-            statusId,
-            guestsCount,
-            note: noteMatch ? noteMatch[1].trim() || null : null,
+      const xmlAttempts = [
+        {
+          source: "xml_searchReservations_overlap",
+          // Authoritative housekeeping snapshot: every reservation overlapping
+          // today/tomorrow, including stay-through guests who arrived earlier.
+          extraXml: `<term><from>${today}</from><to>${windowEnd}</to><termType>overlap</termType></term>`,
+        },
+        {
+          source: "xml_searchReservations_checkout",
+          // Ensures today's departures are present even if overlap filtering
+          // excludes already checked-out reservations in some Previo tenants.
+          extraXml: `<term><from>${today}</from><to>${tomorrow}</to><termType>check-out</termType></term>`,
+        },
+        {
+          source: "xml_searchReservations_checkin",
+          // Captures today's arrivals/no-shows for the no-show bucket.
+          extraXml: `<term><from>${today}</from><to>${tomorrow}</to><termType>check-in</termType></term>`,
+        },
+        {
+          source: "xml_searchReservations_legacy_window",
+          // Legacy fallback retained for tenants that have not enabled termType.
+          extraXml: `<term><from>${windowStart}</from><to>${windowEnd}</to></term>`,
+        },
+      ];
+
+      for (const attempt of xmlAttempts) {
+        const before = reservationsByRoomName.size;
+        const xmlResult = await callPrevioXml({
+          method: "searchReservations",
+          creds,
+          pmsHotelId: String(cfg.pms_hotel_id || ""),
+          extraXml: attempt.extraXml,
+          authVariant: configuredXmlVariant,
+        });
+        const xmlText = xmlResult.text;
+        if (!xmlResult.ok) {
+          const authFailure = isAuthFailure(xmlResult.status, xmlResult.errorMessage, xmlText);
+          reservationFetchError = authFailure
+            ? "Previo rejected reservation/departure API login."
+            : `Previo reservation/departure API ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}`;
+          reservationIssue = {
+            type: authFailure ? "previo_reservation_auth" : "previo_reservation_unavailable",
+            status: xmlResult.status,
+            protocol: credsProtocol,
+            usedAuthVariant: xmlResult.usedAuthVariant ?? null,
+            managerMessage: null,
+            adminMessage: reservationFetchError,
+            detail: xmlResult.errorMessage || null,
+            source: attempt.source,
           };
-          // Prefer the reservation that dictates *today's* housekeeping work.
-          // Same-day turnover: Previo returns BOTH the outgoing (departure
-          // today) and the incoming (arrival today, departure future)
-          // reservations for the same room. The outgoing one wins because the
-          // room needs checkout cleaning before the new guest can arrive.
-          indexReservation(rec);
+          reservationDiagnostics.push({ source: attempt.source, ok: false, status: xmlResult.status, error: xmlResult.errorMessage || xmlText.slice(0, 160) });
+          console.warn(`[previo-pms-sync] XML reservations ${attempt.source} failed: ${reservationFetchError}`);
+          if (authFailure) break;
+          continue;
         }
-        console.log(`[previo-pms-sync] XML returned ${blocks.length} reservations, indexed ${reservationsByRoomName.size} rooms`);
+        const indexed = parseReservationXml(xmlText, attempt.source);
+        if (indexed > 0 && reservationsByRoomName.size > before) {
+          reservationIssue = null;
+          reservationFetchError = null;
+          reservationSource = reservationSource ? `${reservationSource}+${attempt.source}` : attempt.source;
+        }
       }
+      console.log(`[previo-pms-sync] XML indexed ${reservationsByRoomName.size} reservation rooms from ${reservationSource || "none"}`);
     } catch (e: any) {
       reservationFetchError = e?.message || String(e);
       reservationIssue = {
@@ -470,6 +507,7 @@ serve(async (req) => {
           console.log(`[previo-pms-sync] REST reservation endpoint ${path} returned ${items.length} rows, indexed ${indexed}`);
           if (indexed > 0) {
             reservationFallbackSource = "rest_reservations";
+            reservationSource = reservationSource ? `${reservationSource}+rest_reservations` : "rest_reservations";
             reservationIssue = null;
             break;
           }
@@ -551,6 +589,7 @@ serve(async (req) => {
         }
         if (checkoutRows.length || dailyRows.length) {
           reservationFallbackSource = "today_pms_upload_summary";
+          reservationSource = reservationSource ? `${reservationSource}+today_pms_upload_summary` : "today_pms_upload_summary";
           reservationIssue = null;
           console.log(`[previo-pms-sync] reservation feed unavailable/empty; recovered ${checkoutRows.length} checkout and ${dailyRows.length} daily rooms from ${reservationFallbackSource}`);
         }
@@ -646,8 +685,8 @@ serve(async (req) => {
     const departureTomorrowCount = rows.filter((r) => r.DepartureTomorrow).length;
     const checkedOutCount = rows.filter((r) => r.CheckedOut).length;
     const arrivalCount = rows.filter((r) => r.Arrival).length;
-    const reservationSource = reservationsByRoomName.size > 0
-      ? reservationFallbackSource ?? (restReservationsIndexed > 0 ? "rest_rooms_embedded_reservation" : "xml_searchReservations")
+    const effectiveReservationSource = reservationsByRoomName.size > 0
+      ? reservationSource ?? reservationFallbackSource ?? (restReservationsIndexed > 0 ? "rest_rooms_embedded_reservation" : "xml_searchReservations")
       : null;
     const reservationDataAuthoritative = reservationsByRoomName.size > 0;
     const managerFacingSuccess = reservationDataAuthoritative;
@@ -670,11 +709,12 @@ serve(async (req) => {
         reservationsAvailable: reservationsByRoomName.size,
         reservationDataAuthoritative,
         managerFacingSuccess,
-        reservationSource,
+        reservationSource: effectiveReservationSource,
         reservationFetchError,
         reservationIssue,
         managerMessage,
         reservationFallbackSource,
+        reservationDiagnostics,
         rows,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
