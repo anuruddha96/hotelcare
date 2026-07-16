@@ -282,7 +282,7 @@ ${opts.extraXml ?? ""}
   const effectiveXmlAuthVariant = hasDedicatedXmlLogin
     ? ("login" as PrevioXmlAuthVariant)
     : opts.creds.protocol === "xml"
-      ? authVariant ?? (opts.creds.authElement === "apiKey" ? "authorizationApiKey" : opts.creds.authElement)
+      ? (authVariant ?? (opts.creds.authElement === "apiKey" ? "authorizationApiKey" : opts.creds.authElement)) as PrevioXmlAuthVariant
       : authVariant ?? "restLoginPassword";
   // Only attach ApiKey headers when we're actually authenticating via header
   // (no dedicated XML login). Otherwise Previo can reject login+header combos.
