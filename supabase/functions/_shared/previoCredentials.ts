@@ -304,9 +304,11 @@ ${opts.extraXml ?? ""}
   });
   const text = await resp.text();
   const errMatch = text.match(/<error>[\s\S]*?<message>([^<]*)<\/message>[\s\S]*?<\/error>/i)
-    ?? text.match(/<message>([^<]*)<\/message>/i);
+    ?? text.match(/<message>([^<]*)<\/message>/i)
+    ?? text.match(/^\s*\d{4}\s+([^\n\r<]+)/i);
   const errorMessage = errMatch ? errMatch[1].trim() : null;
-  const ok = resp.ok && !/<error>/i.test(text);
+  const plainError = /^\s*\d{4}\s+/i.test(text) || /invalid login|invalid password|unauthori[sz]ed|forbidden/i.test(text.slice(0, 500));
+  const ok = resp.ok && !/<error>/i.test(text) && !plainError;
   return { ok, status: resp.status, text, errorMessage, usedAuthVariant: effectiveXmlAuthVariant };
 }
 
@@ -342,7 +344,7 @@ export async function callPrevioXml(opts: PrevioXmlCallOptions): Promise<PrevioX
     // variants. For validation/rate-limit/server errors, return immediately so
     // callers see the real Previo error instead of masking it with retries.
     const authRejected = result.status === 401 || result.status === 403
-      || /invalid login|invalid password|unauthori[sz]ed|forbidden/i.test(result.errorMessage || result.text.slice(0, 500));
+      || /\b2004\b|invalid login|invalid password|unauthori[sz]ed|forbidden/i.test(result.errorMessage || result.text.slice(0, 500));
     if (!authRejected) return result;
   }
 
