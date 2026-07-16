@@ -277,7 +277,7 @@ ${auth}
 ${opts.extraXml ?? ""}
 </request>`;
 
-  const headers: Record<string, string> = { "Content-Type": "text/xml; charset=UTF-8" };
+  const headers: Record<string, string> = { "Content-Type": "application/xml" };
   const hasDedicatedXmlLogin = !!(opts.creds.xmlLogin && opts.creds.xmlPassword);
   const effectiveXmlAuthVariant = hasDedicatedXmlLogin
     ? ("login" as PrevioXmlAuthVariant)
