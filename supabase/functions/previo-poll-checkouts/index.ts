@@ -80,7 +80,13 @@ const isCheckedOutStatus = (raw: unknown) => {
   const n = Number(raw);
   if (Number.isFinite(n) && (n === 6 || n === 9)) return true;
   const t = statusToken(raw);
-  return ["6", "9", "checkedout", "checkedouttoday", "departed", "departure", "left", "leaved"].includes(t);
+  return ["6", "9", "checkedout", "checkedouttoday", "departed", "left", "leaved"].includes(t);
+};
+const isExplicitlyInHouseStatus = (raw: unknown) => {
+  const n = Number(raw);
+  if (Number.isFinite(n) && n === 5) return true;
+  const t = statusToken(raw);
+  return ["5", "checkedin", "inhouse", "inhouseguest", "arrived", "occupied"].includes(t);
 };
 const reservationLooksCheckedOut = (res: any) => {
   if (!res || typeof res !== "object") return false;
@@ -95,6 +101,21 @@ const reservationLooksCheckedOut = (res: any) => {
     || res.isCheckedOut === true
     || res.departed === true
     || res.isDeparted === true;
+};
+
+const reservationLooksStillInHouse = (res: any) => {
+  if (!res || typeof res !== "object") return false;
+  return isExplicitlyInHouseStatus(res.statusId)
+    || isExplicitlyInHouseStatus(res.reservationStatusId)
+    || isExplicitlyInHouseStatus(res.cosId)
+    || isExplicitlyInHouseStatus(res.commissionStatusId)
+    || isExplicitlyInHouseStatus(res.roomReservationStatusId)
+    || isExplicitlyInHouseStatus(res.status)
+    || isExplicitlyInHouseStatus(res.state)
+    || res.checkedOut === false
+    || res.isCheckedOut === false
+    || res.departed === false
+    || res.isDeparted === false;
 };
 
 interface PollResult {
@@ -148,8 +169,7 @@ async function pollOneHotel(
     (pendingAsg ?? []).map((a: any) => a.room_id).filter(Boolean),
   );
   if (!dryRun && pendingCheckoutRoomIds.size === 0) {
-    result.diagnostics.push({ source: "early-exit", reason: "no pending checkout_cleaning assignments waiting for RTC" });
-    return result;
+    result.diagnostics.push({ source: "poll-continues", reason: "no pending checkout_cleaning assignments waiting for RTC; still reconciling current RTC state" });
   }
 
   // Load every locally mapped room for this hotel so we can recognise
@@ -210,6 +230,8 @@ async function pollOneHotel(
   const today = todayUtc();
   const checkedOutByName = new Map<string, string>(); // name -> reservationId ("" — REST /rest/rooms does not expose one)
   const checkedOutByObjId = new Map<number, string>();
+  const stillInHouseByName = new Set<string>();
+  const stillInHouseByObjId = new Set<number>();
   const checkoutSignals: Array<{ name: string; objId: number | null; reservationId: string; source: string }> = [];
   const addCheckoutSignal = (nameRaw: unknown, objIdRaw: unknown, reservationId: unknown, source: string) => {
     const name = String(nameRaw ?? "").trim();
@@ -236,13 +258,11 @@ async function pollOneHotel(
     const localScheduledDepartureToday = localMatch?.pms_metadata?.scheduledDepartureToday === true;
     if (!res) {
       if (localMatch) {
-        // Signal (c): scheduled to depart today AND still has a pending
-        // checkout_cleaning assignment waiting for RTC AND Previo REST no
-        // longer attaches a reservation for the room → reception completed
-        // the checkout in Previo. Safe because the pending-assignment guard
-        // prevents this from touching any in-house room.
+        // Missing reservation data is not a checkout signal. Some Previo REST
+        // tenants omit embedded reservation objects for in-house departures,
+        // so treating "scheduled departure + reservation missing" as RTC
+        // re-flags every checkout room prematurely.
         const pendingHere = pendingCheckoutRoomIds.has(localMatch.id);
-        const acceptScheduledGone = localScheduledDepartureToday && pendingHere;
         result.diagnostics.push({
           source: "rest-room",
           room: r.name,
@@ -253,20 +273,16 @@ async function pollOneHotel(
           roomCleanStatus: cleanStatusRaw,
           reservationPresent: false,
           pendingCheckoutAssignment: pendingHere,
-          accepted: acceptScheduledGone,
-          reason: acceptScheduledGone
-            ? "scheduled departure today + pending checkout assignment + Previo dropped the reservation → guest is checked out"
-            : "no reservation payload from Previo REST; not scheduled-depart-today or not a pending checkout assignment",
+          accepted: false,
+          reason: "no reservation payload from Previo REST; waiting for explicit checked-out status",
         });
-        if (acceptScheduledGone) {
-          addCheckoutSignal(r.name, r.roomId, "", "rest-room-scheduled-gone");
-        }
       }
       continue;
     }
 
     const departure = cleanDate(res.departureDate ?? res.departure ?? res.to);
     const checkedOut = reservationLooksCheckedOut(res);
+    const stillInHouse = reservationLooksStillInHouse(res);
     if (departure === today || checkedOut || localMatch) {
       result.diagnostics.push({
         source: "rest-room",
@@ -285,8 +301,17 @@ async function pollOneHotel(
         status: typeof res.status === "object" ? JSON.stringify(res.status).slice(0, 120) : res.status ?? null,
         roomCleanStatus: cleanStatusRaw,
         checkedOut,
+        stillInHouse,
         accepted: checkedOut && departure === today,
       });
+    }
+    if (departure === today && !checkedOut && stillInHouse) {
+      const name = String(r.name ?? "").trim();
+      const num = extractNum(name);
+      if (name) stillInHouseByName.add(name);
+      if (num && num !== name) stillInHouseByName.add(num);
+      const objId = Number(r.roomId);
+      if (Number.isFinite(objId) && objId > 0) stillInHouseByObjId.add(objId);
     }
     if (!checkedOut || departure !== today) continue;
     addCheckoutSignal(r.name, r.roomId, res.reservationId ?? res.id ?? "", "rest-room-reservation");
@@ -498,12 +523,71 @@ async function pollOneHotel(
     }
   }
 
-  // 3.5. (removed) The previous reconcile step reverted rooms whose Previo
-  // REST payload did not contain a reservation object. That heuristic wrongly
-  // flipped RTC back to false on every 5-min run for tenants (e.g. Ottofiori)
-  // whose REST /rest/rooms does not attach the reservation payload. Policy:
-  // once RTC is set (by cron, PMS upload, or manager) it stays set until an
-  // admin/manager explicitly toggles it off from the room chip.
+  // 3.5. Reconcile false RTC only when Previo explicitly says the guest is
+  // still in-house (statusId=5 / checked-in). Never clear based on a missing
+  // reservation object because some tenants drop the reservation after real
+  // checkout.
+  try {
+    if (!dryRun && (stillInHouseByName.size > 0 || stillInHouseByObjId.size > 0)) {
+      const { data: rtcRooms } = await service
+        .from("rooms")
+        .select("id, room_number, status, checkout_time, pms_metadata")
+        .in("hotel", hotelKeys)
+        .eq("is_checkout_room", true);
+      const falseRtcRows = (rtcRooms ?? []).filter((r: any) => {
+        if (trueCheckoutRoomIds.has(r.id)) return false;
+        const meta = r.pms_metadata || {};
+        if (meta.manual_checkout === true || meta.manual_rtc === true) return false;
+        if (meta.scheduledDepartureToday !== true) return false;
+        if (meta.checkedOutToday !== true && meta.readyToClean !== true && !r.checkout_time) return false;
+        const objId = Number(meta.roomId);
+        const byObj = Number.isFinite(objId) && stillInHouseByObjId.has(objId);
+        const name = String(r.room_number ?? "").trim();
+        const byName = stillInHouseByName.has(name) || stillInHouseByName.has(extractNum(name));
+        return byObj || byName;
+      });
+
+      for (const r of falseRtcRows) {
+        const meta = { ...((r as any).pms_metadata || {}) };
+        delete meta.checkedOutToday;
+        delete meta.readyToClean;
+        delete meta.checkedOutAt;
+        meta.scheduledDepartureToday = true;
+        await service
+          .from("rooms")
+          .update({
+            checkout_time: null,
+            pms_metadata: meta,
+            updated_at: nowIso(),
+          })
+          .eq("id", (r as any).id);
+        const { data: revertedAssignments } = await service
+          .from("room_assignments")
+          .update({ ready_to_clean: false, updated_at: nowIso() })
+          .select("id")
+          .eq("room_id", (r as any).id)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .eq("ready_to_clean", true)
+          .in("status", ["assigned", "in_progress"]);
+        result.revertedCheckedOut += 1;
+        result.cleared += revertedAssignments?.length ?? 0;
+        await service.from("pms_change_events").insert({
+          hotel_id: hotelId,
+          room_id: (r as any).id,
+          room_label: (r as any).room_number,
+          event_type: "checkout_cleared",
+          source: "poll_checkouts_reconcile",
+          before: { checkedOutToday: true, readyToClean: true },
+          after: { scheduledDepartureToday: true, checkedOutToday: false, readyToClean: false },
+          is_conflict: false,
+        });
+        result.events++;
+      }
+    }
+  } catch (e: any) {
+    result.errors.push(`false RTC reconcile: ${e?.message || e}`);
+  }
 
   // 4. Clear stale checkout flags (guest now back, or earlier false positive).
   // NEVER clear a room that is still scheduled to depart today or already

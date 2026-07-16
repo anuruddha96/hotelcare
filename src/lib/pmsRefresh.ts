@@ -303,7 +303,15 @@ export async function runPmsRefresh(
       const departureParsed = classification.departureTime;
       const isScheduledDeparture = classification.isScheduledDeparture;
       const isDepartureTomorrow = classification.isDepartureTomorrow;
-      const isCheckedOut = classification.isCheckedOut;
+      const explicitCheckoutStatus = row.CheckedOut === true
+        || Number(row.ReservationStatusId) === 6
+        || Number(row.ReservationStatusId) === 9
+        || String(row.Status ?? row.ReservationStatus ?? "")
+          .trim()
+          .toLowerCase()
+          .replace(/[\s_-]+/g, "")
+          .match(/^(checkedout|departed|left|leaved)$/) !== null;
+      const isCheckedOut = classification.isCheckedOut && explicitCheckoutStatus;
       // Authoritative checkout-room flag: only real checkout or scheduled
       // departure TODAY. Last-night Night/Total rows with blank Departure stay
       // daily and are marked via the C/O+1 badge.
@@ -449,7 +457,7 @@ export async function runPmsRefresh(
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
         updateData.pms_metadata.departureTime = departureParsed;
         updateData.pms_metadata.checkedOutToday = isCheckedOut;
-        updateData.pms_metadata.reservationStatusId = row.ReservationStatusId ?? null;
+        updateData.pms_metadata.reservationStatusId = row.RawReservationStatusId ?? row.ReservationStatusId ?? null;
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
         updateData.pms_metadata.isNoShow = row.IsNoShow === true;
