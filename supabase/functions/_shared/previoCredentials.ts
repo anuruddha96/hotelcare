@@ -234,7 +234,7 @@ export interface PrevioXmlCallOptions {
   pmsHotelId: string;
   /** Extra XML body appended AFTER auth + hotId. */
   extraXml?: string;
-  /** Force a specific XML auth variant (xml protocol only). */
+  /** Preferred XML auth variant. Authentication failures still fall through to other variants. */
   authVariant?: PrevioXmlAuthVariant;
 }
 
