@@ -95,6 +95,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const [loading, setLoading] = useState(false);
   const [minibarItems, setMinibarItems] = useState<MinibarItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
+  const [minibarCategory, setMinibarCategory] = useState<string | null>(null);
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
   const [tempUsage, setTempUsage] = useState<{ [key: string]: number }>({});
   const [roomNotes, setRoomNotes] = useState('');
