@@ -43,17 +43,11 @@ const occupiedYes = (val: any): boolean => {
   return ["yes", "igen", "ano", "si", "ja", "true", "1"].includes(s);
 };
 
-const occupiedNo = (val: any): boolean => {
-  if (val === false) return true;
-  const s = String(val ?? "").trim().toLowerCase();
-  return ["no", "nem", "ne", "nein", "false", "0"].includes(s);
-};
-
 const statusLooksCheckedOut = (val: any): boolean => {
   const s = String(val ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   // Previo: 5 = checked-in (in-house), 6 = checked-out. Only 6 (and legacy 9)
   // means the guest has physically checked out.
-  return ["checkedout", "departed", "departure", "left", "leaved"].includes(s) || s === "6" || s === "9";
+  return ["checkedout", "departed", "left", "leaved"].includes(s) || s === "6" || s === "9";
 };
 
 export const classifyPmsHousekeepingRow = (row: any): PmsHousekeepingClassification => {

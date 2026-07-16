@@ -80,7 +80,7 @@ const isCheckedOutStatus = (raw: unknown) => {
   const n = Number(raw);
   if (Number.isFinite(n) && (n === 6 || n === 9)) return true;
   const t = statusToken(raw);
-  return ["6", "9", "checkedout", "checkedouttoday", "departed", "departure", "left", "leaved"].includes(t);
+  return ["6", "9", "checkedout", "checkedouttoday", "departed", "left", "leaved"].includes(t);
 };
 const isExplicitlyInHouseStatus = (raw: unknown) => {
   const n = Number(raw);
