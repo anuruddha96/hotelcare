@@ -39,6 +39,8 @@ interface Assignment {
     linen_change_required?: boolean;
     guest_nights_stayed?: number;
     bed_configuration?: string | null;
+    notes?: string | null;
+    pms_metadata?: any;
   } | null;
 }
 
@@ -164,7 +166,7 @@ export function MobileHousekeepingView() {
       if (roomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, towel_change_required, linen_change_required, guest_nights_stayed')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, towel_change_required, linen_change_required, guest_nights_stayed')
           .in('id', roomIds);
           
         console.log('Rooms fetch result:', { roomRows, roomsError });

@@ -37,6 +37,8 @@ interface Assignment {
     floor_number: number | null;
     bed_type?: string | null;
     bed_configuration?: string | null;
+      notes?: string | null;
+      pms_metadata?: any;
   } | null;
 }
 
@@ -130,6 +132,8 @@ export function HousekeepingStaffView() {
             floor_number,
             bed_type,
             bed_configuration,
+            notes,
+            pms_metadata,
             guest_nights_stayed,
             towel_change_required,
             linen_change_required,
@@ -159,7 +163,7 @@ export function HousekeepingStaffView() {
       if (missingRoomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, guest_nights_stayed, towel_change_required, linen_change_required')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, guest_nights_stayed, towel_change_required, linen_change_required')
           .in('id', missingRoomIds);
         if (!roomsError && roomRows) {
           const roomMap = Object.fromEntries(roomRows.map((r: any) => [r.id, r]));

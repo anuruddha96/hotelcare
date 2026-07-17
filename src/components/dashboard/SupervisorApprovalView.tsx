@@ -80,6 +80,8 @@ interface PendingAssignment {
     linen_change_required?: boolean;
     guest_nights_stayed?: number;
     bed_configuration?: string | null;
+      notes?: string | null;
+      pms_metadata?: any;
     is_dnd?: boolean;
     dnd_marked_at?: string | null;
   } | null;
@@ -174,11 +176,28 @@ export function SupervisorApprovalView() {
     roomNumberByRoomId: Record<string, string>,
   ): Promise<{ items: MinibarGateItem[]; total: number; usageIds: string[] }> => {
     if (roomIds.length === 0) return { items: [], total: 0, usageIds: [] };
+    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    const startOfDay = `${selectedDateStr}T00:00:00.000Z`;
+    const nextDay = new Date(`${selectedDateStr}T00:00:00.000Z`);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const endOfDay = nextDay.toISOString();
+
+    // Self-heal old uncleared minibar rows so yesterday's consumption can no
+    // longer block today's room approval popup.
+    await supabase
+      .from('room_minibar_usage')
+      .update({ is_cleared: true, guest_checkout_date: new Date().toISOString() })
+      .in('room_id', roomIds)
+      .eq('is_cleared', false)
+      .lt('usage_date', startOfDay);
+
     const { data, error } = await supabase
       .from('room_minibar_usage')
       .select('id, room_id, quantity_used, minibar_items:minibar_item_id(name, price)')
       .in('room_id', roomIds)
-      .eq('is_cleared', false);
+      .eq('is_cleared', false)
+      .gte('usage_date', startOfDay)
+      .lt('usage_date', endOfDay);
     if (error || !data) return { items: [], total: 0, usageIds: [] };
     const filtered = data.filter((u: any) => (u.quantity_used || 0) > 0);
     const items: MinibarGateItem[] = filtered.map((u: any) => ({
@@ -461,6 +480,8 @@ export function SupervisorApprovalView() {
             linen_change_required,
             guest_nights_stayed,
             bed_configuration,
+            notes,
+            pms_metadata,
             is_dnd,
             dnd_marked_at
           ),
