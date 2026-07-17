@@ -794,10 +794,12 @@ serve(async (req) => {
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
         CurrentNight: currentNight || null,
         TotalNights: totalNights || null,
-        // Only expose the reception/housekeeping operational note to HotelCare.
-        // The generic OTA <note> is retained separately for audit/debugging but
-        // must not be shown to managers/admins/housekeepers.
-        Note: (res?.internalNote && res.internalNote.trim()) || null,
+        // Expose both fields: NoteInternal (dedicated reception note if the
+        // tenant uses one) and Note (raw concatenated Previo `note`, which
+        // interleaves department tabs like `Systém -`, `Recepce -`,
+        // `Kuchyně -`). pmsRefresh parses Note to extract only operational
+        // sections and drops the Systém/OTA blob.
+        Note: res?.note ?? null,
         NoteOta: res?.note ?? null,
         NoteInternal: res?.internalNote ?? null,
         Nationality: null,
