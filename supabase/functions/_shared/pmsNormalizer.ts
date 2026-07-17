@@ -138,10 +138,12 @@ function normalizeApiRow(r: PrevioApiRow, meta: NormalizeMeta): NormalizedRoom {
     departure_date: departure,
     linen_change_required: requireLinen(currentNight, isDeparting),
     towel_change_required: requireTowel(currentNight, isDeparting),
-    // HotelCare should display only Previo's operational housekeeping/internal
-    // note. The generic OTA reservation note can contain prices, commission,
-    // and policy text and must not surface to managers or housekeepers.
-    notes: (res?.internalNote && res.internalNote.trim()) || null,
+    // HotelCare should display only Previo's operational housekeeping/reception
+    // note. Previo concatenates all department tabs into `reservation.note`
+    // with labels like `Systém -` (OTA blob), `Recepce -`, `Kuchyně -`. We
+    // prefer `internalNote` when the tenant provides it, otherwise extract
+    // only the non-Systém sections from the concatenated note.
+    notes: (res?.internalNote && res.internalNote.trim()) || extractOperationalSections(res?.note ?? null),
     raw: r,
   };
 }
