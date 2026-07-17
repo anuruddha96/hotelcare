@@ -1,52 +1,33 @@
-
 ## Plan
 
-Five focused changes. All UI/presentation — no business-logic rewrites.
+### 1. Add Nykipanchuk_073 to Auto-Assign housekeeper list
 
-### 1. Ukrainian training translations
-**Problem:** `LangCode` includes `'uk'` but none of the curricula in `src/components/training/v2/curricula/*.ts` have a `uk:` field, so `tx()` falls back to English for every step title, body, and CTA even when the housekeeper's UI is Ukrainian.
+**Root cause:** In `src/components/dashboard/AutoRoomAssignment.tsx` (line 245), the staff query filters `assigned_hotel = hotelName` where `hotelName = getManagerHotel()`. Nykipanchuk_073's profile has `assigned_hotel = 'ottofiori'` (the hotel key), but the manager's `getManagerHotel()` typically returns the display name (`'Hotel Ottofiori'`). Rooms use `resolveHotelKeys()` to accept both — the staff query does not, so she's filtered out.
 
-**Fix:** Add `uk:` translations to every `I18nText` block in:
-- `housekeeper.ts` (13 steps + curriculum name/description)
-- `manager-complete.ts`, `manager.ts`, `manager-attendance.ts`, `manager-team.ts`, `manager-tickets.ts`, `manager-reception.ts`, `manager-revenue.ts`, `manager-invoices.ts`
-- `autoAssignPromo.ts`, `admin-pms-overview.ts`
-- Also fill `uk` entries in the toast label maps inside `TrainingV2Provider.tsx` (SKIP_TOAST_LABELS, RESUME_TOAST_LABELS, notNowLabel, HEADER in `TrainingHelpButtonV2.tsx`, "Start tour" / "Remind me tomorrow" / "Skip" strings in `TrainingFirstLoginPrompt.tsx`).
+**Fix:** Use `resolveHotelKeys(hotelName)` for the staff query too, using `.in('assigned_hotel', keys)` instead of `.eq('assigned_hotel', hotelName)`.
 
-### 2. Redesign the "Required Actions" panel (AssignedRoomCard.tsx lines 1109-1206)
-Current UI reads like an error banner (red gradient + pulsing warning + "MANDATORY" chip). Replace with a modern, inviting checklist card:
+### 2. Hide "Towel Change" badge on Checkout Clean rooms
 
-- Container: soft neutral surface (`bg-card` with `border-border`), rounded-2xl, subtle shadow. No red gradient, no pulse.
-- Header: small icon (ClipboardCheck) + "Room checklist" title in `text-foreground`, muted subtitle "Complete any that apply before finishing".
-- Buttons: keep 6 actions but restyle as uniform tile cards (icon in a tinted circle, label below). Each tile uses a single tonal accent (primary/secondary) instead of 6 different colored borders. Add subtle hover lift.
-- Fix maintenance UK overflow: use `text-[11px] leading-tight break-words hyphens-auto` with `min-h-[72px]` so long words like "Технічне обслуговування" wrap cleanly.
-- Show a small green check dot on tiles the housekeeper has already interacted with (dirty linen submitted, minibar recorded, etc.) using existing state flags already available on the card.
+**Root cause:** `AssignedRoomCard.tsx` renders the towel-change badge whenever `assignment.rooms?.towel_change_required` is true, regardless of whether the room is a checkout clean. Checkout cleans always include a full towel swap.
 
-### 3. Pre-completion confirmation dialog
-Before `updateAssignmentStatus('completed')` fires from the Complete hold-button, open a small confirmation dialog asking:
-- "Have you added all dirty linen collected from this room?" (Yes / Go back)
-- "Have you recorded minibar consumption (if any was used)?" (Yes / Go back)
+**Fix (presentation only):** In `AssignedRoomCard.tsx`, gate every towel-change UI branch (lines ~712, ~799, ~855, ~1572 and the `instructionCount` counter on line 713) behind `!isCheckout`, where `isCheckout = assignment.rooms?.is_checkout_room || assignment.rooms?.pms_metadata?.scheduledDepartureToday === true`. This mirrors the algorithm's own logic in `roomAssignmentAlgorithm.ts` (line 94) which already skips the towel-change time bump on checkouts.
 
-Implementation: new `PreCompleteChecklistDialog.tsx` (two checkboxes + primary "Complete room" button, secondary "Not yet"). Wire it into `AssignedRoomCard` — the hold-complete handler opens the dialog; only when both are checked does it call the existing completion mutation. No backend changes.
+### 3. Root-cause fix for "Room XXX — minibar used" popup on days with no new consumption
 
-### 4. Lost & Found dialog UX overhaul (`LostAndFoundDialog.tsx`)
-Reorder + upgrade to a 3-step flow inside the same dialog:
+**Root cause:** The supervisor's minibar confirmation gate in `SupervisorApprovalView.tsx` (`fetchMinibarForRooms`, line 171) selects all `room_minibar_usage` rows with `is_cleared = false` for the room — **with no date filter**. When the supervisor confirms "refilled + added to Previo" and clicks Confirm & Approve, `performApproval` / `performBulkApprove` (lines 593 / 681) only update `room_assignments`; they never flip `is_cleared` on those minibar rows. So the same uncleared row (e.g. Room 403 Beer from Jul 15, which still shows `is_cleared=false` in the DB) re-triggers the popup on every subsequent day's approval, even though no housekeeper logged anything that day. This matches the user's report — 403's Beer 5€ is exactly what image 2 shows, and the DB confirms it's still uncleared.
 
-1. **Photo first** — big camera CTA (Take photo / Upload) with a preview thumb.
-2. **Item picker** — replace the free-text `Input` with a Command/Combobox (shadcn `Command`) seeded with a curated list of ~40 common lost items (umbrella, wallet, passport, phone charger, sunglasses, laptop, headphones, jewellery, keys, book, cosmetics, clothing items, toys, medication, etc.), translated for all supported UI languages including `uk`. As the user types, filter by prefix and rank by a small "most-used" weight (static ordering per item). Allow free-text "Custom item" fallback.
-3. **Description / notes** — optional textarea, then Report.
+**Fix:** After the supervisor passes the gate and approval completes successfully, mark the associated minibar rows as cleared so they don't re-appear:
 
-Add a stepper indicator at the top; keep Cancel + Report actions in the footer. Item list lives in a new `src/lib/lostFoundItems.ts`.
+- Extract the minibar row IDs inside `fetchMinibarForRooms` and pass them through the gate state (`minibarGate.usageIds: string[]`).
+- After `performApproval` / `performBulkApprove` succeeds, update those rows with `is_cleared = true, guest_checkout_date = now()`.
+- Scope the update to the exact IDs shown in the gate (so items added *after* the gate opened aren't wrongly cleared).
 
-### 5. Minibar dialog polish
-Sweep the existing minibar dialog(s) opened from `RoomDetailDialog` / minibar tile:
-- Larger touch targets, grouped by category (Drinks, Snacks, Other) with sticky category chips.
-- Quantity stepper (− / value / +) instead of tiny inputs.
-- Running total pill at the bottom with clear "Save" primary button.
-- Empty state illustration + "Nothing consumed" quick-confirm button so housekeepers can dismiss in one tap.
-- Full UK translations for all labels.
+No schema changes; presentation + write already allowed by existing RLS on `room_minibar_usage`.
 
-### Technical notes
-- No schema changes, no edge-function changes.
-- New files: `src/components/dashboard/PreCompleteChecklistDialog.tsx`, `src/lib/lostFoundItems.ts`.
-- Edited: all curricula files, `TrainingV2Provider.tsx`, `TrainingHelpButtonV2.tsx`, `TrainingFirstLoginPrompt.tsx`, `AssignedRoomCard.tsx`, `LostAndFoundDialog.tsx`, minibar dialog component(s) under `src/components/dashboard/`, `useTranslation.tsx` (new UK strings for checklist + lost&found + minibar labels).
-- Verify with existing curricula tests (`__tests__/curricula.test.ts`) and a UK-language pass on the housekeeping dashboard.
+### Files touched
+
+- `src/components/dashboard/AutoRoomAssignment.tsx` — broaden staff hotel filter with `resolveHotelKeys`.
+- `src/components/dashboard/AssignedRoomCard.tsx` — hide towel-change badge/instruction row when checkout clean.
+- `src/components/dashboard/SupervisorApprovalView.tsx` — carry minibar row IDs through the gate and mark `is_cleared=true` after supervisor approval.
+
+No DB migrations, no edge-function changes.

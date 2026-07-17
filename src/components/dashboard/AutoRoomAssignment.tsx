@@ -237,12 +237,17 @@ export function AutoRoomAssignment({
         return;
       }
 
-      // Fetch housekeeping staff for this hotel
+      // Fetch housekeeping staff for this hotel — accept either hotel display
+      // name or hotel key/slug so managers who cross-clean (e.g. Nykipanchuk_073
+      // stored as `ottofiori` while the manager's hotel resolves as
+      // `Hotel Ottofiori`) still show up in the list.
+      const staffHotelKeys = await resolveHotelKeys(hotelName);
+      const staffKeys = staffHotelKeys.length ? staffHotelKeys : [hotelName];
       const { data: staffData } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
         .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
-        .eq('assigned_hotel', hotelName)
+        .in('assigned_hotel', staffKeys)
         .eq('organization_slug', profile?.organization_slug)
         .order('full_name');
 
