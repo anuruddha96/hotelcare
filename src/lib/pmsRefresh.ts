@@ -67,11 +67,15 @@ export const extractHousekeepingSectionsFromRawNote = (raw: string | null | unde
 
   const kept: string[] = [];
   for (const { label, body } of parts) {
-    if (OTA_SECTION_LABEL_RE.test(label)) continue;                       // drop OTA blob
-    if (RESERVATION_NOTE_BLOB.test(body)) continue;                       // drop any body that leaked OTA content
+    if (OTA_SECTION_LABEL_RE.test(label)) continue;                       // drop OTA (Systém) blob
+    // For labeled operational sections (Recepce / Kuchyně / Housekeeping)
+    // we trust the label — do NOT drop just because the body mentions
+    // "Booking.com" or similar (receptionists routinely reference the OTA
+    // in their notes, e.g. "GUEST CC IS AVAILABLE ONLY FOR BOOKING.COM").
+    // Only strip payment-noise phrases inside the body.
     const cleaned = body.replace(PAYMENT_NOISE_RE, " ").replace(/\s+/g, " ").trim();
     if (!cleaned) continue;
-    kept.push(cleaned);
+    kept.push(`${label}: ${cleaned}`);
   }
   const joined = kept.join(" • ").trim();
   return joined || null;
