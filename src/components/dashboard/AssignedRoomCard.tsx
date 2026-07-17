@@ -79,6 +79,8 @@ interface AssignedRoomCardProps {
       checkout_time?: string | null;
       notes?: string | null;
       bed_configuration?: string | null;
+      is_checkout_room?: boolean | null;
+      pms_metadata?: any;
     } | null;
   };
   onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => void;
