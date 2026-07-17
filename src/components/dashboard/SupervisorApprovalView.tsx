@@ -1780,8 +1780,12 @@ export function SupervisorApprovalView() {
                   onClick={async () => {
                     if (!minibarGate) return;
                     setGateBusy(true);
+                    const idsToClear = minibarGate.usageIds;
                     try {
                       await minibarGate.onConfirm();
+                      // Only clear after the approval succeeded so we don't
+                      // hide items if the approval itself errored out.
+                      await markMinibarUsageCleared(idsToClear);
                     } finally {
                       resetMinibarGate();
                     }
