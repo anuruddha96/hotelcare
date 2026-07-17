@@ -122,6 +122,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   
   // Check if this is a checkout room waiting for guest to leave
   const isCheckoutWaiting = assignment.assignment_type === 'checkout_cleaning' && !assignment.ready_to_clean;
+  // Checkout cleans always include a full towel change — hide the extra
+  // "Towel Change" badges/instructions to avoid redundant noise.
+  const isCheckoutClean = assignment.assignment_type === 'checkout_cleaning'
+    || !!assignment.rooms?.is_checkout_room
+    || (assignment.rooms as any)?.pms_metadata?.scheduledDepartureToday === true;
+  const showTowelChange = !!assignment.rooms?.towel_change_required && !isCheckoutClean;
   
   const cardClassName = [
     "group bg-card border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl w-full",
