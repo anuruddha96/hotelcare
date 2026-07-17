@@ -162,6 +162,7 @@ export function SupervisorApprovalView() {
     title: string;
     items: MinibarGateItem[];
     total: number;
+    usageIds: string[];
     onConfirm: () => void | Promise<void>;
   } | null>(null);
   const [gateRefilled, setGateRefilled] = useState(false);
@@ -171,24 +172,41 @@ export function SupervisorApprovalView() {
   const fetchMinibarForRooms = async (
     roomIds: string[],
     roomNumberByRoomId: Record<string, string>,
-  ): Promise<{ items: MinibarGateItem[]; total: number }> => {
-    if (roomIds.length === 0) return { items: [], total: 0 };
+  ): Promise<{ items: MinibarGateItem[]; total: number; usageIds: string[] }> => {
+    if (roomIds.length === 0) return { items: [], total: 0, usageIds: [] };
     const { data, error } = await supabase
       .from('room_minibar_usage')
-      .select('room_id, quantity_used, minibar_items:minibar_item_id(name, price)')
+      .select('id, room_id, quantity_used, minibar_items:minibar_item_id(name, price)')
       .in('room_id', roomIds)
       .eq('is_cleared', false);
-    if (error || !data) return { items: [], total: 0 };
-    const items: MinibarGateItem[] = data
-      .filter((u: any) => (u.quantity_used || 0) > 0)
-      .map((u: any) => ({
-        room: roomNumberByRoomId[u.room_id] || '—',
-        qty: u.quantity_used || 0,
-        name: u.minibar_items?.name || 'Item',
-        price: (u.minibar_items?.price || 0) * (u.quantity_used || 0),
-      }));
+    if (error || !data) return { items: [], total: 0, usageIds: [] };
+    const filtered = data.filter((u: any) => (u.quantity_used || 0) > 0);
+    const items: MinibarGateItem[] = filtered.map((u: any) => ({
+      room: roomNumberByRoomId[u.room_id] || '—',
+      qty: u.quantity_used || 0,
+      name: u.minibar_items?.name || 'Item',
+      price: (u.minibar_items?.price || 0) * (u.quantity_used || 0),
+    }));
     const total = items.reduce((s, i) => s + i.price, 0);
-    return { items, total };
+    const usageIds = filtered.map((u: any) => u.id as string);
+    return { items, total, usageIds };
+  };
+
+  // After a supervisor confirms the minibar gate (refilled + added to Previo),
+  // mark the exact rows shown in the gate as cleared. Without this the same
+  // uncleared rows re-fire the gate on every subsequent day's approval — the
+  // root cause of "no consumption today but manager still got the popup".
+  const markMinibarUsageCleared = async (usageIds: string[]) => {
+    if (!usageIds || usageIds.length === 0) return;
+    try {
+      await supabase
+        .from('room_minibar_usage')
+        .update({ is_cleared: true, guest_checkout_date: new Date().toISOString() })
+        .in('id', usageIds)
+        .eq('is_cleared', false);
+    } catch (e) {
+      console.error('Failed to mark minibar usage as cleared', e);
+    }
   };
 
   const resetMinibarGate = () => {
