@@ -67,6 +67,8 @@ export interface PrevioApiRow {
     statusId?: number;
     guestsCount?: number;
     note?: string | null;
+    /** Reception's internal/housekeeping note (preferred over OTA `note`). */
+    internalNote?: string | null;
   } | null;
 }
 
@@ -136,7 +138,7 @@ function normalizeApiRow(r: PrevioApiRow, meta: NormalizeMeta): NormalizedRoom {
     departure_date: departure,
     linen_change_required: requireLinen(currentNight, isDeparting),
     towel_change_required: requireTowel(currentNight, isDeparting),
-    notes: res?.note ?? null,
+    notes: (res?.internalNote && res.internalNote.trim()) || res?.note || null,
     raw: r,
   };
 }
