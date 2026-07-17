@@ -715,10 +715,16 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
   const hasManagerNotes = !!roomFlags.cleanNotes;
+  const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value
+    || assignment.rooms?.pms_metadata?.inferredBedConfig?.bedConfiguration
+    || null;
+  const bedInstruction = typeof inferredBedInstruction === 'string' && inferredBedInstruction.trim()
+    ? inferredBedInstruction.trim()
+    : null;
   
   // Count special instructions
-  const hasSpecialInstructions = showTowelChange || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [showTowelChange, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = showTowelChange || assignment.rooms?.linen_change_required || !!bedInstruction || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [showTowelChange, assignment.rooms?.linen_change_required, !!bedInstruction, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
@@ -895,13 +901,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
             </div>
           )}
-          {assignment.rooms?.bed_configuration && (
+          {bedInstruction && (
             <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border-2 border-blue-400 dark:border-blue-600 rounded-lg">
               <div className="flex items-center gap-2">
                 <BedDouble className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                 <div>
                   <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">{t('roomCard.bedConfiguration') || 'Bed Configuration'}</p>
-                  <p className="font-bold text-blue-800 dark:text-blue-200 text-sm">{assignment.rooms.bed_configuration}</p>
+                  <p className="font-bold text-blue-800 dark:text-blue-200 text-sm">{bedInstruction}</p>
                 </div>
               </div>
             </div>
@@ -1597,19 +1603,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   🧺 {t('roomCard.collectExtraTowels') || 'Collect Extra Towels'}
                 </li>
               )}
-              {assignment.rooms?.bed_configuration && (
+              {bedInstruction && (
                 <li className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-md">
-                  🛌 {t('roomCard.bedConfiguration') || 'Bed Configuration'}: {assignment.rooms.bed_configuration}
+                  🛌 {t('roomCard.bedConfiguration') || 'Bed Configuration'}: {bedInstruction}
                 </li>
               )}
               {hasManagerNotes && (
-                <li className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
-                  📝 {t('roomCard.managerNotes') || 'Manager Notes'}
+                <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                  <span>📝</span>
+                  <span>{translatedManagerNote || roomFlags.cleanNotes}</span>
                 </li>
               )}
               {assignment.notes && (
-                <li className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
-                  📋 {t('housekeeping.assignmentNotes') || 'Assignment Notes'}
+                <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                  <span>📋</span>
+                  <span>{translatedAssignmentNote || (shouldTranslateContent(language) ? translateText(assignment.notes, language) : assignment.notes)}</span>
                 </li>
               )}
             </ul>
