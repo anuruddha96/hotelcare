@@ -655,7 +655,7 @@ export function SupervisorApprovalView() {
     const roomNumberByRoomId: Record<string, string> = {
       [assignment.room_id]: assignment.rooms?.room_number || '—',
     };
-    const { items, total } = await fetchMinibarForRooms([assignment.room_id], roomNumberByRoomId);
+    const { items, total, usageIds } = await fetchMinibarForRooms([assignment.room_id], roomNumberByRoomId);
     if (items.length === 0) {
       return performApproval(assignmentId);
     }
@@ -665,6 +665,7 @@ export function SupervisorApprovalView() {
       title: `Room ${assignment.rooms?.room_number || ''} — minibar used`,
       items,
       total,
+      usageIds,
       onConfirm: () => performApproval(assignmentId),
     });
   };
@@ -758,7 +759,7 @@ export function SupervisorApprovalView() {
     for (const a of assignments) {
       if (a.room_id) roomNumberByRoomId[a.room_id] = a.rooms?.room_number || '—';
     }
-    const { items, total } = await fetchMinibarForRooms(roomIds, roomNumberByRoomId);
+    const { items, total, usageIds } = await fetchMinibarForRooms(roomIds, roomNumberByRoomId);
     if (items.length === 0) {
       return performBulkApprove(hotelName);
     }
@@ -768,6 +769,7 @@ export function SupervisorApprovalView() {
       title: `${hotelName} — ${items.length} minibar item(s) across rooms`,
       items,
       total,
+      usageIds,
       onConfirm: () => performBulkApprove(hotelName),
     });
   };
