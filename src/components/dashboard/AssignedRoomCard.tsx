@@ -717,8 +717,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const hasManagerNotes = !!roomFlags.cleanNotes;
   
   // Count special instructions
-  const hasSpecialInstructions = assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [assignment.rooms?.towel_change_required, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = showTowelChange || assignment.rooms?.linen_change_required || assignment.rooms?.bed_configuration || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [showTowelChange, assignment.rooms?.linen_change_required, assignment.rooms?.bed_configuration, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
@@ -804,7 +804,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </Badge>
             )}
             {/* Special Requirements Badges */}
-            {assignment.rooms?.towel_change_required && (
+            {showTowelChange && (
               <Badge 
                 variant="default" 
                 className="bg-primary/10 text-primary border-primary/20 font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
@@ -860,7 +860,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       {/* === SPECIAL INSTRUCTIONS — Between header and content === */}
       {hasSpecialInstructions && (
         <div className="px-6 pb-2 space-y-2">
-          {assignment.rooms?.towel_change_required && (
+          {showTowelChange && (
             <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🧺</span>
@@ -1577,7 +1577,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               {t('housekeeping.warningExplanation') || 'This room has special instructions that require your attention before cleaning:'}
             </p>
             <ul className="space-y-2 text-sm">
-              {assignment.rooms?.towel_change_required && (
+              {showTowelChange && (
                 <li className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/30 rounded-md">
                   🧺 {t('roomCard.towelChange') || 'Towel Change Required'}
                 </li>
