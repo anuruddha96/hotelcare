@@ -97,6 +97,35 @@ export function normalize(
 
 // ---------- API row → normalized ------------------------------------------
 
+const SECTION_LABEL_RE = /\b(Syst[ée]m|Recepce|Reception|Kuchyn[ěe]|Kitchen|Housekeeping|Poznámka)\s*-\s*/gi;
+const OTA_LABEL_RE = /^(Syst[ée]m)$/i;
+const RESERVATION_BLOB_RE = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy/i;
+const PAYMENT_NOISE_RE = /\b(VCC\b[^.\n]*|Collect payment from guests[^.\n]*|Payment[^.\n]*|Virtual [Cc]redit [Cc]ard[^.\n]*)/gi;
+
+function extractOperationalSections(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const text = String(raw)
+    .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&amp;039;|&#039;|&apos;/gi, "'")
+    .replace(/&amp;/gi, "&").replace(/&nbsp;/gi, " ")
+    .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const matches = Array.from(text.matchAll(SECTION_LABEL_RE));
+  if (matches.length === 0) return RESERVATION_BLOB_RE.test(text) ? null : text;
+  const kept: string[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const label = (m[1] || "").trim();
+    const start = m.index! + m[0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index! : text.length;
+    const body = text.slice(start, end).trim();
+    if (!body || OTA_LABEL_RE.test(label) || RESERVATION_BLOB_RE.test(body)) continue;
+    const cleaned = body.replace(PAYMENT_NOISE_RE, " ").replace(/\s+/g, " ").trim();
+    if (cleaned) kept.push(cleaned);
+  }
+  return kept.join(" • ") || null;
+}
+
+
 function normalizeApiRow(r: PrevioApiRow, meta: NormalizeMeta): NormalizedRoom {
   const previo_room_id = r.roomId != null ? String(r.roomId) : null;
   const previo_room_kind_id = r.roomKindId != null ? String(r.roomKindId) : null;
