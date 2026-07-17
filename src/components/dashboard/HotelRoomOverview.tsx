@@ -1859,7 +1859,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {isManagerOrAdmin && (
                     <div className="space-y-2 pb-3 border-b">
                       <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">📝 Manager Notes</label>
-                      {selectedRoom?.notes && (
+                      {selectedRoom?.notes && profile?.role === 'admin' && (
                         <StructuredRoomNote notes={selectedRoom.notes} />
                       )}
                       <Textarea
