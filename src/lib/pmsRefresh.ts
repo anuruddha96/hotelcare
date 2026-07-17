@@ -9,12 +9,73 @@ import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
-const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Systém\s*-\s*Partner/i;
+const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Syst[ée]m\s*-/i;
 const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
   "manual_moved_at", "manual_moved_by",
 ];
+
+// Previo concatenates all department-tab notes into a single `note` field,
+// each prefixed with a Czech/English label: `Systém -` (OTA / channel-manager
+// blob), `Recepce -` (reception), `Kuchyně -` (kitchen / breakfast),
+// `Housekeeping -`, etc. Only the operational (non-Systém) sections are
+// useful to the housekeeper — the Systém section is Booking.com pricing,
+// commission, policies, and VCC data that must never surface.
+const SECTION_LABEL_RE = /\b(Syst[ée]m|Recepce|Reception|Kuchyn[ěe]|Kitchen|Housekeeping|H[oó]zvezet[ée]s|Takar[ií]t[aá]s|Poznámka)\s*-\s*/gi;
+const OTA_SECTION_LABEL_RE = /^(Syst[ée]m)$/i;
+const PAYMENT_NOISE_RE = /\b(VCC\b[^.\n]*|Collect payment from guests[^.\n]*|Payment[^.\n]*|Virtual [Cc]redit [Cc]ard[^.\n]*)/gi;
+
+const decodeHtmlEntities = (s: string): string =>
+  s
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;039;|&#039;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi, "&");
+
+/**
+ * Extract only the reception / housekeeping / kitchen sections from Previo's
+ * concatenated `note` field. Drops the Systém (OTA) section and payment /
+ * VCC noise. Returns null if nothing operational is left.
+ */
+export const extractHousekeepingSectionsFromRawNote = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  // Decode entities, strip HTML tags, collapse whitespace.
+  const text = decodeHtmlEntities(String(raw))
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return null;
+
+  // Split on department labels while keeping the label as delimiter.
+  const parts: Array<{ label: string; body: string }> = [];
+  const matches = Array.from(text.matchAll(SECTION_LABEL_RE));
+  if (matches.length === 0) {
+    // No labels — if the whole thing is a reservation blob, drop it.
+    return RESERVATION_NOTE_BLOB.test(text) ? null : text;
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const label = (m[1] || "").trim();
+    const start = m.index! + m[0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index! : text.length;
+    const body = text.slice(start, end).trim();
+    if (body) parts.push({ label, body });
+  }
+
+  const kept: string[] = [];
+  for (const { label, body } of parts) {
+    if (OTA_SECTION_LABEL_RE.test(label)) continue;                       // drop OTA blob
+    if (RESERVATION_NOTE_BLOB.test(body)) continue;                       // drop any body that leaked OTA content
+    const cleaned = body.replace(PAYMENT_NOISE_RE, " ").replace(/\s+/g, " ").trim();
+    if (!cleaned) continue;
+    kept.push(cleaned);
+  }
+  const joined = kept.join(" • ").trim();
+  return joined || null;
+};
 
 const getDateOnly = (value: unknown): string | null => {
   if (!value) return null;
@@ -44,11 +105,12 @@ const stripManualRoomOverride = (meta: Record<string, any> | undefined): Record<
 };
 
 const cleanSyncedHousekeepingNote = (row: any): string | null => {
-  const raw = row?.NoteInternal ?? row?.Note;
-  if (raw == null) return null;
-  const text = String(raw).replace(/\s+/g, " ").trim();
-  if (!text || RESERVATION_NOTE_BLOB.test(text)) return null;
-  return text;
+  // Prefer explicit internal-note field. Otherwise parse Previo's
+  // concatenated `Note` field to extract only the non-Systém sections.
+  const internal = row?.NoteInternal ? String(row.NoteInternal).trim() : "";
+  if (internal && !RESERVATION_NOTE_BLOB.test(internal)) return internal;
+  const parsed = extractHousekeepingSectionsFromRawNote(row?.Note ?? row?.NoteOta ?? null);
+  return parsed;
 };
 
 export type PmsSyncStatus = "success" | "partial" | "error" | "idle";
@@ -224,10 +286,14 @@ export async function runPmsRefresh(
             : null;
           const oldSyncDate = meta?.pmsSyncDate ?? meta?.lastPmsRefreshDate ?? null;
           const isStale = !oldSyncDate || oldSyncDate < today;
-          if (!isStale) continue;
+          const currentNotes = (r as any).notes as string | null;
+          const hasOtaBlob = !!currentNotes && RESERVATION_NOTE_BLOB.test(currentNotes);
+          // Process rooms that are stale OR still carry an OTA blob from a
+          // pre-fix refresh — we must scrub the blob now regardless of date.
+          if (!isStale && !hasOtaBlob) continue;
 
           const patch: Record<string, any> = {};
-          if (meta) {
+          if (isStale && meta) {
             let changed = false;
             for (const k of MANUAL_ROOM_OVERRIDE_KEYS) {
               if (k in meta) { delete meta[k]; changed = true; }
@@ -235,9 +301,26 @@ export async function runPmsRefresh(
             if (changed) patch.pms_metadata = meta;
           }
           const notes = (r as any).notes as string | null;
-          if (notes && STALE_NOTE_PREFIXES.test(notes)) {
-            const cleaned = notes.replace(STALE_NOTE_PREFIXES, "").trim();
-            patch.notes = cleaned || null;
+          if (notes) {
+            let cleanedNotes: string | null = notes;
+            if (STALE_NOTE_PREFIXES.test(cleanedNotes)) {
+              cleanedNotes = cleanedNotes.replace(STALE_NOTE_PREFIXES, "").trim();
+            }
+            // Also strip Previo OTA reservation blobs that older refreshes
+            // may have written into rooms.notes. Preserve any operational
+            // (Recepce/Kuchyně/Housekeeping) sections if present.
+            if (cleanedNotes && RESERVATION_NOTE_BLOB.test(cleanedNotes)) {
+              const flags = parseRoomFlags(cleanedNotes);
+              const rescued = extractHousekeepingSectionsFromRawNote(flags.cleanNotes);
+              cleanedNotes = buildRoomNotes(
+                {
+                  collectExtraTowels: flags.collectExtraTowels,
+                  roomCleaning: flags.roomCleaning,
+                },
+                rescued ?? "",
+              ) || null;
+            }
+            if (cleanedNotes !== notes) patch.notes = cleanedNotes || null;
           }
           if (Object.keys(patch).length > 0) {
             patch.updated_at = new Date().toISOString();
