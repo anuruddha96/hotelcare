@@ -139,7 +139,7 @@ export function SupervisorApprovalView() {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
+      const { data } = await (supabase as any).from('profiles').select('role').eq('user_id', user.id).maybeSingle();
       setCurrentUserRole((data as any)?.role ?? null);
     })();
   }, []);
