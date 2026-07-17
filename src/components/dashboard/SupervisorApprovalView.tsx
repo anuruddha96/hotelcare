@@ -176,10 +176,11 @@ export function SupervisorApprovalView() {
     roomNumberByRoomId: Record<string, string>,
   ): Promise<{ items: MinibarGateItem[]; total: number; usageIds: string[] }> => {
     if (roomIds.length === 0) return { items: [], total: 0, usageIds: [] };
-    const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
-    const startOfDay = `${selectedDateStr}T00:00:00.000Z`;
-    const nextDay = new Date(`${selectedDateStr}T00:00:00.000Z`);
-    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const dayStart = new Date(selectedDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const nextDay = new Date(dayStart);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const startOfDay = dayStart.toISOString();
     const endOfDay = nextDay.toISOString();
 
     // Self-heal old uncleared minibar rows so yesterday's consumption can no

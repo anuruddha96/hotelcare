@@ -350,6 +350,19 @@ serve(async (req) => {
         const v = obj[k];
         const cleaned = cleanOperationalNote(v);
         if (cleaned) return cleaned;
+        if (Array.isArray(v)) {
+          for (const item of v) {
+            const itemCleaned = cleanOperationalNote(item);
+            if (itemCleaned) return itemCleaned;
+            if (item && typeof item === "object") {
+              const nested = pickInternalNoteFromObj(item);
+              if (nested) return nested;
+            }
+          }
+        } else if (v && typeof v === "object") {
+          const nested = pickInternalNoteFromObj(v);
+          if (nested) return nested;
+        }
       }
 
       const stack: any[] = [obj];
