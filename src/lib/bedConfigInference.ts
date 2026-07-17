@@ -35,6 +35,7 @@ const RULES: Array<{ value: InferredBedConfig["value"]; keywords: string[] }> = 
     value: "Twin Beds Separated",
     keywords: [
       "twin beds separated",
+      "two separate beds",
       "beds separated",
       "separate beds",
       "separated beds",
@@ -95,6 +96,8 @@ const RULES: Array<{ value: InferredBedConfig["value"]; keywords: string[] }> = 
       "franciaagy",
       "queen bed",
       "king bed",
+      "beds together",
+      "put beds together",
       "queen",
       "king",
       "cama doble",

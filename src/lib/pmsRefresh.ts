@@ -5,9 +5,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
-import { parsePmsNote } from "@/lib/pmsNoteParser";
+import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
+import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
+const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Systém\s*-\s*Partner/i;
 const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
@@ -39,6 +41,14 @@ const stripManualRoomOverride = (meta: Record<string, any> | undefined): Record<
   const cleaned = { ...meta };
   for (const key of MANUAL_ROOM_OVERRIDE_KEYS) delete cleaned[key];
   return cleaned;
+};
+
+const cleanSyncedHousekeepingNote = (row: any): string | null => {
+  const raw = row?.NoteInternal ?? row?.Note;
+  if (raw == null) return null;
+  const text = String(raw).replace(/\s+/g, " ").trim();
+  if (!text || RESERVATION_NOTE_BLOB.test(text)) return null;
+  return text;
 };
 
 export type PmsSyncStatus = "success" | "partial" | "error" | "idle";
@@ -404,29 +414,23 @@ export async function runPmsRefresh(
           field: "Linen/towel", before: "-", after: `${linen ? "linen" : ""}${towel && linen ? " + " : ""}${towel ? "towel" : ""}`, category: "linen",
         });
       }
-      if (reservationDataAuthoritative && row.Note) {
-        changeFields.push({ field: "PMS note", before: "-", after: String(row.Note), category: "note" });
+      const housekeepingNote = reservationDataAuthoritative ? cleanSyncedHousekeepingNote(row) : null;
+      if (reservationDataAuthoritative && housekeepingNote) {
+        changeFields.push({ field: "Housekeeping note", before: "-", after: housekeepingNote, category: "note" });
       }
 
-      // Auto-detect bed configuration from the guest "Special requests" slice
-      // of the PMS note only. `parsePmsNote` already strips policy/finance
-      // boilerplate (VCC, commission, "You haven't added any extra beds",
-      // "maximum number of cots") and ignores ambiguous partner room-name
-      // labels like "Deluxe Double or Twin Room". Never overwrite a
-      // manager-set value.
-      const parsedNote = reservationDataAuthoritative
-        ? parsePmsNote(row.Note ? String(row.Note) : null)
-        : null;
-      const inferredBed = parsedNote?.bedArrangement
-        ? { value: parsedNote.bedArrangement, matchedKeyword: "special-requests" }
-        : null;
+      // Auto-detect bed configuration only from Previo's dedicated
+      // housekeeping/reception operational note. Never infer from OTA booking
+      // blobs or partner room-category labels.
+      const inferredBed = housekeepingNote ? inferBedConfigFromNote(housekeepingNote) : null;
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
-      const shouldSetBedConfig = !!inferredBed && !currentBedConfig;
+      const currentWasAutoInferred = !!existingMetadata?.inferredBedConfig;
+      const shouldSetBedConfig = !!inferredBed && (!currentBedConfig || currentWasAutoInferred || currentBedConfig !== inferredBed.value);
       if (shouldSetBedConfig) {
         changeFields.push({
-          field: "Bed config (auto from PMS)",
+          field: "Bed config (auto from housekeeping note)",
           before: currentBedConfig ?? "-",
-          after: `${inferredBed!.value} (from guest special requests)`,
+          after: `${inferredBed!.value} (from housekeeping note)`,
           category: "note",
         });
       }
@@ -471,6 +475,12 @@ export async function runPmsRefresh(
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
         updateData.pms_metadata.isNoShow = row.IsNoShow === true;
+        updateData.pms_metadata.noteOta = row.NoteOta ?? null;
+        updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+        if (!inferredBed) {
+          delete updateData.pms_metadata.inferredBedConfig;
+          if (currentWasAutoInferred) updateData.bed_configuration = null;
+        }
         if (isCheckedOut) {
           updateData.pms_metadata.readyToClean = true;
           updateData.pms_metadata.checkedOutAt = new Date().toISOString();
@@ -501,7 +511,14 @@ export async function runPmsRefresh(
         updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
         if (towel) updateData.last_towel_change = today;
         if (linen) updateData.last_linen_change = today;
-        if (row.Note) updateData.notes = String(row.Note);
+        const currentFlags = parseRoomFlags((room as any).notes ?? null);
+        updateData.notes = buildRoomNotes(
+          {
+            collectExtraTowels: currentFlags.collectExtraTowels,
+            roomCleaning: currentFlags.roomCleaning,
+          },
+          housekeepingNote ?? "",
+        ) || null;
       }
       if (shouldSetBedConfig && inferredBed) {
         updateData.bed_configuration = inferredBed.value;

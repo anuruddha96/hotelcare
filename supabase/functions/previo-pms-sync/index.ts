@@ -287,25 +287,102 @@ serve(async (req) => {
     // all of them and prefer the first non-empty match over the OTA <note>.
     const INTERNAL_NOTE_XML_TAGS = [
       "noteInternal", "internalNote", "noteHousekeeping", "housekeepingNote",
-      "hotelNote", "noteHotel", "noteReception", "receptionNote", "notice",
+      "noteHotel", "hotelNote", "noteReception", "receptionNote", "notice",
+      "housekeeping", "reception",
     ];
     const INTERNAL_NOTE_REST_KEYS = [
       "noteInternal", "internalNote", "noteHousekeeping", "housekeepingNote",
-      "hotelNote", "noteHotel", "noteReception", "receptionNote", "notice",
+      "housekeepingNotes", "housekeeping_note", "housekeeping_notes",
+      "noteHotel", "hotelNote", "noteReception", "receptionNote", "notice",
     ];
+    const OPERATIONAL_NOTE_LABEL_RE = /house\s*keeping|housekeeping|reception|front\s*desk|recepce|takar[ií]t|cleaning/i;
+    const RESERVATION_BLOB_RE = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy/i;
+    const decodeXmlText = (value: string): string => String(value ?? "")
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#039;|&apos;/gi, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+    const cleanOperationalNote = (value: unknown): string | null => {
+      if (value == null || typeof value === "object") return null;
+      const s = decodeXmlText(String(value ?? ""));
+      if (!s || RESERVATION_BLOB_RE.test(s)) return null;
+      return s;
+    };
     const grabInternalNoteFromXml = (block: string): string | null => {
       for (const tag of INTERNAL_NOTE_XML_TAGS) {
-        const m = block.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
-        const v = m ? m[1].trim() : "";
+        const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
+        const v = m ? cleanOperationalNote(m[1]) : null;
         if (v) return v;
+      }
+
+      // Some Previo tenants expose department-tab notes as generic note rows,
+      // e.g. <note department="Housekeeping">...</note> or nested objects with
+      // a Housekeeping/Reception label. Accept only labelled operational notes;
+      // never use an unlabelled generic <note>, because that is usually the OTA
+      // reservation blob with prices, commission, and policies.
+      const genericNoteTags = ["note", "comment", "message", "text", "content", "description"];
+      for (const tag of genericNoteTags) {
+        const re = new RegExp(`<${tag}([^>]*)>([\\s\\S]*?)</${tag}>`, "gi");
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(block)) !== null) {
+          const attrs = m[1] ?? "";
+          const inner = m[2] ?? "";
+          if (!OPERATIONAL_NOTE_LABEL_RE.test(`${attrs} ${inner}`)) continue;
+          const v = cleanOperationalNote(inner);
+          if (v) return v;
+        }
       }
       return null;
     };
+    const labelFromObj = (obj: any): string => [
+      obj?.department, obj?.departmentName, obj?.section, obj?.tab, obj?.type,
+      obj?.kind, obj?.category, obj?.name, obj?.title, obj?.noteType, obj?.note_type,
+    ].filter(Boolean).map(String).join(" ");
     const pickInternalNoteFromObj = (obj: any): string | null => {
       if (!obj || typeof obj !== "object") return null;
       for (const k of INTERNAL_NOTE_REST_KEYS) {
         const v = obj[k];
-        if (v != null && String(v).trim() !== "") return String(v).trim();
+        const cleaned = cleanOperationalNote(v);
+        if (cleaned) return cleaned;
+        if (Array.isArray(v)) {
+          for (const item of v) {
+            const itemCleaned = cleanOperationalNote(item);
+            if (itemCleaned) return itemCleaned;
+            if (item && typeof item === "object") {
+              const nested = pickInternalNoteFromObj(item);
+              if (nested) return nested;
+            }
+          }
+        } else if (v && typeof v === "object") {
+          const nested = pickInternalNoteFromObj(v);
+          if (nested) return nested;
+        }
+      }
+
+      const stack: any[] = [obj];
+      const seen = new Set<any>();
+      while (stack.length > 0) {
+        const current = stack.shift();
+        if (!current || typeof current !== "object" || seen.has(current)) continue;
+        seen.add(current);
+
+        const label = labelFromObj(current);
+        if (OPERATIONAL_NOTE_LABEL_RE.test(label)) {
+          for (const valueKey of ["note", "notes", "comment", "message", "text", "content", "description", "value"]) {
+            const cleaned = cleanOperationalNote(current[valueKey]);
+            if (cleaned) return cleaned;
+          }
+        }
+
+        for (const value of Object.values(current)) {
+          if (value && typeof value === "object") stack.push(value);
+        }
       }
       return null;
     };
@@ -717,12 +794,10 @@ serve(async (req) => {
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
         CurrentNight: currentNight || null,
         TotalNights: totalNights || null,
-        // Prefer the reception's internal/housekeeping note when Previo
-        // supplies one; fall back to the OTA <note> (Booking.com blob) only
-        // when the internal note is empty. Clean text passes through
-        // pmsNoteParser untouched because its finance-blob detection keys
-        // off Booking.com/commission markers.
-        Note: (res?.internalNote && res.internalNote.trim()) || res?.note || null,
+        // Only expose the reception/housekeeping operational note to HotelCare.
+        // The generic OTA <note> is retained separately for audit/debugging but
+        // must not be shown to managers/admins/housekeepers.
+        Note: (res?.internalNote && res.internalNote.trim()) || null,
         NoteOta: res?.note ?? null,
         NoteInternal: res?.internalNote ?? null,
         Nationality: null,

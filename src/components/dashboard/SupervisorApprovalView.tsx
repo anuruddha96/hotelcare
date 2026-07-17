@@ -80,6 +80,8 @@ interface PendingAssignment {
     linen_change_required?: boolean;
     guest_nights_stayed?: number;
     bed_configuration?: string | null;
+      notes?: string | null;
+      pms_metadata?: any;
     is_dnd?: boolean;
     dnd_marked_at?: string | null;
   } | null;
@@ -174,11 +176,29 @@ export function SupervisorApprovalView() {
     roomNumberByRoomId: Record<string, string>,
   ): Promise<{ items: MinibarGateItem[]; total: number; usageIds: string[] }> => {
     if (roomIds.length === 0) return { items: [], total: 0, usageIds: [] };
+    const dayStart = new Date(selectedDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const nextDay = new Date(dayStart);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const startOfDay = dayStart.toISOString();
+    const endOfDay = nextDay.toISOString();
+
+    // Self-heal old uncleared minibar rows so yesterday's consumption can no
+    // longer block today's room approval popup.
+    await supabase
+      .from('room_minibar_usage')
+      .update({ is_cleared: true, guest_checkout_date: new Date().toISOString() })
+      .in('room_id', roomIds)
+      .eq('is_cleared', false)
+      .lt('usage_date', startOfDay);
+
     const { data, error } = await supabase
       .from('room_minibar_usage')
       .select('id, room_id, quantity_used, minibar_items:minibar_item_id(name, price)')
       .in('room_id', roomIds)
-      .eq('is_cleared', false);
+      .eq('is_cleared', false)
+      .gte('usage_date', startOfDay)
+      .lt('usage_date', endOfDay);
     if (error || !data) return { items: [], total: 0, usageIds: [] };
     const filtered = data.filter((u: any) => (u.quantity_used || 0) > 0);
     const items: MinibarGateItem[] = filtered.map((u: any) => ({
@@ -461,6 +481,8 @@ export function SupervisorApprovalView() {
             linen_change_required,
             guest_nights_stayed,
             bed_configuration,
+            notes,
+            pms_metadata,
             is_dnd,
             dnd_marked_at
           ),
@@ -889,10 +911,13 @@ export function SupervisorApprovalView() {
     const speedIndicator = assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
     const SpeedIcon = speedIndicator?.icon || Timer;
     const isExpanded = expandedCards.has(assignment.id);
+    const housekeepingNote = assignment.rooms?.notes?.trim() || '';
+    const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value || null;
     const hasDetails = !!(
       completionPhotoUrls[assignment.id]?.length ||
       linenSummaries[assignment.id]?.length ||
-      assignment.rooms?.bed_configuration ||
+      inferredBedInstruction ||
+      housekeepingNote ||
       assignment.rooms?.is_dnd
     );
 
@@ -998,6 +1023,13 @@ export function SupervisorApprovalView() {
             </div>
           )}
 
+          {housekeepingNote && (
+            <div className="p-2 rounded-md border flex items-start gap-1.5 bg-amber-50 border-amber-200">
+              <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+              <p className="text-xs text-amber-800">{housekeepingNote}</p>
+            </div>
+          )}
+
           {/* Housekeeper Messages with Translate */}
           {housekeeperNotes[assignment.id] && housekeeperNotes[assignment.id].length > 0 && (
             <div className="space-y-1">
@@ -1047,10 +1079,10 @@ export function SupervisorApprovalView() {
                         DND
                       </Badge>
                     )}
-                    {assignment.rooms?.bed_configuration && (
+                    {inferredBedInstruction && (
                       <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 px-1.5 py-0">
                         <BedDouble className="h-3 w-3 mr-0.5" />
-                        {assignment.rooms.bed_configuration}
+                        {inferredBedInstruction}
                       </Badge>
                     )}
                     {assignment.rooms?.floor_number && (

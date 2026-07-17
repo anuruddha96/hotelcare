@@ -26,6 +26,7 @@ export interface RoomForAssignment {
   elevator_proximity?: number | null;
   room_category?: string | null;
   bed_configuration?: string | null;
+  notes?: string | null;
   ready_to_clean?: boolean;
   checkout_time?: string | null;
 }

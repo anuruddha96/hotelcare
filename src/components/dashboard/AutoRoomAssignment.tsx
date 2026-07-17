@@ -280,7 +280,7 @@ export function AutoRoomAssignment({
       const keys = hotelKeys.length ? hotelKeys : [hotelName];
       const { data: roomsData } = await supabase
         .from('rooms')
-        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, checkout_time')
+        .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
         .in('hotel', keys)
         .eq('status', 'dirty');
 
@@ -822,7 +822,9 @@ ${activePreviews.map(preview => {
         const specials: string[] = [];
         if (room.towel_change_required) specials.push('🧺 Towel');
         if (room.linen_change_required) specials.push('🛏️ Clean Room (C)');
-        if (room.bed_configuration) specials.push(`Bed: ${room.bed_configuration}`);
+        const inferredBed = (room.pms_metadata as any)?.inferredBedConfig?.value;
+        if (inferredBed) specials.push(`Bed: ${inferredBed}`);
+        if (room.notes) specials.push(String(room.notes));
         return `<tr class="${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? 'type-co' : 'type-daily'}">
           <td>${i + 1}</td>
           <td><strong>${room.room_number}</strong></td>
@@ -896,8 +898,8 @@ ${activePreviews.map(preview => {
         {room.linen_change_required && (
           <span className="text-[10px] px-0.5 font-bold text-orange-600">C</span>
         )}
-        {room.bed_configuration && (
-          <span className="text-[9px] px-0.5 opacity-70">🛏️{room.bed_configuration.length > 8 ? room.bed_configuration.substring(0, 8) : room.bed_configuration}</span>
+        {(room.pms_metadata as any)?.inferredBedConfig?.value && (
+          <span className="text-[9px] px-0.5 opacity-70">🛏️{String((room.pms_metadata as any).inferredBedConfig.value).slice(0, 8)}</span>
         )}
       </div>
     );
