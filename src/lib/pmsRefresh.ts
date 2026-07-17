@@ -286,10 +286,14 @@ export async function runPmsRefresh(
             : null;
           const oldSyncDate = meta?.pmsSyncDate ?? meta?.lastPmsRefreshDate ?? null;
           const isStale = !oldSyncDate || oldSyncDate < today;
-          if (!isStale) continue;
+          const currentNotes = (r as any).notes as string | null;
+          const hasOtaBlob = !!currentNotes && RESERVATION_NOTE_BLOB.test(currentNotes);
+          // Process rooms that are stale OR still carry an OTA blob from a
+          // pre-fix refresh — we must scrub the blob now regardless of date.
+          if (!isStale && !hasOtaBlob) continue;
 
           const patch: Record<string, any> = {};
-          if (meta) {
+          if (isStale && meta) {
             let changed = false;
             for (const k of MANUAL_ROOM_OVERRIDE_KEYS) {
               if (k in meta) { delete meta[k]; changed = true; }
