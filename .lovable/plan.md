@@ -1,33 +1,45 @@
-## Plan
+## Plan — Use Previo's dedicated housekeeping/internal note instead of the OTA reservation note
 
-### 1. Add Nykipanchuk_073 to Auto-Assign housekeeper list
+### Problem
 
-**Root cause:** In `src/components/dashboard/AutoRoomAssignment.tsx` (line 245), the staff query filters `assigned_hotel = hotelName` where `hotelName = getManagerHotel()`. Nykipanchuk_073's profile has `assigned_hotel = 'ottofiori'` (the hotel key), but the manager's `getManagerHotel()` typically returns the display name (`'Hotel Ottofiori'`). Rooms use `resolveHotelKeys()` to accept both — the staff query does not, so she's filtered out.
+Today the Previo sync pulls exactly one note field from each reservation — `<note>` in the XML `searchReservations` response (`supabase/functions/previo-pms-sync/index.ts:338`) or `res.note ?? res.notes ?? res.comment` in the REST path (line 459). That field is the **OTA/reservation blob**: Booking.com special requests, Commission note, Virtual Credit Card, Cancellation Policy, pricing, timestamps — the exact content the user is complaining about.
 
-**Fix:** Use `resolveHotelKeys(hotelName)` for the staff query too, using `.in('assigned_hotel', keys)` instead of `.eq('assigned_hotel', hotelName)`.
+There is a separate, cleaner note maintained by reception in Previo (visible in the Previo UI as an internal/hotel/housekeeping note). We currently never fetch or store it.
 
-### 2. Hide "Towel Change" badge on Checkout Clean rooms
+### Approach
 
-**Root cause:** `AssignedRoomCard.tsx` renders the towel-change badge whenever `assignment.rooms?.towel_change_required` is true, regardless of whether the room is a checkout clean. Checkout cleans always include a full towel swap.
+Two-step: probe → wire.
 
-**Fix (presentation only):** In `AssignedRoomCard.tsx`, gate every towel-change UI branch (lines ~712, ~799, ~855, ~1572 and the `instructionCount` counter on line 713) behind `!isCheckout`, where `isCheckout = assignment.rooms?.is_checkout_room || assignment.rooms?.pms_metadata?.scheduledDepartureToday === true`. This mirrors the algorithm's own logic in `roomAssignmentAlgorithm.ts` (line 94) which already skips the towel-change time bump on checkouts.
+**Step 1 — Discover the exact Previo field name (diagnostic, one call).**
 
-### 3. Root-cause fix for "Room XXX — minibar used" popup on days with no new consumption
+Extend the existing `previo-probe` edge function to dump the full raw XML for one reservation (not just first 8000 chars) and, in parallel, hit Previo's `getReservation` REST endpoint for a single reservation ID that has a known reception note. Return the raw payload so we can identify the exact tag name Previo uses for the internal note. Previo XML commonly exposes one of: `<noteInternal>`, `<noteHousekeeping>`, `<hotelNote>`, `<noteHotel>`, `<noteReception>`, `<internalNote>`, `<notice>`, `<comment>` — the tenant's actual response tells us which. The REST reservation object usually mirrors these as `noteInternal`, `hotelNote`, `internalNote`, etc.
 
-**Root cause:** The supervisor's minibar confirmation gate in `SupervisorApprovalView.tsx` (`fetchMinibarForRooms`, line 171) selects all `room_minibar_usage` rows with `is_cleared = false` for the room — **with no date filter**. When the supervisor confirms "refilled + added to Previo" and clicks Confirm & Approve, `performApproval` / `performBulkApprove` (lines 593 / 681) only update `room_assignments`; they never flip `is_cleared` on those minibar rows. So the same uncleared row (e.g. Room 403 Beer from Jul 15, which still shows `is_cleared=false` in the DB) re-triggers the popup on every subsequent day's approval, even though no housekeeper logged anything that day. This matches the user's report — 403's Beer 5€ is exactly what image 2 shows, and the DB confirms it's still uncleared.
+Result of Step 1: the exact tag/field name for this tenant. Adds no user-facing change yet.
 
-**Fix:** After the supervisor passes the gate and approval completes successfully, mark the associated minibar rows as cleared so they don't re-appear:
+**Step 2 — Prefer the internal note across all Previo sync paths.**
 
-- Extract the minibar row IDs inside `fetchMinibarForRooms` and pass them through the gate state (`minibarGate.usageIds: string[]`).
-- After `performApproval` / `performBulkApprove` succeeds, update those rows with `is_cleared = true, guest_checkout_date = now()`.
-- Scope the update to the exact IDs shown in the gate (so items added *after* the gate opened aren't wrongly cleared).
+Once the field name is confirmed, update the sync so `rooms.notes` is populated from the internal note when present, and only falls back to the OTA note (via the existing `pmsNoteParser` cleanup) when the internal note is empty. Concretely:
 
-No schema changes; presentation + write already allowed by existing RLS on `room_minibar_usage`.
+- `supabase/functions/previo-pms-sync/index.ts`
+  - XML block parsing (~line 338): additionally extract every candidate internal-note tag (`noteInternal`, `noteHotel`, `hotelNote`, `noteHousekeeping`, `internalNote`, `noteReception`) and pass an `internalNote` alongside the existing `note` into `indexReservation`.
+  - REST embedded reservation (~line 459) and REST reservation probe (~line 507): read the same candidate fields off `res.*` and expose as `internalNote`.
+  - Final normalized reservation (~line 685): change `Note: res?.note ?? null` to prefer `res.internalNote` when non-empty, otherwise fall back to the OTA `note`.
+- `supabase/functions/_shared/pmsNormalizer.ts`
+  - Add `internalNote?: string | null` to the `PrevioApiRow.reservation` type (near lines 58–71).
+  - In `normalizeApiRow` (lines 98–142) set `notes = res?.internalNote?.trim() || res?.note?.trim() || null`.
+  - Also stash both raw fields under `pms_metadata` (`pms_metadata.reservation_note_ota` and `pms_metadata.reservation_note_internal`) so nothing is lost and we can revert cleanly if the field name changes.
+- Keep `src/lib/pmsNoteParser.ts` and `src/components/pms/StructuredRoomNote.tsx` unchanged — when `notes` is already the clean internal note, `parsePmsNote` naturally renders it as free text without triggering the finance-blob stripping (its `looksLikePmsNote` gate keys off Booking.com/commission markers, so clean text falls through untouched).
+
+**Excel/CSV uploader — no change.** The user chose "Previo API — dedicated housekeeping/internal note" and left the sample-column question blank. The Excel path stays as-is; if a separate column shows up later we can revisit.
+
+### What I need from you before Step 2
+
+One thing after Step 1 runs: the output of the extended `previo-probe` for a reservation that you know has a reception note in Previo. Ideally give me a Room number + arrival date that currently shows the wrong long OTA note in the housekeeping card and also has a short reception note in the Previo UI — I'll probe that reservation and confirm the exact field name before wiring it in.
 
 ### Files touched
 
-- `src/components/dashboard/AutoRoomAssignment.tsx` — broaden staff hotel filter with `resolveHotelKeys`.
-- `src/components/dashboard/AssignedRoomCard.tsx` — hide towel-change badge/instruction row when checkout clean.
-- `src/components/dashboard/SupervisorApprovalView.tsx` — carry minibar row IDs through the gate and mark `is_cleared=true` after supervisor approval.
+- `supabase/functions/previo-probe/index.ts` — extended diagnostic dump (Step 1).
+- `supabase/functions/previo-pms-sync/index.ts` — extract and prefer internal note (Step 2).
+- `supabase/functions/_shared/pmsNormalizer.ts` — new `internalNote` field, prefer it in `notes` (Step 2).
 
-No DB migrations, no edge-function changes.
+No DB migrations, no frontend changes, no changes to `pmsNoteParser` or `StructuredRoomNote`.
