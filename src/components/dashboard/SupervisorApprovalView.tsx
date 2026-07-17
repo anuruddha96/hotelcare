@@ -910,10 +910,13 @@ export function SupervisorApprovalView() {
     const speedIndicator = assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
     const SpeedIcon = speedIndicator?.icon || Timer;
     const isExpanded = expandedCards.has(assignment.id);
+    const housekeepingNote = assignment.rooms?.notes?.trim() || '';
+    const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value || null;
     const hasDetails = !!(
       completionPhotoUrls[assignment.id]?.length ||
       linenSummaries[assignment.id]?.length ||
-      assignment.rooms?.bed_configuration ||
+      inferredBedInstruction ||
+      housekeepingNote ||
       assignment.rooms?.is_dnd
     );
 
@@ -1019,6 +1022,13 @@ export function SupervisorApprovalView() {
             </div>
           )}
 
+          {housekeepingNote && (
+            <div className="p-2 rounded-md border flex items-start gap-1.5 bg-amber-50 border-amber-200">
+              <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+              <p className="text-xs text-amber-800">{housekeepingNote}</p>
+            </div>
+          )}
+
           {/* Housekeeper Messages with Translate */}
           {housekeeperNotes[assignment.id] && housekeeperNotes[assignment.id].length > 0 && (
             <div className="space-y-1">
@@ -1068,10 +1078,10 @@ export function SupervisorApprovalView() {
                         DND
                       </Badge>
                     )}
-                    {assignment.rooms?.bed_configuration && (
+                    {inferredBedInstruction && (
                       <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 px-1.5 py-0">
                         <BedDouble className="h-3 w-3 mr-0.5" />
-                        {assignment.rooms.bed_configuration}
+                        {inferredBedInstruction}
                       </Badge>
                     )}
                     {assignment.rooms?.floor_number && (
