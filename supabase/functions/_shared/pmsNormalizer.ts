@@ -138,7 +138,10 @@ function normalizeApiRow(r: PrevioApiRow, meta: NormalizeMeta): NormalizedRoom {
     departure_date: departure,
     linen_change_required: requireLinen(currentNight, isDeparting),
     towel_change_required: requireTowel(currentNight, isDeparting),
-    notes: (res?.internalNote && res.internalNote.trim()) || res?.note || null,
+    // HotelCare should display only Previo's operational housekeeping/internal
+    // note. The generic OTA reservation note can contain prices, commission,
+    // and policy text and must not surface to managers or housekeepers.
+    notes: (res?.internalNote && res.internalNote.trim()) || null,
     raw: r,
   };
 }
