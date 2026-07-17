@@ -297,9 +297,26 @@ export async function runPmsRefresh(
             if (changed) patch.pms_metadata = meta;
           }
           const notes = (r as any).notes as string | null;
-          if (notes && STALE_NOTE_PREFIXES.test(notes)) {
-            const cleaned = notes.replace(STALE_NOTE_PREFIXES, "").trim();
-            patch.notes = cleaned || null;
+          if (notes) {
+            let cleanedNotes: string | null = notes;
+            if (STALE_NOTE_PREFIXES.test(cleanedNotes)) {
+              cleanedNotes = cleanedNotes.replace(STALE_NOTE_PREFIXES, "").trim();
+            }
+            // Also strip Previo OTA reservation blobs that older refreshes
+            // may have written into rooms.notes. Preserve any operational
+            // (Recepce/Kuchyně/Housekeeping) sections if present.
+            if (cleanedNotes && RESERVATION_NOTE_BLOB.test(cleanedNotes)) {
+              const flags = parseRoomFlags(cleanedNotes);
+              const rescued = extractHousekeepingSectionsFromRawNote(flags.cleanNotes);
+              cleanedNotes = buildRoomNotes(
+                {
+                  collectExtraTowels: flags.collectExtraTowels,
+                  roomCleaning: flags.roomCleaning,
+                },
+                rescued ?? "",
+              ) || null;
+            }
+            if (cleanedNotes !== notes) patch.notes = cleanedNotes || null;
           }
           if (Object.keys(patch).length > 0) {
             patch.updated_at = new Date().toISOString();
