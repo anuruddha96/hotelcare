@@ -5,9 +5,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
-import { parsePmsNote } from "@/lib/pmsNoteParser";
+import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
+import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
+const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Systém\s*-\s*Partner/i;
 const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
@@ -39,6 +41,14 @@ const stripManualRoomOverride = (meta: Record<string, any> | undefined): Record<
   const cleaned = { ...meta };
   for (const key of MANUAL_ROOM_OVERRIDE_KEYS) delete cleaned[key];
   return cleaned;
+};
+
+const cleanSyncedHousekeepingNote = (row: any): string | null => {
+  const raw = row?.NoteInternal ?? row?.Note;
+  if (raw == null) return null;
+  const text = String(raw).replace(/\s+/g, " ").trim();
+  if (!text || RESERVATION_NOTE_BLOB.test(text)) return null;
+  return text;
 };
 
 export type PmsSyncStatus = "success" | "partial" | "error" | "idle";
