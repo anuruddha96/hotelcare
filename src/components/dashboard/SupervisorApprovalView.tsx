@@ -134,6 +134,15 @@ function getMinutesSince(dateStr: string): number {
 export function SupervisorApprovalView() {
   const { t, language } = useTranslation();
   const { showNotification } = useNotifications();
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
+      setCurrentUserRole((data as any)?.role ?? null);
+    })();
+  }, []);
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
   const [pendingMaintenanceTickets, setPendingMaintenanceTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
