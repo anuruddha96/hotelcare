@@ -118,9 +118,11 @@ function extractOperationalSections(raw: string | null | undefined): string | nu
     const start = m.index! + m[0].length;
     const end = i + 1 < matches.length ? matches[i + 1].index! : text.length;
     const body = text.slice(start, end).trim();
-    if (!body || OTA_LABEL_RE.test(label) || RESERVATION_BLOB_RE.test(body)) continue;
+    if (!body || OTA_LABEL_RE.test(label)) continue;
+    // Trust the label — do NOT drop reception/kitchen sections just because
+    // they mention "Booking.com" (common in reception CC notes).
     const cleaned = body.replace(PAYMENT_NOISE_RE, " ").replace(/\s+/g, " ").trim();
-    if (cleaned) kept.push(cleaned);
+    if (cleaned) kept.push(`${label}: ${cleaned}`);
   }
   return kept.join(" • ") || null;
 }
