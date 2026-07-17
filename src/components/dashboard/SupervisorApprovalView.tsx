@@ -176,7 +176,7 @@ export function SupervisorApprovalView() {
     roomNumberByRoomId: Record<string, string>,
   ): Promise<{ items: MinibarGateItem[]; total: number; usageIds: string[] }> => {
     if (roomIds.length === 0) return { items: [], total: 0, usageIds: [] };
-    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
     const startOfDay = `${selectedDateStr}T00:00:00.000Z`;
     const nextDay = new Date(`${selectedDateStr}T00:00:00.000Z`);
     nextDay.setUTCDate(nextDay.getUTCDate() + 1);

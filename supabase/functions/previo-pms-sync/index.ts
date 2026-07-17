@@ -309,6 +309,7 @@ serve(async (req) => {
       .replace(/\s+/g, " ")
       .trim();
     const cleanOperationalNote = (value: unknown): string | null => {
+      if (value == null || typeof value === "object") return null;
       const s = decodeXmlText(String(value ?? ""));
       if (!s || RESERVATION_BLOB_RE.test(s)) return null;
       return s;

@@ -477,6 +477,10 @@ export async function runPmsRefresh(
         updateData.pms_metadata.isNoShow = row.IsNoShow === true;
         updateData.pms_metadata.noteOta = row.NoteOta ?? null;
         updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+        if (!inferredBed) {
+          delete updateData.pms_metadata.inferredBedConfig;
+          if (currentWasAutoInferred) updateData.bed_configuration = null;
+        }
         if (isCheckedOut) {
           updateData.pms_metadata.readyToClean = true;
           updateData.pms_metadata.checkedOutAt = new Date().toISOString();
