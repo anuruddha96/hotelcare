@@ -1032,7 +1032,7 @@ export function SupervisorApprovalView() {
             </div>
           )}
 
-          {housekeepingNote && (
+          {housekeepingNote && currentUserRole === 'admin' && (
             <div className="p-2 rounded-md border flex items-start gap-1.5 bg-amber-50 border-amber-200">
               <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
               <p className="text-xs text-amber-800">{housekeepingNote}</p>
