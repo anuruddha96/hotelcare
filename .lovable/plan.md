@@ -1,45 +1,37 @@
-## Plan — Use Previo's dedicated housekeeping/internal note instead of the OTA reservation note
+I found two root causes to address:
 
-### Problem
+1. **Housekeeping notes**: the app is still willing to fall back to the reservation/OTA note blob. That is why managers/admins and housekeepers can see complex reservation information instead of the dedicated Previo housekeeping note.
+2. **Minibar approvals**: supervisor approval currently loads all uncleared minibar rows for a room, without limiting to today. So any old uncleared record can trigger the “minibar used” confirmation on a later day.
 
-Today the Previo sync pulls exactly one note field from each reservation — `<note>` in the XML `searchReservations` response (`supabase/functions/previo-pms-sync/index.ts:338`) or `res.note ?? res.notes ?? res.comment` in the REST path (line 459). That field is the **OTA/reservation blob**: Booking.com special requests, Commission note, Virtual Credit Card, Cancellation Policy, pricing, timestamps — the exact content the user is complaining about.
+Plan:
 
-There is a separate, cleaner note maintained by reception in Previo (visible in the Previo UI as an internal/hotel/housekeeping note). We currently never fetch or store it.
+1. **Previo housekeeping note extraction**
+   - Extend the Previo sync parser to search for department-specific housekeeping notes, not just flat fields like `noteInternal`.
+   - Support likely Previo structures such as nested note lists/tabs where a note has department/type/category labels like `Housekeeping`, `Reception`, `Kitchen`, etc.
+   - Prefer only the housekeeping/internal/reception operational note; do **not** fall back to Booking.com/OTA reservation blobs for the room note shown in Hotel Care.
 
-### Approach
+2. **Stop showing reservation blobs to managers/admins**
+   - In PMS refresh, write `rooms.notes` only when the synced row contains a clean housekeeping/internal note.
+   - If only `NoteOta` / reservation blob is present, clear or preserve manager-entered operational flags but do not display the reservation/pricing/commission text.
+   - Keep `NoteOta` only in PMS metadata/audit fields if needed, not in the visible manager/admin/housekeeper note surface.
 
-Two-step: probe → wire.
+3. **Bed arrangement from housekeeping note only**
+   - Move bed inference to use the clean housekeeping note only.
+   - If the housekeeping note says “2 single beds”, “baby cot”, “two separate beds”, “beds together”, etc., auto-select the room’s bed configuration.
+   - Do not treat existing default bed configuration like “Double Bed” as a special instruction unless it came from the housekeeping note for today.
+   - On the housekeeper card, show a bed-arrangement special instruction only when it was inferred from the housekeeping note or manually set as an actual instruction, not just because the room has a default bed setup.
 
-**Step 1 — Discover the exact Previo field name (diagnostic, one call).**
+4. **Housekeeper special-instructions card cleanup**
+   - Show the dedicated housekeeping note text prominently on the assignment card and start-cleaning warning dialog.
+   - Remove generic/default “Bed Configuration: Double Bed” from the special-instructions warning when there is no actual special instruction.
+   - Keep linen/towel operational flags, but checkout cleans will continue not to show redundant towel-change instructions.
 
-Extend the existing `previo-probe` edge function to dump the full raw XML for one reservation (not just first 8000 chars) and, in parallel, hit Previo's `getReservation` REST endpoint for a single reservation ID that has a known reception note. Return the raw payload so we can identify the exact tag name Previo uses for the internal note. Previo XML commonly exposes one of: `<noteInternal>`, `<noteHousekeeping>`, `<hotelNote>`, `<noteHotel>`, `<noteReception>`, `<internalNote>`, `<notice>`, `<comment>` — the tenant's actual response tells us which. The REST reservation object usually mirrors these as `noteInternal`, `hotelNote`, `internalNote`, etc.
+5. **Minibar stale-data fix**
+   - Change supervisor approval minibar lookup to only include minibar usage from the selected assignment date.
+   - Add a self-healing cleanup before showing the popup: old uncleared rows before the selected date are marked cleared/ignored so they cannot appear as today’s consumption.
+   - Keep today’s minibar records visible, but avoid yesterday’s water/nuts appearing for room 102.
 
-Result of Step 1: the exact tag/field name for this tenant. Adds no user-facing change yet.
-
-**Step 2 — Prefer the internal note across all Previo sync paths.**
-
-Once the field name is confirmed, update the sync so `rooms.notes` is populated from the internal note when present, and only falls back to the OTA note (via the existing `pmsNoteParser` cleanup) when the internal note is empty. Concretely:
-
-- `supabase/functions/previo-pms-sync/index.ts`
-  - XML block parsing (~line 338): additionally extract every candidate internal-note tag (`noteInternal`, `noteHotel`, `hotelNote`, `noteHousekeeping`, `internalNote`, `noteReception`) and pass an `internalNote` alongside the existing `note` into `indexReservation`.
-  - REST embedded reservation (~line 459) and REST reservation probe (~line 507): read the same candidate fields off `res.*` and expose as `internalNote`.
-  - Final normalized reservation (~line 685): change `Note: res?.note ?? null` to prefer `res.internalNote` when non-empty, otherwise fall back to the OTA `note`.
-- `supabase/functions/_shared/pmsNormalizer.ts`
-  - Add `internalNote?: string | null` to the `PrevioApiRow.reservation` type (near lines 58–71).
-  - In `normalizeApiRow` (lines 98–142) set `notes = res?.internalNote?.trim() || res?.note?.trim() || null`.
-  - Also stash both raw fields under `pms_metadata` (`pms_metadata.reservation_note_ota` and `pms_metadata.reservation_note_internal`) so nothing is lost and we can revert cleanly if the field name changes.
-- Keep `src/lib/pmsNoteParser.ts` and `src/components/pms/StructuredRoomNote.tsx` unchanged — when `notes` is already the clean internal note, `parsePmsNote` naturally renders it as free text without triggering the finance-blob stripping (its `looksLikePmsNote` gate keys off Booking.com/commission markers, so clean text falls through untouched).
-
-**Excel/CSV uploader — no change.** The user chose "Previo API — dedicated housekeeping/internal note" and left the sample-column question blank. The Excel path stays as-is; if a separate column shows up later we can revisit.
-
-### What I need from you before Step 2
-
-One thing after Step 1 runs: the output of the extended `previo-probe` for a reservation that you know has a reception note in Previo. Ideally give me a Room number + arrival date that currently shows the wrong long OTA note in the housekeeping card and also has a short reception note in the Previo UI — I'll probe that reservation and confirm the exact field name before wiring it in.
-
-### Files touched
-
-- `supabase/functions/previo-probe/index.ts` — extended diagnostic dump (Step 1).
-- `supabase/functions/previo-pms-sync/index.ts` — extract and prefer internal note (Step 2).
-- `supabase/functions/_shared/pmsNormalizer.ts` — new `internalNote` field, prefer it in `notes` (Step 2).
-
-No DB migrations, no frontend changes, no changes to `pmsNoteParser` or `StructuredRoomNote`.
+6. **Validation**
+   - Verify room 102 no longer shows yesterday’s water/nuts in today’s approval popup.
+   - Verify a room with only a default “Double Bed” does not show it as special instructions.
+   - Verify a Previo housekeeping note like `test - anu` or bed-arrangement text is passed into the housekeeper card and bed configuration is inferred only from that note.
