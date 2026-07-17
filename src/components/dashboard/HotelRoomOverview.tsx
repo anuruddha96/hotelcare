@@ -1002,7 +1002,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {/* Notes - auto-save on blur */}
               {isManagerOrAdmin && (
                 <div className="border-t border-border pt-1.5 space-y-1.5">
-                  {room.notes && (
+                  {room.notes && profile?.role === 'admin' && (
                     <StructuredRoomNote notes={room.notes} />
                   )}
                   <textarea
