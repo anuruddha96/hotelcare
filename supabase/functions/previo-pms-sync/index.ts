@@ -278,7 +278,37 @@ serve(async (req) => {
       statusId: number;
       guestsCount: number;
       note: string | null;
+      /** Reception's clean housekeeping/internal note (preferred over OTA note when present). */
+      internalNote: string | null;
     }
+
+    // Previo exposes several candidate tag/field names for the reception's
+    // internal/housekeeping note (varies by tenant + API version). We probe
+    // all of them and prefer the first non-empty match over the OTA <note>.
+    const INTERNAL_NOTE_XML_TAGS = [
+      "noteInternal", "internalNote", "noteHousekeeping", "housekeepingNote",
+      "hotelNote", "noteHotel", "noteReception", "receptionNote", "notice",
+    ];
+    const INTERNAL_NOTE_REST_KEYS = [
+      "noteInternal", "internalNote", "noteHousekeeping", "housekeepingNote",
+      "hotelNote", "noteHotel", "noteReception", "receptionNote", "notice",
+    ];
+    const grabInternalNoteFromXml = (block: string): string | null => {
+      for (const tag of INTERNAL_NOTE_XML_TAGS) {
+        const m = block.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+        const v = m ? m[1].trim() : "";
+        if (v) return v;
+      }
+      return null;
+    };
+    const pickInternalNoteFromObj = (obj: any): string | null => {
+      if (!obj || typeof obj !== "object") return null;
+      for (const k of INTERNAL_NOTE_REST_KEYS) {
+        const v = obj[k];
+        if (v != null && String(v).trim() !== "") return String(v).trim();
+      }
+      return null;
+    };
     const reservationsByRoomName = new Map<string, ParsedReservation>();
     const reservationsByObjId = new Map<number, ParsedReservation>();
     let reservationFetchError: string | null = null;
@@ -345,6 +375,7 @@ serve(async (req) => {
           statusId,
           guestsCount,
           note: noteMatch ? noteMatch[1].trim() || null : null,
+          internalNote: grabInternalNoteFromXml(block),
         });
         indexed++;
       }
@@ -457,6 +488,7 @@ serve(async (req) => {
         statusId,
         guestsCount: guests,
         note: res.note || res.notes || res.comment ? String(res.note ?? res.notes ?? res.comment).trim() : null,
+        internalNote: pickInternalNoteFromObj(res),
       });
       restReservationsIndexed++;
     }
@@ -505,6 +537,7 @@ serve(async (req) => {
               statusId: statusIdFrom(item),
               guestsCount: guests,
               note: item?.note || item?.notes || item?.comment ? String(item.note ?? item.notes ?? item.comment).trim() : null,
+              internalNote: pickInternalNoteFromObj(item),
             });
             indexed++;
           }
@@ -568,6 +601,7 @@ serve(async (req) => {
             statusId: item?.status === "checked_out" ? 6 : 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
             note: item?.notes ? String(item.notes) : null,
+            internalNote: null,
           });
         }
         for (const item of dailyRows) {
@@ -589,6 +623,7 @@ serve(async (req) => {
             statusId: 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
             note: item?.notes ? String(item.notes) : null,
+            internalNote: null,
           });
         }
         if (checkoutRows.length || dailyRows.length) {
@@ -682,7 +717,14 @@ serve(async (req) => {
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
         CurrentNight: currentNight || null,
         TotalNights: totalNights || null,
-        Note: res?.note ?? null,
+        // Prefer the reception's internal/housekeeping note when Previo
+        // supplies one; fall back to the OTA <note> (Booking.com blob) only
+        // when the internal note is empty. Clean text passes through
+        // pmsNoteParser untouched because its finance-blob detection keys
+        // off Booking.com/commission markers.
+        Note: (res?.internalNote && res.internalNote.trim()) || res?.note || null,
+        NoteOta: res?.note ?? null,
+        NoteInternal: res?.internalNote ?? null,
         Nationality: null,
         Defect: null,
         Status: statusLabel,
