@@ -499,11 +499,11 @@ export function CompletionDataView({
                 </div>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[92vh] overflow-y-auto p-4 sm:p-6 top-[2vh] translate-y-0 sm:top-1/2 sm:-translate-y-1/2">
               <DialogHeader>
                 <DialogTitle>Lost & Found Items</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
+              <div className="space-y-4 mt-2">
                 {lostAndFoundItems.map((item) => (
                   <Card key={item.id} className="p-4 border-yellow-200">
                     <div className="space-y-3">
@@ -518,26 +518,30 @@ export function CompletionDataView({
                           {new Date(item.found_date).toLocaleDateString()}
                         </span>
                       </div>
-                      
+
                       {item.photo_urls && item.photo_urls.length > 0 && (
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                           {item.photo_urls.map((photoUrl, idx) => (
-                            <a 
-                              key={idx} 
-                              href={photoUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() =>
+                                openLightbox(
+                                  item.photo_urls.map((u, i) => ({ url: u, caption: `${item.item_description} (${i + 1})` })),
+                                  idx
+                                )
+                              }
                             >
                               <img
                                 src={photoUrl}
                                 alt={`Lost item ${idx + 1}`}
                                 className="w-full h-24 object-cover rounded border hover:opacity-80"
                               />
-                            </a>
+                            </button>
                           ))}
                         </div>
                       )}
-                      
+
                       {item.notes && (
                         <div className="text-sm bg-muted p-2 rounded">
                           <strong>Notes:</strong> {item.notes}
