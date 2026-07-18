@@ -346,26 +346,30 @@ export function CompletionDataView({
                 </div>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[92vh] overflow-y-auto p-4 sm:p-6 top-[2vh] translate-y-0 sm:top-1/2 sm:-translate-y-1/2">
               <DialogHeader>
                 <DialogTitle>DND Photos</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
-                {dndPhotos.map((dnd) => (
+              <div className="space-y-4 mt-2">
+                {dndPhotos.map((dnd, dIdx) => (
                   <Card key={dnd.id} className="p-4">
                     <div className="space-y-3">
-                      <a 
-                        href={dnd.photo_url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="block"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openLightbox(
+                            dndPhotos.map((d) => ({ url: d.photo_url, caption: d.notes || 'DND photo' })),
+                            dIdx
+                          )
+                        }
+                        className="block w-full"
                       >
                         <img
                           src={dnd.photo_url}
                           alt="DND photo"
                           className="w-full h-48 object-cover rounded-lg border hover:opacity-80 transition-opacity"
                         />
-                      </a>
+                      </button>
                       {dnd.notes && (
                         <div className="text-sm text-muted-foreground">
                           <strong>Notes:</strong> {dnd.notes}
