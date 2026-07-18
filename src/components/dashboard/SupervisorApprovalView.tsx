@@ -921,7 +921,9 @@ export function SupervisorApprovalView() {
     const SpeedIcon = speedIndicator?.icon || Timer;
     const isExpanded = expandedCards.has(assignment.id);
     const housekeepingNote = assignment.rooms?.notes?.trim() || '';
-    const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value || null;
+    const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value
+      || assignment.rooms?.bed_configuration
+      || null;
     const hasDetails = !!(
       completionPhotoUrls[assignment.id]?.length ||
       linenSummaries[assignment.id]?.length ||
