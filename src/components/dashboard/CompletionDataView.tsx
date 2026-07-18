@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Camera, AlertTriangle, Shirt, Image as ImageIcon, ChevronRight } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { PhotoLightbox, type LightboxPhoto } from '@/components/ui/photo-lightbox';
 
 interface CompletionDataViewProps {
   assignmentId: string;
