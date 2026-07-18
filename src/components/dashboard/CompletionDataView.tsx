@@ -284,32 +284,43 @@ export function CompletionDataView({
                 </div>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[92vh] overflow-y-auto p-4 sm:p-6 top-[2vh] translate-y-0 sm:top-1/2 sm:-translate-y-1/2">
               <DialogHeader>
                 <DialogTitle>Daily Completion Photos</DialogTitle>
               </DialogHeader>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {completionPhotos.map((photo, index) => (
-                  <div key={index} className="space-y-1">
-                    <a 
-                      href={photo.url || photo} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="block"
-                    >
-                      <img
-                        src={photo.url || photo}
-                        alt={photo.categoryName || `Completion ${index + 1}`}
-                        className="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition-opacity"
-                      />
-                    </a>
-                    {photo.categoryName && (
-                      <p className="text-xs text-center font-medium text-muted-foreground">
-                        {photo.categoryName}
-                      </p>
-                    )}
-                  </div>
-                ))}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
+                {completionPhotos.map((photo, index) => {
+                  const url = photo.url || photo;
+                  const caption = photo.categoryName || `Completion ${index + 1}`;
+                  return (
+                    <div key={index} className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openLightbox(
+                            completionPhotos.map((p, i) => ({
+                              url: p.url || p,
+                              caption: p.categoryName || `Completion ${i + 1}`,
+                            })),
+                            index
+                          )
+                        }
+                        className="block w-full"
+                      >
+                        <img
+                          src={url}
+                          alt={caption}
+                          className="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition-opacity"
+                        />
+                      </button>
+                      {photo.categoryName && (
+                        <p className="text-xs text-center font-medium text-muted-foreground">
+                          {photo.categoryName}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </DialogContent>
           </Dialog>
