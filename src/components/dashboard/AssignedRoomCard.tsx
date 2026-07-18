@@ -1637,7 +1637,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               {hasManagerNotes && (
                 <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
                   <span>📝</span>
-                  <span>{translatedManagerNote || roomFlags.cleanNotes}</span>
+                  <span>{translatedManagerNote || managerVisibleNote}</span>
                 </li>
               )}
               {assignment.notes && (
