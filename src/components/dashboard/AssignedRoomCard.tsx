@@ -714,7 +714,29 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
-  const hasManagerNotes = !!roomFlags.cleanNotes;
+  // Strip PMS-imported reception/kitchen sections from the note shown to
+  // housekeepers — those are OTA/reservation blobs that leak through the
+  // Previo `Recepce:` / `Kuchyně:` prefixes and are not actionable for
+  // cleaning. Keep only manager-typed free text and the explicit
+  // `Housekeeping:` section (which IS meant for the housekeeper).
+  const managerVisibleNote = (() => {
+    const raw = (roomFlags.cleanNotes || '').trim();
+    if (!raw) return '';
+    const PMS_SECTION_RE = /(Recepce|Reception|Kuchyn[ěe]|Kitchen|Syst[ée]m|Poznámka)\s*:\s*/i;
+    // If the note contains any PMS section labels, only keep the
+    // `Housekeeping:` / `Takarítás` / `Hózvezetés` slice; drop everything else.
+    if (PMS_SECTION_RE.test(raw) || /Housekeeping\s*:/i.test(raw)) {
+      const parts = raw.split(/\s•\s|\s\|\s/);
+      const kept = parts
+        .map((p) => p.trim())
+        .filter((p) => /^(Housekeeping|Takar[ií]t[aá]s|H[oó]zvezet[ée]s)\s*:/i.test(p))
+        .map((p) => p.replace(/^[^:]+:\s*/, '').trim())
+        .filter(Boolean);
+      return kept.join(' • ');
+    }
+    return raw;
+  })();
+  const hasManagerNotes = !!managerVisibleNote;
   // Prefer PMS-inferred bed config, but fall back to the manager-set
   // `bed_configuration` column so manual bed setup instructions still reach
   // the housekeeper when there's no housekeeping note to infer from.
@@ -923,12 +945,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <div className="flex-1">
                   <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">{t('roomCard.managerNotes') || 'Manager Notes'}</p>
                   <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
-                    {translatedManagerNote || roomFlags.cleanNotes}
+                    {translatedManagerNote || managerVisibleNote}
                   </p>
                   {!translatedManagerNote && (
                     <button
                       className="mt-1.5 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
-                      onClick={() => handleTranslateNote(roomFlags.cleanNotes, setTranslatedManagerNote)}
+                      onClick={() => handleTranslateNote(managerVisibleNote, setTranslatedManagerNote)}
                       disabled={translating}
                     >
                       {translating ? <LucideLoader className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
@@ -1615,7 +1637,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               {hasManagerNotes && (
                 <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
                   <span>📝</span>
-                  <span>{translatedManagerNote || roomFlags.cleanNotes}</span>
+                  <span>{translatedManagerNote || managerVisibleNote}</span>
                 </li>
               )}
               {assignment.notes && (
