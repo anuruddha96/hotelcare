@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -160,10 +160,15 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   // Hybrid: a manager who is also flagged as a housekeeper (can be assigned rooms).
   const isHybridHousekeeper = hasManagerAccess && !!(profile as any)?.acts_as_housekeeper;
 
-  const [hasActiveAssignmentsToday, setHasActiveAssignmentsToday] = useState(false);
+  // undefined = not yet resolved for hybrid users (avoids landing on wrong tab
+  // before the count returns). false/true once known.
+  const [hasActiveAssignmentsToday, setHasActiveAssignmentsToday] = useState<boolean | undefined>(
+    isHybridHousekeeper ? undefined : false
+  );
 
   // Detect whether the hybrid user has any active room assignments today so we
-  // can land them on My Tasks instead of Team View.
+  // can land them on My Tasks instead of Team View. Re-runs on realtime changes
+  // to room_assignments for this user.
   useEffect(() => {
     if (!isHybridHousekeeper || !user?.id) {
       setHasActiveAssignmentsToday(false);
@@ -175,7 +180,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     const d = String(today.getDate()).padStart(2, '0');
     const todayKey = `${y}-${m}-${d}`;
     let cancelled = false;
-    (async () => {
+    const refresh = async () => {
       const { count } = await (supabase as any)
         .from('room_assignments')
         .select('id', { count: 'exact', head: true })
@@ -183,42 +188,60 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         .eq('assignment_date', todayKey)
         .in('status', ['assigned', 'in_progress']);
       if (!cancelled) setHasActiveAssignmentsToday((count || 0) > 0);
-    })();
-    return () => { cancelled = true; };
+    };
+    refresh();
+    const channel = (supabase as any)
+      .channel(`hybrid-assignments-${user.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'room_assignments',
+        filter: `staff_id=eq.${user.id}`,
+      }, () => { refresh(); })
+      .subscribe();
+    return () => {
+      cancelled = true;
+      (supabase as any).removeChannel(channel);
+    };
   }, [isHybridHousekeeper, user?.id]);
 
-  // Set the default active tab. Managers should land directly on Team View
-  // (or pending approvals when action is needed), not an empty/staff task view.
+  // Track whether we've applied the initial default tab. After that the user
+  // is free to navigate; we don't want async signals (pendingCount, realtime)
+  // to keep yanking them back.
+  const initialTabAppliedRef = useRef(false);
+
+  // Set the default active tab.
+  //   Pure managers → pending approvals (if any) else Team View.
+  //   Hybrid supervisor+housekeeper priority:
+  //     1) active room assignments today → My Tasks
+  //     2) otherwise → Team View (pending approvals shown as badge, not default)
   useEffect(() => {
+    if (initialTabAppliedRef.current) return;
+
     const applyDefaultTab = (nextTab: string) => {
+      initialTabAppliedRef.current = true;
       setActiveTab(nextTab);
       onActiveSubTabChange?.(nextTab);
       if (nextTab === 'manage') onActiveInnerTabChange?.('team');
     };
 
-    const checkDefaultTab = async () => {
-      // Top Management (read-only) always lands on Team View
-      if (isExecutiveReadOnly) {
+    if (isExecutiveReadOnly) { applyDefaultTab('manage'); return; }
+
+    if (hasManagerAccess) {
+      if (isHybridHousekeeper) {
+        // Wait for the assignments query to resolve before deciding.
+        if (hasActiveAssignmentsToday === undefined) return;
+        if (hasActiveAssignmentsToday) { applyDefaultTab('assignments'); return; }
         applyDefaultTab('manage');
         return;
       }
-      if (hasManagerAccess) {
-        // Hybrid supervisor+housekeeper: if they have rooms to clean today,
-        // send them straight to My Tasks.
-        if (isHybridHousekeeper && hasActiveAssignmentsToday) {
-          applyDefaultTab('assignments');
-          return;
-        }
-        applyDefaultTab(pendingCount > 0 ? 'supervisor' : 'manage');
-      } else if (userRole === 'reception') {
-        applyDefaultTab('manage');
-      } else {
-        applyDefaultTab('assignments');
-      }
-    };
+      applyDefaultTab(pendingCount > 0 ? 'supervisor' : 'manage');
+    } else if (userRole === 'reception') {
+      applyDefaultTab('manage');
+    } else {
+      applyDefaultTab('assignments');
+    }
+  }, [hasManagerAccess, isExecutiveReadOnly, isHybridHousekeeper, hasActiveAssignmentsToday, userRole, pendingCount, onActiveSubTabChange, onActiveInnerTabChange]);
 
-    checkDefaultTab();
-  }, [hasManagerAccess, isExecutiveReadOnly, isHybridHousekeeper, hasActiveAssignmentsToday, userRole, pendingCount, hidePmsUploadTab, onActiveSubTabChange, onActiveInnerTabChange]);
+
 
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
   const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'reception'].includes(userRole);
