@@ -16,6 +16,7 @@ interface Profile {
   assigned_hotel?: string;
   is_super_admin?: boolean;
   organization_slug?: string;
+  acts_as_housekeeper?: boolean;
 }
 
 interface AuthContextType {
