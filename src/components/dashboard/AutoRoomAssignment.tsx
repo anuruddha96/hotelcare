@@ -898,8 +898,8 @@ ${activePreviews.map(preview => {
         {room.linen_change_required && (
           <span className="text-[10px] px-0.5 font-bold text-orange-600">C</span>
         )}
-        {(room.pms_metadata as any)?.inferredBedConfig?.value && (
-          <span className="text-[9px] px-0.5 opacity-70">🛏️{String((room.pms_metadata as any).inferredBedConfig.value).slice(0, 8)}</span>
+        {((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration) && (
+          <span className="text-[9px] px-0.5 opacity-70">🛏️{String((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration).slice(0, 8)}</span>
         )}
       </div>
     );
