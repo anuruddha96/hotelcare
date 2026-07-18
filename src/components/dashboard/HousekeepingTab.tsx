@@ -157,7 +157,36 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   const isAdmin = userRole === 'admin';
   // Executive read-only viewers (Top Management): see informational tabs, skip operational ones
   const isExecutiveReadOnly = ['top_management', 'top_management_manager'].includes(userRole);
-  
+  // Hybrid: a manager who is also flagged as a housekeeper (can be assigned rooms).
+  const isHybridHousekeeper = hasManagerAccess && !!(profile as any)?.acts_as_housekeeper;
+
+  const [hasActiveAssignmentsToday, setHasActiveAssignmentsToday] = useState(false);
+
+  // Detect whether the hybrid user has any active room assignments today so we
+  // can land them on My Tasks instead of Team View.
+  useEffect(() => {
+    if (!isHybridHousekeeper || !user?.id) {
+      setHasActiveAssignmentsToday(false);
+      return;
+    }
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    const todayKey = `${y}-${m}-${d}`;
+    let cancelled = false;
+    (async () => {
+      const { count } = await supabase
+        .from('room_assignments')
+        .select('id', { count: 'exact', head: true })
+        .eq('staff_id', user.id)
+        .eq('assignment_date', todayKey)
+        .in('status', ['assigned', 'in_progress']);
+      if (!cancelled) setHasActiveAssignmentsToday((count || 0) > 0);
+    })();
+    return () => { cancelled = true; };
+  }, [isHybridHousekeeper, user?.id]);
+
   // Set the default active tab. Managers should land directly on Team View
   // (or pending approvals when action is needed), not an empty/staff task view.
   useEffect(() => {
@@ -174,6 +203,12 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         return;
       }
       if (hasManagerAccess) {
+        // Hybrid supervisor+housekeeper: if they have rooms to clean today,
+        // send them straight to My Tasks.
+        if (isHybridHousekeeper && hasActiveAssignmentsToday) {
+          applyDefaultTab('assignments');
+          return;
+        }
         applyDefaultTab(pendingCount > 0 ? 'supervisor' : 'manage');
       } else if (userRole === 'reception') {
         applyDefaultTab('manage');
@@ -183,7 +218,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     };
 
     checkDefaultTab();
-  }, [hasManagerAccess, isExecutiveReadOnly, userRole, pendingCount, hidePmsUploadTab, onActiveSubTabChange, onActiveInnerTabChange]);
+  }, [hasManagerAccess, isExecutiveReadOnly, isHybridHousekeeper, hasActiveAssignmentsToday, userRole, pendingCount, hidePmsUploadTab, onActiveSubTabChange, onActiveInnerTabChange]);
 
   // Can view housekeeping section: all managerial roles EXCEPT housekeeping, reception, and maintenance
   const canAccessHousekeeping = hasManagerAccess || ['housekeeping', 'reception'].includes(userRole);
@@ -205,6 +240,18 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     // Hide operational/admin tabs for read-only executives
     if (isExecutiveReadOnly) {
       order = order.filter((id) => !['pms-upload', 'staff-management', 'supervisor'].includes(id));
+    }
+    // For hybrid supervisor+housekeeper users, insert the "My Tasks" tab
+    // immediately after "Team View" (manage) so the two sit side-by-side.
+    if (isHybridHousekeeper) {
+      const idx = order.indexOf('manage');
+      const withoutAssignments = order.filter((id) => id !== 'assignments');
+      if (idx >= 0) {
+        withoutAssignments.splice(idx + 1, 0, 'assignments');
+      } else {
+        withoutAssignments.unshift('assignments');
+      }
+      order = withoutAssignments;
     }
     return order;
   };
