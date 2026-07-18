@@ -72,6 +72,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     assigned_hotel: '',
     is_super_admin: false,
     organization_slug: '',
+    acts_as_housekeeper: false,
   });
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
