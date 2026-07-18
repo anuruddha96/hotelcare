@@ -479,6 +479,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         assigned_hotel: '',
         is_super_admin: false,
         organization_slug: '',
+        acts_as_housekeeper: false,
       });
       setEditHotels([]);
     } catch (error: any) {
