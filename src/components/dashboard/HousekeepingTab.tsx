@@ -176,7 +176,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     const todayKey = `${y}-${m}-${d}`;
     let cancelled = false;
     (async () => {
-      const { count } = await supabase
+      const { count } = await (supabase as any)
         .from('room_assignments')
         .select('id', { count: 'exact', head: true })
         .eq('staff_id', user.id)
