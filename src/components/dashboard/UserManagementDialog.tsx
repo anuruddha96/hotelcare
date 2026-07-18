@@ -434,6 +434,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       if (editUserData.email) profileUpdates.email = editUserData.email;
       if (editUserData.phone_number) profileUpdates.phone_number = editUserData.phone_number;
       if (editUserData.role) profileUpdates.role = editUserData.role;
+      profileUpdates.acts_as_housekeeper = editUserData.acts_as_housekeeper;
       if (editUserData.organization_slug) profileUpdates.organization_slug = editUserData.organization_slug;
       if (editUserData.assigned_hotel && editUserData.assigned_hotel !== 'none') {
         profileUpdates.assigned_hotel = editUserData.assigned_hotel;
