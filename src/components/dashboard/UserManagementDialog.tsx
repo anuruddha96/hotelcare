@@ -1006,6 +1006,25 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     </SelectContent>
                   </Select>
                 </div>
+
+                {['manager','housekeeping_manager','reception_manager','maintenance_manager','marketing_manager','back_office_manager','control_manager','finance_manager','top_management_manager','admin','front_office','hr'].includes(editUserData.role) && (
+                  <div className="space-y-2 p-4 border rounded-lg bg-muted/50">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="edit_acts_as_housekeeper"
+                        checked={editUserData.acts_as_housekeeper}
+                        onCheckedChange={(checked) => setEditUserData({ ...editUserData, acts_as_housekeeper: checked as boolean })}
+                      />
+                      <Label htmlFor="edit_acts_as_housekeeper" className="text-sm font-semibold cursor-pointer">
+                        Also acts as housekeeper (can be assigned rooms)
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground ml-6">
+                      Supervisor + housekeeper hybrid: keeps full manager access and appears in auto-assign & manual room assignment pickers. A "My Tasks" tab is shown next to Team View.
+                    </p>
+                  </div>
+                )}
+
                 
                 {(currentUserIsSuperAdmin || currentUserRole === 'admin') && (
                   <div className="space-y-2">
