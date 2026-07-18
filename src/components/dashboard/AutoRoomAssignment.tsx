@@ -822,7 +822,7 @@ ${activePreviews.map(preview => {
         const specials: string[] = [];
         if (room.towel_change_required) specials.push('🧺 Towel');
         if (room.linen_change_required) specials.push('🛏️ Clean Room (C)');
-        const inferredBed = (room.pms_metadata as any)?.inferredBedConfig?.value;
+        const inferredBed = (room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration;
         if (inferredBed) specials.push(`Bed: ${inferredBed}`);
         if (room.notes) specials.push(String(room.notes));
         return `<tr class="${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? 'type-co' : 'type-daily'}">
