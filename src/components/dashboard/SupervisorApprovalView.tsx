@@ -192,21 +192,15 @@ export function SupervisorApprovalView() {
     const startOfDay = dayStart.toISOString();
     const endOfDay = nextDay.toISOString();
 
-    // Self-heal old uncleared minibar rows so yesterday's consumption can no
-    // longer block today's room approval popup.
-    await supabase
-      .from('room_minibar_usage')
-      .update({ is_cleared: true, guest_checkout_date: new Date().toISOString() })
-      .in('room_id', roomIds)
-      .eq('is_cleared', false)
-      .lt('usage_date', startOfDay);
-
+    // Surface every uncleared minibar row for these rooms up to the end of
+    // the selected day — including prior days that were never reconciled —
+    // so the supervisor can confirm each charge before it's cleared. Do NOT
+    // silently mark old rows as cleared: that erases lost charges.
     const { data, error } = await supabase
       .from('room_minibar_usage')
       .select('id, room_id, quantity_used, minibar_items:minibar_item_id(name, price)')
       .in('room_id', roomIds)
       .eq('is_cleared', false)
-      .gte('usage_date', startOfDay)
       .lt('usage_date', endOfDay);
     if (error || !data) return { items: [], total: 0, usageIds: [] };
     const filtered = data.filter((u: any) => (u.quantity_used || 0) > 0);
@@ -921,7 +915,9 @@ export function SupervisorApprovalView() {
     const SpeedIcon = speedIndicator?.icon || Timer;
     const isExpanded = expandedCards.has(assignment.id);
     const housekeepingNote = assignment.rooms?.notes?.trim() || '';
-    const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value || null;
+    const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value
+      || assignment.rooms?.bed_configuration
+      || null;
     const hasDetails = !!(
       completionPhotoUrls[assignment.id]?.length ||
       linenSummaries[assignment.id]?.length ||

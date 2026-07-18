@@ -715,11 +715,15 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
   const hasManagerNotes = !!roomFlags.cleanNotes;
-  const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value
+  // Prefer PMS-inferred bed config, but fall back to the manager-set
+  // `bed_configuration` column so manual bed setup instructions still reach
+  // the housekeeper when there's no housekeeping note to infer from.
+  const rawBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value
     || assignment.rooms?.pms_metadata?.inferredBedConfig?.bedConfiguration
+    || assignment.rooms?.bed_configuration
     || null;
-  const bedInstruction = typeof inferredBedInstruction === 'string' && inferredBedInstruction.trim()
-    ? inferredBedInstruction.trim()
+  const bedInstruction = typeof rawBedInstruction === 'string' && rawBedInstruction.trim()
+    ? rawBedInstruction.trim()
     : null;
   
   // Count special instructions
