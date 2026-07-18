@@ -72,6 +72,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     assigned_hotel: '',
     is_super_admin: false,
     organization_slug: '',
+    acts_as_housekeeper: false,
   });
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
@@ -354,6 +355,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       assigned_hotel: user.assigned_hotel || '',
       is_super_admin: user.is_super_admin || false,
       organization_slug: userOrgSlug,
+      acts_as_housekeeper: !!(user as any).acts_as_housekeeper,
     });
     
     // Fetch hotels for this organization
@@ -432,6 +434,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       if (editUserData.email) profileUpdates.email = editUserData.email;
       if (editUserData.phone_number) profileUpdates.phone_number = editUserData.phone_number;
       if (editUserData.role) profileUpdates.role = editUserData.role;
+      profileUpdates.acts_as_housekeeper = editUserData.acts_as_housekeeper;
       if (editUserData.organization_slug) profileUpdates.organization_slug = editUserData.organization_slug;
       if (editUserData.assigned_hotel && editUserData.assigned_hotel !== 'none') {
         profileUpdates.assigned_hotel = editUserData.assigned_hotel;
@@ -477,6 +480,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         assigned_hotel: '',
         is_super_admin: false,
         organization_slug: '',
+        acts_as_housekeeper: false,
       });
       setEditHotels([]);
     } catch (error: any) {
@@ -1002,6 +1006,25 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     </SelectContent>
                   </Select>
                 </div>
+
+                {['manager','housekeeping_manager','reception_manager','maintenance_manager','marketing_manager','back_office_manager','control_manager','finance_manager','top_management_manager','admin','front_office','hr'].includes(editUserData.role) && (
+                  <div className="space-y-2 p-4 border rounded-lg bg-muted/50">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="edit_acts_as_housekeeper"
+                        checked={editUserData.acts_as_housekeeper}
+                        onCheckedChange={(checked) => setEditUserData({ ...editUserData, acts_as_housekeeper: checked as boolean })}
+                      />
+                      <Label htmlFor="edit_acts_as_housekeeper" className="text-sm font-semibold cursor-pointer">
+                        Also acts as housekeeper (can be assigned rooms)
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground ml-6">
+                      Supervisor + housekeeper hybrid: keeps full manager access and appears in auto-assign & manual room assignment pickers. A "My Tasks" tab is shown next to Team View.
+                    </p>
+                  </div>
+                )}
+
                 
                 {(currentUserIsSuperAdmin || currentUserRole === 'admin') && (
                   <div className="space-y-2">
