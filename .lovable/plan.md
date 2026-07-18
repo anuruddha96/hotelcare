@@ -1,37 +1,45 @@
-I found two root causes to address:
+## Goal
 
-1. **Housekeeping notes**: the app is still willing to fall back to the reservation/OTA note blob. That is why managers/admins and housekeepers can see complex reservation information instead of the dedicated Previo housekeeping note.
-2. **Minibar approvals**: supervisor approval currently loads all uncleared minibar rows for a room, without limiting to today. So any old uncleared record can trigger the “minibar used” confirmation on a later day.
+Formalise the "supervisor who also cleans" pattern currently hard-coded for `Nykipanchuk_073` (via the `profiles.acts_as_housekeeper` flag) into a first-class, admin-toggleable capability that any manager-level user can have. The user keeps their full manager access AND gets the housekeeper "My Tasks" tab, and appears in every housekeeper-picker (auto-assign + manual).
 
-Plan:
+No new role is added — the existing role stays (e.g. `housekeeping_manager` or `manager`) and the `acts_as_housekeeper` boolean turns them into the hybrid. This keeps all existing manager RLS, tabs, and Revenue/Invoices access working untouched.
 
-1. **Previo housekeeping note extraction**
-   - Extend the Previo sync parser to search for department-specific housekeeping notes, not just flat fields like `noteInternal`.
-   - Support likely Previo structures such as nested note lists/tabs where a note has department/type/category labels like `Housekeeping`, `Reception`, `Kitchen`, etc.
-   - Prefer only the housekeeping/internal/reception operational note; do **not** fall back to Booking.com/OTA reservation blobs for the room note shown in Hotel Care.
+## Changes
 
-2. **Stop showing reservation blobs to managers/admins**
-   - In PMS refresh, write `rooms.notes` only when the synced row contains a clean housekeeping/internal note.
-   - If only `NoteOta` / reservation blob is present, clear or preserve manager-entered operational flags but do not display the reservation/pricing/commission text.
-   - Keep `NoteOta` only in PMS metadata/audit fields if needed, not in the visible manager/admin/housekeeper note surface.
+### 1. Admin UI to toggle the hybrid (UserManagementDialog)
+- In the Edit User form, add a Switch: **"Also acts as housekeeper (can be assigned rooms)"**.
+- Shown only when the selected role is manager-level (`manager`, `housekeeping_manager`, `top_management_manager`, `admin`, `reception_manager`, etc. — i.e. not for pure `housekeeping` / `reception` / `maintenance` staff where it's meaningless).
+- Persists `profiles.acts_as_housekeeper` on save (column already exists).
+- Same switch mirrored in the Create User form for the same roles.
 
-3. **Bed arrangement from housekeeping note only**
-   - Move bed inference to use the clean housekeeping note only.
-   - If the housekeeping note says “2 single beds”, “baby cot”, “two separate beds”, “beds together”, etc., auto-select the room’s bed configuration.
-   - Do not treat existing default bed configuration like “Double Bed” as a special instruction unless it came from the housekeeping note for today.
-   - On the housekeeper card, show a bed-arrangement special instruction only when it was inferred from the housekeeping note or manually set as an actual instruction, not just because the room has a default bed setup.
+### 2. Housekeeper "My Tasks" tab for hybrid managers (HousekeepingTab.tsx)
+- Compute `isHybridHousekeeper = hasManagerAccess && profile.acts_as_housekeeper === true`.
+- Tab order for hybrids: keep the manager tab list as-is, but insert the **My Tasks** trigger immediately after **Team View (`manage`)** so the two sit side-by-side (matches the request "keep Team View and My Tasks close to each other"). For non-hybrid managers, no My Tasks tab is shown (unchanged).
+- Render `<TabsContent value="assignments"><HousekeepingStaffView /></TabsContent>` for hybrids too (already exists at the bottom — just needs to remain gated to include hybrids).
 
-4. **Housekeeper special-instructions card cleanup**
-   - Show the dedicated housekeeping note text prominently on the assignment card and start-cleaning warning dialog.
-   - Remove generic/default “Bed Configuration: Double Bed” from the special-instructions warning when there is no actual special instruction.
-   - Keep linen/towel operational flags, but checkout cleans will continue not to show redundant towel-change instructions.
+### 3. Smart default tab for hybrids
+- In the existing `checkDefaultTab` effect, extend the logic:
+  - Query `room_assignments` for `staff_id = user.id`, `assigned_date = today`, `status in ('assigned','in_progress')`.
+  - If hybrid AND count > 0 → default to `assignments` (My Tasks).
+  - Else if hybrid AND `pendingCount > 0` → `supervisor`.
+  - Else → `manage` (Team View), matching current manager default.
 
-5. **Minibar stale-data fix**
-   - Change supervisor approval minibar lookup to only include minibar usage from the selected assignment date.
-   - Add a self-healing cleanup before showing the popup: old uncleared rows before the selected date are marked cleared/ignored so they cannot appear as today’s consumption.
-   - Keep today’s minibar records visible, but avoid yesterday’s water/nuts appearing for room 102.
+### 4. Dashboard top-level "Housekeeping" tab already covers them
+- No change needed to `Dashboard.tsx`; hybrids already match the manager branch of the top-tab switch because their role is still a manager role.
 
-6. **Validation**
-   - Verify room 102 no longer shows yesterday’s water/nuts in today’s approval popup.
-   - Verify a room with only a default “Double Bed” does not show it as special instructions.
-   - Verify a Previo housekeeping note like `test - anu` or bed-arrangement text is passed into the housekeeper card and bed configuration is inferred only from that note.
+### 5. Auto-assign & manual-assign lists — already work
+- `AutoRoomAssignment.tsx`, `HousekeepingManagerView.tsx`, `SimpleRoomAssignment.tsx`, `EasyRoomAssignment.tsx` already filter with `role.eq.housekeeping,acts_as_housekeeper.eq.true`, so any newly-flagged manager will appear automatically. No code change required — this plan just adds the admin toggle that populates the flag.
+
+### 6. Type/profile plumbing
+- `useAuth` currently returns `profile` from the `profiles` table which already includes `acts_as_housekeeper` (present in `types.ts`). No schema migration needed.
+
+## Out of scope
+- No new role enum value, no new RLS policies (manager RLS already covers everything the hybrid needs; the housekeeper `room_assignments` RLS already keys off `staff_id = auth.uid()` which works for any user, manager or not).
+- No changes to Revenue, Invoices, or notification routing.
+
+## Verification
+1. As admin, toggle **Also acts as housekeeper** on a `housekeeping_manager` user → save.
+2. Log in as that user with no room assignments → lands on Team View, My Tasks tab visible right next to Team View.
+3. From another admin session, assign them a room via Auto-Assign → they appear in the picker; assignment succeeds.
+4. Refresh the hybrid user's dashboard → now defaults to My Tasks (because active assignment exists today). Can start/complete the room exactly like a regular housekeeper.
+5. All manager tabs (Team View, Approvals, Performance, PMS Upload, etc.) still accessible.
