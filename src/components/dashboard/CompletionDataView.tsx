@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Camera, AlertTriangle, Shirt, Image as ImageIcon, ChevronRight } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { PhotoLightbox, type LightboxPhoto } from '@/components/ui/photo-lightbox';
 
 interface CompletionDataViewProps {
   assignmentId: string;
@@ -73,6 +74,8 @@ export function CompletionDataView({
   const [maintenanceIssues, setMaintenanceIssues] = useState<MaintenanceIssue[]>([]);
   const [lostAndFoundItems, setLostAndFoundItems] = useState<LostAndFoundItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lightbox, setLightbox] = useState<{ photos: LightboxPhoto[]; index: number } | null>(null);
+  const openLightbox = (photos: LightboxPhoto[], index: number) => setLightbox({ photos, index });
 
   useEffect(() => {
     fetchCompletionData();
@@ -281,32 +284,43 @@ export function CompletionDataView({
                 </div>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[92vh] overflow-y-auto p-4 sm:p-6 top-[2vh] translate-y-0 sm:top-1/2 sm:-translate-y-1/2">
               <DialogHeader>
                 <DialogTitle>Daily Completion Photos</DialogTitle>
               </DialogHeader>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {completionPhotos.map((photo, index) => (
-                  <div key={index} className="space-y-1">
-                    <a 
-                      href={photo.url || photo} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="block"
-                    >
-                      <img
-                        src={photo.url || photo}
-                        alt={photo.categoryName || `Completion ${index + 1}`}
-                        className="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition-opacity"
-                      />
-                    </a>
-                    {photo.categoryName && (
-                      <p className="text-xs text-center font-medium text-muted-foreground">
-                        {photo.categoryName}
-                      </p>
-                    )}
-                  </div>
-                ))}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
+                {completionPhotos.map((photo, index) => {
+                  const url = photo.url || photo;
+                  const caption = photo.categoryName || `Completion ${index + 1}`;
+                  return (
+                    <div key={index} className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openLightbox(
+                            completionPhotos.map((p, i) => ({
+                              url: p.url || p,
+                              caption: p.categoryName || `Completion ${i + 1}`,
+                            })),
+                            index
+                          )
+                        }
+                        className="block w-full"
+                      >
+                        <img
+                          src={url}
+                          alt={caption}
+                          className="w-full h-32 object-cover rounded-lg border hover:opacity-80 transition-opacity"
+                        />
+                      </button>
+                      {photo.categoryName && (
+                        <p className="text-xs text-center font-medium text-muted-foreground">
+                          {photo.categoryName}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </DialogContent>
           </Dialog>
@@ -332,26 +346,30 @@ export function CompletionDataView({
                 </div>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[92vh] overflow-y-auto p-4 sm:p-6 top-[2vh] translate-y-0 sm:top-1/2 sm:-translate-y-1/2">
               <DialogHeader>
                 <DialogTitle>DND Photos</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
-                {dndPhotos.map((dnd) => (
+              <div className="space-y-4 mt-2">
+                {dndPhotos.map((dnd, dIdx) => (
                   <Card key={dnd.id} className="p-4">
                     <div className="space-y-3">
-                      <a 
-                        href={dnd.photo_url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="block"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openLightbox(
+                            dndPhotos.map((d) => ({ url: d.photo_url, caption: d.notes || 'DND photo' })),
+                            dIdx
+                          )
+                        }
+                        className="block w-full"
                       >
                         <img
                           src={dnd.photo_url}
                           alt="DND photo"
                           className="w-full h-48 object-cover rounded-lg border hover:opacity-80 transition-opacity"
                         />
-                      </a>
+                      </button>
                       {dnd.notes && (
                         <div className="text-sm text-muted-foreground">
                           <strong>Notes:</strong> {dnd.notes}
@@ -481,11 +499,11 @@ export function CompletionDataView({
                 </div>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[92vh] overflow-y-auto p-4 sm:p-6 top-[2vh] translate-y-0 sm:top-1/2 sm:-translate-y-1/2">
               <DialogHeader>
                 <DialogTitle>Lost & Found Items</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
+              <div className="space-y-4 mt-2">
                 {lostAndFoundItems.map((item) => (
                   <Card key={item.id} className="p-4 border-yellow-200">
                     <div className="space-y-3">
@@ -500,26 +518,30 @@ export function CompletionDataView({
                           {new Date(item.found_date).toLocaleDateString()}
                         </span>
                       </div>
-                      
+
                       {item.photo_urls && item.photo_urls.length > 0 && (
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                           {item.photo_urls.map((photoUrl, idx) => (
-                            <a 
-                              key={idx} 
-                              href={photoUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() =>
+                                openLightbox(
+                                  item.photo_urls.map((u, i) => ({ url: u, caption: `${item.item_description} (${i + 1})` })),
+                                  idx
+                                )
+                              }
                             >
                               <img
                                 src={photoUrl}
                                 alt={`Lost item ${idx + 1}`}
                                 className="w-full h-24 object-cover rounded border hover:opacity-80"
                               />
-                            </a>
+                            </button>
                           ))}
                         </div>
                       )}
-                      
+
                       {item.notes && (
                         <div className="text-sm bg-muted p-2 rounded">
                           <strong>Notes:</strong> {item.notes}
@@ -553,14 +575,14 @@ export function CompletionDataView({
                 </div>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[92vh] overflow-y-auto p-4 sm:p-6 top-[2vh] translate-y-0 sm:top-1/2 sm:-translate-y-1/2">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 text-destructive">
                   <AlertTriangle className="h-5 w-5" />
                   Maintenance Issues Reported
                 </DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
+              <div className="space-y-4 mt-2">
                 {maintenanceIssues.map((issue) => (
                   <Card key={issue.id} className="border-2 border-destructive/30 bg-destructive/5">
                     <CardContent className="p-4 space-y-3">
@@ -578,7 +600,7 @@ export function CompletionDataView({
                           {issue.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                       </div>
-                      
+
                       <div className="p-3 bg-white rounded-lg border border-destructive/20">
                         <p className="font-semibold text-destructive mb-1">Issue Description:</p>
                         <p className="text-foreground">{issue.issue_description}</p>
@@ -594,12 +616,22 @@ export function CompletionDataView({
                           <p className="font-semibold text-sm">📷 Photos ({issue.photo_urls.length}):</p>
                           <div className="grid grid-cols-3 gap-2">
                             {issue.photo_urls.map((url, idx) => (
-                              <img
+                              <button
                                 key={idx}
-                                src={url}
-                                alt={`Maintenance ${idx + 1}`}
-                                className="w-full h-24 object-cover rounded-lg border-2 border-destructive/30"
-                              />
+                                type="button"
+                                onClick={() =>
+                                  openLightbox(
+                                    issue.photo_urls.map((u, i) => ({ url: u, caption: `Maintenance ${i + 1}` })),
+                                    idx
+                                  )
+                                }
+                              >
+                                <img
+                                  src={url}
+                                  alt={`Maintenance ${idx + 1}`}
+                                  className="w-full h-24 object-cover rounded-lg border-2 border-destructive/30"
+                                />
+                              </button>
                             ))}
                           </div>
                         </div>
@@ -616,6 +648,13 @@ export function CompletionDataView({
           </Dialog>
         )}
       </div>
+
+      <PhotoLightbox
+        photos={lightbox?.photos || []}
+        startIndex={lightbox?.index || 0}
+        open={!!lightbox}
+        onOpenChange={(o) => { if (!o) setLightbox(null); }}
+      />
     </div>
   );
 }
