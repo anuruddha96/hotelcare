@@ -511,10 +511,12 @@ export async function runPmsRefresh(
       // blobs or partner room-category labels.
       const inferredBed = housekeepingNote ? inferBedConfigFromNote(housekeepingNote) : null;
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
-      const currentWasAutoInferred = !!existingMetadata?.inferredBedConfig;
-      // Only auto-populate when there's no manager-set value, or when the
-      // existing value was itself auto-inferred by a prior PMS refresh.
-      // Never overwrite a bed_configuration that a manager set manually.
+      const storedInferredValue = existingMetadata?.inferredBedConfig?.value as string | null | undefined;
+      // Treat the stored auto-inferred marker as still valid only if the
+      // current column still matches the value we wrote. If a manager has
+      // since edited bed_configuration to something else, the row is
+      // manager-owned and must not be overwritten or cleared by PMS refresh.
+      const currentWasAutoInferred = !!storedInferredValue && !!currentBedConfig && storedInferredValue === currentBedConfig;
       const shouldSetBedConfig = !!inferredBed && (!currentBedConfig || currentWasAutoInferred);
       if (shouldSetBedConfig) {
         changeFields.push({
