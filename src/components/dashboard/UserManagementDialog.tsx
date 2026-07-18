@@ -355,6 +355,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       assigned_hotel: user.assigned_hotel || '',
       is_super_admin: user.is_super_admin || false,
       organization_slug: userOrgSlug,
+      acts_as_housekeeper: !!(user as any).acts_as_housekeeper,
     });
     
     // Fetch hotels for this organization
