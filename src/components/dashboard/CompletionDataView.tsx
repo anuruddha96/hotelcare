@@ -74,6 +74,8 @@ export function CompletionDataView({
   const [maintenanceIssues, setMaintenanceIssues] = useState<MaintenanceIssue[]>([]);
   const [lostAndFoundItems, setLostAndFoundItems] = useState<LostAndFoundItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lightbox, setLightbox] = useState<{ photos: LightboxPhoto[]; index: number } | null>(null);
+  const openLightbox = (photos: LightboxPhoto[], index: number) => setLightbox({ photos, index });
 
   useEffect(() => {
     fetchCompletionData();
