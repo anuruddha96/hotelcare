@@ -512,7 +512,10 @@ export async function runPmsRefresh(
       const inferredBed = housekeepingNote ? inferBedConfigFromNote(housekeepingNote) : null;
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
       const currentWasAutoInferred = !!existingMetadata?.inferredBedConfig;
-      const shouldSetBedConfig = !!inferredBed && (!currentBedConfig || currentWasAutoInferred || currentBedConfig !== inferredBed.value);
+      // Only auto-populate when there's no manager-set value, or when the
+      // existing value was itself auto-inferred by a prior PMS refresh.
+      // Never overwrite a bed_configuration that a manager set manually.
+      const shouldSetBedConfig = !!inferredBed && (!currentBedConfig || currentWasAutoInferred);
       if (shouldSetBedConfig) {
         changeFields.push({
           field: "Bed config (auto from housekeeping note)",
