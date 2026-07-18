@@ -575,14 +575,14 @@ export function CompletionDataView({
                 </div>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[calc(100vw-1rem)] max-h-[92vh] overflow-y-auto p-4 sm:p-6 top-[2vh] translate-y-0 sm:top-1/2 sm:-translate-y-1/2">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 text-destructive">
                   <AlertTriangle className="h-5 w-5" />
                   Maintenance Issues Reported
                 </DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
+              <div className="space-y-4 mt-2">
                 {maintenanceIssues.map((issue) => (
                   <Card key={issue.id} className="border-2 border-destructive/30 bg-destructive/5">
                     <CardContent className="p-4 space-y-3">
@@ -600,7 +600,7 @@ export function CompletionDataView({
                           {issue.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                       </div>
-                      
+
                       <div className="p-3 bg-white rounded-lg border border-destructive/20">
                         <p className="font-semibold text-destructive mb-1">Issue Description:</p>
                         <p className="text-foreground">{issue.issue_description}</p>
@@ -616,12 +616,22 @@ export function CompletionDataView({
                           <p className="font-semibold text-sm">📷 Photos ({issue.photo_urls.length}):</p>
                           <div className="grid grid-cols-3 gap-2">
                             {issue.photo_urls.map((url, idx) => (
-                              <img
+                              <button
                                 key={idx}
-                                src={url}
-                                alt={`Maintenance ${idx + 1}`}
-                                className="w-full h-24 object-cover rounded-lg border-2 border-destructive/30"
-                              />
+                                type="button"
+                                onClick={() =>
+                                  openLightbox(
+                                    issue.photo_urls.map((u, i) => ({ url: u, caption: `Maintenance ${i + 1}` })),
+                                    idx
+                                  )
+                                }
+                              >
+                                <img
+                                  src={url}
+                                  alt={`Maintenance ${idx + 1}`}
+                                  className="w-full h-24 object-cover rounded-lg border-2 border-destructive/30"
+                                />
+                              </button>
                             ))}
                           </div>
                         </div>
@@ -638,6 +648,13 @@ export function CompletionDataView({
           </Dialog>
         )}
       </div>
+
+      <PhotoLightbox
+        photos={lightbox?.photos || []}
+        startIndex={lightbox?.index || 0}
+        open={!!lightbox}
+        onOpenChange={(o) => { if (!o) setLightbox(null); }}
+      />
     </div>
   );
 }
