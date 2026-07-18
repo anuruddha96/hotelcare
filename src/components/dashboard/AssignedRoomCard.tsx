@@ -714,7 +714,29 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
-  const hasManagerNotes = !!roomFlags.cleanNotes;
+  // Strip PMS-imported reception/kitchen sections from the note shown to
+  // housekeepers — those are OTA/reservation blobs that leak through the
+  // Previo `Recepce:` / `Kuchyně:` prefixes and are not actionable for
+  // cleaning. Keep only manager-typed free text and the explicit
+  // `Housekeeping:` section (which IS meant for the housekeeper).
+  const managerVisibleNote = (() => {
+    const raw = (roomFlags.cleanNotes || '').trim();
+    if (!raw) return '';
+    const PMS_SECTION_RE = /(Recepce|Reception|Kuchyn[ěe]|Kitchen|Syst[ée]m|Poznámka)\s*:\s*/i;
+    // If the note contains any PMS section labels, only keep the
+    // `Housekeeping:` / `Takarítás` / `Hózvezetés` slice; drop everything else.
+    if (PMS_SECTION_RE.test(raw) || /Housekeeping\s*:/i.test(raw)) {
+      const parts = raw.split(/\s•\s|\s\|\s/);
+      const kept = parts
+        .map((p) => p.trim())
+        .filter((p) => /^(Housekeeping|Takar[ií]t[aá]s|H[oó]zvezet[ée]s)\s*:/i.test(p))
+        .map((p) => p.replace(/^[^:]+:\s*/, '').trim())
+        .filter(Boolean);
+      return kept.join(' • ');
+    }
+    return raw;
+  })();
+  const hasManagerNotes = !!managerVisibleNote;
   // Prefer PMS-inferred bed config, but fall back to the manager-set
   // `bed_configuration` column so manual bed setup instructions still reach
   // the housekeeper when there's no housekeeping note to infer from.
