@@ -244,36 +244,55 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     setLoading(true);
     try {
       const now = new Date().toISOString();
-      
-      // Mark assignment as DND
-      const { error: assignmentError } = await supabase
-        .from('room_assignments')
-        .update({ 
-          status: 'completed',
-          is_dnd: true,
-          dnd_marked_at: now,
-          dnd_marked_by: user?.id,
-          completed_at: now
-        })
-        .eq('id', assignment.id);
+      const currentAttempts = assignment.dnd_attempt_count ?? 0;
+      const nextAttempt = currentAttempts + 1;
+      const isSecondAttempt = nextAttempt >= 2;
 
-      if (assignmentError) throw assignmentError;
+      if (isSecondAttempt) {
+        // Second (or later) DND attempt → send to manager approval
+        const { error: assignmentError } = await supabase
+          .from('room_assignments')
+          .update({
+            status: 'completed',
+            is_dnd: true,
+            dnd_marked_at: now,
+            dnd_marked_by: user?.id,
+            dnd_attempt_count: nextAttempt,
+            completed_at: now,
+          } as any)
+          .eq('id', assignment.id);
+        if (assignmentError) throw assignmentError;
 
-      // Also mark the room as DND for display purposes
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({
-          is_dnd: true,
-          dnd_marked_at: now,
-          dnd_marked_by: user?.id
-        })
-        .eq('id', assignment.room_id);
+        const { error: roomError } = await supabase
+          .from('rooms')
+          .update({
+            is_dnd: true,
+            dnd_marked_at: now,
+            dnd_marked_by: user?.id,
+          })
+          .eq('id', assignment.room_id);
+        if (roomError) throw roomError;
 
-      if (roomError) throw roomError;
-      
-      onStatusUpdate(assignment.id, 'completed');
-      const roomNum = assignment.rooms?.room_number ?? '—';
-      toast.success(`Room ${roomNum} marked as DND with photo evidence`);
+        onStatusUpdate(assignment.id, 'completed');
+        const roomNum = assignment.rooms?.room_number ?? '—';
+        toast.success(`Room ${roomNum} — 2nd DND attempt recorded, sent for manager approval`);
+      } else {
+        // First DND attempt → recycle to bottom of housekeeper's list
+        const { error: assignmentError } = await supabase
+          .from('room_assignments')
+          .update({
+            status: 'dnd_pending_retry',
+            dnd_attempt_count: 1,
+            dnd_first_attempt_at: now,
+            dnd_retry_unlocked_at: null,
+          } as any)
+          .eq('id', assignment.id);
+        if (assignmentError) throw assignmentError;
+
+        onStatusUpdate(assignment.id, 'dnd_pending_retry');
+        const roomNum = assignment.rooms?.room_number ?? '—';
+        toast.success(`Room ${roomNum} — we'll try again after your other rooms or at 14:30`);
+      }
     } catch (error) {
       console.error('Error marking as DND:', error);
       toast.error('Failed to mark room as DND');
