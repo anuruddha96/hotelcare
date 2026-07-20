@@ -53,7 +53,7 @@ interface AssignedRoomCardProps {
     id: string;
     room_id: string;
     assignment_type: 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning';
-    status: 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+    status: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry';
     priority: number;
     estimated_duration: number;
     notes: string;
@@ -83,7 +83,7 @@ interface AssignedRoomCardProps {
       pms_metadata?: any;
     } | null;
   };
-  onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => void;
+  onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => void;
 }
 
 export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCardProps) {
@@ -309,7 +309,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
+  const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => {
     // Check for room photos on daily cleaning completion - require ALL 5 categories
     if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
       const { data: assignmentData } = await supabase

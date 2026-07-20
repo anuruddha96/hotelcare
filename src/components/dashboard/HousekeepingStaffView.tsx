@@ -20,7 +20,7 @@ interface Assignment {
   id: string;
   room_id: string;
   assignment_type: 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning';
-  status: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry';
+  status: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry' | 'dnd_pending_retry';
   priority: number;
   estimated_duration: number;
   notes: string;
@@ -242,7 +242,7 @@ export function HousekeepingStaffView() {
     }
   };
 
-  const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
+  const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => {
     setAssignments(prev =>
       prev.map(assignment =>
         assignment.id === assignmentId ? { ...assignment, status: newStatus } : assignment
