@@ -38,8 +38,11 @@ interface MinibarUsageRecord {
   total_price: number;
   usage_date: string;
   recorded_by_name: string;
+  recorded_role: string; // 'housekeeper' | 'manager' | 'reception' | 'guest' | 'admin' | ''
   source: string;
   is_cleared: boolean;
+  cleared_at?: string | null;
+  cleared_by_name?: string | null;
   guest_nights_stayed: number;
   guest_total_nights?: number | null;
 }
@@ -86,24 +89,25 @@ const parseNightTotalValue = (value: unknown): { currentNight: number; totalNigh
   return null;
 };
 
-function SourceBadge({ source }: { source: string }) {
-  if (source === 'guest') {
-    return (
-      <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 text-xs gap-1">
-        <ScanLine className="h-3 w-3" /> Guest
-      </Badge>
-    );
-  }
-  if (source === 'reception') {
-    return (
-      <Badge variant="outline" className="text-xs gap-1">
-        <Monitor className="h-3 w-3" /> Reception
-      </Badge>
-    );
-  }
+function SourceBadge({ source, role, name }: { source: string; role?: string; name?: string }) {
+  const label = (() => {
+    if (source === 'guest') return 'Guest (QR)';
+    if (source === 'reception' || role === 'reception') return 'Reception';
+    if (role === 'housekeeping_manager' || role === 'manager' || role === 'admin') return 'Manager';
+    if (role === 'housekeeper') return 'Housekeeper';
+    return 'Staff';
+  })();
+  const Icon = source === 'guest' ? ScanLine : source === 'reception' || role === 'reception' ? Monitor : User;
+  const cls = source === 'guest'
+    ? 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100'
+    : role === 'housekeeper'
+    ? 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100'
+    : role === 'housekeeping_manager' || role === 'manager' || role === 'admin'
+    ? 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-100'
+    : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-100';
   return (
-    <Badge className="bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100 text-xs gap-1">
-      <User className="h-3 w-3" /> Staff
+    <Badge className={`${cls} text-xs gap-1`}>
+      <Icon className="h-3 w-3" /> {label}{name ? ` · ${name}` : ''}
     </Badge>
   );
 }
@@ -248,11 +252,17 @@ function RoomGroupedView({
                       <div key={record.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{record.item_name}</div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <SourceBadge source={record.source} />
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <SourceBadge source={record.source} role={record.recorded_role} name={record.recorded_by_name} />
                             <span className="text-xs text-muted-foreground">
                               {format(new Date(record.usage_date), 'MMM d, HH:mm')}
                             </span>
+                            {record.is_cleared && (
+                              <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
+                                ✓ Refilled{record.cleared_by_name ? ` by ${record.cleared_by_name}` : ''}
+                                {record.cleared_at ? ` · ${format(new Date(record.cleared_at), 'MMM d, HH:mm')}` : ''}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-3 ml-3">
@@ -283,11 +293,17 @@ function RoomGroupedView({
                 <div key={record.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{record.item_name}</div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                      <SourceBadge source={record.source} />
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <SourceBadge source={record.source} role={record.recorded_role} name={record.recorded_by_name} />
                       <span className="text-xs text-muted-foreground">
                         {format(new Date(record.usage_date), 'MMM d, HH:mm')}
                       </span>
+                      {record.is_cleared && (
+                        <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
+                          ✓ Refilled{record.cleared_by_name ? ` by ${record.cleared_by_name}` : ''}
+                          {record.cleared_at ? ` · ${format(new Date(record.cleared_at), 'MMM d, HH:mm')}` : ''}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 ml-3">
@@ -320,6 +336,106 @@ function RoomGroupedView({
         );
       })}
     </div>
+  );
+}
+
+function RoomChipsOverview({
+  records,
+  searchTerm,
+  onSelect,
+}: {
+  records: MinibarUsageRecord[];
+  searchTerm: string;
+  onSelect: (room: string) => void;
+}) {
+  const chips = useMemo(() => {
+    // Group by room. A room chip is RED if any uncleared item exists; GREEN if all cleared or no items.
+    const map = new Map<string, {
+      room: string;
+      hotel: string;
+      totalItems: number;
+      totalPrice: number;
+      hasPending: boolean;
+      lastRecorder?: string;
+      lastRole?: string;
+      lastItemName?: string;
+      lastAt?: string;
+    }>();
+    for (const r of records) {
+      const key = `${r.room_number}-${r.hotel}`;
+      let g = map.get(key);
+      if (!g) {
+        g = { room: r.room_number, hotel: r.hotel, totalItems: 0, totalPrice: 0, hasPending: false };
+        map.set(key, g);
+      }
+      g.totalItems += r.quantity_used;
+      g.totalPrice += r.total_price;
+      if (!r.is_cleared) g.hasPending = true;
+      if (!g.lastAt || r.usage_date > g.lastAt) {
+        g.lastAt = r.usage_date;
+        g.lastRecorder = r.recorded_by_name;
+        g.lastRole = r.recorded_role;
+        g.lastItemName = r.item_name;
+      }
+    }
+    const arr = Array.from(map.values());
+    const term = searchTerm.trim().toLowerCase();
+    const filtered = term ? arr.filter(g => g.room.toLowerCase().includes(term)) : arr;
+    return filtered.sort((a, b) => a.room.localeCompare(b.room, undefined, { numeric: true }));
+  }, [records, searchTerm]);
+
+  const pendingCount = chips.filter(c => c.hasPending).length;
+  const cleanCount = chips.length - pendingCount;
+
+  if (chips.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="text-base">Rooms at a glance</CardTitle>
+          <div className="flex items-center gap-2 text-xs">
+            <Badge className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100">
+              {pendingCount} needs refill
+            </Badge>
+            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-100">
+              {cleanCount} up to date
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">
+          {chips.map((c) => (
+            <button
+              key={`${c.room}-${c.hotel}`}
+              onClick={() => onSelect(c.room)}
+              title={c.hasPending
+                ? `Needs refill · ${c.totalItems} item(s) · €${c.totalPrice.toFixed(2)}\nLast: ${c.lastItemName ?? ''} by ${c.lastRecorder ?? 'Unknown'}`
+                : `Minibar up to date · ${c.totalItems} item(s) recorded (refilled) · €${c.totalPrice.toFixed(2)}`}
+              className={`px-3 py-2 rounded-lg border text-left transition-colors ${
+                c.hasPending
+                  ? 'bg-red-50 border-red-300 hover:bg-red-100 text-red-900'
+                  : 'bg-emerald-50 border-emerald-300 hover:bg-emerald-100 text-emerald-900'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm">{c.room}</span>
+                <span className={`h-2 w-2 rounded-full ${c.hasPending ? 'bg-red-500' : 'bg-emerald-500'}`} />
+              </div>
+              <div className="text-[10px] opacity-80 mt-0.5">
+                {c.hasPending ? `${c.totalItems} · €${c.totalPrice.toFixed(2)}` : 'Up to date'}
+              </div>
+              {c.lastRecorder && (
+                <div className="text-[10px] opacity-70 truncate max-w-[130px]">
+                  {c.lastRecorder}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -599,10 +715,10 @@ export function MinibarTrackingView() {
           const { data, error } = await supabase
             .from('room_minibar_usage')
             .select(`
-              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared, cleared_at, cleared_by,
               rooms (room_number, hotel, guest_nights_stayed),
               minibar_items (name, price),
-              profiles (full_name)
+              profiles (full_name, role)
             `)
             .in('room_id', roomIds)
             .gte('usage_date', earliestCheckIn.toISOString())
@@ -628,10 +744,10 @@ export function MinibarTrackingView() {
         const { data, error } = await supabase
           .from('room_minibar_usage')
           .select(`
-            id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+            id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared, cleared_at, cleared_by,
             rooms (room_number, hotel, guest_nights_stayed),
             minibar_items (name, price),
-            profiles (full_name)
+            profiles (full_name, role)
           `)
           .gte('usage_date', startDate.toISOString())
           .lte('usage_date', endDate.toISOString())
@@ -666,10 +782,10 @@ export function MinibarTrackingView() {
           const { data: stayData } = await supabase
             .from('room_minibar_usage')
             .select(`
-              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared, cleared_at, cleared_by,
               rooms (room_number, hotel, guest_nights_stayed),
               minibar_items (name, price),
-              profiles (full_name)
+              profiles (full_name, role)
             `)
             .in('room_id', roomIds)
             .gte('usage_date', stayStart.toISOString())
@@ -696,9 +812,26 @@ export function MinibarTrackingView() {
         }
       }
 
+      // Resolve cleared_by names (no FK join) - fetch profiles for cleared rows
+      const clearedByIds = Array.from(new Set(
+        filteredData.map((r: any) => r.cleared_by).filter((v: any) => !!v)
+      )) as string[];
+      const clearedByNames = new Map<string, string>();
+      if (clearedByIds.length > 0) {
+        const { data: clearedProfiles } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', clearedByIds);
+        for (const p of (clearedProfiles || [])) {
+          clearedByNames.set((p as any).id, (p as any).full_name || 'User');
+        }
+      }
+
       const records: MinibarUsageRecord[] = filteredData.map((record: any) => {
         const roomNumber = record.rooms?.room_number || 'N/A';
         const pmsStayMeta = pmsStayByRoom.get(roomNumber);
+        const src = (record as any).source || 'staff';
+        const role = record.profiles?.role || '';
 
         return {
           id: record.id,
@@ -709,9 +842,12 @@ export function MinibarTrackingView() {
           item_price: record.minibar_items?.price || 0,
           total_price: (record.minibar_items?.price || 0) * record.quantity_used,
           usage_date: record.usage_date,
-          recorded_by_name: record.profiles?.full_name || ((record as any).source === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
-          source: (record as any).source || 'staff',
+          recorded_by_name: record.profiles?.full_name || (src === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
+          recorded_role: role,
+          source: src,
           is_cleared: record.is_cleared || false,
+          cleared_at: record.cleared_at || null,
+          cleared_by_name: record.cleared_by ? (clearedByNames.get(record.cleared_by) || null) : null,
           guest_nights_stayed: pmsStayMeta?.currentNight || record.rooms?.guest_nights_stayed || 1,
           guest_total_nights: pmsStayMeta?.totalNights || null,
         };
@@ -890,6 +1026,14 @@ export function MinibarTrackingView() {
       {viewMode === 'current' && (
         <p className="text-sm text-muted-foreground -mt-2">{t('minibar.stayInfo')}</p>
       )}
+
+      {/* Room Chips Overview — quick at-a-glance status */}
+      <RoomChipsOverview
+        records={usageRecords}
+        searchTerm={searchRoom}
+        onSelect={(room) => setSearchRoom(room)}
+      />
+
 
       {/* Room-Grouped Cards */}
       <RoomGroupedView

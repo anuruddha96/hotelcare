@@ -1,57 +1,56 @@
-## Fixes
+## Problem
 
-### 1. Nykipanchuk sees "PMS not connected" toast on Ottofiori
-**Root cause:** `LiveSyncContext` calls `hotel_has_active_previo(profile.assigned_hotel)`. Nykipanchuk's `assigned_hotel` is the display name `"Hotel Ottofiori"`, but `pms_configurations.hotel_id` is `"ottofiori"`, so the RPC returns `false` and `enabled=false`. The PMS status pill (`PmsRefreshButton`) then fires "PMS not connected" every time she clicks refresh, even though the sync itself works via `PmsSyncControls`.
+1. **False minibar popup on approval** — `fetchMinibarForRooms` in `SupervisorApprovalView.tsx` surfaces *every* uncleared `room_minibar_usage` row with `usage_date < endOfDay`, including rows from previous days that were never cleared. So a room with no consumption today still triggers the "Room X — minibar used" confirmation because yesterday's row is still `is_cleared = false`.
 
-**Fix:** In `LiveSyncContext.tsx`, resolve the profile's `assigned_hotel` via `resolveHotelKeys(...)` and probe the RPC with each alias until one returns `true` (same pattern used in `PmsSyncControls`). Store the resolved slug as `hotelId` so downstream `pms_sync_history`/poll queries also match.
+2. **Minibar Tracking page** — shows historical rows from previous stays, generic "Staff" badge (no real user name), no room-level roll-up, no refill state, no hotel summary.
 
-### 2. Landing-tab routing (Housekeeping section)
+3. **No refill audit trail** — `room_minibar_usage` has no `cleared_by` / `cleared_at`; refill data is silently written into `guest_checkout_date`, so we can't display "refilled by whom / when".
 
-Update the default-tab effect in `src/components/dashboard/HousekeepingTab.tsx`. Extend attendance gating so managers also route through the HR (attendance) tab when not checked in. `top_management` / `top_management_manager` remain exempt (view-only executives don't clock in).
+## Fix Plan
 
-New priority when `userRole` has resolved:
+### A. Approval gate — only today's housekeeper-added usage
 
-| Role | Not signed in | Signed in |
-|---|---|---|
-| Housekeeper | `attendance` | `assignments` (My Tasks) |
-| Hybrid (mgr + housekeeper) | `attendance` | active rooms → `assignments`; else pending → `supervisor`; else `manage` |
-| Manager / housekeeping_manager / front_office / hr / marketing / control_finance | `attendance` | `pendingCount>0` → `supervisor`; else `manage` |
-| Executive read-only (`top_management*`) | — | `manage` |
-| Reception | — | `manage` |
+In `src/components/dashboard/SupervisorApprovalView.tsx`:
+- Change `fetchMinibarForRooms` filter from `.lt('usage_date', endOfDay)` to `.gte('usage_date', startOfDay).lt('usage_date', endOfDay)` so only rows dated for the currently-approved day gate the approval.
+- Restrict to sources the housekeeper flow actually creates (`source in ('housekeeper','staff')`) so guest-QR / reception-added rows don't block a housekeeping approval.
+- Prior-day uncleared rows still exist in the DB and remain visible/actionable on the Minibar Tracking page — they simply no longer block today's room approval.
 
-Reuse the existing `isSignedInToday` state and realtime subscription, but broaden `canClean` → `requiresAttendance` = `hasManagerAccess && !isExecutiveReadOnly` OR `userRole === 'housekeeping'`.
+### B. Refill audit columns (migration)
 
-Post-signin auto-jump (`postSigninJumpFiredRef`):
-- Housekeeper → `assignments`
-- Hybrid → priority chain above
-- Manager → `pendingCount>0` ? `supervisor` : `manage`
+Add to `public.room_minibar_usage`:
+- `cleared_by uuid` (nullable, references `auth.users`)
+- `cleared_at timestamptz` (nullable)
+- `cleared_note text` (nullable, optional short reason)
 
-### 3. Auto-scroll after landing on Team View / Pending Approvals
+Backfill: none required (existing rows stay null).
 
-When the manager lands on `manage` after check-in, smoothly scroll to the Hotel Room Overview card. When they land on `supervisor`, scroll to the first pending approval card.
+Update `markMinibarUsageCleared` in `SupervisorApprovalView.tsx` to write `cleared_by = auth.uid()` and `cleared_at = now()` instead of overloading `guest_checkout_date`.
 
-Implementation:
-- Add stable DOM ids in the two views:
-  - `HotelRoomOverview` root → `id="hotel-room-overview"`
-  - `SupervisorApprovalView`'s pending-list container → `id="pending-approvals-list"`
-- In `HousekeepingTab.tsx`, after `applyDefaultTab(...)` for `manage` / `supervisor`, schedule `requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior:'smooth', block:'start' }))` with a small delay so the tab content has mounted. Only fire on the initial default landing (not on manual navigation) — gated by `initialTabAppliedRef`.
-- Same behavior on the post-signin jump for managers.
+### C. Minibar Tracking page rewrite (`MinibarTrackingView.tsx`)
 
-### 4. Attractive "Swipe right to check in" animation
+Replace the current per-record list with a room-chip dashboard:
 
-Enhance `src/components/ui/swipe-action.tsx` to draw the user's eye toward the swipe gesture while idle (industry-standard cue for swipe affordances: a repeating right-moving sheen + a subtle bouncing thumb, disabled while the user is dragging).
+**Header summary (hotel-scoped, today or selected date):**
+- Rooms with active (uncleared) usage
+- Total items consumed
+- Total revenue
+- Rooms up-to-date (green)
 
-- **Animated gradient sheen:** an absolutely-positioned overlay inside the track running a `@keyframes swipe-hint-sheen` from `translateX(-40%)` to `translateX(140%)` with a soft `bg-gradient-to-r from-transparent via-primary/25 to-transparent`, 2s ease-in-out infinite. Pauses when `isDragging` or `isCompleted`.
-- **Thumb nudge:** the chevron thumb gets a `swipe-hint-nudge` keyframe (translate 0 → 8px → 0, 1.6s infinite) plus a soft glow ring, pauses on drag.
-- **Chevron trail:** two faint chevrons fading right of the thumb (opacity 0.4 → 0), staggered with animation-delay.
-- Respect `prefers-reduced-motion` via a `motion-safe:` prefix so the animations are disabled for users who opted out.
-- No emoji, uses design tokens (`primary`, `primary/25`, `primary/10`), no hardcoded colors.
+**Body:** grid of room chips, one per occupied room in the hotel.
+- Green chip → no uncleared usage → label "Minibar up to date"
+- Red chip → has uncleared usage → shows count of items, total €, and last recorder name
+- Tap a chip → drawer/sheet with: each item + qty + price, **added by <full name>** (from `profiles.full_name` via `recorded_by`) + timestamp + source badge (Housekeeper / Manager / Reception / Guest QR), and if `cleared_at` is set: "Refilled by <name> at <time>"
 
-### Files to change
-- `src/contexts/LiveSyncContext.tsx` — alias-aware Previo detection.
-- `src/components/dashboard/HousekeepingTab.tsx` — extended attendance gating for managers, post-signin jump, auto-scroll trigger.
-- `src/components/dashboard/HotelRoomOverview.tsx` — add anchor id.
-- `src/components/dashboard/SupervisorApprovalView.tsx` — add anchor id on pending list.
-- `src/components/ui/swipe-action.tsx` — sheen + nudge animations, reduced-motion safe.
+**Auto-recycle on checkout:** hide any row where the room's current reservation shows the guest has already checked out (reservation `check_out < today` and no active in-house reservation). Rely on existing reservation data; do not delete rows — just filter them out of the view. If no reservation data is available, fall back to hiding rows older than 7 days.
 
-No schema, RLS, or business-logic changes.
+**Recorded-by resolution:** join `recorded_by` → `profiles.full_name` (already partially done). Remove the hard-coded "Staff" label; when `source = 'guest'` keep "Guest (QR)".
+
+### D. Translations
+
+Add keys for: `minibar.upToDate`, `minibar.needsRefill`, `minibar.addedBy`, `minibar.refilledBy`, `minibar.roomsUpToDate`, `minibar.roomsNeedingRefill`, in EN + UA (+ HU/ES/VI/MN placeholder = EN fallback).
+
+## Technical Notes
+
+- Files changed: `SupervisorApprovalView.tsx`, `MinibarTrackingView.tsx`, `useTranslation.tsx`, one new migration for the three new columns on `room_minibar_usage`.
+- No RLS changes required — new columns inherit existing table policies.
+- Existing `LateMinibarApprovals` tab (which is exactly the place to reconcile older uncleared rows) is unaffected.
