@@ -925,14 +925,21 @@ ${activePreviews.map(preview => {
         {room.room_category && (
           <span className="text-[9px] opacity-70 font-normal">{getCategoryShortName(room.room_category)}</span>
         )}
+        <span className="font-semibold">{room.room_number}</span>
+        {isRtc && (
+          <span className="text-[8px] px-0.5 rounded font-extrabold bg-green-600 text-white">RTC</span>
+        )}
+        {room.room_category && (
+          <span className="text-[9px] opacity-70 font-normal">{getCategoryShortName(room.room_category)}</span>
+        )}
         {room.towel_change_required && (
-          <span className="text-[10px] px-0.5 font-bold text-blue-600">T</span>
+          <span className="text-[9px] px-0.5 font-bold text-blue-600">T</span>
         )}
         {room.linen_change_required && (
-          <span className="text-[10px] px-0.5 font-bold text-orange-600">C</span>
+          <span className="text-[9px] px-0.5 font-bold text-orange-600">C</span>
         )}
         {((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration) && (
-          <span className="text-[9px] px-0.5 opacity-70">🛏️{String((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration).slice(0, 8)}</span>
+          <span className="text-[9px] px-0.5 opacity-70">🛏️{String((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration).slice(0, 6)}</span>
         )}
       </div>
     );
