@@ -1224,6 +1224,54 @@ export type Database = {
         }
         Relationships: []
       }
+      hotel_autoassign_profiles: {
+        Row: {
+          checkout_distribution_weight: number
+          checkout_first: boolean
+          created_at: string
+          daily_count_weight: number
+          floor_grouping_weight: number
+          hotel_id: string
+          id: string
+          learned_hints: Json
+          max_rooms_per_hk: number | null
+          organization_slug: string | null
+          room_size_weight: number
+          rtc_priority_weight: number
+          updated_at: string
+        }
+        Insert: {
+          checkout_distribution_weight?: number
+          checkout_first?: boolean
+          created_at?: string
+          daily_count_weight?: number
+          floor_grouping_weight?: number
+          hotel_id: string
+          id?: string
+          learned_hints?: Json
+          max_rooms_per_hk?: number | null
+          organization_slug?: string | null
+          room_size_weight?: number
+          rtc_priority_weight?: number
+          updated_at?: string
+        }
+        Update: {
+          checkout_distribution_weight?: number
+          checkout_first?: boolean
+          created_at?: string
+          daily_count_weight?: number
+          floor_grouping_weight?: number
+          hotel_id?: string
+          id?: string
+          learned_hints?: Json
+          max_rooms_per_hk?: number | null
+          organization_slug?: string | null
+          room_size_weight?: number
+          rtc_priority_weight?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hotel_breakfast_codes: {
         Row: {
           code: string
