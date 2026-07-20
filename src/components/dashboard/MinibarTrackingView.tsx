@@ -700,9 +700,26 @@ export function MinibarTrackingView() {
         }
       }
 
+      // Resolve cleared_by names (no FK join) - fetch profiles for cleared rows
+      const clearedByIds = Array.from(new Set(
+        filteredData.map((r: any) => r.cleared_by).filter((v: any) => !!v)
+      )) as string[];
+      const clearedByNames = new Map<string, string>();
+      if (clearedByIds.length > 0) {
+        const { data: clearedProfiles } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', clearedByIds);
+        for (const p of (clearedProfiles || [])) {
+          clearedByNames.set((p as any).id, (p as any).full_name || 'User');
+        }
+      }
+
       const records: MinibarUsageRecord[] = filteredData.map((record: any) => {
         const roomNumber = record.rooms?.room_number || 'N/A';
         const pmsStayMeta = pmsStayByRoom.get(roomNumber);
+        const src = (record as any).source || 'staff';
+        const role = record.profiles?.role || '';
 
         return {
           id: record.id,
@@ -713,9 +730,12 @@ export function MinibarTrackingView() {
           item_price: record.minibar_items?.price || 0,
           total_price: (record.minibar_items?.price || 0) * record.quantity_used,
           usage_date: record.usage_date,
-          recorded_by_name: record.profiles?.full_name || ((record as any).source === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
-          source: (record as any).source || 'staff',
+          recorded_by_name: record.profiles?.full_name || (src === 'guest' ? 'Guest (QR Scan)' : 'Unknown'),
+          recorded_role: role,
+          source: src,
           is_cleared: record.is_cleared || false,
+          cleared_at: record.cleared_at || null,
+          cleared_by_name: record.cleared_by ? (clearedByNames.get(record.cleared_by) || null) : null,
           guest_nights_stayed: pmsStayMeta?.currentNight || record.rooms?.guest_nights_stayed || 1,
           guest_total_nights: pmsStayMeta?.totalNights || null,
         };
