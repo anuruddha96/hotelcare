@@ -86,7 +86,7 @@ export function ApprovalHistoryView() {
   const fetchApprovedAssignments = async () => {
     setLoading(true);
     try {
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
       
       const { data: currentUser } = await supabase.auth.getUser();
       if (!currentUser.user) return;
