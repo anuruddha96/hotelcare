@@ -1250,6 +1250,7 @@ export function SupervisorApprovalView() {
         </TabsList>
 
         <TabsContent value="pending" className="space-y-6">
+          <div id="pending-approvals-list" />
           {/* Date picker */}
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
             <div>

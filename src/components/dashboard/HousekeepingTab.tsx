@@ -170,8 +170,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   // while loading. Used to route housekeepers/hybrids to the attendance tab
   // before they can start any room work.
   const canClean = isHybridHousekeeper || userRole === 'housekeeping';
+  // Managers (and hybrids) also need to sign in for the day before they get
+  // routed onto operational tabs. Executive read-only viewers are exempt.
+  const requiresAttendance = canClean || (hasManagerAccess && !isExecutiveReadOnly);
   const [isSignedInToday, setIsSignedInToday] = useState<boolean | undefined>(
-    canClean ? undefined : true
+    requiresAttendance ? undefined : true
   );
 
   // Detect whether the hybrid user has any active room assignments today so we
@@ -211,11 +214,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     };
   }, [isHybridHousekeeper, user?.id]);
 
-  // Track today's attendance for cleaners so we can land them on the
-  // attendance tab until they sign in, then jump to My Tasks.
+  // Track today's attendance for anyone who needs to clock in (cleaners AND
+  // managers). Executive read-only viewers skip this.
   useEffect(() => {
-    if (!canClean || !user?.id) {
-      setIsSignedInToday(canClean ? undefined : true);
+    if (!requiresAttendance || !user?.id) {
+      setIsSignedInToday(requiresAttendance ? undefined : true);
       return;
     }
     const today = new Date();
@@ -246,7 +249,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       cancelled = true;
       (supabase as any).removeChannel(channel);
     };
-  }, [canClean, user?.id]);
+  }, [requiresAttendance, user?.id]);
 
   // Track whether we've applied the initial default tab. After that the user
   // is free to navigate; we don't want async signals (pendingCount, realtime)
@@ -263,11 +266,28 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   //     1) active room assignments today → My Tasks
   //     2) pending approvals → Pending Approvals
   //     3) otherwise → Team View
+  // Auto-scroll helper: after landing on a tab, gently scroll a key section
+  // into view (Hotel Room Overview for Team View, first approval card for
+  // Pending Approvals). Fires only on programmatic landings.
+  const scrollToSectionForTab = (tab: string) => {
+    const targetId =
+      tab === 'manage' ? 'hotel-room-overview' :
+      tab === 'supervisor' ? 'pending-approvals-list' :
+      null;
+    if (!targetId) return;
+    // Wait two frames so TabsContent has mounted + laid out.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const el = document.getElementById(targetId);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 250);
+      });
+    });
+  };
+
   useEffect(() => {
     if (initialTabAppliedRef.current) return;
-    // Wait until the user's role is resolved. Otherwise the effect fires on
-    // first render with userRole='' and falls into the housekeeper fallback,
-    // permanently latching managers onto "My Tasks".
     if (!userRole) return;
 
     const applyDefaultTab = (nextTab: string) => {
@@ -275,19 +295,20 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       setActiveTab(nextTab);
       onActiveSubTabChange?.(nextTab);
       if (nextTab === 'manage') onActiveInnerTabChange?.('team');
+      scrollToSectionForTab(nextTab);
     };
 
     if (isExecutiveReadOnly) { applyDefaultTab('manage'); return; }
 
-    // Cleaners must sign in first. Wait for the attendance query to resolve.
-    if (canClean) {
+    // Attendance gate: everyone who clocks in (cleaners AND managers) must
+    // sign in before landing on operational tabs.
+    if (requiresAttendance) {
       if (isSignedInToday === undefined) return;
       if (!isSignedInToday) { applyDefaultTab('attendance'); return; }
     }
 
     if (hasManagerAccess) {
       if (isHybridHousekeeper) {
-        // Wait for the assignments query to resolve before deciding.
         if (hasActiveAssignmentsToday === undefined) return;
         if (hasActiveAssignmentsToday) { applyDefaultTab('assignments'); return; }
         applyDefaultTab(pendingCount > 0 ? 'supervisor' : 'manage');
@@ -299,21 +320,35 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     } else {
       applyDefaultTab('assignments');
     }
-  }, [hasManagerAccess, isExecutiveReadOnly, isHybridHousekeeper, hasActiveAssignmentsToday, canClean, isSignedInToday, userRole, pendingCount, onActiveSubTabChange, onActiveInnerTabChange]);
+  }, [hasManagerAccess, isExecutiveReadOnly, isHybridHousekeeper, hasActiveAssignmentsToday, canClean, requiresAttendance, isSignedInToday, userRole, pendingCount, onActiveSubTabChange, onActiveInnerTabChange]);
 
-  // Post-signin jump: if the user was landed on 'attendance' because they
-  // weren't signed in yet, jump them to My Tasks the moment their attendance
-  // flips to checked_in. Fires at most once so we don't fight manual navigation.
+  // Post-signin jump: the moment attendance flips to checked-in while the
+  // user is still sitting on the Attendance tab, route them to the right
+  // operational tab per their role.
   useEffect(() => {
     if (postSigninJumpFiredRef.current) return;
-    if (!canClean) return;
+    if (!requiresAttendance) return;
     if (activeTab !== 'attendance') return;
-    if (isSignedInToday === true) {
-      postSigninJumpFiredRef.current = true;
-      setActiveTab('assignments');
-      onActiveSubTabChange?.('assignments');
+    if (isSignedInToday !== true) return;
+
+    let nextTab = 'assignments';
+    if (isHybridHousekeeper) {
+      if (hasActiveAssignmentsToday === undefined) return;
+      nextTab = hasActiveAssignmentsToday
+        ? 'assignments'
+        : (pendingCount > 0 ? 'supervisor' : 'manage');
+    } else if (hasManagerAccess) {
+      nextTab = pendingCount > 0 ? 'supervisor' : 'manage';
+    } else if (canClean) {
+      nextTab = 'assignments';
     }
-  }, [canClean, isSignedInToday, activeTab, onActiveSubTabChange]);
+
+    postSigninJumpFiredRef.current = true;
+    setActiveTab(nextTab);
+    onActiveSubTabChange?.(nextTab);
+    if (nextTab === 'manage') onActiveInnerTabChange?.('team');
+    scrollToSectionForTab(nextTab);
+  }, [requiresAttendance, canClean, hasManagerAccess, isHybridHousekeeper, hasActiveAssignmentsToday, pendingCount, isSignedInToday, activeTab, onActiveSubTabChange, onActiveInnerTabChange]);
 
 
 
