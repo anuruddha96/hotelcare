@@ -226,17 +226,25 @@ function zoneFitScore(room: RoomForAssignment, staffRooms: RoomForAssignment[]):
   if (staffRooms.length === 0) return 0;
   const roomZone = getZone(room);
   const zones = getStaffZones(staffRooms);
-  
+
   if (zones.has(roomZone)) return 0;
-  
+
+  // Strong same-floor preference: if any existing room shares the floor,
+  // treat as near-match. Otherwise penalize by floor distance so the
+  // trolley stays on one level as much as fairness allows.
+  const roomFloor = getFloor(room);
+  const floors = new Set(staffRooms.map(r => getFloor(r)));
+  if (floors.has(roomFloor)) return 5; // same floor, different wing
+  const minFloorDist = Math.min(...Array.from(floors).map(f => Math.abs(f - roomFloor)));
+  const floorPenalty = minFloorDist * 80; // 80 per floor away — strong nudge
+
   const zoneCount = zones.size + 1;
-  if (zoneCount >= 4) return 100; // Penalize but don't block
-  if (zoneCount >= 3) return 60;
-  
+  const spreadPenalty = zoneCount >= 4 ? 100 : zoneCount >= 3 ? 60 : 20;
+
   const existingZones = Array.from(zones);
   const isAdjacent = existingZones.some(z => areZonesAdjacent(z, roomZone));
-  
-  return isAdjacent ? 10 : 40;
+
+  return floorPenalty + spreadPenalty + (isAdjacent ? 0 : 20);
 }
 
 function areZonesAdjacent(zoneA: string, zoneB: string): boolean {
