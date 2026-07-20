@@ -253,7 +253,7 @@ function RoomGroupedView({
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{record.item_name}</div>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <SourceBadge source={record.source} />
+                            <SourceBadge source={record.source} role={record.recorded_role} name={record.recorded_by_name} />
                             <span className="text-xs text-muted-foreground">
                               {format(new Date(record.usage_date), 'MMM d, HH:mm')}
                             </span>
@@ -288,7 +288,7 @@ function RoomGroupedView({
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{record.item_name}</div>
                       <div className="flex items-center gap-2 mt-0.5">
-                      <SourceBadge source={record.source} />
+                      <SourceBadge source={record.source} role={record.recorded_role} name={record.recorded_by_name} />
                       <span className="text-xs text-muted-foreground">
                         {format(new Date(record.usage_date), 'MMM d, HH:mm')}
                       </span>
