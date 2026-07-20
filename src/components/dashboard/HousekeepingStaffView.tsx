@@ -186,14 +186,17 @@ export function HousekeepingStaffView() {
         // Helper to get sort bucket
         const getBucket = (x: any): number => {
           if (x.status === 'in_progress') return 0;
-          if (x.status === 'completed') return 5;
-          if (x.status === 'cancelled') return 6;
-          // assigned status
+          if (x.status === 'completed') return 6;
+          if (x.status === 'cancelled') return 7;
+          if (x.status === 'dnd_pending_retry') {
+            // Unlocked retries sit just above waiting checkouts; locked retries at the very bottom
+            return x.dnd_retry_unlocked_at ? 4 : 5;
+          }
           if ((x.priority ?? 1) >= 3) return 1; // high priority
-          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2; // ready checkout
-          if (x.assignment_type === 'daily_cleaning') return 3; // daily
-          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4; // waiting checkout
-          return 3; // default to daily bucket
+          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2;
+          if (x.assignment_type === 'daily_cleaning') return 3;
+          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4;
+          return 3;
         };
 
         const bucketDiff = getBucket(a) - getBucket(b);
