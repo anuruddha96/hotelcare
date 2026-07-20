@@ -20,7 +20,7 @@ interface Assignment {
   id: string;
   room_id: string;
   assignment_type: 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning';
-  status: 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry';
   priority: number;
   estimated_duration: number;
   notes: string;
