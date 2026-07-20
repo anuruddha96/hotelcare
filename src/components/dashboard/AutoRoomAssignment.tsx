@@ -918,13 +918,6 @@ ${activePreviews.map(preview => {
         }}
         title={`${t('autoAssign.room')} ${room.room_number}${isRtc ? ' · RTC' : ''}${room.room_category ? ` · ${room.room_category}` : ''}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
       >
-        <span>{room.room_number}</span>
-        {isRtc && (
-          <span className="text-[9px] px-0.5 rounded font-extrabold bg-green-600 text-white">RTC</span>
-        )}
-        {room.room_category && (
-          <span className="text-[9px] opacity-70 font-normal">{getCategoryShortName(room.room_category)}</span>
-        )}
         <span className="font-semibold">{room.room_number}</span>
         {isRtc && (
           <span className="text-[8px] px-0.5 rounded font-extrabold bg-green-600 text-white">RTC</span>
