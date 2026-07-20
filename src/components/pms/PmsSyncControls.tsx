@@ -10,6 +10,7 @@ import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck, CheckCircle
 import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh } from "@/lib/pmsRefresh";
+import { resolveHotelKeys } from "@/lib/hotelKeys";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -51,11 +52,19 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
 
   const loadCfg = async () => {
     if (!hotelId) return;
+    // Resolve every alias the profile's `assigned_hotel` might correspond to
+    // (display name, slug, hotel_id). Previously we only tried the raw value
+    // and a naïve slug, so managers whose profile stored "Hotel Ottofiori"
+    // never matched the config row (`hotel_id = 'ottofiori'`).
+    const keys = await resolveHotelKeys(hotelId);
+    const searchKeys = keys.length ? keys : [hotelId];
     const { data } = await (supabase as any)
       .from("pms_configurations")
       .select("id, hotel_id, environment, snapshot_read_enabled, status_push_enabled, outbound_kill_switch, connection_mode, last_sync_at, last_sync_status")
       .eq("pms_type", "previo")
-      .or(`hotel_id.eq.${hotelId},hotel_id.eq.${hotelId.toLowerCase().replace(/\s+/g, "-")}`)
+      .in("hotel_id", searchKeys)
+      .order("environment", { ascending: false }) // prefer 'live' over 'test'
+      .limit(1)
       .maybeSingle();
     setCfg((data as Cfg) ?? null);
   };
