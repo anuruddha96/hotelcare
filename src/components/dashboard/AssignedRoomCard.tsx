@@ -1548,6 +1548,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         roomId={assignment.room_id}
         assignmentId={assignment.id}
+        attemptNumber={(assignment.dnd_attempt_count ?? 0) + 1}
         onPhotoUploaded={markAsDND}
       />
 
