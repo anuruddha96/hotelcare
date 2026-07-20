@@ -145,7 +145,11 @@ export function HousekeepingStaffView() {
 
       // Apply status filter - skip for special filters (no_service, dnd) as they need full list
       if (statusFilter && statusFilter !== 'total' && statusFilter !== 'no_service' && statusFilter !== 'dnd') {
-        query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
+        if (statusFilter === 'assigned') {
+          query = query.in('status', ['assigned', 'dnd_pending_retry']);
+        } else {
+          query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
+        }
       }
 
       const { data, error } = await query;
