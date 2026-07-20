@@ -1320,9 +1320,20 @@ ${activePreviews.map(preview => {
                   )}
                 </div>
 
-                {/* Multi-column layout: all housekeepers side by side */}
-                <div className="flex gap-2 overflow-x-auto flex-1 min-h-0 pb-1">
-                  {assignmentPreviews.filter(p => p.rooms.length > 0).map(preview => {
+                {/* Multi-column layout:
+                    - Desktop: flex row (side-by-side, scroll if many)
+                    - Mobile with 1-2 staff: side-by-side
+                    - Mobile with 3+ staff: 2-col wrapping grid so all fit without scrolling */}
+                {(() => {
+                  const activePreviews = assignmentPreviews.filter(p => p.rooms.length > 0);
+                  const activeCount = activePreviews.length;
+                  const useMobileGrid = isMobile && activeCount >= 3;
+                  const containerClass = useMobileGrid
+                    ? 'grid grid-cols-2 gap-2 flex-1 min-h-0 overflow-y-auto pb-1'
+                    : 'flex gap-2 overflow-x-auto flex-1 min-h-0 pb-1';
+                  return (
+                <div className={containerClass}>
+                  {activePreviews.map(preview => {
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
                     const isDragOver = dragOverStaffId === preview.staffId;
                     const isOverShift = preview.exceedsShift && preview.rooms.length > 0;
@@ -1332,12 +1343,15 @@ ${activePreviews.map(preview => {
                     const dailyRooms = preview.rooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true));
                     const towelCount = preview.rooms.filter(r => r.towel_change_required).length;
                     const linenCount = preview.rooms.filter(r => r.linen_change_required).length;
-                    const activeStaffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
-                    // Column width: on mobile keep compact so 2+ columns fit and chips stay tappable.
-                    const colStyle: React.CSSProperties = {
-                      minWidth: isMobile ? '150px' : (activeStaffCount <= 4 ? '220px' : '180px'),
-                      flex: `1 1 0`,
-                    };
+                    const activeStaffCount = activeCount;
+                    // Column width: mobile grid cells auto-size to half width;
+                    // otherwise keep min-widths so chips remain tappable.
+                    const colStyle: React.CSSProperties = useMobileGrid
+                      ? { minWidth: 0 }
+                      : {
+                          minWidth: isMobile ? '150px' : (activeStaffCount <= 4 ? '220px' : '180px'),
+                          flex: `1 1 0`,
+                        };
 
                     return (
                       <div
