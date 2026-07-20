@@ -426,8 +426,20 @@ export function autoAssignRooms(
     checkoutsByZone.get(z)!.push(r);
   });
 
+  // Anchor by RTC (linen-change / clean-room) floors first: those rooms
+  // must happen and are heavier, so let them decide floor ownership.
+  // Then process largest checkout clusters. This keeps a housekeeper on
+  // the same floor for both checkout + daily whenever possible.
+  const rtcFloors = new Set(
+    allRooms.filter(r => r.linen_change_required).map(r => getFloor(r))
+  );
   const checkoutZoneGroups = Array.from(checkoutsByZone.entries())
-    .sort((a, b) => b[1].length - a[1].length);
+    .sort((a, b) => {
+      const aRtc = a[1].some(r => rtcFloors.has(getFloor(r))) ? 1 : 0;
+      const bRtc = b[1].some(r => rtcFloors.has(getFloor(r))) ? 1 : 0;
+      if (aRtc !== bRtc) return bRtc - aRtc;
+      return b[1].length - a[1].length;
+    });
 
   for (const [, zoneRooms] of checkoutZoneGroups) {
     zoneRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
