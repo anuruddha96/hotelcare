@@ -89,24 +89,25 @@ const parseNightTotalValue = (value: unknown): { currentNight: number; totalNigh
   return null;
 };
 
-function SourceBadge({ source }: { source: string }) {
-  if (source === 'guest') {
-    return (
-      <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100 text-xs gap-1">
-        <ScanLine className="h-3 w-3" /> Guest
-      </Badge>
-    );
-  }
-  if (source === 'reception') {
-    return (
-      <Badge variant="outline" className="text-xs gap-1">
-        <Monitor className="h-3 w-3" /> Reception
-      </Badge>
-    );
-  }
+function SourceBadge({ source, role, name }: { source: string; role?: string; name?: string }) {
+  const label = (() => {
+    if (source === 'guest') return 'Guest (QR)';
+    if (source === 'reception' || role === 'reception') return 'Reception';
+    if (role === 'housekeeping_manager' || role === 'manager' || role === 'admin') return 'Manager';
+    if (role === 'housekeeper') return 'Housekeeper';
+    return 'Staff';
+  })();
+  const Icon = source === 'guest' ? ScanLine : source === 'reception' || role === 'reception' ? Monitor : User;
+  const cls = source === 'guest'
+    ? 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100'
+    : role === 'housekeeper'
+    ? 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100'
+    : role === 'housekeeping_manager' || role === 'manager' || role === 'admin'
+    ? 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-100'
+    : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-100';
   return (
-    <Badge className="bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100 text-xs gap-1">
-      <User className="h-3 w-3" /> Staff
+    <Badge className={`${cls} text-xs gap-1`}>
+      <Icon className="h-3 w-3" /> {label}{name ? ` · ${name}` : ''}
     </Badge>
   );
 }
