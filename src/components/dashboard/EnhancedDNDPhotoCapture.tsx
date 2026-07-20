@@ -15,6 +15,7 @@ interface EnhancedDNDPhotoCaptureProps {
   roomNumber: string;
   roomId: string;
   assignmentId?: string;
+  attemptNumber?: number;
   onPhotoUploaded?: () => void;
 }
 
@@ -38,6 +39,7 @@ export function EnhancedDNDPhotoCapture({
   roomNumber,
   roomId,
   assignmentId,
+  attemptNumber = 1,
   onPhotoUploaded 
 }: EnhancedDNDPhotoCaptureProps) {
   const { user } = useAuth();
