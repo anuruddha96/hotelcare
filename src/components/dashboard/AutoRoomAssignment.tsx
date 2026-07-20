@@ -1000,7 +1000,7 @@ ${activePreviews.map(preview => {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className={`max-h-[90vh] flex flex-col ${step === 'preview' ? 'max-w-[95vw] w-full' : 'max-w-4xl'}`}>
+        <DialogContent className={`max-h-[92vh] flex flex-col p-3 sm:p-6 gap-2 sm:gap-4 ${step === 'preview' ? 'max-w-[100vw] sm:max-w-[95vw] w-full' : 'max-w-4xl'}`}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wand2 className="h-5 w-5" />
