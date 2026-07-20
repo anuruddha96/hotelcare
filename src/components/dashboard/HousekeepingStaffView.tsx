@@ -181,6 +181,29 @@ export function HousekeepingStaffView() {
       // Show ALL assignments including checkout rooms not ready
       // Checkout rooms will display a "waiting for checkout" indicator
 
+      // Auto-unlock DND retries: at/after 14:30, or when no other rooms remain active
+      try {
+        const now = new Date();
+        const isAfterCutoff = now.getHours() > 14 || (now.getHours() === 14 && now.getMinutes() >= 30);
+        const hasOtherActive = assignmentsData.some((a: any) =>
+          a.status === 'assigned' || a.status === 'in_progress'
+        );
+        const lockedRetries = assignmentsData.filter((a: any) =>
+          a.status === 'dnd_pending_retry' && !a.dnd_retry_unlocked_at
+        );
+        if (lockedRetries.length > 0 && (isAfterCutoff || !hasOtherActive)) {
+          const nowIso = now.toISOString();
+          await supabase
+            .from('room_assignments')
+            .update({ dnd_retry_unlocked_at: nowIso } as any)
+            .in('id', lockedRetries.map((r: any) => r.id));
+          lockedRetries.forEach((r: any) => { r.dnd_retry_unlocked_at = nowIso; });
+        }
+      } catch (unlockErr) {
+        console.warn('DND retry unlock check failed:', unlockErr);
+      }
+
+
       // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
       assignmentsData.sort((a, b) => {
         // Helper to get sort bucket
