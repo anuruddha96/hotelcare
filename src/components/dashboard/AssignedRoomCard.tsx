@@ -53,7 +53,7 @@ interface AssignedRoomCardProps {
     id: string;
     room_id: string;
     assignment_type: 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning';
-    status: 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+    status: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry';
     priority: number;
     estimated_duration: number;
     notes: string;
@@ -63,6 +63,9 @@ interface AssignedRoomCardProps {
     is_dnd?: boolean;
     dnd_marked_at?: string | null;
     dnd_marked_by?: string | null;
+    dnd_attempt_count?: number | null;
+    dnd_first_attempt_at?: string | null;
+    dnd_retry_unlocked_at?: string | null;
     supervisor_approved?: boolean;
     supervisor_approved_by?: string | null;
     supervisor_approved_at?: string | null;
@@ -83,7 +86,7 @@ interface AssignedRoomCardProps {
       pms_metadata?: any;
     } | null;
   };
-  onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => void;
+  onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => void;
 }
 
 export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCardProps) {
@@ -241,36 +244,55 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     setLoading(true);
     try {
       const now = new Date().toISOString();
-      
-      // Mark assignment as DND
-      const { error: assignmentError } = await supabase
-        .from('room_assignments')
-        .update({ 
-          status: 'completed',
-          is_dnd: true,
-          dnd_marked_at: now,
-          dnd_marked_by: user?.id,
-          completed_at: now
-        })
-        .eq('id', assignment.id);
+      const currentAttempts = assignment.dnd_attempt_count ?? 0;
+      const nextAttempt = currentAttempts + 1;
+      const isSecondAttempt = nextAttempt >= 2;
 
-      if (assignmentError) throw assignmentError;
+      if (isSecondAttempt) {
+        // Second (or later) DND attempt → send to manager approval
+        const { error: assignmentError } = await supabase
+          .from('room_assignments')
+          .update({
+            status: 'completed',
+            is_dnd: true,
+            dnd_marked_at: now,
+            dnd_marked_by: user?.id,
+            dnd_attempt_count: nextAttempt,
+            completed_at: now,
+          } as any)
+          .eq('id', assignment.id);
+        if (assignmentError) throw assignmentError;
 
-      // Also mark the room as DND for display purposes
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({
-          is_dnd: true,
-          dnd_marked_at: now,
-          dnd_marked_by: user?.id
-        })
-        .eq('id', assignment.room_id);
+        const { error: roomError } = await supabase
+          .from('rooms')
+          .update({
+            is_dnd: true,
+            dnd_marked_at: now,
+            dnd_marked_by: user?.id,
+          })
+          .eq('id', assignment.room_id);
+        if (roomError) throw roomError;
 
-      if (roomError) throw roomError;
-      
-      onStatusUpdate(assignment.id, 'completed');
-      const roomNum = assignment.rooms?.room_number ?? '—';
-      toast.success(`Room ${roomNum} marked as DND with photo evidence`);
+        onStatusUpdate(assignment.id, 'completed');
+        const roomNum = assignment.rooms?.room_number ?? '—';
+        toast.success(`Room ${roomNum} — 2nd DND attempt recorded, sent for manager approval`);
+      } else {
+        // First DND attempt → recycle to bottom of housekeeper's list
+        const { error: assignmentError } = await supabase
+          .from('room_assignments')
+          .update({
+            status: 'dnd_pending_retry',
+            dnd_attempt_count: 1,
+            dnd_first_attempt_at: now,
+            dnd_retry_unlocked_at: null,
+          } as any)
+          .eq('id', assignment.id);
+        if (assignmentError) throw assignmentError;
+
+        onStatusUpdate(assignment.id, 'dnd_pending_retry');
+        const roomNum = assignment.rooms?.room_number ?? '—';
+        toast.success(`Room ${roomNum} — we'll try again after your other rooms or at 14:30`);
+      }
     } catch (error) {
       console.error('Error marking as DND:', error);
       toast.error('Failed to mark room as DND');
@@ -309,7 +331,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
+  const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => {
     // Check for room photos on daily cleaning completion - require ALL 5 categories
     if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
       const { data: assignmentData } = await supabase
@@ -1036,10 +1058,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         {/* Action Buttons */}
         <div className="space-y-4">
+          {/* 2nd-attempt DND banner */}
+          {assignment.status === 'dnd_pending_retry' && (
+            <div className="rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800 px-3 py-2 text-sm text-orange-900 dark:text-orange-200">
+              <div className="font-semibold">2nd attempt</div>
+              <div className="text-xs">
+                {assignment.dnd_retry_unlocked_at
+                  ? 'You can try this room again now. If the guest is still DND, mark it and it will go to your supervisor.'
+                  : 'Finish your other rooms first — we\'ll unlock this again at 14:30 or after your other rooms are done.'}
+              </div>
+            </div>
+          )}
           {/* Primary Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Wrap HoldButton in a div with bottom padding to accommodate the absolute "Press & Hold" text */}
-          {assignment.status === 'assigned' && !isCheckoutWaiting && (
+          {(assignment.status === 'assigned' || (assignment.status === 'dnd_pending_retry' && assignment.dnd_retry_unlocked_at)) && !isCheckoutWaiting && (
               <div className="pb-7 w-full sm:w-auto">
                 <HoldButton
                   size="lg"
@@ -1526,6 +1559,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         roomId={assignment.room_id}
         assignmentId={assignment.id}
+        attemptNumber={(assignment.dnd_attempt_count ?? 0) + 1}
         onPhotoUploaded={markAsDND}
       />
 

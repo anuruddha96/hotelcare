@@ -20,7 +20,7 @@ interface Assignment {
   id: string;
   room_id: string;
   assignment_type: 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning';
-  status: 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry';
   priority: number;
   estimated_duration: number;
   notes: string;
@@ -145,7 +145,11 @@ export function HousekeepingStaffView() {
 
       // Apply status filter - skip for special filters (no_service, dnd) as they need full list
       if (statusFilter && statusFilter !== 'total' && statusFilter !== 'no_service' && statusFilter !== 'dnd') {
-        query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
+        if (statusFilter === 'assigned') {
+          query = query.in('status', ['assigned', 'dnd_pending_retry']);
+        } else {
+          query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
+        }
       }
 
       const { data, error } = await query;
@@ -177,19 +181,45 @@ export function HousekeepingStaffView() {
       // Show ALL assignments including checkout rooms not ready
       // Checkout rooms will display a "waiting for checkout" indicator
 
+      // Auto-unlock DND retries: at/after 14:30, or when no other rooms remain active
+      try {
+        const now = new Date();
+        const isAfterCutoff = now.getHours() > 14 || (now.getHours() === 14 && now.getMinutes() >= 30);
+        const hasOtherActive = assignmentsData.some((a: any) =>
+          a.status === 'assigned' || a.status === 'in_progress'
+        );
+        const lockedRetries = assignmentsData.filter((a: any) =>
+          a.status === 'dnd_pending_retry' && !a.dnd_retry_unlocked_at
+        );
+        if (lockedRetries.length > 0 && (isAfterCutoff || !hasOtherActive)) {
+          const nowIso = now.toISOString();
+          await supabase
+            .from('room_assignments')
+            .update({ dnd_retry_unlocked_at: nowIso } as any)
+            .in('id', lockedRetries.map((r: any) => r.id));
+          lockedRetries.forEach((r: any) => { r.dnd_retry_unlocked_at = nowIso; });
+        }
+      } catch (unlockErr) {
+        console.warn('DND retry unlock check failed:', unlockErr);
+      }
+
+
       // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
       assignmentsData.sort((a, b) => {
         // Helper to get sort bucket
         const getBucket = (x: any): number => {
           if (x.status === 'in_progress') return 0;
-          if (x.status === 'completed') return 5;
-          if (x.status === 'cancelled') return 6;
-          // assigned status
+          if (x.status === 'completed') return 6;
+          if (x.status === 'cancelled') return 7;
+          if (x.status === 'dnd_pending_retry') {
+            // Unlocked retries sit just above waiting checkouts; locked retries at the very bottom
+            return x.dnd_retry_unlocked_at ? 4 : 5;
+          }
           if ((x.priority ?? 1) >= 3) return 1; // high priority
-          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2; // ready checkout
-          if (x.assignment_type === 'daily_cleaning') return 3; // daily
-          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4; // waiting checkout
-          return 3; // default to daily bucket
+          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2;
+          if (x.assignment_type === 'daily_cleaning') return 3;
+          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4;
+          return 3;
         };
 
         const bucketDiff = getBucket(a) - getBucket(b);
@@ -242,7 +272,7 @@ export function HousekeepingStaffView() {
     }
   };
 
-  const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled') => {
+  const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => {
     setAssignments(prev =>
       prev.map(assignment =>
         assignment.id === assignmentId ? { ...assignment, status: newStatus } : assignment
