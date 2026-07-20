@@ -463,7 +463,7 @@ export function autoAssignRooms(
         
         return {
           id: s.id,
-          score: fairnessPenalty + minutePenalty + fitScore + proxScore * 0.5 - affinityBonus + randomPerturbation
+          score: fairnessPenalty + minutePenalty + fitScore + proxScore * 1.5 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
@@ -506,7 +506,7 @@ export function autoAssignRooms(
         
         return {
           id: s.id,
-          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 0.3 - affinityBonus + randomPerturbation
+          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 2.0 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
@@ -548,7 +548,7 @@ export function autoAssignRooms(
         
         return {
           id: s.id,
-          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 0.3 - affinityBonus + randomPerturbation
+          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 2.0 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
