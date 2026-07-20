@@ -214,11 +214,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     };
   }, [isHybridHousekeeper, user?.id]);
 
-  // Track today's attendance for cleaners so we can land them on the
-  // attendance tab until they sign in, then jump to My Tasks.
+  // Track today's attendance for anyone who needs to clock in (cleaners AND
+  // managers). Executive read-only viewers skip this.
   useEffect(() => {
-    if (!canClean || !user?.id) {
-      setIsSignedInToday(canClean ? undefined : true);
+    if (!requiresAttendance || !user?.id) {
+      setIsSignedInToday(requiresAttendance ? undefined : true);
       return;
     }
     const today = new Date();
@@ -249,7 +249,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       cancelled = true;
       (supabase as any).removeChannel(channel);
     };
-  }, [canClean, user?.id]);
+  }, [requiresAttendance, user?.id]);
 
   // Track whether we've applied the initial default tab. After that the user
   // is free to navigate; we don't want async signals (pendingCount, realtime)
