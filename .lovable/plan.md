@@ -1,86 +1,57 @@
-# Plan
+## Fixes
 
-## 1. Fix "PMS Sync" button for Nykipanchuk_073 (Hotel Ottofiori)
+### 1. Nykipanchuk sees "PMS not connected" toast on Ottofiori
+**Root cause:** `LiveSyncContext` calls `hotel_has_active_previo(profile.assigned_hotel)`. Nykipanchuk's `assigned_hotel` is the display name `"Hotel Ottofiori"`, but `pms_configurations.hotel_id` is `"ottofiori"`, so the RPC returns `false` and `enabled=false`. The PMS status pill (`PmsRefreshButton`) then fires "PMS not connected" every time she clicks refresh, even though the sync itself works via `PmsSyncControls`.
 
-**Root cause (confirmed):** `PmsSyncControls` looks up `pms_configurations` with:
-```
-.or(`hotel_id.eq.${hotelId},hotel_id.eq.${hotelId.toLowerCase().replace(/\s+/g,'-')}`)
-```
-Nykipanchuk's `profiles.assigned_hotel = "Hotel Ottofiori"` → slugified becomes `hotel-ottofiori`, but the config row uses `hotel_id = "ottofiori"`. No match → `cfg` is `null` → the whole card renders `null`, so no sync button appears.
+**Fix:** In `LiveSyncContext.tsx`, resolve the profile's `assigned_hotel` via `resolveHotelKeys(...)` and probe the RPC with each alias until one returns `true` (same pattern used in `PmsSyncControls`). Store the resolved slug as `hotelId` so downstream `pms_sync_history`/poll queries also match.
 
-**Fix (`src/components/pms/PmsSyncControls.tsx`):**
-- Replace the ad-hoc slug logic with `resolveHotelKeys(hotelId)` (already used in AutoRoomAssignment) so any of {display name, slug, hotel_id} matches.
-- Query `pms_configurations` with `.in('hotel_id', keys)` and pick the row (prefer live env).
-- Also pass the resolved canonical `hotel_id` down to `runPmsRefresh`, `PmsChangesDrawer`, and `PmsRefreshPreviewDialog` so downstream queries stop breaking on the same mismatch.
-- Same normalization for the `pms_change_events` count query.
+### 2. Landing-tab routing (Housekeeping section)
 
-## 2. Hybrid "manager + housekeeper" role — where admins enable it, and landing priority
+Update the default-tab effect in `src/components/dashboard/HousekeepingTab.tsx`. Extend attendance gating so managers also route through the HR (attendance) tab when not checked in. `top_management` / `top_management_manager` remain exempt (view-only executives don't clock in).
 
-**Where to enable (already exists, needs to be discoverable):**
-- Admin/Manager → **Team → Users → Edit user** → toggle **"Also acts as housekeeper"** (`UserManagementDialog.tsx:1014`). This flips `profiles.acts_as_housekeeper = true` and makes the user appear in Auto-Assign and normal Assign Room pickers, while keeping full manager access.
+New priority when `userRole` has resolved:
 
-**UX additions so admins actually find it:**
-- Add a short helper caption under the toggle: "Enables the user for room assignments and adds a personal 'My Tasks' tab next to Team View."
-- Show a small **"HK+Mgr"** badge next to hybrid users in the user list rows so admins can see at a glance who is configured.
+| Role | Not signed in | Signed in |
+|---|---|---|
+| Housekeeper | `attendance` | `assignments` (My Tasks) |
+| Hybrid (mgr + housekeeper) | `attendance` | active rooms → `assignments`; else pending → `supervisor`; else `manage` |
+| Manager / housekeeping_manager / front_office / hr / marketing / control_finance | `attendance` | `pendingCount>0` → `supervisor`; else `manage` |
+| Executive read-only (`top_management*`) | — | `manage` |
+| Reception | — | `manage` |
 
-**Refine landing tab for hybrid users (`HousekeepingTab.tsx`):**
-Current priority is `active tasks → My Tasks, else → Team View`. Update to the exact rule requested:
-1. Has active `assigned`/`in_progress` room assignments today → **My Tasks**.
-2. Else if `pendingCount > 0` → **Pending Approvals**.
-3. Else → **Team View**.
-- Pending-approvals badge on the tab trigger remains for all three states.
-- Keep the existing `initialTabAppliedRef` latch so later realtime updates don't yank the user off the tab they navigated to.
+Reuse the existing `isSignedInToday` state and realtime subscription, but broaden `canClean` → `requiresAttendance` = `hasManagerAccess && !isExecutiveReadOnly` OR `userRole === 'housekeeping'`.
 
-## 3. Housekeeper post-signin routing + empty-state message
+Post-signin auto-jump (`postSigninJumpFiredRef`):
+- Housekeeper → `assignments`
+- Hybrid → priority chain above
+- Manager → `pendingCount>0` ? `supervisor` : `manage`
 
-**Goal:** Any user (housekeeper or hybrid) who is not yet checked in should land on the Attendance/sign-in view. After they sign in, jump them straight to **My Tasks**. If they have zero assignments for today, show a friendly "no rooms assigned yet" card instead of an empty list.
+### 3. Auto-scroll after landing on Team View / Pending Approvals
 
-**Changes:**
-- `HousekeepingTab.tsx`:
-  - Add an `attendanceStatus` query (`staff_attendance` for `user.id` + today's date) that runs alongside the existing effects.
-  - Default-tab effect gains a new branch **before** the housekeeper/hybrid branches: if the user role can clean (housekeeping OR hybrid) AND they are **not** `checked_in`/`on_break` today → land on `attendance` and skip the "My Tasks" default.
-  - Subscribe to `staff_attendance` realtime for `user.id`. When status flips to `checked_in`, if the current tab is still `attendance` and `initialTabAppliedRef` has already fired for attendance, programmatically switch to `assignments` (My Tasks) via `setActiveTab('assignments')`. Use a separate ref so this "post-signin jump" only fires once.
-- `HousekeepingStaffView.tsx` empty state (`housekeeping.noAssignments`):
-  - When the list is empty AND today's date is selected AND the user is signed in, render a distinct message: **"No rooms assigned yet — your supervisor hasn't published today's assignments. This screen will update automatically."** with a small refresh button and a subtle illustration.
-  - Add two new translation keys `housekeeping.noAssignmentsYetTitle` and `housekeeping.noAssignmentsYetBody` (EN + UK + other supported languages) instead of reusing the generic "no assignments" copy.
+When the manager lands on `manage` after check-in, smoothly scroll to the Hotel Room Overview card. When they land on `supervisor`, scroll to the first pending approval card.
 
-## 4. Per-hotel Auto-Assign improvements (starting with Ottofiori) + learning loop
+Implementation:
+- Add stable DOM ids in the two views:
+  - `HotelRoomOverview` root → `id="hotel-room-overview"`
+  - `SupervisorApprovalView`'s pending-list container → `id="pending-approvals-list"`
+- In `HousekeepingTab.tsx`, after `applyDefaultTab(...)` for `manage` / `supervisor`, schedule `requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior:'smooth', block:'start' }))` with a small delay so the tab content has mounted. Only fire on the initial default landing (not on manual navigation) — gated by `initialTabAppliedRef`.
+- Same behavior on the post-signin jump for managers.
 
-**Principle:** every hotel gets an isolated auto-assign profile. Ottofiori's algorithm knob changes must not affect other hotels.
+### 4. Attractive "Swipe right to check in" animation
 
-### 4a. Per-hotel configuration
-- New table `hotel_autoassign_profiles` (via migration) keyed by `hotel_id`, with tunable weights: `floor_grouping_weight`, `room_size_weight`, `checkout_distribution_weight`, `daily_count_weight`, `rtc_priority_weight`, `max_rooms_per_hk`, `checkout_first`, plus a JSON `learned_hints` blob for pattern data. RLS: readable by same-org members; write by admin/manager of that hotel; service_role full access.
-- `AutoRoomAssignment.tsx` loads the profile for the manager's resolved hotel via `resolveHotelKeys` and passes those weights into `runAssignmentAlgorithm`. If no profile row exists, use the current defaults.
+Enhance `src/components/ui/swipe-action.tsx` to draw the user's eye toward the swipe gesture while idle (industry-standard cue for swipe affordances: a repeating right-moving sheen + a subtle bouncing thumb, disabled while the user is dragging).
 
-### 4b. Fairness + floor grouping (Ottofiori first, generic for all hotels)
-Adjust `src/lib/roomAssignmentAlgorithm.ts`:
-- Pre-sort rooms by `(floor, wing, room_number)` and give each housekeeper a **primary floor** = the floor of their first assignment. Subsequent picks penalize moving off the primary floor unless load-balance forces it.
-- Split fairness into two dimensions computed per housekeeper:
-  - `checkoutCount` (already exists) — keep tight (max diff ≤ 1).
-  - `dailyCount` (stayovers) — keep tight (max diff ≤ 1).
-  - `weightedLoad` = Σ(room_size * type_factor) — used only when both counts are balanced.
-- **RTC (Ready-To-Clean) checkouts** at planning time: fetch `pms_metadata.cleanReadyStatus`/`checkout_time` freshness and mark rooms with `rtc = true` when they are already vacated. Distribute RTC rooms first, round-robin across available housekeepers, so nobody gets all the "waiting" ones.
-- Expose a per-hotel `checkoutFirstGrouping` flag (default true for Ottofiori) so all checkouts get the earliest slots.
+- **Animated gradient sheen:** an absolutely-positioned overlay inside the track running a `@keyframes swipe-hint-sheen` from `translateX(-40%)` to `translateX(140%)` with a soft `bg-gradient-to-r from-transparent via-primary/25 to-transparent`, 2s ease-in-out infinite. Pauses when `isDragging` or `isCompleted`.
+- **Thumb nudge:** the chevron thumb gets a `swipe-hint-nudge` keyframe (translate 0 → 8px → 0, 1.6s infinite) plus a soft glow ring, pauses on drag.
+- **Chevron trail:** two faint chevrons fading right of the thumb (opacity 0.4 → 0), staggered with animation-delay.
+- Respect `prefers-reduced-motion` via a `motion-safe:` prefix so the animations are disabled for users who opted out.
+- No emoji, uses design tokens (`primary`, `primary/25`, `primary/10`), no hardcoded colors.
 
-### 4c. Learning from historical assignments
-- Already have `assignment_patterns` (room-pair frequency). Add a nightly aggregation (extend existing `analyze-assignment-patterns` edge function or add `analyze-hotel-autoassign`) that runs per hotel and writes back into `hotel_autoassign_profiles.learned_hints`:
-  - Preferred floor-per-housekeeper (mode of floors they cleaned in the last 30 days).
-  - Typical checkout share per housekeeper (used only as a soft prior — never overrides fairness).
-  - Typical rooms/day per housekeeper (informs `max_rooms_per_hk` suggestion, shown to manager but not auto-applied).
-- Algorithm reads `learned_hints` as *tie-breakers only*. Hard constraints (fairness, floor grouping, RTC distribution) always win, so learned patterns can never cause hallucinated skewed assignments.
-- Add a small "Learning summary" panel inside Auto-Assign preview so managers can see *why* the algorithm proposed what it did (e.g. "Anna → floor 3 (prior pattern), 4 checkouts of 12").
+### Files to change
+- `src/contexts/LiveSyncContext.tsx` — alias-aware Previo detection.
+- `src/components/dashboard/HousekeepingTab.tsx` — extended attendance gating for managers, post-signin jump, auto-scroll trigger.
+- `src/components/dashboard/HotelRoomOverview.tsx` — add anchor id.
+- `src/components/dashboard/SupervisorApprovalView.tsx` — add anchor id on pending list.
+- `src/components/ui/swipe-action.tsx` — sheen + nudge animations, reduced-motion safe.
 
-### 4d. Guardrails against hallucination
-- Only ingest data actually present in the DB: skip housekeepers with < 5 historical days, skip rooms without floor metadata, ignore any pattern with confidence < 0.6.
-- The learning job logs its inputs/outputs to `pms_snapshots`-style audit rows so the manager can inspect what the model considered.
-
-## Technical notes
-
-- Migration: `hotel_autoassign_profiles` — CREATE TABLE + explicit GRANTs (`SELECT, INSERT, UPDATE, DELETE` to `authenticated`, `ALL` to `service_role`; no `anon`) + RLS policies scoped via existing `has_role` helper and `organization_slug`/`hotel_id` match.
-- No changes to auth schema. No secrets required.
-- Translation keys added to `src/hooks/useTranslation.tsx` for the new empty-state and the hybrid toggle helper.
-- All PMS-sync code that currently slugifies `hotelId` inline should be migrated to `resolveHotelKeys` in a follow-up sweep — this plan only touches `PmsSyncControls` and the components it hands the hotel id to.
-
-## Out of scope
-- Full automation (removing the manager's confirm step) — user explicitly wants human intervention for now; this plan only produces better proposals, still gated by the existing "Confirm assignments" step.
-- Rewriting `roomAssignmentAlgorithm` for non-Ottofiori hotels beyond the shared fairness/floor changes above.
+No schema, RLS, or business-logic changes.
