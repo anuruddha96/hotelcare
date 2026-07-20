@@ -252,11 +252,17 @@ function RoomGroupedView({
                       <div key={record.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{record.item_name}</div>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <SourceBadge source={record.source} role={record.recorded_role} name={record.recorded_by_name} />
                             <span className="text-xs text-muted-foreground">
                               {format(new Date(record.usage_date), 'MMM d, HH:mm')}
                             </span>
+                            {record.is_cleared && (
+                              <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
+                                ✓ Refilled{record.cleared_by_name ? ` by ${record.cleared_by_name}` : ''}
+                                {record.cleared_at ? ` · ${format(new Date(record.cleared_at), 'MMM d, HH:mm')}` : ''}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-3 ml-3">
