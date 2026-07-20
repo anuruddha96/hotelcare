@@ -4236,6 +4236,9 @@ export type Database = {
       }
       room_minibar_usage: {
         Row: {
+          cleared_at: string | null
+          cleared_by: string | null
+          cleared_note: string | null
           created_at: string
           guest_checkout_date: string | null
           id: string
@@ -4250,6 +4253,9 @@ export type Database = {
           usage_date: string | null
         }
         Insert: {
+          cleared_at?: string | null
+          cleared_by?: string | null
+          cleared_note?: string | null
           created_at?: string
           guest_checkout_date?: string | null
           id?: string
@@ -4264,6 +4270,9 @@ export type Database = {
           usage_date?: string | null
         }
         Update: {
+          cleared_at?: string | null
+          cleared_by?: string | null
+          cleared_note?: string | null
           created_at?: string
           guest_checkout_date?: string | null
           id?: string
