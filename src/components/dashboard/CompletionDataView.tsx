@@ -356,11 +356,29 @@ export function CompletionDataView({
                 {dndPhotos.map((dnd, dIdx) => (
                   <Card key={dnd.id} className="p-4">
                     <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Badge
+                          className={
+                            (dnd.attempt_number ?? 1) >= 2
+                              ? 'bg-red-600 text-white'
+                              : 'bg-orange-500 text-white'
+                          }
+                        >
+                          Attempt {dnd.attempt_number ?? 1}
+                          {(dnd.attempt_number ?? 1) >= 2 ? ' (final)' : ''}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(dnd.marked_at).toLocaleString()}
+                        </span>
+                      </div>
                       <button
                         type="button"
                         onClick={() =>
                           openLightbox(
-                            dndPhotos.map((d) => ({ url: d.photo_url, caption: d.notes || 'DND photo' })),
+                            dndPhotos.map((d) => ({
+                              url: d.photo_url,
+                              caption: `Attempt ${d.attempt_number ?? 1} — ${d.notes || 'DND photo'}`,
+                            })),
                             dIdx
                           )
                         }
@@ -368,7 +386,7 @@ export function CompletionDataView({
                       >
                         <img
                           src={dnd.photo_url}
-                          alt="DND photo"
+                          alt={`DND photo attempt ${dnd.attempt_number ?? 1}`}
                           className="w-full h-48 object-cover rounded-lg border hover:opacity-80 transition-opacity"
                         />
                       </button>
@@ -377,9 +395,6 @@ export function CompletionDataView({
                           <strong>Notes:</strong> {dnd.notes}
                         </div>
                       )}
-                      <div className="text-xs text-muted-foreground">
-                        Marked at: {new Date(dnd.marked_at).toLocaleString()}
-                      </div>
                     </div>
                   </Card>
                 ))}
