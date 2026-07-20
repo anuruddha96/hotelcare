@@ -38,8 +38,11 @@ interface MinibarUsageRecord {
   total_price: number;
   usage_date: string;
   recorded_by_name: string;
+  recorded_role: string; // 'housekeeper' | 'manager' | 'reception' | 'guest' | 'admin' | ''
   source: string;
   is_cleared: boolean;
+  cleared_at?: string | null;
+  cleared_by_name?: string | null;
   guest_nights_stayed: number;
   guest_total_nights?: number | null;
 }
