@@ -63,6 +63,9 @@ interface AssignedRoomCardProps {
     is_dnd?: boolean;
     dnd_marked_at?: string | null;
     dnd_marked_by?: string | null;
+    dnd_attempt_count?: number | null;
+    dnd_first_attempt_at?: string | null;
+    dnd_retry_unlocked_at?: string | null;
     supervisor_approved?: boolean;
     supervisor_approved_by?: string | null;
     supervisor_approved_at?: string | null;
