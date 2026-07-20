@@ -1333,9 +1333,9 @@ ${activePreviews.map(preview => {
                     const towelCount = preview.rooms.filter(r => r.towel_change_required).length;
                     const linenCount = preview.rooms.filter(r => r.linen_change_required).length;
                     const activeStaffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
-                    // Column width: fill equally, min 180px
+                    // Column width: on mobile keep compact so 2+ columns fit and chips stay tappable.
                     const colStyle: React.CSSProperties = {
-                      minWidth: activeStaffCount <= 4 ? '220px' : '180px',
+                      minWidth: isMobile ? '150px' : (activeStaffCount <= 4 ? '220px' : '180px'),
                       flex: `1 1 0`,
                     };
 
