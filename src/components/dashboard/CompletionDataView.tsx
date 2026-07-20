@@ -29,6 +29,7 @@ interface DNDPhoto {
   photo_url: string;
   notes: string | null;
   marked_at: string;
+  attempt_number?: number | null;
 }
 
 interface MinibarUsage {
