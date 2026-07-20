@@ -219,7 +219,7 @@ export function EnhancedDNDPhotoCapture({
             .from('dnd-photos')
             .getPublicUrl(data.path);
 
-          // Save DND record
+          // Save DND record (per attempt)
           await supabase
             .from('dnd_photos')
             .insert({
@@ -227,18 +227,21 @@ export function EnhancedDNDPhotoCapture({
               assignment_id: assignmentId || null,
               marked_by: user.id,
               photo_url: publicUrl,
-              assignment_date: new Date().toISOString().split('T')[0]
-            });
+              assignment_date: new Date().toISOString().split('T')[0],
+              attempt_number: attemptNumber,
+            } as any);
 
-          // Update room status to DND
-          await supabase
-            .from('rooms')
-            .update({
-              is_dnd: true,
-              dnd_marked_at: new Date().toISOString(),
-              dnd_marked_by: user.id
-            })
-            .eq('id', roomId);
+          // Only flip the room's DND flag on the 2nd (final) attempt
+          if (attemptNumber >= 2) {
+            await supabase
+              .from('rooms')
+              .update({
+                is_dnd: true,
+                dnd_marked_at: new Date().toISOString(),
+                dnd_marked_by: user.id
+              })
+              .eq('id', roomId);
+          }
 
           setUploadingPhotos(prev => {
             const next = new Set(prev);
