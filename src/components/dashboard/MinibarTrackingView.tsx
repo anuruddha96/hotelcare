@@ -603,7 +603,7 @@ export function MinibarTrackingView() {
           const { data, error } = await supabase
             .from('room_minibar_usage')
             .select(`
-              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared, cleared_at, cleared_by,
               rooms (room_number, hotel, guest_nights_stayed),
               minibar_items (name, price),
               profiles (full_name, role)
@@ -632,7 +632,7 @@ export function MinibarTrackingView() {
         const { data, error } = await supabase
           .from('room_minibar_usage')
           .select(`
-            id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+            id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared, cleared_at, cleared_by,
             rooms (room_number, hotel, guest_nights_stayed),
             minibar_items (name, price),
             profiles (full_name, role)
@@ -670,7 +670,7 @@ export function MinibarTrackingView() {
           const { data: stayData } = await supabase
             .from('room_minibar_usage')
             .select(`
-              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared,
+              id, quantity_used, usage_date, room_id, recorded_by, minibar_item_id, source, is_cleared, cleared_at, cleared_by,
               rooms (room_number, hotel, guest_nights_stayed),
               minibar_items (name, price),
               profiles (full_name, role)
