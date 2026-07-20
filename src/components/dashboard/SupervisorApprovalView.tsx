@@ -192,18 +192,25 @@ export function SupervisorApprovalView() {
     const startOfDay = dayStart.toISOString();
     const endOfDay = nextDay.toISOString();
 
-    // Surface every uncleared minibar row for these rooms up to the end of
-    // the selected day — including prior days that were never reconciled —
-    // so the supervisor can confirm each charge before it's cleared. Do NOT
-    // silently mark old rows as cleared: that erases lost charges.
+    // Only gate the approval on minibar rows added FOR THE SELECTED DAY by
+    // housekeeping staff. Prior-day uncleared rows are handled on the
+    // Minibar Tracking / Late Additions views — they must NOT re-fire the
+    // approval popup for a room that had no consumption today.
     const { data, error } = await supabase
       .from('room_minibar_usage')
-      .select('id, room_id, quantity_used, minibar_items:minibar_item_id(name, price)')
+      .select('id, room_id, quantity_used, source, minibar_items:minibar_item_id(name, price)')
       .in('room_id', roomIds)
       .eq('is_cleared', false)
+      .gte('usage_date', startOfDay)
       .lt('usage_date', endOfDay);
     if (error || !data) return { items: [], total: 0, usageIds: [] };
-    const filtered = data.filter((u: any) => (u.quantity_used || 0) > 0);
+    const filtered = data.filter((u: any) => {
+      if ((u.quantity_used || 0) <= 0) return false;
+      const src = (u.source || 'staff').toLowerCase();
+      // Guest QR and reception-recorded usage are reconciled elsewhere and
+      // should not block a housekeeping approval.
+      return src === 'housekeeper' || src === 'staff';
+    });
     const items: MinibarGateItem[] = filtered.map((u: any) => ({
       room: roomNumberByRoomId[u.room_id] || '—',
       qty: u.quantity_used || 0,
