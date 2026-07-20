@@ -1058,10 +1058,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         {/* Action Buttons */}
         <div className="space-y-4">
+          {/* 2nd-attempt DND banner */}
+          {assignment.status === 'dnd_pending_retry' && (
+            <div className="rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800 px-3 py-2 text-sm text-orange-900 dark:text-orange-200">
+              <div className="font-semibold">2nd attempt</div>
+              <div className="text-xs">
+                {assignment.dnd_retry_unlocked_at
+                  ? 'You can try this room again now. If the guest is still DND, mark it and it will go to your supervisor.'
+                  : 'Finish your other rooms first — we\'ll unlock this again at 14:30 or after your other rooms are done.'}
+              </div>
+            </div>
+          )}
           {/* Primary Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Wrap HoldButton in a div with bottom padding to accommodate the absolute "Press & Hold" text */}
-          {assignment.status === 'assigned' && !isCheckoutWaiting && (
+          {(assignment.status === 'assigned' || (assignment.status === 'dnd_pending_retry' && assignment.dnd_retry_unlocked_at)) && !isCheckoutWaiting && (
               <div className="pb-7 w-full sm:w-auto">
                 <HoldButton
                   size="lg"
