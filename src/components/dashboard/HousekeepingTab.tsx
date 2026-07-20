@@ -215,6 +215,10 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   //     2) otherwise → Team View (pending approvals shown as badge, not default)
   useEffect(() => {
     if (initialTabAppliedRef.current) return;
+    // Wait until the user's role is resolved. Otherwise the effect fires on
+    // first render with userRole='' and falls into the housekeeper fallback,
+    // permanently latching managers onto "My Tasks".
+    if (!userRole) return;
 
     const applyDefaultTab = (nextTab: string) => {
       initialTabAppliedRef.current = true;
