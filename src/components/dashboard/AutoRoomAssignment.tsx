@@ -899,33 +899,40 @@ ${activePreviews.map(preview => {
           requestAnimationFrame(() => document.body.removeChild(ghost));
         }}
         onDragEnd={() => { setDraggingRoomId(null); setDragOverStaffId(null); }}
-        className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 select-none ${
-          !isMobile ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] leading-tight font-medium transition-all duration-200 select-none touch-manipulation ${
+          !isMobile ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer active:scale-95'
         } ${chipColor} ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}
         ${draggingRoomId === room.id ? 'opacity-30 scale-95' : ''}
         ${justDroppedRoomId === room.id ? 'animate-scale-in ring-2 ring-green-500' : ''}`}
         onClick={(e) => {
           e.stopPropagation();
+          // If a chip from ANOTHER staff is already selected, treat this tap
+          // as "move it here" so mobile users can drop onto any chip in the
+          // target column (not just empty space).
+          if (selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId) {
+            handleMoveRoom(preview.staffId);
+            return;
+          }
           if (isSelected) setSelectedRoomForMove(null);
           else setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
         }}
         title={`${t('autoAssign.room')} ${room.room_number}${isRtc ? ' · RTC' : ''}${room.room_category ? ` · ${room.room_category}` : ''}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
       >
-        <span>{room.room_number}</span>
+        <span className="font-semibold">{room.room_number}</span>
         {isRtc && (
-          <span className="text-[9px] px-0.5 rounded font-extrabold bg-green-600 text-white">RTC</span>
+          <span className="text-[8px] px-0.5 rounded font-extrabold bg-green-600 text-white">RTC</span>
         )}
         {room.room_category && (
           <span className="text-[9px] opacity-70 font-normal">{getCategoryShortName(room.room_category)}</span>
         )}
         {room.towel_change_required && (
-          <span className="text-[10px] px-0.5 font-bold text-blue-600">T</span>
+          <span className="text-[9px] px-0.5 font-bold text-blue-600">T</span>
         )}
         {room.linen_change_required && (
-          <span className="text-[10px] px-0.5 font-bold text-orange-600">C</span>
+          <span className="text-[9px] px-0.5 font-bold text-orange-600">C</span>
         )}
         {((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration) && (
-          <span className="text-[9px] px-0.5 opacity-70">🛏️{String((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration).slice(0, 8)}</span>
+          <span className="text-[9px] px-0.5 opacity-70">🛏️{String((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration).slice(0, 6)}</span>
         )}
       </div>
     );
@@ -993,7 +1000,7 @@ ${activePreviews.map(preview => {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className={`max-h-[90vh] flex flex-col ${step === 'preview' ? 'max-w-[95vw] w-full' : 'max-w-4xl'}`}>
+        <DialogContent className={`max-h-[92vh] flex flex-col p-3 sm:p-6 gap-2 sm:gap-4 ${step === 'preview' ? 'max-w-[100vw] sm:max-w-[95vw] w-full' : 'max-w-4xl'}`}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wand2 className="h-5 w-5" />
@@ -1326,9 +1333,9 @@ ${activePreviews.map(preview => {
                     const towelCount = preview.rooms.filter(r => r.towel_change_required).length;
                     const linenCount = preview.rooms.filter(r => r.linen_change_required).length;
                     const activeStaffCount = assignmentPreviews.filter(p => p.rooms.length > 0).length;
-                    // Column width: fill equally, min 180px
+                    // Column width: on mobile keep compact so 2+ columns fit and chips stay tappable.
                     const colStyle: React.CSSProperties = {
-                      minWidth: activeStaffCount <= 4 ? '220px' : '180px',
+                      minWidth: isMobile ? '150px' : (activeStaffCount <= 4 ? '220px' : '180px'),
                       flex: `1 1 0`,
                     };
 
