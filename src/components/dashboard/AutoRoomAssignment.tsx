@@ -899,13 +899,20 @@ ${activePreviews.map(preview => {
           requestAnimationFrame(() => document.body.removeChild(ghost));
         }}
         onDragEnd={() => { setDraggingRoomId(null); setDragOverStaffId(null); }}
-        className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 select-none ${
-          !isMobile ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] leading-tight font-medium transition-all duration-200 select-none touch-manipulation ${
+          !isMobile ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer active:scale-95'
         } ${chipColor} ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}
         ${draggingRoomId === room.id ? 'opacity-30 scale-95' : ''}
         ${justDroppedRoomId === room.id ? 'animate-scale-in ring-2 ring-green-500' : ''}`}
         onClick={(e) => {
           e.stopPropagation();
+          // If a chip from ANOTHER staff is already selected, treat this tap
+          // as "move it here" so mobile users can drop onto any chip in the
+          // target column (not just empty space).
+          if (selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId) {
+            handleMoveRoom(preview.staffId);
+            return;
+          }
           if (isSelected) setSelectedRoomForMove(null);
           else setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
         }}
