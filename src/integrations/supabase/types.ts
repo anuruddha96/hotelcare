@@ -843,6 +843,7 @@ export type Database = {
         Row: {
           assignment_date: string
           assignment_id: string | null
+          attempt_number: number
           created_at: string
           id: string
           marked_at: string
@@ -856,6 +857,7 @@ export type Database = {
         Insert: {
           assignment_date?: string
           assignment_id?: string | null
+          attempt_number?: number
           created_at?: string
           id?: string
           marked_at?: string
@@ -869,6 +871,7 @@ export type Database = {
         Update: {
           assignment_date?: string
           assignment_id?: string | null
+          attempt_number?: number
           created_at?: string
           id?: string
           marked_at?: string
@@ -4122,8 +4125,11 @@ export type Database = {
           completed_at: string | null
           completion_photos: string[] | null
           created_at: string
+          dnd_attempt_count: number
+          dnd_first_attempt_at: string | null
           dnd_marked_at: string | null
           dnd_marked_by: string | null
+          dnd_retry_unlocked_at: string | null
           estimated_duration: number | null
           id: string
           is_dnd: boolean | null
@@ -4152,8 +4158,11 @@ export type Database = {
           completed_at?: string | null
           completion_photos?: string[] | null
           created_at?: string
+          dnd_attempt_count?: number
+          dnd_first_attempt_at?: string | null
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
+          dnd_retry_unlocked_at?: string | null
           estimated_duration?: number | null
           id?: string
           is_dnd?: boolean | null
@@ -4182,8 +4191,11 @@ export type Database = {
           completed_at?: string | null
           completion_photos?: string[] | null
           created_at?: string
+          dnd_attempt_count?: number
+          dnd_first_attempt_at?: string | null
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
+          dnd_retry_unlocked_at?: string | null
           estimated_duration?: number | null
           id?: string
           is_dnd?: boolean | null
