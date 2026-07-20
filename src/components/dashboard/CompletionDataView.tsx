@@ -140,7 +140,8 @@ export function CompletionDataView({
         .from('dnd_photos')
         .select('*')
         .eq('assignment_id', assignmentId)
-        .order('marked_at', { ascending: false });
+        .order('attempt_number', { ascending: true, nullsFirst: true })
+        .order('marked_at', { ascending: true });
 
       if (dndError) {
         console.error('Error fetching DND photos:', dndError);
