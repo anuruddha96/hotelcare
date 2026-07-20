@@ -927,6 +927,14 @@ export function MinibarTrackingView() {
         <p className="text-sm text-muted-foreground -mt-2">{t('minibar.stayInfo')}</p>
       )}
 
+      {/* Room Chips Overview — quick at-a-glance status */}
+      <RoomChipsOverview
+        records={usageRecords}
+        searchTerm={searchRoom}
+        onSelect={(room) => setSearchRoom(room)}
+      />
+
+
       {/* Room-Grouped Cards */}
       <RoomGroupedView
         records={usageRecords}
