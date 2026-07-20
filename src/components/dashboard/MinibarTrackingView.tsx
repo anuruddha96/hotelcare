@@ -339,6 +339,106 @@ function RoomGroupedView({
   );
 }
 
+function RoomChipsOverview({
+  records,
+  searchTerm,
+  onSelect,
+}: {
+  records: MinibarUsageRecord[];
+  searchTerm: string;
+  onSelect: (room: string) => void;
+}) {
+  const chips = useMemo(() => {
+    // Group by room. A room chip is RED if any uncleared item exists; GREEN if all cleared or no items.
+    const map = new Map<string, {
+      room: string;
+      hotel: string;
+      totalItems: number;
+      totalPrice: number;
+      hasPending: boolean;
+      lastRecorder?: string;
+      lastRole?: string;
+      lastItemName?: string;
+      lastAt?: string;
+    }>();
+    for (const r of records) {
+      const key = `${r.room_number}-${r.hotel}`;
+      let g = map.get(key);
+      if (!g) {
+        g = { room: r.room_number, hotel: r.hotel, totalItems: 0, totalPrice: 0, hasPending: false };
+        map.set(key, g);
+      }
+      g.totalItems += r.quantity_used;
+      g.totalPrice += r.total_price;
+      if (!r.is_cleared) g.hasPending = true;
+      if (!g.lastAt || r.usage_date > g.lastAt) {
+        g.lastAt = r.usage_date;
+        g.lastRecorder = r.recorded_by_name;
+        g.lastRole = r.recorded_role;
+        g.lastItemName = r.item_name;
+      }
+    }
+    const arr = Array.from(map.values());
+    const term = searchTerm.trim().toLowerCase();
+    const filtered = term ? arr.filter(g => g.room.toLowerCase().includes(term)) : arr;
+    return filtered.sort((a, b) => a.room.localeCompare(b.room, undefined, { numeric: true }));
+  }, [records, searchTerm]);
+
+  const pendingCount = chips.filter(c => c.hasPending).length;
+  const cleanCount = chips.length - pendingCount;
+
+  if (chips.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <CardTitle className="text-base">Rooms at a glance</CardTitle>
+          <div className="flex items-center gap-2 text-xs">
+            <Badge className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100">
+              {pendingCount} needs refill
+            </Badge>
+            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-100">
+              {cleanCount} up to date
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">
+          {chips.map((c) => (
+            <button
+              key={`${c.room}-${c.hotel}`}
+              onClick={() => onSelect(c.room)}
+              title={c.hasPending
+                ? `Needs refill · ${c.totalItems} item(s) · €${c.totalPrice.toFixed(2)}\nLast: ${c.lastItemName ?? ''} by ${c.lastRecorder ?? 'Unknown'}`
+                : `Minibar up to date · ${c.totalItems} item(s) recorded (refilled) · €${c.totalPrice.toFixed(2)}`}
+              className={`px-3 py-2 rounded-lg border text-left transition-colors ${
+                c.hasPending
+                  ? 'bg-red-50 border-red-300 hover:bg-red-100 text-red-900'
+                  : 'bg-emerald-50 border-emerald-300 hover:bg-emerald-100 text-emerald-900'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm">{c.room}</span>
+                <span className={`h-2 w-2 rounded-full ${c.hasPending ? 'bg-red-500' : 'bg-emerald-500'}`} />
+              </div>
+              <div className="text-[10px] opacity-80 mt-0.5">
+                {c.hasPending ? `${c.totalItems} · €${c.totalPrice.toFixed(2)}` : 'Up to date'}
+              </div>
+              {c.lastRecorder && (
+                <div className="text-[10px] opacity-70 truncate max-w-[130px]">
+                  {c.lastRecorder}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function MinibarTrackingView() {
   const { t, language } = useTranslation();
   const { user, profile } = useAuth();
