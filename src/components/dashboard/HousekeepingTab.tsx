@@ -166,6 +166,14 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     isHybridHousekeeper ? undefined : false
   );
 
+  // Whether the current user is signed in (attendance) for today. undefined
+  // while loading. Used to route housekeepers/hybrids to the attendance tab
+  // before they can start any room work.
+  const canClean = isHybridHousekeeper || userRole === 'housekeeping';
+  const [isSignedInToday, setIsSignedInToday] = useState<boolean | undefined>(
+    canClean ? undefined : true
+  );
+
   // Detect whether the hybrid user has any active room assignments today so we
   // can land them on My Tasks instead of Team View. Re-runs on realtime changes
   // to room_assignments for this user.
@@ -203,16 +211,58 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     };
   }, [isHybridHousekeeper, user?.id]);
 
+  // Track today's attendance for cleaners so we can land them on the
+  // attendance tab until they sign in, then jump to My Tasks.
+  useEffect(() => {
+    if (!canClean || !user?.id) {
+      setIsSignedInToday(canClean ? undefined : true);
+      return;
+    }
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    const todayKey = `${y}-${m}-${d}`;
+    let cancelled = false;
+    const refresh = async () => {
+      const { data } = await (supabase as any)
+        .from('staff_attendance')
+        .select('status')
+        .eq('user_id', user.id)
+        .eq('work_date', todayKey)
+        .in('status', ['checked_in', 'on_break'])
+        .limit(1);
+      if (!cancelled) setIsSignedInToday(!!(data && data.length));
+    };
+    refresh();
+    const channel = (supabase as any)
+      .channel(`attendance-${user.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'staff_attendance',
+        filter: `user_id=eq.${user.id}`,
+      }, () => { refresh(); })
+      .subscribe();
+    return () => {
+      cancelled = true;
+      (supabase as any).removeChannel(channel);
+    };
+  }, [canClean, user?.id]);
+
   // Track whether we've applied the initial default tab. After that the user
   // is free to navigate; we don't want async signals (pendingCount, realtime)
   // to keep yanking them back.
   const initialTabAppliedRef = useRef(false);
+  // Separate one-shot: after we land the user on 'attendance' because they
+  // aren't signed in yet, jump them to 'assignments' the moment they sign in.
+  const postSigninJumpFiredRef = useRef(false);
 
   // Set the default active tab.
+  //   Cleaners (housekeeping / hybrid) not signed in → Attendance.
   //   Pure managers → pending approvals (if any) else Team View.
-  //   Hybrid supervisor+housekeeper priority:
+  //   Hybrid supervisor+housekeeper priority (once signed in):
   //     1) active room assignments today → My Tasks
-  //     2) otherwise → Team View (pending approvals shown as badge, not default)
+  //     2) pending approvals → Pending Approvals
+  //     3) otherwise → Team View
   useEffect(() => {
     if (initialTabAppliedRef.current) return;
     // Wait until the user's role is resolved. Otherwise the effect fires on
@@ -229,12 +279,18 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
     if (isExecutiveReadOnly) { applyDefaultTab('manage'); return; }
 
+    // Cleaners must sign in first. Wait for the attendance query to resolve.
+    if (canClean) {
+      if (isSignedInToday === undefined) return;
+      if (!isSignedInToday) { applyDefaultTab('attendance'); return; }
+    }
+
     if (hasManagerAccess) {
       if (isHybridHousekeeper) {
         // Wait for the assignments query to resolve before deciding.
         if (hasActiveAssignmentsToday === undefined) return;
         if (hasActiveAssignmentsToday) { applyDefaultTab('assignments'); return; }
-        applyDefaultTab('manage');
+        applyDefaultTab(pendingCount > 0 ? 'supervisor' : 'manage');
         return;
       }
       applyDefaultTab(pendingCount > 0 ? 'supervisor' : 'manage');
@@ -243,7 +299,22 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     } else {
       applyDefaultTab('assignments');
     }
-  }, [hasManagerAccess, isExecutiveReadOnly, isHybridHousekeeper, hasActiveAssignmentsToday, userRole, pendingCount, onActiveSubTabChange, onActiveInnerTabChange]);
+  }, [hasManagerAccess, isExecutiveReadOnly, isHybridHousekeeper, hasActiveAssignmentsToday, canClean, isSignedInToday, userRole, pendingCount, onActiveSubTabChange, onActiveInnerTabChange]);
+
+  // Post-signin jump: if the user was landed on 'attendance' because they
+  // weren't signed in yet, jump them to My Tasks the moment their attendance
+  // flips to checked_in. Fires at most once so we don't fight manual navigation.
+  useEffect(() => {
+    if (postSigninJumpFiredRef.current) return;
+    if (!canClean) return;
+    if (activeTab !== 'attendance') return;
+    if (isSignedInToday === true) {
+      postSigninJumpFiredRef.current = true;
+      setActiveTab('assignments');
+      onActiveSubTabChange?.('assignments');
+    }
+  }, [canClean, isSignedInToday, activeTab, onActiveSubTabChange]);
+
 
 
 
