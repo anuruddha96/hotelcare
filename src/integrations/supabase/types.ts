@@ -5439,7 +5439,12 @@ export type Database = {
       user_can_view_ticket: { Args: { ticket_id: string }; Returns: boolean }
     }
     Enums: {
-      assignment_status: "assigned" | "in_progress" | "completed" | "cancelled"
+      assignment_status:
+        | "assigned"
+        | "in_progress"
+        | "completed"
+        | "cancelled"
+        | "dnd_pending_retry"
       assignment_type:
         | "daily_cleaning"
         | "checkout_cleaning"
@@ -5619,7 +5624,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      assignment_status: ["assigned", "in_progress", "completed", "cancelled"],
+      assignment_status: [
+        "assigned",
+        "in_progress",
+        "completed",
+        "cancelled",
+        "dnd_pending_retry",
+      ],
       assignment_type: [
         "daily_cleaning",
         "checkout_cleaning",
