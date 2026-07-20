@@ -151,7 +151,11 @@ export function MobileHousekeepingView() {
 
       // Apply status filter if set - skip for special filters
       if (statusFilter && statusFilter !== 'total' && statusFilter !== 'no_service' && statusFilter !== 'dnd') {
-        query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
+        if (statusFilter === 'assigned') {
+          query = query.in('status', ['assigned', 'dnd_pending_retry']);
+        } else {
+          query = query.eq('status', statusFilter as 'assigned' | 'in_progress' | 'completed');
+        }
       }
 
       const { data, error } = await query;
