@@ -229,9 +229,11 @@ export function SupervisorApprovalView() {
   const markMinibarUsageCleared = async (usageIds: string[]) => {
     if (!usageIds || usageIds.length === 0) return;
     try {
+      const { data: authData } = await supabase.auth.getUser();
+      const uid = authData?.user?.id ?? null;
       await supabase
         .from('room_minibar_usage')
-        .update({ is_cleared: true, guest_checkout_date: new Date().toISOString() })
+        .update({ is_cleared: true, cleared_at: new Date().toISOString(), cleared_by: uid })
         .in('id', usageIds)
         .eq('is_cleared', false);
     } catch (e) {
