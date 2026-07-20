@@ -226,17 +226,25 @@ function zoneFitScore(room: RoomForAssignment, staffRooms: RoomForAssignment[]):
   if (staffRooms.length === 0) return 0;
   const roomZone = getZone(room);
   const zones = getStaffZones(staffRooms);
-  
+
   if (zones.has(roomZone)) return 0;
-  
+
+  // Strong same-floor preference: if any existing room shares the floor,
+  // treat as near-match. Otherwise penalize by floor distance so the
+  // trolley stays on one level as much as fairness allows.
+  const roomFloor = getFloor(room);
+  const floors = new Set(staffRooms.map(r => getFloor(r)));
+  if (floors.has(roomFloor)) return 5; // same floor, different wing
+  const minFloorDist = Math.min(...Array.from(floors).map(f => Math.abs(f - roomFloor)));
+  const floorPenalty = minFloorDist * 80; // 80 per floor away — strong nudge
+
   const zoneCount = zones.size + 1;
-  if (zoneCount >= 4) return 100; // Penalize but don't block
-  if (zoneCount >= 3) return 60;
-  
+  const spreadPenalty = zoneCount >= 4 ? 100 : zoneCount >= 3 ? 60 : 20;
+
   const existingZones = Array.from(zones);
   const isAdjacent = existingZones.some(z => areZonesAdjacent(z, roomZone));
-  
-  return isAdjacent ? 10 : 40;
+
+  return floorPenalty + spreadPenalty + (isAdjacent ? 0 : 20);
 }
 
 function areZonesAdjacent(zoneA: string, zoneB: string): boolean {
@@ -418,8 +426,20 @@ export function autoAssignRooms(
     checkoutsByZone.get(z)!.push(r);
   });
 
+  // Anchor by RTC (linen-change / clean-room) floors first: those rooms
+  // must happen and are heavier, so let them decide floor ownership.
+  // Then process largest checkout clusters. This keeps a housekeeper on
+  // the same floor for both checkout + daily whenever possible.
+  const rtcFloors = new Set(
+    allRooms.filter(r => r.linen_change_required).map(r => getFloor(r))
+  );
   const checkoutZoneGroups = Array.from(checkoutsByZone.entries())
-    .sort((a, b) => b[1].length - a[1].length);
+    .sort((a, b) => {
+      const aRtc = a[1].some(r => rtcFloors.has(getFloor(r))) ? 1 : 0;
+      const bRtc = b[1].some(r => rtcFloors.has(getFloor(r))) ? 1 : 0;
+      if (aRtc !== bRtc) return bRtc - aRtc;
+      return b[1].length - a[1].length;
+    });
 
   for (const [, zoneRooms] of checkoutZoneGroups) {
     zoneRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number));
@@ -443,7 +463,7 @@ export function autoAssignRooms(
         
         return {
           id: s.id,
-          score: fairnessPenalty + minutePenalty + fitScore + proxScore * 0.5 - affinityBonus + randomPerturbation
+          score: fairnessPenalty + minutePenalty + fitScore + proxScore * 1.5 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
@@ -486,7 +506,7 @@ export function autoAssignRooms(
         
         return {
           id: s.id,
-          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 0.3 - affinityBonus + randomPerturbation
+          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 2.0 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
@@ -528,7 +548,7 @@ export function autoAssignRooms(
         
         return {
           id: s.id,
-          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 0.3 - affinityBonus + randomPerturbation
+          score: dailyPenalty + minutePenalty + totalPenalty + fitScore + proxScore * 2.0 - affinityBonus + randomPerturbation
         };
       }).sort((a, b) => a.score - b.score);
 
