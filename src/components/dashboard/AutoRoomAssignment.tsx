@@ -428,6 +428,25 @@ export function AutoRoomAssignment({
       }
     }
     
+    // Load per-hotel auto-assign profile (independent tuning per hotel). If no
+    // row exists we fall back to the current defaults so other hotels are
+    // unaffected. Keeps Ottofiori's tuning isolated from Memories Budapest etc.
+    let hotelProfile: {
+      floor_grouping_weight: number | null;
+      checkout_first: boolean | null;
+    } | null = null;
+    try {
+      const hotelKeys = await resolveHotelKeys(hotelName);
+      const searchKeys = hotelKeys.length ? hotelKeys : [hotelName || ''];
+      const { data: profileRow } = await (supabase as any)
+        .from('hotel_autoassign_profiles')
+        .select('floor_grouping_weight, checkout_first')
+        .in('hotel_id', searchKeys)
+        .limit(1)
+        .maybeSingle();
+      hotelProfile = profileRow ?? null;
+    } catch { /* ignore — use defaults */ }
+
     // Best-of-N generation: run 10 candidates with different seeds, pick fairest
     const NUM_CANDIDATES = 10;
     let bestPreviews: AssignmentPreview[] | null = null;
@@ -439,10 +458,17 @@ export function AutoRoomAssignment({
         ...hotelConfig,
         hotelName: hotelName || undefined,
         randomSeed: Date.now() + i * 7919, // different prime-offset seeds
+        ...(hotelProfile?.floor_grouping_weight != null
+          ? { floorPenaltyMultiplier: Number(hotelProfile.floor_grouping_weight) }
+          : {}),
+        ...(hotelProfile?.checkout_first != null
+          ? { checkoutFirstGrouping: !!hotelProfile.checkout_first }
+          : {}),
       };
       
       const candidate = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, finalConfig);
       const metrics = computeFairnessMetrics(candidate);
+
       
       if (metrics.score < bestScore) {
         bestScore = metrics.score;
