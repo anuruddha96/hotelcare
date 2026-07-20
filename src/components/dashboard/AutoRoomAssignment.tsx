@@ -1452,6 +1452,8 @@ ${activePreviews.map(preview => {
                     );
                   })}
                 </div>
+                  );
+                })()}
 
                 <p className="text-[10px] text-muted-foreground text-center flex-shrink-0 py-0.5">
                   {isMobile ? t('autoAssign.tapToMove') : t('autoAssign.dragToReassign')}
