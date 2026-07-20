@@ -170,8 +170,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   // while loading. Used to route housekeepers/hybrids to the attendance tab
   // before they can start any room work.
   const canClean = isHybridHousekeeper || userRole === 'housekeeping';
+  // Managers (and hybrids) also need to sign in for the day before they get
+  // routed onto operational tabs. Executive read-only viewers are exempt.
+  const requiresAttendance = canClean || (hasManagerAccess && !isExecutiveReadOnly);
   const [isSignedInToday, setIsSignedInToday] = useState<boolean | undefined>(
-    canClean ? undefined : true
+    requiresAttendance ? undefined : true
   );
 
   // Detect whether the hybrid user has any active room assignments today so we
