@@ -1,61 +1,121 @@
-## Goal
 
-Change the DND flow so first-attempt DND rooms do NOT hit manager approval. Instead, the room recycles back to the same housekeeper's queue as a clearly-labeled "2nd attempt" until either (a) all their other rooms are finished, or (b) 14:30 local time — whichever comes first. Only if the 2nd attempt is also DND does it appear in Pending Approvals, with photos from both attempts side-by-side.
+# Rollout plan
 
-## Behavior
+Three tracks in one plan. Each track is independent and can be released as it lands.
 
-### Housekeeper side
-- **1st DND**: current DND photo capture stays. On save, the assignment does NOT become `completed`. Instead it flips to a new state `dnd_pending_retry` with `dnd_attempt_count = 1`. The room drops to the bottom of the housekeeper's task list, visually muted, with a chip "DND · Retry at 14:30 or after other rooms". The housekeeper can tap it any time to retry — no confirmation prompt questioning them.
-- **Unlock trigger** on housekeeper client: when either (i) every other assignment for that housekeeper today is `completed`/`approved`, or (ii) local time ≥ 14:30, the retry chip changes to "2nd attempt ready" and the card becomes fully actionable again. The housekeeper can also open it manually before that.
-- **2nd attempt**: same room card, header shows "2nd attempt" badge and thumbnails of the 1st-attempt DND photo(s) for context. If they mark DND again, it saves as `dnd_attempt_count = 2`, `status = completed`, `is_dnd = true` → routes to manager approval. If they clean it, normal completion.
-- Today's already-DND rooms (created before this change) are migrated: if `is_dnd = true` and `status = completed` and never approved, treat as attempt 1 and requeue.
+---
 
-### Manager side
-- Pending Approvals only shows DND rooms where `dnd_attempt_count ≥ 2` (or legacy `is_dnd` with no attempt tracking after migration cutoff).
-- The DND approval card renders both attempts stacked: "Attempt 1 — HH:MM" with its photo(s), "Attempt 2 — HH:MM" with its photo(s), each opening in the existing PhotoLightbox.
-- No 1st-attempt DND rooms appear in the approval queue.
+## Track A — Quick fixes
 
-### Photo storage
-- `dnd_photos` rows already store per-attempt records via `marked_at` + `assignment_id`. Add `attempt_number smallint not null default 1` so the approval UI can group them. Both attempts' photos persist (no deletion on retry).
+1. **DND 2nd attempt asks for 5 daily photos**
+   - Investigate `AssignedRoomCard.tsx` markAsDND flow + completion photo requirement. On attempt 2 the room is in `dnd_pending_retry`, but the "Start/Complete" checklist path currently treats it as a normal cleaning and requires the 5 completion photos.
+   - Fix: when `is_dnd || dnd_attempt_count > 0`, the second attempt must reopen the `EnhancedDNDPhotoCapture` (single DND photo), never the 5-photo completion sheet. Add a hard branch: DND button on retry = single DND photo capture with `attempt_number: 2`, then set `completed`.
+   - Add clear UI copy on the retry card: "Second attempt — one DND photo is enough".
 
-## Data model
+2. **Checkout Clean must not show "Towel Change Required"**
+   - `CompletionDataView.tsx` (Special Requirements block) and any other card that surfaces `towel_change_needed`: suppress the badge whenever `cleaning_type === 'checkout_clean'`. Same guard already exists on `AssignedRoomCard.tsx`; extend to approval history + completion view.
 
-Migration adds:
-- `room_assignments.dnd_attempt_count smallint not null default 0`
-- `room_assignments.dnd_first_attempt_at timestamptz`
-- `room_assignments.dnd_retry_unlocked_at timestamptz` (nullable; set when 14:30 or all-others-done fires so the UI stays consistent across devices)
-- New status value `dnd_pending_retry` allowed in `room_assignments.status` (kept as text; no enum change needed)
-- `dnd_photos.attempt_number smallint not null default 1`
+3. **Pending Approvals badge "5" is stale**
+   - `HousekeepingTab.tsx` pending count is derived from a one-shot fetch. Replace with realtime: subscribe to `room_assignments` (filter by hotel + today, status = `completed` + not approved) and to `dnd_photos`. Recompute count on INSERT/UPDATE/DELETE and on approval action. Also refresh on window focus.
 
-Backfill: for existing `room_assignments` where `is_dnd = true` and `status = 'completed'` and `supervisor_approved_at is null` and `assignment_date = current_date`, set `dnd_attempt_count = 1`, `status = 'dnd_pending_retry'`, `dnd_first_attempt_at = dnd_marked_at`. Existing `dnd_photos` rows get `attempt_number = 1`.
+4. **Admin-only training modules leak to non-admins**
+   - `src/components/training/v2/curricula/index.ts` + `curriculaForRole()`: `adminPmsOverviewCurriculum` and any other admin curricula must set `roles: ['admin']` (or `top_management`). Verify `manager-*` curricula don't list `admin` steps that reference admin-only routes.
+   - Filter in `TrainingCenter.tsx` by the real user role, not by "has any curriculum".
 
-No RLS changes; new columns inherit existing policies.
+5. **Manager Reception curriculum**
+   - `manager-reception.ts`: remove "Nightly Daily Overview upload" and "Breakfast lookup (/bb)" steps (or move them to an admin/night-reception curriculum). Reception managers see neither.
+   - Wait — user says the Nightly Daily Overview upload is **missing** and should be restored, and Breakfast lookup should **not** appear in the manager module. So: restore the Daily Overview upload step in the reception/night-reception curriculum where it belongs, and delete the /bb Breakfast lookup step from the manager curriculum.
 
-## Files to change
+6. **Room 404 — housekeeping note from yesterday appearing today**
+   - Root cause suspicion: `housekeeping_notes` has no date scoping in the query used by `AssignedRoomCard`. It pulls all non-resolved notes for the room. Add `assignment_date = today` filter (or `created_at >= start_of_today`) with a fallback "carry over unread" flag the manager sets explicitly.
+   - This is superseded by Track C messaging, but ship the date-scope fix now so stale notes stop appearing.
 
-- **Migration** (new): the schema + backfill above.
-- `src/components/dashboard/AssignedRoomCard.tsx`
-  - Rework `markAsDND`: branch on `dnd_attempt_count`. Attempt 1 → `status='dnd_pending_retry'`, `dnd_attempt_count=1`, `dnd_first_attempt_at=now`, do NOT set `completed_at`; write photo with `attempt_number=1`. Attempt 2 → current behavior + `attempt_number=2` + `dnd_attempt_count=2`.
-  - Add retry banner UI for `status==='dnd_pending_retry'`: shows "DND · retry after other rooms or 14:30", 1st-attempt thumbnail, "Try again now" button (always enabled). When unlocked, banner switches to "2nd attempt ready".
-  - Remove the current "questioning" confirmation copy; label everything as "2nd attempt".
-- `src/components/dashboard/HousekeepingStaffView.tsx` (or wherever the housekeeper task list is ordered — verify during build)
-  - Sort `dnd_pending_retry` assignments to the bottom.
-  - Effect that computes unlock: on mount + every 60s + when other assignments change, if all sibling assignments are in a terminal state OR `now >= 14:30 local`, patch `dnd_retry_unlocked_at = now()` for that housekeeper's `dnd_pending_retry` rows (idempotent via `is null` guard).
-- `src/components/dashboard/SupervisorApprovalView.tsx`
-  - Filter out `status = 'dnd_pending_retry'` from pending approvals.
-  - When rendering a DND completion, fetch `dnd_photos` for the assignment grouped by `attempt_number` and render "Attempt 1" / "Attempt 2" sections.
-- `src/components/dashboard/EnhancedDNDPhotoCapture.tsx`
-  - Accept and forward `attemptNumber` when inserting into `dnd_photos`.
-- `src/hooks/useTranslation.tsx`
-  - New keys (EN + UK + placeholders for HU/ES/VI/MN): `dnd.attempt1`, `dnd.attempt2`, `dnd.retryQueuedTitle`, `dnd.retryQueuedDesc` ("We'll try this room again after your other rooms or at 14:30"), `dnd.retryReadyTitle`, `dnd.tryAgainNow`, `dnd.secondAttemptBadge`, `approvals.dndAttemptsHeader`.
+---
 
-## Edge cases
+## Track B — Revenue revamp
 
-- Housekeeper goes off shift before retry: the room stays as `dnd_pending_retry`. Nightly job (existing auto-signout window) is out of scope; manager can force-approve manually via a future action — not added now.
-- Room reassigned to a different housekeeper: `dnd_attempt_count` and photos persist on the assignment row, so the new assignee sees "Attempt 1" thumbnails and the retry is theirs.
-- Guest opens the door between attempts: housekeeper cleans normally, `dnd_attempt_count` reset to 0 on successful completion so `is_dnd` stays false.
+### B1. Hotel scoping
+- When the user has an active hotel selected in `TenantContext`, `/rdhotels/revenue` auto-redirects to `/rdhotels/revenue/<hotel-slug>`. Overview page only reachable via explicit "All hotels" link (admin/top_management).
+- `RevenueHotelDetail.tsx` becomes the default landing.
+- Admin legacy title tree stays visible (breadcrumb: Revenue → Ottofiori → tab).
 
-## Out of scope
+### B2. New "Rate Grid" tab (XL matrix)
+New tab inside `RevenueHotelDetail.tsx` alongside existing tabs (Overview / Recommendations / Strategy / Settings / **Rate Grid**).
 
-- Server-side cron for the 14:30 unlock — the client-side effect covers it because at least one housekeeper is online during the day; adding an edge function can be a follow-up if needed.
-- Changing manager notification copy beyond the "attempts" grouping.
+Layout (mirrors the Previo screenshot):
+```text
+              | Jul 20 Mon | Jul 21 Tue | Jul 22 Wed | ...
+--------------+------------+------------+------------+---
+Room type     | occ% | ✓/✗ | occ% | ...
+  For sale    | 0    | 1    | ...
+  Rate 1 pax  | €62  | €95  | ...   <-- editable
+  Rate 2 pax  | €72  | €105 | ...   <-- editable
+```
+- Left frozen column: room types + rate-plan rows (1 pax, 2 pax, extras) from `room_types` × `rate_plans`.
+- Top frozen row: dates (30/60/90-day windows, arrow nav + jump-to-today, "Show from today" toggle).
+- Cell = current published rate for that (room_type, rate_plan, date). Colored background: green when sellable, orange when closed, red when overbooked (from occupancy + room_status).
+- Inline edit → optimistic update → `previo-push-rates` edge function push. Failed pushes revert + show toast.
+- Bulk select: shift-click column/row for range edit; apply +/− €, ×%, or set absolute.
+- Data source: `previo-pull-rates` (existing) hydrates the grid on load; realtime subscription to `rate_calendar` and `rate_history` for live updates.
+
+### B3. Data plumbing
+- Extend `previo-pull-rates` to return per-(room_type, rate_plan, date) rates covering the visible window (add pagination if payload gets large).
+- New view `public.v_rate_grid` joining `rate_calendar` + `room_types` + `rate_plans` + `occupancy_snapshots` for read; edits go through existing tables via edge function.
+- No schema breakage — additive only.
+
+### B4. Automation surface (visible, off by default)
+- "Auto-price this window" button per row runs the existing `revenue-engine-tick` scoped to that room-type × window and previews suggested cells before push.
+- Autopilot toggle already exists — keep, just surface here.
+
+---
+
+## Track C — Messaging (housekeeper ↔ manager)
+
+### C1. Schema
+New tables:
+- `message_threads` — `hotel_id`, `organization_slug`, `subject`, `room_id` (nullable — per-room threads), `created_by`, `is_direct` (bool), timestamps.
+- `thread_participants` — `thread_id`, `user_id`, `last_read_at`, `muted`.
+- `messages` — `thread_id`, `sender_id`, `body` (original text), `source_lang`, `attachments jsonb`, `created_at`, `edited_at`.
+- `message_translations` — `message_id`, `target_lang`, `translated_body`, `translated_at`. Cached per language so we don't retranslate.
+
+RLS: user must be a `thread_participants` row to read/insert. Admins bypass. GRANTs to `authenticated` + `service_role`.
+
+Storage bucket `message-attachments` (private) with per-thread folder RLS.
+
+### C2. Edge functions (OpenAI, not Lovable AI, per user)
+- `messages-translate`: given `message_id` + `target_lang`, calls OpenAI (`gpt-4o-mini`) using the existing `OPENAI_API_KEY` secret, stores translation in `message_translations`, returns it. Idempotent.
+- `messages-notify`: on new message, fanout to participants (email/push via existing `send-email-notification`).
+
+Trigger `after insert on messages` enqueues both.
+
+### C3. UI
+- Global header icon (`MessageCircle`) with unread badge (realtime via `messages` subscription filtered to my threads).
+- `/messages` inbox page — thread list, unread indicator, search.
+- Thread view — bubbles, sender name + role, attachment previews, auto-translate toggle (default ON: shows body in user's `useLanguagePreference` language; tap "Show original").
+- Composer: text + attachment upload (image/pdf), tagline "Type in any language — the recipient reads it in theirs".
+- Per-room entry point: on `AssignedRoomCard` and `HotelRoomOverview` a "Message" button opens (or creates) a thread scoped to that room (`room_id` set). Manager notes for a room become the first message in that room's thread and inherit the date-scoping.
+- Notifications: sonner toast on new message when app open; badge always live.
+
+### C4. Migration off `housekeeping_notes`
+- Keep table for history but stop writing to it. New note UI writes to `messages` in the room's thread. Read path merges old notes (read-only) with new thread until we've fully deprecated.
+
+---
+
+## Technical section (implementation notes)
+
+- Files touched (non-exhaustive):
+  - `src/components/dashboard/AssignedRoomCard.tsx`, `HousekeepingTab.tsx`, `CompletionDataView.tsx`, `EnhancedDNDPhotoCapture.tsx`, `SupervisorApprovalView.tsx`
+  - `src/components/training/v2/curricula/{index,manager-reception,admin-pms-overview}.ts`, `TrainingCenter.tsx`
+  - `src/pages/Revenue.tsx`, `RevenueHotelDetail.tsx`
+  - New: `src/components/revenue/RateGrid.tsx`, `src/components/revenue/RateGridCell.tsx`, `src/components/revenue/RateGridToolbar.tsx`
+  - New: `src/pages/Messages.tsx`, `src/components/messages/{ThreadList,ThreadView,MessageComposer,MessageBubble,AttachmentUpload}.tsx`, `src/hooks/useUnreadMessages.ts`
+  - New edge functions: `supabase/functions/messages-translate`, `messages-notify`
+  - Extended: `supabase/functions/previo-pull-rates`
+- Migrations: enum-safe additions; new tables with GRANTs + RLS in the same migration; new storage bucket via storage tool.
+- Realtime: enable publication on `messages`, `room_assignments` (already?), `dnd_photos`, `rate_calendar`.
+- Secrets: `OPENAI_API_KEY` already configured — reuse.
+
+## Rollout order
+1. Track A (small, immediate).
+2. Track B (feature-flag `revenue_rate_grid` per org, admin toggle).
+3. Track C (schema + inbox first, per-room threads second, translation last).
