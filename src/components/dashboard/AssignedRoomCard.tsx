@@ -111,6 +111,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noServiceDialogOpen, setNoServiceDialogOpen] = useState(false);
   const [noServiceLoading, setNoServiceLoading] = useState(false);
   const [noServiceConsent, setNoServiceConsent] = useState(false);
+  const [noServiceNote, setNoServiceNote] = useState('');
   const [warningInfoOpen, setWarningInfoOpen] = useState(false);
   const [preCompleteOpen, setPreCompleteOpen] = useState(false);
 
