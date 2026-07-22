@@ -583,6 +583,8 @@ const translations = {
     'linen.smallTowel': 'Small Towel',
     'linen.bigTowel': 'Big Towel',
     'linen.bathMat': 'Bath Mat',
+    'linen.mattressCoverTwin': 'Mattress Cover Twin',
+    'linen.mattressCoverQueen': 'Mattress Cover Queen',
     'team.rooms': 'rooms',
     'pms.processedRooms': 'Processed Rooms',
     'dirtyLinen.details': 'Details',
