@@ -1176,6 +1176,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </Dialog>
             )}
 
+            {/* DND Button — accessible from doorway, no need to enter the room */}
+            {assignment.status === 'assigned' && !isCheckoutWaiting && (
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => setEnhancedDndPhotoDialogOpen(true)}
+                className="w-full sm:w-auto border-orange-400 text-orange-800 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-200 dark:hover:bg-orange-950/40"
+                data-training="dnd-doorway-button"
+              >
+                <AlertTriangle className="h-5 w-5" />
+                {t('housekeeping.doNotDisturb') || 'Do Not Disturb'}
+              </Button>
+            )}
+
+
             {/* Show disabled message for checkout rooms waiting */}
             {assignment.status === 'assigned' && isCheckoutWaiting && (
               <div className="w-full p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg border border-orange-300 dark:border-orange-700 text-center">
