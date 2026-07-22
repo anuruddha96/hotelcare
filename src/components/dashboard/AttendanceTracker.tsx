@@ -308,14 +308,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   };
 
   const handleCheckOut = async () => {
-    if (!currentRecord || !location) {
-      toast({
-        title: "Error",
-        description: "Location is required for check-out",
-        variant: "destructive"
-      });
-      return;
-    }
+    if (!currentRecord) return;
 
     setIsLoading(true);
 
@@ -381,14 +374,16 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   };
 
   const performCheckOut = async () => {
-    if (!currentRecord || !location) return;
+    if (!currentRecord) return;
 
     // "Early sign-out" = signing out before the typical end-of-shift.
-    // Housekeeping shifts wrap by ~16:00 (4 PM). Sign-outs from 16:00 onwards
-    // are on-time; anything before 16:00 requires supervisor approval.
+    // Only housekeeping staff need supervisor approval; managers and other roles sign out directly.
     const now = new Date();
     const minutesOfDay = now.getHours() * 60 + now.getMinutes();
-    const isEarlySignout = minutesOfDay < 16 * 60 && now.getHours() >= 4;
+    const isEarlySignout =
+      profile?.role === 'housekeeping' &&
+      minutesOfDay < 16 * 60 &&
+      now.getHours() >= 4;
 
     if (isEarlySignout) {
       // Create an early sign-out request instead of checking out immediately

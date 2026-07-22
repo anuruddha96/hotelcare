@@ -111,6 +111,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [noServiceDialogOpen, setNoServiceDialogOpen] = useState(false);
   const [noServiceLoading, setNoServiceLoading] = useState(false);
   const [noServiceConsent, setNoServiceConsent] = useState(false);
+  const [noServiceNote, setNoServiceNote] = useState('');
   const [warningInfoOpen, setWarningInfoOpen] = useState(false);
   const [preCompleteOpen, setPreCompleteOpen] = useState(false);
 
@@ -306,14 +307,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     setNoServiceLoading(true);
     try {
       const now = new Date().toISOString();
-      
+      const trimmedNote = noServiceNote.trim();
+      const noteLine = trimmedNote
+        ? `[NO_SERVICE] Guest confirmed no service required — ${trimmedNote}`
+        : `[NO_SERVICE] Guest confirmed no service required`;
+
       // Mark assignment as completed with no_service flag
       const { error: assignmentError } = await supabase
         .from('room_assignments')
         .update({ 
           status: 'completed',
           completed_at: now,
-          notes: `${assignment.notes || ''}\n[NO_SERVICE] Guest confirmed no service required`.trim()
+          notes: `${assignment.notes || ''}\n${noteLine}`.trim()
         })
         .eq('id', assignment.id);
 
@@ -328,6 +333,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     } finally {
       setNoServiceLoading(false);
       setNoServiceDialogOpen(false);
+      setNoServiceNote('');
     }
   };
 
@@ -1061,29 +1067,27 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* 2nd-attempt DND banner */}
           {assignment.status === 'dnd_pending_retry' && (
             <div className="rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800 px-3 py-2 text-sm text-orange-900 dark:text-orange-200 space-y-2">
-              <div className="font-semibold">2nd attempt</div>
+              <div className="font-semibold">2nd attempt — {t('common.room') || 'Room'} {assignment.rooms?.room_number}</div>
               <div className="text-xs">
                 {assignment.dnd_retry_unlocked_at
-                  ? 'You can try this room again now. If the guest is still DND, tap below — no room photos needed.'
-                  : 'Finish your other rooms first — we\'ll unlock this again at 14:30 or after your other rooms are done.'}
+                  ? 'You can try this room again now. If the guest is still DND, tap below and take one photo — no room cleaning photos needed.'
+                  : 'Try again after finishing your other rooms, or after 14:30. If the guest is still DND now, you can still send it to the supervisor below.'}
               </div>
-              {assignment.dnd_retry_unlocked_at && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEnhancedDndPhotoDialogOpen(true)}
-                  className="w-full border-orange-400 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/40"
-                >
-                  <AlertTriangle className="h-4 w-4 mr-1" />
-                  Still Do Not Disturb — send to supervisor
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEnhancedDndPhotoDialogOpen(true)}
+                className="w-full border-orange-400 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+              >
+                <AlertTriangle className="h-4 w-4 mr-1" />
+                Still Do Not Disturb — send to supervisor
+              </Button>
             </div>
           )}
           {/* Primary Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Wrap HoldButton in a div with bottom padding to accommodate the absolute "Press & Hold" text */}
-          {(assignment.status === 'assigned' || (assignment.status === 'dnd_pending_retry' && assignment.dnd_retry_unlocked_at)) && !isCheckoutWaiting && (
+          {(assignment.status === 'assigned' || assignment.status === 'dnd_pending_retry') && !isCheckoutWaiting && (
               <div className="pb-7 w-full sm:w-auto">
                 <HoldButton
                   size="lg"
@@ -1152,6 +1156,20 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                         {t('housekeeping.noServiceConsent')}
                       </label>
                     </div>
+                    {/* Optional note about what the guest said */}
+                    <div className="space-y-1">
+                      <label htmlFor="no-service-note" className="text-xs font-medium text-muted-foreground">
+                        {t('housekeeping.noServiceNoteLabel') || 'Optional note for supervisor'}
+                      </label>
+                      <Textarea
+                        id="no-service-note"
+                        value={noServiceNote}
+                        onChange={(e) => setNoServiceNote(e.target.value)}
+                        placeholder={t('housekeeping.noServiceNotePlaceholder') || 'e.g. Guest sleeping, said no cleaning today'}
+                        rows={2}
+                        className="text-sm"
+                      />
+                    </div>
                     <div className="flex gap-2">
                       <Button 
                         onClick={markAsNoService} 
@@ -1162,7 +1180,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                       </Button>
                       <Button 
                         variant="outline" 
-                        onClick={() => { setNoServiceDialogOpen(false); setNoServiceConsent(false); }}
+                        onClick={() => { setNoServiceDialogOpen(false); setNoServiceConsent(false); setNoServiceNote(''); }}
                       >
                         {t('common.cancel')}
                       </Button>
@@ -1171,6 +1189,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 </DialogContent>
               </Dialog>
             )}
+
+            {/* DND Button — accessible from doorway, no need to enter the room */}
+            {assignment.status === 'assigned' && !isCheckoutWaiting && (
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => setEnhancedDndPhotoDialogOpen(true)}
+                className="w-full sm:w-auto border-orange-400 text-orange-800 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-200 dark:hover:bg-orange-950/40"
+                data-training="dnd-doorway-button"
+              >
+                <AlertTriangle className="h-5 w-5" />
+                {t('housekeeping.doNotDisturb') || 'Do Not Disturb'}
+              </Button>
+            )}
+
 
             {/* Show disabled message for checkout rooms waiting */}
             {assignment.status === 'assigned' && isCheckoutWaiting && (
