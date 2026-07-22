@@ -28,7 +28,6 @@ interface CategorizedPhoto {
 
 const DND_PHOTO_CATEGORY = {
   key: 'dnd_door' as const,
-  label: 'DND Door Photo',
   icon: DoorOpen,
   color: 'from-orange-500 to-red-500'
 };
