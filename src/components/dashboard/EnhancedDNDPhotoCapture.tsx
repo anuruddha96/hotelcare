@@ -28,7 +28,6 @@ interface CategorizedPhoto {
 
 const DND_PHOTO_CATEGORY = {
   key: 'dnd_door' as const,
-  label: 'DND Door Photo',
   icon: DoorOpen,
   color: 'from-orange-500 to-red-500'
 };
@@ -80,7 +79,7 @@ export function EnhancedDNDPhotoCapture({
             
             reconstructedPhotos.push({
               category: 'dnd_door',
-              categoryName: DND_PHOTO_CATEGORY.label,
+              categoryName: t('photoCapture.dndDoorPhoto'),
               dataUrl: dndPhoto.photo_url,
               blob: blob
             });
@@ -88,7 +87,7 @@ export function EnhancedDNDPhotoCapture({
             console.error('Error fetching photo:', fetchError);
             reconstructedPhotos.push({
               category: 'dnd_door',
-              categoryName: DND_PHOTO_CATEGORY.label,
+              categoryName: t('photoCapture.dndDoorPhoto'),
               dataUrl: dndPhoto.photo_url,
               blob: new Blob()
             });
@@ -108,7 +107,7 @@ export function EnhancedDNDPhotoCapture({
       setIsCameraLoading(true);
       
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast.error('Camera not supported on this device');
+        toast.error(t('photoCapture.cameraNotSupported'));
         setShowCamera(false);
         setIsCameraLoading(false);
         return;
@@ -130,7 +129,7 @@ export function EnhancedDNDPhotoCapture({
           if (videoRef.current) {
             videoRef.current.play().catch(err => {
               console.error('Error playing video:', err);
-              toast.error('Could not start camera preview');
+              toast.error(t('photoCapture.cameraStartError'));
               setIsCameraLoading(false);
             });
             setIsCameraLoading(false);
@@ -141,15 +140,15 @@ export function EnhancedDNDPhotoCapture({
       console.error('Error accessing camera:', error);
       
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        toast.error('Camera permission denied. Please enable camera access in your browser settings.');
+        toast.error(t('photoCapture.cameraPermissionError'));
       } else {
-        toast.error('Could not access camera');
+        toast.error(t('photoCapture.cameraAccessError'));
       }
       
       setShowCamera(false);
       setIsCameraLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -183,17 +182,17 @@ export function EnhancedDNDPhotoCapture({
         
         const newPhoto: CategorizedPhoto = {
           category: 'dnd_door',
-          categoryName: DND_PHOTO_CATEGORY.label,
+          categoryName: t('photoCapture.dndDoorPhoto'),
           dataUrl: photoUrl,
           blob
         };
         
         setPhotos(prev => [...prev, newPhoto]);
-        toast.success('DND door photo captured!');
+        toast.success(t('photoCapture.dndPhotoCaptured'));
         
         // Show warning about DND marking
-        toast.warning('Room will be marked as DND after saving', {
-          description: 'This room will skip cleaning today',
+        toast.warning(t('photoCapture.roomWillBeMarkedDnd'), {
+          description: t('photoCapture.skipCleaningToday'),
           duration: 4000
         });
         
@@ -249,7 +248,7 @@ export function EnhancedDNDPhotoCapture({
             return next;
           });
           setUploadedPhotos(prev => new Set(prev).add(photoId));
-          toast.success('DND photo saved successfully!', { duration: 2000 });
+          toast.success(t('photoCapture.photoSavedSuccess'), { duration: 2000 });
           
           // Call onPhotoUploaded after successful upload
           onPhotoUploaded?.();
@@ -260,15 +259,17 @@ export function EnhancedDNDPhotoCapture({
             next.delete(photoId);
             return next;
           });
-          toast.error('Failed to save DND photo');
+          toast.error(t('photoCapture.photoSaveError'));
         }
       }
     }, 'image/jpeg', 0.95);
-  }, [user, roomNumber, roomId, assignmentId, stopCamera]);
+  }, [user, roomNumber, roomId, assignmentId, attemptNumber, stopCamera, t]);
 
   const removePhoto = (index: number) => {
     setPhotos(prev => prev.filter((_, i) => i !== index));
-    toast.info('Photo removed (not deleted from server)');
+    toast.info(t('photoCapture.photoRemoved'), {
+      description: t('photoCapture.notDeletedFromServer')
+    });
   };
 
   const handleClose = () => {
@@ -289,14 +290,14 @@ export function EnhancedDNDPhotoCapture({
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <DialogContent 
-        className="max-w-2xl h-[100dvh] max-h-[100dvh] p-0 gap-0 flex flex-col overflow-hidden"
+        className="w-[100vw] sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[92dvh] p-0 gap-0 flex flex-col overflow-hidden rounded-none sm:rounded-lg"
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
-        <DialogHeader className="p-4 pb-2 border-b shrink-0 bg-gradient-to-r from-orange-50 to-red-50">
-          <DialogTitle className="flex items-center gap-2 text-lg">
+        <DialogHeader className="px-4 py-3 border-b shrink-0 bg-gradient-to-r from-orange-50 to-red-50">
+          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg leading-tight pr-8">
             <Camera className="h-5 w-5 text-orange-600" />
-            DND Photo - Room {roomNumber}
+            {t('photoCapture.dndTitle').replace('{room}', roomNumber)}
           </DialogTitle>
         </DialogHeader>
 
@@ -304,8 +305,8 @@ export function EnhancedDNDPhotoCapture({
           <div className="p-4 space-y-4">
             {/* Progress Section */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">{t('photoCapture.progress')}: {completedCount} {t('photoCapture.photoCaptured')}</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium leading-tight">{t('photoCapture.progress')}: {completedCount} {t('photoCapture.photoCaptured')}</span>
                 <Badge className="bg-green-500">
                   <CheckCircle className="h-3 w-3 mr-1" />
                   {completedCount > 0 ? t('photoCapture.saved') : t('photoCapture.noPhotos')}
@@ -336,12 +337,12 @@ export function EnhancedDNDPhotoCapture({
             {!showCamera ? (
               <div className="space-y-4">
                   <div className={`p-6 rounded-xl border-2 bg-gradient-to-br ${DND_PHOTO_CATEGORY.color} text-white shadow-lg`}>
-                  <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center gap-3 mb-3 min-w-0">
                     <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
                       <DoorOpen className="h-8 w-8" />
                     </div>
-                    <div className="flex-1">
-                      <h3 className="text-xl font-bold">{t('photoCapture.dndDoorPhoto')}</h3>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-xl font-bold leading-tight break-words">{t('photoCapture.dndDoorPhoto')}</h3>
                       <p className="text-sm opacity-90">{completedCount} {t('photoCapture.photoCaptured')}</p>
                     </div>
                     {completedCount > 0 && (
@@ -359,7 +360,7 @@ export function EnhancedDNDPhotoCapture({
                         <div key={index} className="relative rounded-lg overflow-hidden aspect-video bg-black/20">
                           <img
                             src={photo.dataUrl}
-                            alt={`DND door ${index + 1}`}
+                            alt={`${t('photoCapture.dndDoorPhoto')} ${index + 1}`}
                             className="w-full h-full object-cover"
                           />
                           <Button
@@ -372,7 +373,7 @@ export function EnhancedDNDPhotoCapture({
                             <X className="h-3 w-3" />
                           </Button>
                           <div className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-2 py-1 rounded">
-                            Photo {index + 1}
+                            {t('photoCapture.photo')} {index + 1}
                           </div>
                         </div>
                       ))}
@@ -386,7 +387,7 @@ export function EnhancedDNDPhotoCapture({
                     size="lg"
                   >
                     <Camera className="h-5 w-5 mr-2" />
-                    {photos.length > 0 ? 'Add Another Photo' : 'Take Photo'}
+                    {photos.length > 0 ? t('photoCapture.addAnother') : t('common.takePhoto')}
                   </Button>
                 </div>
               </div>
@@ -397,7 +398,7 @@ export function EnhancedDNDPhotoCapture({
                     <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
                       <div className="text-white text-center">
                         <Camera className="h-8 w-8 mx-auto mb-2 animate-pulse" />
-                        <p>Starting camera...</p>
+                        <p>{t('photoCapture.startingCamera')}</p>
                       </div>
                     </div>
                   )}
@@ -417,14 +418,14 @@ export function EnhancedDNDPhotoCapture({
                     disabled={isCameraLoading}
                   >
                     <Camera className="h-5 w-5 mr-2" />
-                    Capture Photo
+                    {t('common.capturePhoto')}
                   </Button>
                   <Button
                     onClick={stopCamera}
                     variant="outline"
                     size="lg"
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </Button>
                 </div>
               </div>
@@ -437,7 +438,7 @@ export function EnhancedDNDPhotoCapture({
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm text-blue-800 flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 animate-spin" />
-                  Saving photo...
+                  {t('photoCapture.savingPhoto')}
                 </p>
               </div>
             )}
@@ -452,7 +453,7 @@ export function EnhancedDNDPhotoCapture({
             className="w-full"
             disabled={isUploading}
           >
-            {t('dnd.markRoomDND')}
+            {t('photoCapture.finishDnd')}
           </Button>
         </div>
       </DialogContent>

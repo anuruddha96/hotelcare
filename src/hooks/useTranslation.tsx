@@ -179,6 +179,22 @@ const translations = {
     'photoCapture.capturedPhotos': 'Captured Photos',
     'photoCapture.photoPreview': 'Photo Preview',
     'photoCapture.deletePhoto': 'Delete Photo',
+    'photoCapture.saved': 'Saved',
+    'photoCapture.noPhotos': 'No Photos',
+    'photoCapture.takeClearPhoto': 'Take a clear photo of the DND sign on the door',
+    'photoCapture.afterSavingWarning': 'After saving, this room will be marked as DND and skip cleaning today',
+    'photoCapture.dndDoorPhoto': 'DND Door Photo',
+    'photoCapture.dndTitle': 'DND Photo - Room {room}',
+    'photoCapture.addAnother': 'Add Another Photo',
+    'photoCapture.dndPhotoCaptured': 'DND door photo captured',
+    'photoCapture.roomWillBeMarkedDnd': 'Room will be marked as DND after saving',
+    'photoCapture.skipCleaningToday': 'This room will skip cleaning today',
+    'photoCapture.photoSavedSuccess': 'DND photo saved successfully',
+    'photoCapture.photoSaveError': 'Failed to save DND photo',
+    'photoCapture.photoRemoved': 'Photo removed',
+    'photoCapture.notDeletedFromServer': 'Not deleted from server',
+    'photoCapture.savingPhoto': 'Saving photo...',
+    'photoCapture.finishDnd': 'Done with DND photo',
     
     // Task Status
     'tasks.totalForToday': 'Total Tasks for Today',
@@ -436,6 +452,19 @@ const translations = {
     'housekeeping.tasks': 'tasks',
     'housekeeping.assignmentNotes': 'Assignment Notes',
     'housekeeping.markComplete': 'Mark Complete',
+    'housekeeping.doNotDisturb': 'Do Not Disturb',
+    'housekeeping.noService': 'No Service',
+    'housekeeping.noServiceTitle': 'Mark as No Service',
+    'housekeeping.noServiceConfirm': 'Has the guest personally confirmed they do not need cleaning service today?',
+    'housekeeping.noServiceConsent': 'I confirm the guest personally informed me they do not require cleaning service today.',
+    'housekeeping.confirmNoService': 'Confirm No Service',
+    'housekeeping.noServiceNoteLabel': 'Optional note for supervisor',
+    'housekeeping.noServiceNotePlaceholder': 'e.g. Guest sleeping, said no cleaning today',
+    'housekeeping.noServiceNote': 'This will mark the room as completed without cleaning. The manager will see this in reports and adjust towel/linen schedules accordingly.',
+    'housekeeping.noServiceSuccess': 'Room {room} marked as No Service — guest declined',
+    'housekeeping.noServiceError': 'Failed to mark room as no service',
+    'housekeeping.dndRetrySuccess': 'Room {room} — we will try again after your other rooms or at 14:30',
+    'housekeeping.dndError': 'Failed to mark room as DND',
     
     // Assignment
     'assignment.details': 'Assignment Details',
@@ -3088,6 +3117,22 @@ const translations = {
     'photoCapture.takeClearPhoto': 'Зробіть чіткий знімок знака DND на дверях',
     'photoCapture.afterSavingWarning': 'Після збереження номер буде позначено як DND і сьогодні прибирання буде пропущено',
     'photoCapture.photo': 'Фото',
+    'photoCapture.saved': 'Збережено',
+    'photoCapture.dndTitle': 'DND фото — номер {room}',
+    'photoCapture.addAnother': 'Додати ще фото',
+    'photoCapture.dndPhotoCaptured': 'Фото знака DND зроблено',
+    'photoCapture.roomWillBeMarkedDnd': 'Після збереження номер буде позначено як DND',
+    'photoCapture.skipCleaningToday': 'Сьогодні прибирання цього номера буде пропущено',
+    'photoCapture.photoSavedSuccess': 'DND фото успішно збережено',
+    'photoCapture.photoSaveError': 'Не вдалося зберегти DND фото',
+    'photoCapture.photoRemoved': 'Фото видалено',
+    'photoCapture.notDeletedFromServer': 'Не видалено із сервера',
+    'photoCapture.savingPhoto': 'Збереження фото...',
+    'photoCapture.finishDnd': 'Готово з DND фото',
+    'housekeeping.noServiceSuccess': 'Номер {room} позначено як «Без прибирання» — гість відмовився',
+    'housekeeping.noServiceError': 'Не вдалося позначити номер як «Без прибирання»',
+    'housekeeping.dndRetrySuccess': 'Номер {room} — повторимо спробу після інших номерів або о 14:30',
+    'housekeeping.dndError': 'Не вдалося позначити номер як DND',
   },
 };
 
@@ -3202,7 +3247,7 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
 
   const activeBundle = useMemo(() => {
     const customBundle = Object.entries(customTranslations).reduce((bundle, [key, values]: [string, any]) => {
-      if (values?.[language]) bundle[key] = values[language];
+      if (values?.[language] && values[language] !== key) bundle[key] = values[language];
       return bundle;
     }, {} as Record<string, string>);
 
@@ -3223,7 +3268,13 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
   }, [activeBundle, language]);
 
   const t = (key: TranslationKey | string): string => {
-    return activeBundle[key] || englishBundle[key] || key;
+    const translated = activeBundle[key];
+    if (translated && translated !== key) return translated;
+
+    const english = englishBundle[key];
+    if (english && english !== key) return english;
+
+    return key;
   };
 
   const changeLanguage = (lang: Language) => {

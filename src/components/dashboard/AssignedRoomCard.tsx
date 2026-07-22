@@ -292,11 +292,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         onStatusUpdate(assignment.id, 'dnd_pending_retry');
         const roomNum = assignment.rooms?.room_number ?? '—';
-        toast.success(`Room ${roomNum} — we'll try again after your other rooms or at 14:30`);
+        toast.success(t('housekeeping.dndRetrySuccess').replace('{room}', roomNum));
       }
     } catch (error) {
       console.error('Error marking as DND:', error);
-      toast.error('Failed to mark room as DND');
+      toast.error(t('housekeeping.dndError'));
     } finally {
       setLoading(false);
       setDndPhotoDialogOpen(false);
@@ -326,10 +326,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       
       onStatusUpdate(assignment.id, 'completed');
       const roomNum = assignment.rooms?.room_number ?? '—';
-      toast.success(`Room ${roomNum} marked as No Service - guest declined`);
+      toast.success(t('housekeeping.noServiceSuccess').replace('{room}', roomNum));
     } catch (error) {
       console.error('Error marking as no service:', error);
-      toast.error('Failed to mark room as no service');
+      toast.error(t('housekeeping.noServiceError'));
     } finally {
       setNoServiceLoading(false);
       setNoServiceDialogOpen(false);
@@ -1129,18 +1129,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     {t('housekeeping.noService')}
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
+                <DialogContent className="w-[calc(100vw-1rem)] max-w-md max-h-[92dvh] overflow-hidden p-0 gap-0">
                   <DialogHeader>
-                    <DialogTitle className="text-xl font-bold">
+                    <DialogTitle className="px-4 pt-4 text-lg sm:text-xl font-bold leading-tight pr-10">
                       🚫 {t('housekeeping.noServiceTitle')}
                     </DialogTitle>
                   </DialogHeader>
-                  <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground">
+                  <div className="space-y-4 px-4 pb-4 overflow-y-auto max-h-[calc(92dvh-4rem)]" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
                       {t('housekeeping.noServiceConfirm')}
                     </p>
                     <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 rounded-lg">
-                      <p className="text-sm text-amber-800 dark:text-amber-200">
+                      <p className="text-sm text-amber-800 dark:text-amber-200 leading-relaxed">
                         {t('housekeeping.noServiceNote')}
                       </p>
                     </div>
@@ -1170,17 +1170,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                         className="text-sm"
                       />
                     </div>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
                       <Button 
                         onClick={markAsNoService} 
                         disabled={noServiceLoading || !noServiceConsent}
-                        className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-semibold disabled:opacity-50"
+                        className="w-full bg-gray-600 hover:bg-gray-700 text-white font-semibold disabled:opacity-50 whitespace-normal min-h-11"
                       >
                         {noServiceLoading ? '...' : t('housekeeping.confirmNoService')}
                       </Button>
                       <Button 
                         variant="outline" 
                         onClick={() => { setNoServiceDialogOpen(false); setNoServiceConsent(false); setNoServiceNote(''); }}
+                        className="w-full sm:w-auto min-h-11"
                       >
                         {t('common.cancel')}
                       </Button>
