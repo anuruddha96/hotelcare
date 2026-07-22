@@ -261,7 +261,7 @@ export function SimplifiedDirtyLinenManagement() {
                 const count = itemTotals.get(item.name) || 0;
                 return (
                   <div key={item.id} className="flex items-center justify-between p-2 bg-primary/10 rounded text-sm">
-                    <span className="text-muted-foreground truncate mr-2">{item.display_name}</span>
+                    <span className="text-muted-foreground truncate mr-2">{translateLinenItem(item.display_name, t)}</span>
                     <span className="font-bold">{count}</span>
                   </div>
                 );
