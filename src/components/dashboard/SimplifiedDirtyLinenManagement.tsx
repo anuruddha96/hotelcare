@@ -281,7 +281,7 @@ export function SimplifiedDirtyLinenManagement() {
             <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
             {allLinenItems.map((item) => (
               <th key={item.id} className="border p-2 text-center font-bold text-xs sm:text-sm whitespace-nowrap">
-                {item.display_name}
+                {translateLinenItem(item.display_name, t)}
               </th>
             ))}
             <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">{t('linen.total').toUpperCase()}</th>
