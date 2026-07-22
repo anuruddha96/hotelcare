@@ -661,6 +661,22 @@ export function SupervisorApprovalView() {
 
       if (error) throw error;
 
+      // Checkout-room housekeeping approval implies the minibar was restocked
+      // by the manager. Sweep any lingering pending rows so the next day starts
+      // fresh (fix for prior-day rows appearing in reception overview).
+      if (assignment?.room_id && assignment?.is_checkout_room) {
+        try {
+          const uid = (await supabase.auth.getUser()).data.user?.id ?? null;
+          await supabase
+            .from('room_minibar_usage')
+            .update({ is_cleared: true, cleared_at: new Date().toISOString(), cleared_by: uid })
+            .eq('room_id', assignment.room_id)
+            .eq('is_cleared', false);
+        } catch (e) {
+          console.error('Failed to auto-clear minibar on checkout approval', e);
+        }
+      }
+
       // Push status to Previo (gated to test hotels inside the edge function)
       const pmsResult = assignment?.room_id
         ? await pushCleanStatusToPrevio(assignment.room_id)
