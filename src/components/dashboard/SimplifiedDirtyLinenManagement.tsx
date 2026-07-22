@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { DateRange } from 'react-day-picker';
 import { getLocalDateString } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { translateLinenItem } from '@/lib/linen-item-i18n';
 
 interface LinenItem {
   id: string;
