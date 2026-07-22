@@ -75,7 +75,7 @@ export function EarlySignoutApprovalView() {
         .from('early_signout_requests')
         .select(`
           *,
-          profiles!early_signout_requests_user_id_fkey(full_name, nickname, assigned_hotel),
+          profiles!early_signout_requests_user_id_fkey(full_name, nickname, assigned_hotel, role),
           staff_attendance(check_in_time, work_date)
         `)
         .order('requested_at', { ascending: false });
@@ -102,6 +102,7 @@ export function EarlySignoutApprovalView() {
       }
 
       // Filter by hotel for managers (only show requests from same hotel)
+      // Only housekeeping staff require approval — dismiss any manager/other-role requests.
       const filteredData = (data || []).filter((request: any) => {
         // Check if request has expired
         if (request.status === 'pending') {
@@ -111,7 +112,12 @@ export function EarlySignoutApprovalView() {
             return false; // Hide expired requests
           }
         }
-        
+
+        // Dismiss non-housekeeping requests — managers can sign out anytime.
+        if (request.profiles?.role && request.profiles.role !== 'housekeeping') {
+          return false;
+        }
+
         // Filter by hotel
         if (!profileData?.assigned_hotel) return true; // Admin sees all
         return request.profiles?.assigned_hotel === profileData.assigned_hotel;
