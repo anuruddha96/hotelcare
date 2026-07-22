@@ -69,6 +69,7 @@ interface PendingAssignment {
   supervisor_approved: boolean;
   assigned_to: string;
   assignment_date: string;
+  organization_slug?: string | null;
   completion_photos?: string[] | null;
   rooms: {
     room_number: string;
