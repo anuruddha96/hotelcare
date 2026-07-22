@@ -1087,7 +1087,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* Primary Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Wrap HoldButton in a div with bottom padding to accommodate the absolute "Press & Hold" text */}
-          {(assignment.status === 'assigned' || (assignment.status === 'dnd_pending_retry' && assignment.dnd_retry_unlocked_at)) && !isCheckoutWaiting && (
+          {(assignment.status === 'assigned' || assignment.status === 'dnd_pending_retry') && !isCheckoutWaiting && (
               <div className="pb-7 w-full sm:w-auto">
                 <HoldButton
                   size="lg"
