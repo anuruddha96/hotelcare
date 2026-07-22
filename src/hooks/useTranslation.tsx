@@ -3072,6 +3072,22 @@ const translations = {
     'dirtyLinen.sortOrder': 'Порядок сортування',
     'dirtyLinen.isActive': 'Активний',
     'dirtyLinen.saveItem': 'Зберегти предмет',
+    // DND & No Service
+    'housekeeping.doNotDisturb': 'Не турбувати',
+    'housekeeping.noService': 'Без прибирання',
+    'housekeeping.noServiceTitle': 'Позначити «Без прибирання»',
+    'housekeeping.noServiceConfirm': 'Гість особисто підтвердив, що сьогодні прибирання не потрібне?',
+    'housekeeping.noServiceConsent': 'Підтверджую, що гість особисто повідомив мені, що сьогодні прибирання не потрібне.',
+    'housekeeping.confirmNoService': 'Підтвердити «Без прибирання»',
+    'housekeeping.noServiceNoteLabel': 'Необов’язкова примітка для супервайзера',
+    'housekeeping.noServiceNotePlaceholder': 'Напр.: гість спить, сказав не прибирати сьогодні',
+    'housekeeping.noServiceNote': 'Це позначить номер як завершений без прибирання. Менеджер побачить це у звітах і відповідно скоригує графік рушників/білизни.',
+    // DND photo capture
+    'photoCapture.noPhotos': 'Немає фото',
+    'photoCapture.dndDoorPhoto': 'Фото знака «Не турбувати»',
+    'photoCapture.takeClearPhoto': 'Зробіть чіткий знімок знака DND на дверях',
+    'photoCapture.afterSavingWarning': 'Після збереження номер буде позначено як DND і сьогодні прибирання буде пропущено',
+    'photoCapture.photo': 'Фото',
   },
 };
 
