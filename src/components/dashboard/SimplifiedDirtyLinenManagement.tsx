@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { DateRange } from 'react-day-picker';
 import { getLocalDateString } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { translateLinenItem } from '@/lib/linen-item-i18n';
 
 interface LinenItem {
   id: string;
@@ -260,7 +261,7 @@ export function SimplifiedDirtyLinenManagement() {
                 const count = itemTotals.get(item.name) || 0;
                 return (
                   <div key={item.id} className="flex items-center justify-between p-2 bg-primary/10 rounded text-sm">
-                    <span className="text-muted-foreground truncate mr-2">{item.display_name}</span>
+                    <span className="text-muted-foreground truncate mr-2">{translateLinenItem(item.display_name, t)}</span>
                     <span className="font-bold">{count}</span>
                   </div>
                 );
@@ -280,7 +281,7 @@ export function SimplifiedDirtyLinenManagement() {
             <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
             {allLinenItems.map((item) => (
               <th key={item.id} className="border p-2 text-center font-bold text-xs sm:text-sm whitespace-nowrap">
-                {item.display_name}
+                {translateLinenItem(item.display_name, t)}
               </th>
             ))}
             <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">{t('linen.total').toUpperCase()}</th>
