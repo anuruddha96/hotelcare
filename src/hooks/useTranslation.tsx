@@ -461,6 +461,10 @@ const translations = {
     'housekeeping.noServiceNoteLabel': 'Optional note for supervisor',
     'housekeeping.noServiceNotePlaceholder': 'e.g. Guest sleeping, said no cleaning today',
     'housekeeping.noServiceNote': 'This will mark the room as completed without cleaning. The manager will see this in reports and adjust towel/linen schedules accordingly.',
+    'housekeeping.noServiceSuccess': 'Room {room} marked as No Service — guest declined',
+    'housekeeping.noServiceError': 'Failed to mark room as no service',
+    'housekeeping.dndRetrySuccess': 'Room {room} — we will try again after your other rooms or at 14:30',
+    'housekeeping.dndError': 'Failed to mark room as DND',
     
     // Assignment
     'assignment.details': 'Assignment Details',
@@ -3125,6 +3129,10 @@ const translations = {
     'photoCapture.notDeletedFromServer': 'Не видалено із сервера',
     'photoCapture.savingPhoto': 'Збереження фото...',
     'photoCapture.finishDnd': 'Готово з DND фото',
+    'housekeeping.noServiceSuccess': 'Номер {room} позначено як «Без прибирання» — гість відмовився',
+    'housekeeping.noServiceError': 'Не вдалося позначити номер як «Без прибирання»',
+    'housekeeping.dndRetrySuccess': 'Номер {room} — повторимо спробу після інших номерів або о 14:30',
+    'housekeeping.dndError': 'Не вдалося позначити номер як DND',
   },
 };
 
