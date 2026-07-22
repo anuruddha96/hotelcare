@@ -292,11 +292,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         onStatusUpdate(assignment.id, 'dnd_pending_retry');
         const roomNum = assignment.rooms?.room_number ?? '—';
-        toast.success(`Room ${roomNum} — we'll try again after your other rooms or at 14:30`);
+        toast.success(t('housekeeping.dndRetrySuccess').replace('{room}', roomNum));
       }
     } catch (error) {
       console.error('Error marking as DND:', error);
-      toast.error('Failed to mark room as DND');
+      toast.error(t('housekeeping.dndError'));
     } finally {
       setLoading(false);
       setDndPhotoDialogOpen(false);
@@ -326,10 +326,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       
       onStatusUpdate(assignment.id, 'completed');
       const roomNum = assignment.rooms?.room_number ?? '—';
-      toast.success(`Room ${roomNum} marked as No Service - guest declined`);
+      toast.success(t('housekeeping.noServiceSuccess').replace('{room}', roomNum));
     } catch (error) {
       console.error('Error marking as no service:', error);
-      toast.error('Failed to mark room as no service');
+      toast.error(t('housekeeping.noServiceError'));
     } finally {
       setNoServiceLoading(false);
       setNoServiceDialogOpen(false);
