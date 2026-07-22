@@ -21,6 +21,12 @@ const MAP: Record<string, string> = {
   'bed sheets twin size': 'linen.bedSheetsTwinSize',
   'bed sheet twin size': 'linen.bedSheetsTwinSize',
   'bed sheets twin': 'linen.bedSheetsTwinSize',
+  'mattress cover twin': 'linen.mattressCoverTwin',
+  'mattress cover twin size': 'linen.mattressCoverTwin',
+  'mattress covers twin': 'linen.mattressCoverTwin',
+  'mattress cover queen': 'linen.mattressCoverQueen',
+  'mattress cover queen size': 'linen.mattressCoverQueen',
+  'mattress covers queen': 'linen.mattressCoverQueen',
 };
 
 export function translateLinenItem(
