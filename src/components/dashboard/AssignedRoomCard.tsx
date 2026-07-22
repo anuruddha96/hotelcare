@@ -307,14 +307,18 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     setNoServiceLoading(true);
     try {
       const now = new Date().toISOString();
-      
+      const trimmedNote = noServiceNote.trim();
+      const noteLine = trimmedNote
+        ? `[NO_SERVICE] Guest confirmed no service required — ${trimmedNote}`
+        : `[NO_SERVICE] Guest confirmed no service required`;
+
       // Mark assignment as completed with no_service flag
       const { error: assignmentError } = await supabase
         .from('room_assignments')
         .update({ 
           status: 'completed',
           completed_at: now,
-          notes: `${assignment.notes || ''}\n[NO_SERVICE] Guest confirmed no service required`.trim()
+          notes: `${assignment.notes || ''}\n${noteLine}`.trim()
         })
         .eq('id', assignment.id);
 
@@ -329,6 +333,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     } finally {
       setNoServiceLoading(false);
       setNoServiceDialogOpen(false);
+      setNoServiceNote('');
     }
   };
 
