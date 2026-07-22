@@ -308,14 +308,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   };
 
   const handleCheckOut = async () => {
-    if (!currentRecord || !location) {
-      toast({
-        title: "Error",
-        description: "Location is required for check-out",
-        variant: "destructive"
-      });
-      return;
-    }
+    if (!currentRecord) return;
 
     setIsLoading(true);
 
