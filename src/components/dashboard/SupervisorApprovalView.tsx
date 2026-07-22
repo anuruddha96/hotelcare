@@ -664,7 +664,7 @@ export function SupervisorApprovalView() {
       // Checkout-room housekeeping approval implies the minibar was restocked
       // by the manager. Sweep any lingering pending rows so the next day starts
       // fresh (fix for prior-day rows appearing in reception overview).
-      if (assignment?.room_id && assignment?.is_checkout_room) {
+      if (assignment?.room_id && assignment?.assignment_type === 'checkout_cleaning') {
         try {
           const uid = (await supabase.auth.getUser()).data.user?.id ?? null;
           await supabase
