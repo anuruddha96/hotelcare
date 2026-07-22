@@ -75,7 +75,7 @@ export function EarlySignoutApprovalView() {
         .from('early_signout_requests')
         .select(`
           *,
-          profiles!early_signout_requests_user_id_fkey(full_name, nickname, assigned_hotel),
+          profiles!early_signout_requests_user_id_fkey(full_name, nickname, assigned_hotel, role),
           staff_attendance(check_in_time, work_date)
         `)
         .order('requested_at', { ascending: false });
