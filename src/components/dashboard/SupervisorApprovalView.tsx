@@ -69,6 +69,7 @@ interface PendingAssignment {
   supervisor_approved: boolean;
   assigned_to: string;
   assignment_date: string;
+  organization_slug?: string | null;
   completion_photos?: string[] | null;
   rooms: {
     room_number: string;
@@ -588,6 +589,7 @@ export function SupervisorApprovalView() {
   const loadHousekeeperNotes = async (assignments: any[]) => {
     try {
       const roomIds = assignments.map((a: any) => a.room_id);
+      const assignmentIds = assignments.map((a: any) => a.id);
       const { data, error } = await supabase
         .from('housekeeping_notes')
         .select('id, content, note_type, created_by, created_at, room_id, assignment_id')
@@ -596,8 +598,18 @@ export function SupervisorApprovalView() {
         .order('created_at', { ascending: true });
       if (error || !data) return;
       const notesMap: Record<string, any[]> = {};
+      const assignmentIdSet = new Set(assignmentIds);
       for (const a of assignments) {
-        const roomNotes = data.filter((d: any) => d.room_id === a.room_id);
+        // Only show notes tied to THIS assignment (today's shift for this room).
+        // Previous-day notes must not bleed into today's approval card.
+        const roomNotes = data.filter((d: any) => {
+          if (d.assignment_id) return d.assignment_id === a.id;
+          // Legacy notes without assignment_id: only accept if created on the same calendar date
+          // as the assignment and not attached to any other assignment we know about.
+          if (!d.created_at) return false;
+          const createdDate = new Date(d.created_at).toISOString().slice(0, 10);
+          return d.room_id === a.room_id && createdDate === a.assignment_date;
+        });
         if (roomNotes.length > 0) notesMap[a.id] = roomNotes;
       }
       setHousekeeperNotes(prev => ({ ...prev, ...notesMap }));
@@ -837,10 +849,12 @@ export function SupervisorApprovalView() {
         .select('id, assigned_to, status')
         .eq('room_id', assignment.room_id)
         .eq('assignment_date', assignment.assignment_date)
-        .in('status', ['assigned', 'in_progress'])
+        .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
         .neq('id', selectedAssignment);
 
       if (checkError) throw checkError;
+
+      const currentUserId = (await supabase.auth.getUser()).data.user?.id;
 
       if (existingAssignments && existingAssignments.length > 0) {
         const { error: updateError } = await supabase
@@ -848,7 +862,7 @@ export function SupervisorApprovalView() {
           .update({
             status: 'completed',
             supervisor_approved: true,
-            supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
+            supervisor_approved_by: currentUserId,
             supervisor_approved_at: new Date().toISOString(),
             notes: 'Reassigned to another housekeeper'
           })
@@ -862,11 +876,12 @@ export function SupervisorApprovalView() {
         .insert({
           room_id: assignment.room_id,
           assigned_to: selectedHousekeeper,
-          assigned_by: (await supabase.auth.getUser()).data.user?.id,
+          assigned_by: currentUserId,
           assignment_date: assignment.assignment_date,
           assignment_type: assignment.assignment_type,
           estimated_duration: assignment.estimated_duration,
           priority: assignment.priority,
+          organization_slug: assignment.organization_slug,
           notes: `Reassigned - Previous completion needs review`
         });
 
@@ -876,7 +891,7 @@ export function SupervisorApprovalView() {
         .from('room_assignments')
         .update({
           supervisor_approved: true,
-          supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
+          supervisor_approved_by: currentUserId,
           supervisor_approved_at: new Date().toISOString()
         })
         .eq('id', selectedAssignment);
@@ -886,9 +901,9 @@ export function SupervisorApprovalView() {
       setReassignDialogOpen(false);
       setSelectedAssignment(null);
       setSelectedHousekeeper('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error reassigning room:', error);
-      toast.error('Failed to reassign room');
+      toast.error(error?.message ? `Failed to reassign room: ${error.message}` : 'Failed to reassign room');
     }
   };
 
