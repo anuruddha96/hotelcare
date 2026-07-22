@@ -242,6 +242,21 @@ export function RoomManagement() {
 
       if (error) throw error;
 
+      // Determine today's checkout rooms from today's reservations (Budapest tz)
+      const today = todayBudapest();
+      const roomIds = (roomsData || []).map((r: any) => r.id);
+      let checkoutRoomIdSet = new Set<string>();
+      if (roomIds.length > 0) {
+        const { data: todaysCheckouts } = await supabase
+          .from('reservations')
+          .select('room_id, status')
+          .in('room_id', roomIds)
+          .eq('check_out_date', today);
+        (todaysCheckouts || []).forEach((r: any) => {
+          if (r.room_id && r.status !== 'cancelled') checkoutRoomIdSet.add(r.room_id);
+        });
+      }
+
       // Fetch recent tickets and minibar usage for each room
       const roomsWithExtras = await Promise.all(
         (roomsData || []).map(async (room) => {
@@ -254,7 +269,8 @@ export function RoomManagement() {
             .order('created_at', { ascending: false })
             .limit(3);
 
-          // Fetch minibar usage
+          // Fetch minibar usage — scoped to today (Budapest) so stale
+          // prior-day pending rows don't leak into the reception overview.
           const { data: minibarUsage } = await supabase
             .from('room_minibar_usage')
             .select(`
@@ -263,11 +279,13 @@ export function RoomManagement() {
               minibar_items!inner(name, price)
             `)
             .eq('room_id', room.id)
-            .eq('is_cleared', false);
+            .eq('is_cleared', false)
+            .eq('usage_date', today);
 
           return {
             ...room,
             status: room.status as 'clean' | 'dirty' | 'out_of_order' | 'maintenance',
+            is_checkout_room: checkoutRoomIdSet.has(room.id) || room.is_checkout_room,
             last_cleaned_by: room.last_cleaned_by_profile,
             recent_tickets: tickets || [],
             minibar_usage: (minibarUsage || []).map(usage => ({
