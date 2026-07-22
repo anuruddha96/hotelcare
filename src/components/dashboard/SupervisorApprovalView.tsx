@@ -848,10 +848,12 @@ export function SupervisorApprovalView() {
         .select('id, assigned_to, status')
         .eq('room_id', assignment.room_id)
         .eq('assignment_date', assignment.assignment_date)
-        .in('status', ['assigned', 'in_progress'])
+        .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
         .neq('id', selectedAssignment);
 
       if (checkError) throw checkError;
+
+      const currentUserId = (await supabase.auth.getUser()).data.user?.id;
 
       if (existingAssignments && existingAssignments.length > 0) {
         const { error: updateError } = await supabase
@@ -859,7 +861,7 @@ export function SupervisorApprovalView() {
           .update({
             status: 'completed',
             supervisor_approved: true,
-            supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
+            supervisor_approved_by: currentUserId,
             supervisor_approved_at: new Date().toISOString(),
             notes: 'Reassigned to another housekeeper'
           })
@@ -873,11 +875,12 @@ export function SupervisorApprovalView() {
         .insert({
           room_id: assignment.room_id,
           assigned_to: selectedHousekeeper,
-          assigned_by: (await supabase.auth.getUser()).data.user?.id,
+          assigned_by: currentUserId,
           assignment_date: assignment.assignment_date,
           assignment_type: assignment.assignment_type,
           estimated_duration: assignment.estimated_duration,
           priority: assignment.priority,
+          organization_slug: assignment.organization_slug,
           notes: `Reassigned - Previous completion needs review`
         });
 
@@ -887,7 +890,7 @@ export function SupervisorApprovalView() {
         .from('room_assignments')
         .update({
           supervisor_approved: true,
-          supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
+          supervisor_approved_by: currentUserId,
           supervisor_approved_at: new Date().toISOString()
         })
         .eq('id', selectedAssignment);
@@ -897,9 +900,9 @@ export function SupervisorApprovalView() {
       setReassignDialogOpen(false);
       setSelectedAssignment(null);
       setSelectedHousekeeper('');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error reassigning room:', error);
-      toast.error('Failed to reassign room');
+      toast.error(error?.message ? `Failed to reassign room: ${error.message}` : 'Failed to reassign room');
     }
   };
 
