@@ -1,121 +1,103 @@
 
-# Rollout plan
+# Phase: Translation, DND/No-Service workflow, and manager approval fixes
 
-Three tracks in one plan. Each track is independent and can be released as it lands.
-
----
-
-## Track A — Quick fixes
-
-1. **DND 2nd attempt asks for 5 daily photos**
-   - Investigate `AssignedRoomCard.tsx` markAsDND flow + completion photo requirement. On attempt 2 the room is in `dnd_pending_retry`, but the "Start/Complete" checklist path currently treats it as a normal cleaning and requires the 5 completion photos.
-   - Fix: when `is_dnd || dnd_attempt_count > 0`, the second attempt must reopen the `EnhancedDNDPhotoCapture` (single DND photo), never the 5-photo completion sheet. Add a hard branch: DND button on retry = single DND photo capture with `attempt_number: 2`, then set `completed`.
-   - Add clear UI copy on the retry card: "Second attempt — one DND photo is enough".
-
-2. **Checkout Clean must not show "Towel Change Required"**
-   - `CompletionDataView.tsx` (Special Requirements block) and any other card that surfaces `towel_change_needed`: suppress the badge whenever `cleaning_type === 'checkout_clean'`. Same guard already exists on `AssignedRoomCard.tsx`; extend to approval history + completion view.
-
-3. **Pending Approvals badge "5" is stale**
-   - `HousekeepingTab.tsx` pending count is derived from a one-shot fetch. Replace with realtime: subscribe to `room_assignments` (filter by hotel + today, status = `completed` + not approved) and to `dnd_photos`. Recompute count on INSERT/UPDATE/DELETE and on approval action. Also refresh on window focus.
-
-4. **Admin-only training modules leak to non-admins**
-   - `src/components/training/v2/curricula/index.ts` + `curriculaForRole()`: `adminPmsOverviewCurriculum` and any other admin curricula must set `roles: ['admin']` (or `top_management`). Verify `manager-*` curricula don't list `admin` steps that reference admin-only routes.
-   - Filter in `TrainingCenter.tsx` by the real user role, not by "has any curriculum".
-
-5. **Manager Reception curriculum**
-   - `manager-reception.ts`: remove "Nightly Daily Overview upload" and "Breakfast lookup (/bb)" steps (or move them to an admin/night-reception curriculum). Reception managers see neither.
-   - Wait — user says the Nightly Daily Overview upload is **missing** and should be restored, and Breakfast lookup should **not** appear in the manager module. So: restore the Daily Overview upload step in the reception/night-reception curriculum where it belongs, and delete the /bb Breakfast lookup step from the manager curriculum.
-
-6. **Room 404 — housekeeping note from yesterday appearing today**
-   - Root cause suspicion: `housekeeping_notes` has no date scoping in the query used by `AssignedRoomCard`. It pulls all non-resolved notes for the room. Add `assignment_date = today` filter (or `created_at >= start_of_today`) with a fallback "carry over unread" flag the manager sets explicitly.
-   - This is superseded by Track C messaging, but ship the date-scope fix now so stale notes stop appearing.
+Scope: only the fixes listed below. All other in-flight work (Revenue rate grid revamp, full messaging system, etc.) is deferred to a later phase.
 
 ---
 
-## Track B — Revenue revamp
+## 1. Translation gaps
 
-### B1. Hotel scoping
-- When the user has an active hotel selected in `TenantContext`, `/rdhotels/revenue` auto-redirects to `/rdhotels/revenue/<hotel-slug>`. Overview page only reachable via explicit "All hotels" link (admin/top_management).
-- `RevenueHotelDetail.tsx` becomes the default landing.
-- Admin legacy title tree stays visible (breadcrumb: Revenue → Ottofiori → tab).
+### 1a. Housekeeper room card — Minibar & Dirty Linen
+- `src/components/dashboard/RoomDetailDialog.tsx` (Minibar tab): category chips ("Beverage", "Alcohol", "Snack"), section labels, product names come from DB (`en`) — wire them through `useTranslation()` and the existing `guest-minibar-translations` / new `minibar` keys. Fall back to raw name when no key.
+- `src/components/dashboard/DirtyLinenCart.tsx` (or wherever "My Dirty Linen Cart", "Today's Total", "0 Linen Items", "Detailed Records", "No items collected yet" live): route every literal through `t()`. Add missing keys to `src/hooks/useTranslation.tsx` for all 5 supported languages (en, hu, es, vi, mn, uk).
+- Dirty linen item names ("Bed Sheets Queen Size", "Big Towel", "Bath Mat"…): they already map via `src/lib/linen-item-i18n.ts`. Extend translations for `hu, es, vi, mn, uk` under the `linen.*` namespace and make sure every consumer (add-to-cart list, cart summary, Dirty Linen Management manager table headers) uses `translateLinenItem()` instead of the raw `display_name`.
 
-### B2. New "Rate Grid" tab (XL matrix)
-New tab inside `RevenueHotelDetail.tsx` alongside existing tabs (Overview / Recommendations / Strategy / Settings / **Rate Grid**).
+### 1b. Manager pages not translating (screenshot evidence)
+- `HousekeepingTab.tsx`: "Team View" duplicate breadcrumb, sub-nav labels "Staff Management", "Team View", "Performance", "Dirty Linen", "Minibar Tracking", "Maintenance", "Early Sign-Out Approvals" — all use raw strings. Replace with `t()`.
+- `HotelRoomOverview.tsx`: title "Hotel Room Overview", stat labels "TOTAL / EARLY C/O / NO-SHOW / ACT", legend chips ("Approved/Clean", "Dirty/Assigned", "In Progress", "Pending Approval", "Overdue", "Out of Order", "DND", "No-Show", "Early Checkout", "Towel Change", "Clean Room", "Room Cleaning", "Extra Towels", "Ready to Clean", "Approved", "Manual C/O", "Newly synced", "Departs tomorrow", "Shabbat", "No Service", "Has note"), "Hide Legend", "Checkout Rooms", "Map", "Refresh", "PMS SYNC / Up to date / X minutes ago", "PMS Refresh" — wire to `t()`.
+- `AutoRoomAssignment.tsx` wizard: "Auto Room Assignment", "1. Staff / 2. Preview / 3. Confirm / 4. Public Areas", "Total Rooms / Checkouts / Daily", "Checkout rooms: 45 min | Daily rooms: 15 min | Break: 30 min", "No dirty rooms available for assignment", "Generate Preview" — wire to `t()`.
+- Attendance page (housekeeper view, `AttendanceView` / `WorkStatusPanel`): title "Work Status & Attendance", "Wednesday, July 22nd" formatter (localize via `date-fns` locale), break-type option label "Lunch Break (30 minutes)" — wire to `t()` and pass the current language's `date-fns` locale to `format()`.
+- Top bar chip "Reports" and role label "Менеджер · Hotel Ottofiori" — `Header.tsx`: translate "Reports" and the role name via existing `roleLabel(t, role)` helper.
 
-Layout (mirrors the Previo screenshot):
-```text
-              | Jul 20 Mon | Jul 21 Tue | Jul 22 Wed | ...
---------------+------------+------------+------------+---
-Room type     | occ% | ✓/✗ | occ% | ...
-  For sale    | 0    | 1    | ...
-  Rate 1 pax  | €62  | €95  | ...   <-- editable
-  Rate 2 pax  | €72  | €105 | ...   <-- editable
-```
-- Left frozen column: room types + rate-plan rows (1 pax, 2 pax, extras) from `room_types` × `rate_plans`.
-- Top frozen row: dates (30/60/90-day windows, arrow nav + jump-to-today, "Show from today" toggle).
-- Cell = current published rate for that (room_type, rate_plan, date). Colored background: green when sellable, orange when closed, red when overbooked (from occupancy + room_status).
-- Inline edit → optimistic update → `previo-push-rates` edge function push. Failed pushes revert + show toast.
-- Bulk select: shift-click column/row for range edit; apply +/− €, ×%, or set absolute.
-- Data source: `previo-pull-rates` (existing) hydrates the grid on load; realtime subscription to `rate_calendar` and `rate_history` for live updates.
-
-### B3. Data plumbing
-- Extend `previo-pull-rates` to return per-(room_type, rate_plan, date) rates covering the visible window (add pagination if payload gets large).
-- New view `public.v_rate_grid` joining `rate_calendar` + `room_types` + `rate_plans` + `occupancy_snapshots` for read; edits go through existing tables via edge function.
-- No schema breakage — additive only.
-
-### B4. Automation surface (visible, off by default)
-- "Auto-price this window" button per row runs the existing `revenue-engine-tick` scoped to that room-type × window and previews suggested cells before push.
-- Autopilot toggle already exists — keep, just surface here.
+Add all missing keys in one pass to `useTranslation.tsx` (en/hu/es/vi/mn/uk). Follow the existing pattern.
 
 ---
 
-## Track C — Messaging (housekeeper ↔ manager)
+## 2. Tsvetkova_074 cannot log out
 
-### C1. Schema
-New tables:
-- `message_threads` — `hotel_id`, `organization_slug`, `subject`, `room_id` (nullable — per-room threads), `created_by`, `is_direct` (bool), timestamps.
-- `thread_participants` — `thread_id`, `user_id`, `last_read_at`, `muted`.
-- `messages` — `thread_id`, `sender_id`, `body` (original text), `source_lang`, `attachments jsonb`, `created_at`, `edited_at`.
-- `message_translations` — `message_id`, `target_lang`, `translated_body`, `translated_at`. Cached per language so we don't retranslate.
+- Investigate `src/components/dashboard/AttendanceView.tsx` + `useAuth.tsx` sign-out path. Likely causes to check in order:
+  1. Sign-out button gated by an active room assignment (blocked because a room is stuck `in_progress`/`dnd_pending_retry`).
+  2. `signOut` fails silently when the session refresh token has expired — add a hard fallback that clears local storage and forces `/auth`.
+  3. Ukrainian UI: the End Shift button label wraps and its click target is outside the tap region.
+- Fix: allow shift end-out even when a room is `dnd_pending_retry` (that state means the housekeeper is not blocked); force clear session on sign-out failure; log the exact reason to console for the next occurrence.
 
-RLS: user must be a `thread_participants` row to read/insert. Admins bypass. GRANTs to `authenticated` + `service_role`.
+Plan will confirm the exact cause once I read `AttendanceView.tsx` in build mode — the diagnosis above is a hypothesis, not verified state.
 
-Storage bucket `message-attachments` (private) with per-thread folder RLS.
+---
 
-### C2. Edge functions (OpenAI, not Lovable AI, per user)
-- `messages-translate`: given `message_id` + `target_lang`, calls OpenAI (`gpt-4o-mini`) using the existing `OPENAI_API_KEY` secret, stores translation in `message_translations`, returns it. Idempotent.
-- `messages-notify`: on new message, fanout to participants (email/push via existing `send-email-notification`).
+## 3. Early-checkout approvals must go to housekeepers, not managers
 
-Trigger `after insert on messages` enqueues both.
+- Trace `send-work-assignment-notification` and any `notify-manager-*` edge function + the client hook that requests early-C/O approval (search for `early_checkout` / `earlyCheckout`).
+- Current bug: the approval notification recipient list is set to role `manager` / `top_management`. Change to: the housekeeper assigned to that room (fallback: any signed-in housekeeper at that hotel today). Manager only sees it in the audit log, not as an actionable approval.
+- UI: remove early-C/O rows from Manager "Pending Approvals" queue; add them to housekeeper's task list as a distinct card "Early checkout — approve to release room".
 
-### C3. UI
-- Global header icon (`MessageCircle`) with unread badge (realtime via `messages` subscription filtered to my threads).
-- `/messages` inbox page — thread list, unread indicator, search.
-- Thread view — bubbles, sender name + role, attachment previews, auto-translate toggle (default ON: shows body in user's `useLanguagePreference` language; tap "Show original").
-- Composer: text + attachment upload (image/pdf), tagline "Type in any language — the recipient reads it in theirs".
-- Per-room entry point: on `AssignedRoomCard` and `HotelRoomOverview` a "Message" button opens (or creates) a thread scoped to that room (`room_id` set). Manager notes for a room become the first message in that room's thread and inherit the date-scoping.
-- Notifications: sonner toast on new message when app open; badge always live.
+---
 
-### C4. Migration off `housekeeping_notes`
-- Keep table for history but stop writing to it. New note UI writes to `messages` in the room's thread. Read path merges old notes (read-only) with new thread until we've fully deprecated.
+## 4. DND / No-Service workflow overhaul
+
+### 4a. DND 2nd-attempt photo bug (still broken)
+- Re-audit `AssignedRoomCard.tsx` on the retry path. When status is `dnd_pending_retry` and `dnd_retry_unlocked_at <= now`, tapping the DND action MUST open `EnhancedDNDPhotoCapture` with `attemptNumber: 2` — never `CompletionPhotoCapture`. There is currently a code path where "Start Cleaning" reappears on unlock and then routes into the 5-photo grid on completion. Fix by:
+  - Splitting the retry action into two explicit buttons: "Still DND (take photo)" and "Actually clean it now".
+  - "Still DND" → `EnhancedDNDPhotoCapture(attempt=2)` → on save, set `status='completed'`, `is_dnd=true`, enqueue for supervisor approval, attach both attempt photos.
+  - "Actually clean it now" → normal cleaning flow.
+
+### 4b. Relocate DND & add No-Service button next to it
+- On `AssignedRoomCard` action row: place `[No Service]  [DND]  [Start Cleaning]` in that order so both no-open-door actions are reachable without entering the room.
+- Both buttons visible on 1st and (where applicable) retry states.
+
+### 4c. No-Service flow (new)
+- Tapping "No Service" opens a small confirm dialog:
+  - Copy: "Did the guest tell you they do not want cleaning today?" [Cancel] [Yes, guest confirmed]
+  - Optional note field (short, free-text, translated placeholder).
+- On confirm: mark assignment `status='completed'`, `no_service=true`, `no_service_note=<text>`, `completed_at=now()`; NO photo required. Goes straight to manager approval queue with the note visible.
+
+### 4d. Schema
+Small additive migration:
+- `room_assignments.no_service boolean not null default false`
+- `room_assignments.no_service_note text`
+- (Optional) enum value already exists — reuse.
+- GRANTs already cover the row; no new table.
+
+### 4e. Manager approval view
+- `SupervisorApprovalView` + `CompletionDataView`: render a full context block for every pending row:
+  - Room number, cleaning type, assigned housekeeper, start/complete timestamps, duration.
+  - DND rooms: both attempt photos side-by-side with timestamp badges (Attempt 1 / Attempt 2 final).
+  - No-Service rooms: 🚫 badge, note text, "No photo required".
+  - Early-C/O rooms: removed from this queue (see §3).
+  - Room note (housekeeping-scoped only, per prior work).
+  - Minibar consumption from today only, with recorder name & role.
+
+---
+
+## Rollout order (single build session)
+1. Migration for `no_service` fields.
+2. DND/No-Service UI (§4).
+3. Early-C/O routing fix (§3).
+4. Attendance sign-out fix (§2).
+5. Translation sweep (§1) — batch add all keys in one edit to `useTranslation.tsx`, then wire the components.
+
+Deferred: Revenue Rate Grid, full Messaging/DM inbox, OpenAI auto-translate for messages, and the training curricula visibility items left over from the previous plan — those go to the next phase.
 
 ---
 
 ## Technical section (implementation notes)
 
-- Files touched (non-exhaustive):
-  - `src/components/dashboard/AssignedRoomCard.tsx`, `HousekeepingTab.tsx`, `CompletionDataView.tsx`, `EnhancedDNDPhotoCapture.tsx`, `SupervisorApprovalView.tsx`
-  - `src/components/training/v2/curricula/{index,manager-reception,admin-pms-overview}.ts`, `TrainingCenter.tsx`
-  - `src/pages/Revenue.tsx`, `RevenueHotelDetail.tsx`
-  - New: `src/components/revenue/RateGrid.tsx`, `src/components/revenue/RateGridCell.tsx`, `src/components/revenue/RateGridToolbar.tsx`
-  - New: `src/pages/Messages.tsx`, `src/components/messages/{ThreadList,ThreadView,MessageComposer,MessageBubble,AttachmentUpload}.tsx`, `src/hooks/useUnreadMessages.ts`
-  - New edge functions: `supabase/functions/messages-translate`, `messages-notify`
-  - Extended: `supabase/functions/previo-pull-rates`
-- Migrations: enum-safe additions; new tables with GRANTs + RLS in the same migration; new storage bucket via storage tool.
-- Realtime: enable publication on `messages`, `room_assignments` (already?), `dnd_photos`, `rate_calendar`.
-- Secrets: `OPENAI_API_KEY` already configured — reuse.
-
-## Rollout order
-1. Track A (small, immediate).
-2. Track B (feature-flag `revenue_rate_grid` per org, admin toggle).
-3. Track C (schema + inbox first, per-room threads second, translation last).
+- Files to edit:
+  - `src/hooks/useTranslation.tsx` (bulk key additions, 6 languages)
+  - `src/lib/linen-item-i18n.ts` (extend map, add non-en translations under `linen.*`)
+  - `src/components/dashboard/{AssignedRoomCard,RoomDetailDialog,DirtyLinenCart,HousekeepingTab,HotelRoomOverview,AutoRoomAssignment,SupervisorApprovalView,CompletionDataView,AttendanceView}.tsx`
+  - `src/components/layout/Header.tsx`
+  - `supabase/functions/send-work-assignment-notification/index.ts` (and any early-C/O notification path)
+- Migration: `alter table public.room_assignments add column no_service boolean not null default false, add column no_service_note text;` — no new grants needed (existing policies cover new columns).
+- No new edge functions this phase.
+- Verify with a Playwright pass on `/rdhotels` in Ukrainian: attendance page, housekeeping sub-nav, auto-assign wizard, room card action row (No Service confirm + DND retry).
