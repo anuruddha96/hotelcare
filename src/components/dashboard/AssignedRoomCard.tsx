@@ -1067,23 +1067,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           {/* 2nd-attempt DND banner */}
           {assignment.status === 'dnd_pending_retry' && (
             <div className="rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800 px-3 py-2 text-sm text-orange-900 dark:text-orange-200 space-y-2">
-              <div className="font-semibold">2nd attempt</div>
+              <div className="font-semibold">2nd attempt — {t('common.room') || 'Room'} {assignment.rooms?.room_number}</div>
               <div className="text-xs">
                 {assignment.dnd_retry_unlocked_at
-                  ? 'You can try this room again now. If the guest is still DND, tap below — no room photos needed.'
-                  : 'Finish your other rooms first — we\'ll unlock this again at 14:30 or after your other rooms are done.'}
+                  ? 'You can try this room again now. If the guest is still DND, tap below and take one photo — no room cleaning photos needed.'
+                  : 'Try again after finishing your other rooms, or after 14:30. If the guest is still DND now, you can still send it to the supervisor below.'}
               </div>
-              {assignment.dnd_retry_unlocked_at && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEnhancedDndPhotoDialogOpen(true)}
-                  className="w-full border-orange-400 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/40"
-                >
-                  <AlertTriangle className="h-4 w-4 mr-1" />
-                  Still Do Not Disturb — send to supervisor
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setEnhancedDndPhotoDialogOpen(true)}
+                className="w-full border-orange-400 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+              >
+                <AlertTriangle className="h-4 w-4 mr-1" />
+                Still Do Not Disturb — send to supervisor
+              </Button>
             </div>
           )}
           {/* Primary Action Buttons */}
