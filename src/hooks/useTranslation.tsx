@@ -3244,7 +3244,6 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     }, {} as Record<string, string>);
 
     return {
-      ...getStaticTranslationBundle(language),
       ...cachedBundles[language],
       ...getStaticTranslationBundle(language),
       ...customBundle,
