@@ -3247,7 +3247,7 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
 
   const activeBundle = useMemo(() => {
     const customBundle = Object.entries(customTranslations).reduce((bundle, [key, values]: [string, any]) => {
-      if (values?.[language]) bundle[key] = values[language];
+      if (values?.[language] && values[language] !== key) bundle[key] = values[language];
       return bundle;
     }, {} as Record<string, string>);
 
@@ -3268,7 +3268,13 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
   }, [activeBundle, language]);
 
   const t = (key: TranslationKey | string): string => {
-    return activeBundle[key] || englishBundle[key] || key;
+    const translated = activeBundle[key];
+    if (translated && translated !== key) return translated;
+
+    const english = englishBundle[key];
+    if (english && english !== key) return english;
+
+    return key;
   };
 
   const changeLanguage = (lang: Language) => {
