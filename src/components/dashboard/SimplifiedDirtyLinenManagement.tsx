@@ -241,7 +241,7 @@ export function SimplifiedDirtyLinenManagement() {
                   const count = hk.items[item.name] || 0;
                   return (
                     <div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded text-sm">
-                      <span className="text-muted-foreground truncate mr-2">{item.display_name}</span>
+                      <span className="text-muted-foreground truncate mr-2">{translateLinenItem(item.display_name, t)}</span>
                       <span className={`font-semibold ${count > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>{count}</span>
                     </div>
                   );
