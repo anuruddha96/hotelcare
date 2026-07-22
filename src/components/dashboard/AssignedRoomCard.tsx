@@ -1156,6 +1156,20 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                         {t('housekeeping.noServiceConsent')}
                       </label>
                     </div>
+                    {/* Optional note about what the guest said */}
+                    <div className="space-y-1">
+                      <label htmlFor="no-service-note" className="text-xs font-medium text-muted-foreground">
+                        {t('housekeeping.noServiceNoteLabel') || 'Optional note for supervisor'}
+                      </label>
+                      <Textarea
+                        id="no-service-note"
+                        value={noServiceNote}
+                        onChange={(e) => setNoServiceNote(e.target.value)}
+                        placeholder={t('housekeeping.noServiceNotePlaceholder') || 'e.g. Guest sleeping, said no cleaning today'}
+                        rows={2}
+                        className="text-sm"
+                      />
+                    </div>
                     <div className="flex gap-2">
                       <Button 
                         onClick={markAsNoService} 
@@ -1166,7 +1180,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                       </Button>
                       <Button 
                         variant="outline" 
-                        onClick={() => { setNoServiceDialogOpen(false); setNoServiceConsent(false); }}
+                        onClick={() => { setNoServiceDialogOpen(false); setNoServiceConsent(false); setNoServiceNote(''); }}
                       >
                         {t('common.cancel')}
                       </Button>
