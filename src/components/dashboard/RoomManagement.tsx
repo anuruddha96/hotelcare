@@ -270,8 +270,8 @@ export function RoomManagement() {
             .order('created_at', { ascending: false })
             .limit(3);
 
-          // Fetch minibar usage — scoped to today (Budapest) so stale
-          // prior-day pending rows don't leak into the reception overview.
+          // Fetch all uncleared minibar usage (including prior nights of a
+          // multi-night stay) so reception sees outstanding charges to bill.
           const { data: minibarUsage } = await supabase
             .from('room_minibar_usage')
             .select(`
@@ -280,8 +280,8 @@ export function RoomManagement() {
               minibar_items!inner(name, price)
             `)
             .eq('room_id', room.id)
-            .eq('is_cleared', false)
-            .eq('usage_date', today);
+            .eq('is_cleared', false);
+
 
           return {
             ...room,
