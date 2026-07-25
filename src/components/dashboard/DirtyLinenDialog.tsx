@@ -473,13 +473,13 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     {autoSaving && (
                       <div className="flex items-center gap-1">
                         <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
-                        <span className="text-xs text-muted-foreground">Saving...</span>
+                        <span className="text-xs text-muted-foreground">{t('dirtyLinen.saving')}</span>
                       </div>
                     )}
                     {lastSaved && !autoSaving && (
                       <div className="flex items-center gap-1">
                         <CheckCircle className="h-3 w-3 text-green-500" />
-                        <span className="text-xs text-muted-foreground">Saved</span>
+                        <span className="text-xs text-muted-foreground">{t('dirtyLinen.saved')}</span>
                       </div>
                     )}
                   </div>
@@ -494,7 +494,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <Shirt className="h-4 w-4 text-primary flex-shrink-0" />
                       <Label className="text-sm font-medium truncate">
-                        {getLinenDisplayName(item.name, item.display_name)}
+                        {getLinenDisplayName(item.name, item.display_name, t)}
                       </Label>
                     </div>
                     
