@@ -28,6 +28,7 @@ const LANGUAGES = [
   { code: 'es', name: 'Spanish', flag: '🇪🇸' },
   { code: 'vi', name: 'Vietnamese', flag: '🇻🇳' },
   { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
+  { code: 'ru', name: 'Russian', flag: '🇷🇺' },
 ];
 
 export function TranslationManagement() {
