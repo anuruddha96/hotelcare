@@ -1456,6 +1456,16 @@ const translations = {
     'linen.smallTowel': 'Kis Törölköző',
     'linen.bigTowel': 'Nagy Törölköző',
     'linen.bathMat': 'Fürdőszobai Szőnyeg',
+    'dirtyLinen.itemsCollectedFrom': 'Ma összegyűjtött tételek különböző szobákból. Eltávolíthatja a tételeket, ha tévedésből gyűjtötte össze.',
+    'dirtyLinen.totalItemsLabel': '{count} összes tétel',
+    'dirtyLinen.latest': 'Legújabb',
+    'dirtyLinen.saving': 'Mentés...',
+    'dirtyLinen.saved': 'Mentve',
+    'dirtyLinen.removeConfirmTitle': 'Eltávolítás a kosárból?',
+    'dirtyLinen.removeConfirmDescription': 'Biztosan eltávolítja a(z) {item} ({count} tétel) elemet a(z) {room} szobából? Ez véglegesen törli ezt a rekordot.',
+    'dirtyLinen.remove': 'Eltávolítás',
+    'linen.mattressCoverTwin': 'Matracvédő (egyszemélyes)',
+    'linen.mattressCoverQueen': 'Matracvédő (franciaágy)',
   },
   
   es: {
@@ -1723,6 +1733,16 @@ const translations = {
     
     // Common extras
     'common.gotIt': 'Entendido',
+    'dirtyLinen.itemsCollectedFrom': 'Artículos recogidos de diferentes habitaciones hoy. Puede eliminar artículos si se recogieron por error.',
+    'dirtyLinen.totalItemsLabel': '{count} Artículos totales',
+    'dirtyLinen.latest': 'Más reciente',
+    'dirtyLinen.saving': 'Guardando...',
+    'dirtyLinen.saved': 'Guardado',
+    'dirtyLinen.removeConfirmTitle': '¿Eliminar del carrito?',
+    'dirtyLinen.removeConfirmDescription': '¿Está seguro de que desea eliminar {item} ({count} artículos) de la habitación {room}? Esto eliminará permanentemente este registro.',
+    'dirtyLinen.remove': 'Eliminar',
+    'linen.mattressCoverTwin': 'Funda de colchón individual',
+    'linen.mattressCoverQueen': 'Funda de colchón queen',
   },
   
   vi: {
@@ -1962,6 +1982,16 @@ const translations = {
     'staff.maintenanceTeam': 'Đội Bảo Trì',
     'staff.managers': 'Quản Lý',
     'staff.noActiveTickets': 'Không có vé đang hoạt động',
+    'dirtyLinen.itemsCollectedFrom': 'Các mặt hàng được thu thập từ các phòng khác nhau hôm nay. Bạn có thể xóa các mặt hàng nếu thu thập nhầm.',
+    'dirtyLinen.totalItemsLabel': '{count} Tổng số mặt hàng',
+    'dirtyLinen.latest': 'Mới nhất',
+    'dirtyLinen.saving': 'Đang lưu...',
+    'dirtyLinen.saved': 'Đã lưu',
+    'dirtyLinen.removeConfirmTitle': 'Xóa khỏi giỏ hàng?',
+    'dirtyLinen.removeConfirmDescription': 'Bạn có chắc chắn muốn xóa {item} ({count} mặt hàng) khỏi Phòng {room} không? Thao tác này sẽ xóa vĩnh viễn bản ghi này.',
+    'dirtyLinen.remove': 'Xóa',
+    'linen.mattressCoverTwin': 'Vỏ nệm đôi',
+    'linen.mattressCoverQueen': 'Vỏ nệm cỡ Queen',
   },
   
   mn: {
@@ -2218,6 +2248,16 @@ const translations = {
     'common.success': 'Амжилттай',
     'common.dismiss': 'Хаах',
     'common.gotIt': 'Ойлголоо',
+    'dirtyLinen.itemsCollectedFrom': 'Өнөөдөр өөр өөр өрөөнөөс цуглуулсан зүйлс. Хэрэв андуурч цуглуулсан бол та зүйлсийг устгаж болно.',
+    'dirtyLinen.totalItemsLabel': 'Нийт {count} зүйл',
+    'dirtyLinen.latest': 'Хамгийн сүүлийн',
+    'dirtyLinen.saving': 'Хадгалж байна...',
+    'dirtyLinen.saved': 'Хадгалагдсан',
+    'dirtyLinen.removeConfirmTitle': 'Сагснаас хасах уу?',
+    'dirtyLinen.removeConfirmDescription': '{item} ({count} зүйл)-ийг {room} өрөөнөөс хасахдаа итгэлтэй байна уу? Энэ нь энэхүү бичлэгийг бүрмөсөн устгах болно.',
+    'dirtyLinen.remove': 'Хасах',
+    'linen.mattressCoverTwin': 'Матрассын бүрээс ихэр',
+    'linen.mattressCoverQueen': 'Матрассын бүрээс хатан',
   },
 
   az: {
@@ -3146,6 +3186,14 @@ const translations = {
     'housekeeping.noServiceError': 'Не вдалося позначити номер як «Без прибирання»',
     'housekeeping.dndRetrySuccess': 'Номер {room} — повторимо спробу після інших номерів або о 14:30',
     'housekeeping.dndError': 'Не вдалося позначити номер як DND',
+    'dirtyLinen.itemsCollectedFrom': 'Предмети, зібрані з різних номерів сьогодні. Ви можете видалити предмети, якщо їх було зібрано помилково.',
+    'dirtyLinen.totalItemsLabel': 'Усього предметів: {count}',
+    'dirtyLinen.latest': 'Останні',
+    'dirtyLinen.saving': 'Збереження...',
+    'dirtyLinen.saved': 'Збережено',
+    'dirtyLinen.removeConfirmTitle': 'Видалити з кошика?',
+    'dirtyLinen.removeConfirmDescription': 'Ви впевнені, що хочете видалити {item} ({count} предметів) з номера {room}? Це назавжди видалить цей запис.',
+    'dirtyLinen.remove': 'Видалити',
   },
   ru: {
     'dashboard.title': 'Панель управления отелем',
@@ -3985,6 +4033,14 @@ const translations = {
     'housekeeping.noServiceError': 'Не удалось отметить номер как «Без обслуживания»',
     'housekeeping.dndRetrySuccess': 'Номер {room} — мы попробуем снова после других номеров или в 14:30',
     'housekeeping.dndError': 'Не удалось отметить номер как «Не беспокоить»',
+    'dirtyLinen.itemsCollectedFrom': 'Предметы, собранные из разных комнат сегодня. Вы можете удалить предметы, если они были собраны по ошибке.',
+    'dirtyLinen.totalItemsLabel': 'Всего предметов: {count}',
+    'dirtyLinen.latest': 'Последние',
+    'dirtyLinen.saving': 'Сохранение...',
+    'dirtyLinen.saved': 'Сохранено',
+    'dirtyLinen.removeConfirmTitle': 'Удалить из корзины?',
+    'dirtyLinen.removeConfirmDescription': 'Вы уверены, что хотите удалить {item} ({count} шт.) из комнаты {room}? Эта запись будет удалена безвозвратно.',
+    'dirtyLinen.remove': 'Удалить',
   },
 };
 
