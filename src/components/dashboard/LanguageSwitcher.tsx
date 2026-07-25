@@ -13,6 +13,7 @@ const languages = [
   { code: 'az', name: 'Azərbaycanca', flag: '🇦🇿' },
   { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
   { code: 'uk', name: 'Українська', flag: '🇺🇦' },
+  { code: 'ru', name: 'Русский', flag: '🇷🇺' },
 ];
 
 export function LanguageSwitcher() {
