@@ -44,11 +44,14 @@ interface LinenRecord {
   work_date: string;
 }
 
-// Helper function to get display name - prioritize display_name from database
-const getLinenDisplayName = (name: string, displayName?: string): string => {
-  if (displayName) return displayName;
-  // Fallback: convert snake_case to Title Case
-  return name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+// Helper: translate DB display name via linen-i18n map; falls back to raw name.
+const getLinenDisplayName = (
+  name: string,
+  displayName: string | undefined,
+  t: (key: string) => string,
+): string => {
+  const raw = displayName || name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  return translateLinenItem(raw, t);
 };
 
 export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assignmentId }: DirtyLinenDialogProps) {
