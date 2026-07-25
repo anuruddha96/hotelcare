@@ -368,14 +368,14 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
         {showMyRecords ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">My Dirty Linen Cart</h3>
+              <h3 className="text-lg font-semibold">{t('dirtyLinen.myCart')}</h3>
               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                {myRecords.reduce((total, record) => total + record.count, 0)} Total Items
+                {t('dirtyLinen.totalItemsLabel').replace('{count}', String(myRecords.reduce((total, record) => total + record.count, 0)))}
               </Badge>
             </div>
             
             <p className="text-sm text-muted-foreground">
-              Items collected from different rooms today. You can remove items if collected by mistake.
+              {t('dirtyLinen.itemsCollectedFrom')}
             </p>
             
             {myRecords.length === 0 ? (
@@ -383,8 +383,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                 <div className="bg-white rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center shadow-sm">
                   <Shirt className="h-10 w-10 text-slate-400" />
                 </div>
-                <p className="text-slate-600 font-medium text-base">No dirty linen collected today</p>
-                <p className="text-sm text-slate-500 mt-2">Start collecting from rooms to see them here</p>
+                <p className="text-slate-600 font-medium text-base">{t('dirtyLinen.noItemsCollected')}</p>
+                <p className="text-sm text-slate-500 mt-2">{t('dirtyLinen.startCollecting')}</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -395,10 +395,10 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                         <div className="flex-1 space-y-2">
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge variant="default" className="font-mono text-xs bg-primary/90">
-                              Room {record.room_number}
+                              {t('common.room')} {record.room_number}
                             </Badge>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(record.work_date).toLocaleDateString('en-US', { 
+                              {new Date(record.work_date).toLocaleDateString(undefined, { 
                                 month: 'short', 
                                 day: 'numeric',
                                 year: 'numeric'
@@ -406,7 +406,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                             </span>
                             {index === 0 && (
                               <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-green-200">
-                                Latest
+                                {t('dirtyLinen.latest')}
                               </Badge>
                             )}
                           </div>
@@ -414,7 +414,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                           <div className="flex items-center gap-3">
                             <div className="flex items-center gap-2">
                               <Shirt className="h-5 w-5 text-primary" />
-                              <span className="font-semibold text-base">{getLinenDisplayName(record.linen_item_name, record.display_name)}</span>
+                              <span className="font-semibold text-base">{getLinenDisplayName(record.linen_item_name, record.display_name, t)}</span>
                             </div>
                             <Badge variant="outline" className="text-base font-bold px-3 py-1 bg-blue-50">
                               × {record.count}
@@ -434,19 +434,21 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Remove from Cart?</AlertDialogTitle>
+                              <AlertDialogTitle>{t('dirtyLinen.removeConfirmTitle')}</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Are you sure you want to remove <strong>{getLinenDisplayName(record.linen_item_name, record.display_name)}</strong> ({record.count} items) from Room {record.room_number}? 
-                                This will permanently delete this record.
+                                {t('dirtyLinen.removeConfirmDescription')
+                                  .replace('{item}', getLinenDisplayName(record.linen_item_name, record.display_name, t))
+                                  .replace('{count}', String(record.count))
+                                  .replace('{room}', record.room_number)}
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                               <AlertDialogAction 
                                 onClick={() => deleteRecord(record.id)}
                                 className="bg-red-600 hover:bg-red-700"
                               >
-                                Remove
+                                {t('dirtyLinen.remove')}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
