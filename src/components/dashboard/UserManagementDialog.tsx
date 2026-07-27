@@ -641,60 +641,64 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             )}
                           </div>
                           <div className="flex items-center gap-1">
-                            {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleEditUser(user)}
-                                className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                              >
-                                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline sm:ml-1">Edit</span>
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setSelectedUser(user)}
-                                className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                              >
-                                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline sm:ml-1">Role</span>
-                              </Button>
-                            )}
-                            
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  disabled={loading}
-                                  className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                                >
-                                  <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                                  <span className="hidden sm:inline sm:ml-1">Delete</span>
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent className="w-[95vw] max-w-md">
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle className="text-base">Delete User</AlertDialogTitle>
-                                  <AlertDialogDescription className="text-sm">
-                                    Are you absolutely sure you want to delete <strong>{user.full_name}</strong>? 
-                                    This action cannot be undone and will permanently remove the user account and all associated data.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
-                                  <AlertDialogCancel disabled={loading} className="w-full sm:w-auto">Cancel</AlertDialogCancel>
-                                  <AlertDialogAction 
-                                    onClick={() => handleDeleteUser(user.id, user.full_name)}
-                                    disabled={loading}
-                                    className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            {!user.deleted_at && (
+                              <>
+                                {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleEditUser(user)}
+                                    className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
                                   >
-                                    {loading ? 'Deleting...' : 'Delete Permanently'}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                                    <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="hidden sm:inline sm:ml-1">Edit</span>
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setSelectedUser(user)}
+                                    className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
+                                  >
+                                    <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="hidden sm:inline sm:ml-1">Role</span>
+                                  </Button>
+                                )}
+
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      disabled={loading}
+                                      className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
+                                    >
+                                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      <span className="hidden sm:inline sm:ml-1">Delete</span>
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent className="w-[95vw] max-w-md">
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle className="text-base">Delete User</AlertDialogTitle>
+                                      <AlertDialogDescription className="text-sm">
+                                        Are you sure you want to delete <strong>{user.full_name}</strong>?
+                                        They will lose access immediately.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
+                                      <AlertDialogCancel disabled={loading} className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDeleteUser(user.id, user.full_name)}
+                                        disabled={loading}
+                                        className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        {loading ? 'Deleting...' : 'Delete'}
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
