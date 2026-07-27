@@ -42,6 +42,9 @@ interface Profile {
   assigned_hotel?: string;
   is_super_admin?: boolean;
   organization_slug?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  deleted_by_name?: string | null;
 }
 
 interface UserManagementDialogProps {
@@ -178,7 +181,6 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      // Only allow admins and HR to fetch all users for management
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -188,7 +190,28 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         console.error('Access denied - insufficient permissions to view user profiles');
         throw error;
       }
-      setUsers(data || []);
+
+      const rows = (data as any[]) || [];
+
+      // For admins only, resolve deleted_by → full_name for display.
+      const deleterIds = Array.from(
+        new Set(rows.map(r => r.deleted_by).filter(Boolean))
+      ) as string[];
+      let deleterMap: Record<string, string> = {};
+      if (deleterIds.length && (currentUserRole === 'admin' || currentUserIsSuperAdmin)) {
+        const { data: deleters } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', deleterIds);
+        (deleters || []).forEach((d: any) => { deleterMap[d.id] = d.full_name; });
+      }
+
+      const enriched = rows.map(r => ({
+        ...r,
+        deleted_by_name: r.deleted_by ? (deleterMap[r.deleted_by] || null) : null,
+      })) as Profile[];
+
+      setUsers(enriched);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -565,7 +588,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
             ) : (
               <div className="space-y-3 pr-2">
                 {users.map((user) => (
-                  <Card key={user.id}>
+                  <Card key={user.id} className={user.deleted_at ? 'opacity-60' : ''}>
                     <CardContent className="p-3 sm:p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-start gap-3">
@@ -575,7 +598,12 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-sm sm:text-base truncate">{user.full_name}</h4>
+                            <h4 className="font-semibold text-sm sm:text-base truncate">
+                              {user.full_name}
+                              {user.deleted_at && (
+                                <span className="ml-2 text-xs font-normal text-destructive">(deleted)</span>
+                              )}
+                            </h4>
                             <p className="text-xs sm:text-sm text-muted-foreground truncate">{user.email || 'No email'}</p>
                             {user.phone_number && (
                               <p className="text-xs sm:text-sm text-muted-foreground">📞 {user.phone_number}</p>
@@ -586,6 +614,12 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             <p className="text-xs text-muted-foreground">
                               Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
                             </p>
+                            {user.deleted_at && (
+                              <p className="text-xs text-destructive mt-1">
+                                Deleted {format(new Date(user.deleted_at), 'MMM dd, yyyy')}
+                                {user.deleted_by_name ? ` by ${user.deleted_by_name}` : ''}
+                              </p>
+                            )}
                           </div>
                         </div>
                         
@@ -600,62 +634,71 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                                 Super Admin
                               </Badge>
                             )}
+                            {user.deleted_at && (
+                              <Badge variant="outline" className="text-xs border-destructive text-destructive">
+                                Deleted
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-1">
-                            {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleEditUser(user)}
-                                className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                              >
-                                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline sm:ml-1">Edit</span>
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setSelectedUser(user)}
-                                className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                              >
-                                <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                                <span className="hidden sm:inline sm:ml-1">Role</span>
-                              </Button>
-                            )}
-                            
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  disabled={loading}
-                                  className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                                >
-                                  <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                                  <span className="hidden sm:inline sm:ml-1">Delete</span>
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent className="w-[95vw] max-w-md">
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle className="text-base">Delete User</AlertDialogTitle>
-                                  <AlertDialogDescription className="text-sm">
-                                    Are you absolutely sure you want to delete <strong>{user.full_name}</strong>? 
-                                    This action cannot be undone and will permanently remove the user account and all associated data.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
-                                  <AlertDialogCancel disabled={loading} className="w-full sm:w-auto">Cancel</AlertDialogCancel>
-                                  <AlertDialogAction 
-                                    onClick={() => handleDeleteUser(user.id, user.full_name)}
-                                    disabled={loading}
-                                    className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            {!user.deleted_at && (
+                              <>
+                                {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleEditUser(user)}
+                                    className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
                                   >
-                                    {loading ? 'Deleting...' : 'Delete Permanently'}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                                    <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="hidden sm:inline sm:ml-1">Edit</span>
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setSelectedUser(user)}
+                                    className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
+                                  >
+                                    <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="hidden sm:inline sm:ml-1">Role</span>
+                                  </Button>
+                                )}
+
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      disabled={loading}
+                                      className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
+                                    >
+                                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      <span className="hidden sm:inline sm:ml-1">Delete</span>
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent className="w-[95vw] max-w-md">
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle className="text-base">Delete User</AlertDialogTitle>
+                                      <AlertDialogDescription className="text-sm">
+                                        Are you sure you want to delete <strong>{user.full_name}</strong>?
+                                        They will lose access immediately.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
+                                      <AlertDialogCancel disabled={loading} className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDeleteUser(user.id, user.full_name)}
+                                        disabled={loading}
+                                        className="w-full sm:w-auto bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        {loading ? 'Deleting...' : 'Delete'}
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

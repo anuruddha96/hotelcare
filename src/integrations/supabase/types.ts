@@ -3225,6 +3225,8 @@ export type Database = {
           acts_as_housekeeper: boolean
           assigned_hotel: string | null
           created_at: string | null
+          deleted_at: string | null
+          deleted_by: string | null
           email: string
           full_name: string
           hotel_id: string | null
@@ -3243,6 +3245,8 @@ export type Database = {
           acts_as_housekeeper?: boolean
           assigned_hotel?: string | null
           created_at?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           email: string
           full_name: string
           hotel_id?: string | null
@@ -3261,6 +3265,8 @@ export type Database = {
           acts_as_housekeeper?: boolean
           assigned_hotel?: string | null
           created_at?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           email?: string
           full_name?: string
           hotel_id?: string | null
@@ -5415,6 +5421,10 @@ export type Database = {
         Returns: Json
       }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
+      soft_delete_user_profile: {
+        Args: { p_target_user_id: string }
+        Returns: Json
+      }
       update_assignment_type: {
         Args: {
           assignment_id: string
