@@ -181,7 +181,6 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      // Only allow admins and HR to fetch all users for management
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -191,7 +190,28 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         console.error('Access denied - insufficient permissions to view user profiles');
         throw error;
       }
-      setUsers(data || []);
+
+      const rows = (data as any[]) || [];
+
+      // For admins only, resolve deleted_by → full_name for display.
+      const deleterIds = Array.from(
+        new Set(rows.map(r => r.deleted_by).filter(Boolean))
+      ) as string[];
+      let deleterMap: Record<string, string> = {};
+      if (deleterIds.length && (currentUserRole === 'admin' || currentUserIsSuperAdmin)) {
+        const { data: deleters } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', deleterIds);
+        (deleters || []).forEach((d: any) => { deleterMap[d.id] = d.full_name; });
+      }
+
+      const enriched = rows.map(r => ({
+        ...r,
+        deleted_by_name: r.deleted_by ? (deleterMap[r.deleted_by] || null) : null,
+      })) as Profile[];
+
+      setUsers(enriched);
     } catch (error: any) {
       toast({
         title: 'Error',
