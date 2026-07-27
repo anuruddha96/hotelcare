@@ -588,7 +588,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
             ) : (
               <div className="space-y-3 pr-2">
                 {users.map((user) => (
-                  <Card key={user.id}>
+                  <Card key={user.id} className={user.deleted_at ? 'opacity-60' : ''}>
                     <CardContent className="p-3 sm:p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-start gap-3">
@@ -598,7 +598,12 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-sm sm:text-base truncate">{user.full_name}</h4>
+                            <h4 className="font-semibold text-sm sm:text-base truncate">
+                              {user.full_name}
+                              {user.deleted_at && (
+                                <span className="ml-2 text-xs font-normal text-destructive">(deleted)</span>
+                              )}
+                            </h4>
                             <p className="text-xs sm:text-sm text-muted-foreground truncate">{user.email || 'No email'}</p>
                             {user.phone_number && (
                               <p className="text-xs sm:text-sm text-muted-foreground">📞 {user.phone_number}</p>
@@ -609,6 +614,12 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             <p className="text-xs text-muted-foreground">
                               Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
                             </p>
+                            {user.deleted_at && (
+                              <p className="text-xs text-destructive mt-1">
+                                Deleted {format(new Date(user.deleted_at), 'MMM dd, yyyy')}
+                                {user.deleted_by_name ? ` by ${user.deleted_by_name}` : ''}
+                              </p>
+                            )}
                           </div>
                         </div>
                         
@@ -621,6 +632,11 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                               <Badge variant="destructive" className="text-xs flex items-center gap-1">
                                 <Shield className="h-3 w-3" />
                                 Super Admin
+                              </Badge>
+                            )}
+                            {user.deleted_at && (
+                              <Badge variant="outline" className="text-xs border-destructive text-destructive">
+                                Deleted
                               </Badge>
                             )}
                           </div>
