@@ -42,6 +42,9 @@ interface Profile {
   assigned_hotel?: string;
   is_super_admin?: boolean;
   organization_slug?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  deleted_by_name?: string | null;
 }
 
 interface UserManagementDialogProps {
