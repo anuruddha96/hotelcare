@@ -1869,7 +1869,7 @@ export function SupervisorApprovalView() {
                   }}
                 >
                   {gateBusy ? <LucideLoader className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5 mr-1" />}
-                  Confirm & Approve
+                  {t('minibarGate.confirmApprove')}
                 </Button>
               </div>
             </div>
