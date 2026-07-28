@@ -1415,8 +1415,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 className="flex-1 text-xs sm:text-sm min-h-[40px] border-blue-300 text-blue-700 hover:bg-blue-50"
               >
                 <ArrowUpDown className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">Change Type</span>
-                <span className="sm:hidden">Type</span>
+                <span className="hidden sm:inline">{t('assigned.changeType')}</span>
+                <span className="sm:hidden">{t('assigned.type')}</span>
               </Button>
             </div>
           )}

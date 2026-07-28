@@ -724,7 +724,7 @@ export function SupervisorApprovalView() {
     setGateRefilled(false);
     setGateAddedToPrevio(false);
     setMinibarGate({
-      title: `${t('rooms.room')} ${assignment.rooms?.room_number || ''} — ${t('minibarGate.minibarUsed')}`,
+      title: `${t('common.room')} ${assignment.rooms?.room_number || ''} — ${t('minibarGate.minibarUsed')}`,
       items,
       total,
       usageIds,
@@ -1025,7 +1025,7 @@ export function SupervisorApprovalView() {
                 <span>Started {new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </>
             ) : (
-              <span>Duration N/A</span>
+              <span>{t('supervisor.durationNA')}</span>
             )}
           </div>
 
@@ -1665,7 +1665,7 @@ export function SupervisorApprovalView() {
                             <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
                               <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
                               <div>
-                                <p className="text-xs text-muted-foreground">Room</p>
+                                <p className="text-xs text-muted-foreground">{t('common.room')}</p>
                                 <p className="text-sm font-semibold text-foreground">{ticket.room_number}</p>
                               </div>
                             </div>
@@ -1673,7 +1673,7 @@ export function SupervisorApprovalView() {
                             <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
                               <User className="h-4 w-4 text-muted-foreground shrink-0" />
                               <div>
-                                <p className="text-xs text-muted-foreground">Reported By</p>
+                                <p className="text-xs text-muted-foreground">{t('supervisor.reportedBy')}</p>
                                 <p className="text-sm font-semibold text-foreground truncate">
                                   {ticket.created_by_profile?.full_name || 'Unknown'}
                                 </p>
@@ -1683,7 +1683,7 @@ export function SupervisorApprovalView() {
                             <div className="flex items-center gap-2 p-2.5 bg-blue-50 rounded-lg">
                               <Wrench className="h-4 w-4 text-blue-600 shrink-0" />
                               <div>
-                                <p className="text-xs text-blue-600">Fixed By</p>
+                                <p className="text-xs text-blue-600">{t('supervisor.fixedBy')}</p>
                                 <p className="text-sm font-semibold text-blue-800">
                                   {ticket.assigned_to_profile?.full_name || 'Unknown'}
                                 </p>
@@ -1693,7 +1693,7 @@ export function SupervisorApprovalView() {
                             <div className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg">
                               <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
                               <div>
-                                <p className="text-xs text-muted-foreground">Waiting</p>
+                                <p className="text-xs text-muted-foreground">{t('supervisor.waiting')}</p>
                                 <p className="text-sm font-semibold text-foreground">
                                   {getMinutesSince(ticket.created_at)}m
                                 </p>
@@ -1817,7 +1817,7 @@ export function SupervisorApprovalView() {
               <div className="max-h-40 overflow-y-auto rounded border bg-muted/30 p-2 text-xs space-y-1">
                 {minibarGate.items.map((it, i) => (
                   <div key={i} className="flex justify-between">
-                    <span>{t('rooms.room')} {it.room} · {it.qty}× {it.name}</span>
+                    <span>{t('common.room')} {it.room} · {it.qty}× {it.name}</span>
                     <span className="font-mono">€{it.price.toFixed(2)}</span>
                   </div>
                 ))}
