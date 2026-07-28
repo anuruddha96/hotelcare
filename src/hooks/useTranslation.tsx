@@ -8,6 +8,7 @@ import { screenTranslations } from '@/lib/screen-translations';
 import { roomOverviewTranslations } from '@/lib/room-overview-translations';
 import { purchaseInvoiceTranslations } from '@/lib/purchase-invoice-translations';
 import { locationTranslations } from '@/lib/location-translations';
+import { generatedTranslations } from '@/lib/generated-translations';
 
 const translations = {
   en: {
@@ -4088,6 +4089,7 @@ const flattenBundle = (
 };
 
 const getStaticTranslationBundle = (lang: Language): Record<string, string> => ({
+  ...flattenBundle(generatedTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(translations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(additionalTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(expandedTranslations[lang] as Record<string, unknown> | undefined),
