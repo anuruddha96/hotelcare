@@ -724,7 +724,7 @@ export function SupervisorApprovalView() {
     setGateRefilled(false);
     setGateAddedToPrevio(false);
     setMinibarGate({
-      title: `Room ${assignment.rooms?.room_number || ''} — minibar used`,
+      title: `${t('rooms.room')} ${assignment.rooms?.room_number || ''} — ${t('minibarGate.minibarUsed')}`,
       items,
       total,
       usageIds,
