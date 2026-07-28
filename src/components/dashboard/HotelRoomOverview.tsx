@@ -1397,7 +1397,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 {t('team.noShowExplainer')}
               </span>
             )}
-            {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">Drop here</Badge>}
+            {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">{t('roomOverview.dropHere')}</Badge>}
           </div>
           {dndCount > 0 && (
             <Badge variant="outline" className="text-purple-600 border-purple-300 text-xs">
@@ -1407,7 +1407,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         </div>
 
         {floors.length === 0 && previousEntries.length === 0 ? (
-          <p className="text-xs text-muted-foreground pl-6">No rooms</p>
+          <p className="text-xs text-muted-foreground pl-6">{t('roomOverview.noRooms')}</p>
         ) : (() => {
           // Two-column Yesterday/Today split is admin-only. All other eligible
           // users (managers, housekeeping_managers, reception, exec viewers)
@@ -1457,7 +1457,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <MapPin className="h-3.5 w-3.5 text-emerald-600" />
-          <span className="text-sm font-semibold">Public Areas</span>
+          <span className="text-sm font-semibold">{t('roomOverview.publicAreas')}</span>
           <Badge variant="secondary" className="text-xs">{publicAreaTasks.length}</Badge>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -1689,7 +1689,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {/* Room Status Section */}
                   <div className="space-y-2 pb-3 border-b">
                     <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">🔄 Change Room Status</label>
-                    <p className="text-[11px] text-muted-foreground -mt-1">Manually update this room's cleaning status</p>
+                    <p className="text-[11px] text-muted-foreground -mt-1">{t('roomOverview.manualStatusHint')}</p>
                     <div className="flex gap-2">
                       {roomStatus === 'clean' && (
                         <Button
@@ -1997,7 +1997,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">⚙️ Room Settings</label>
                 <p className="text-xs text-muted-foreground">Size affects auto-assignment workload balancing.</p>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Room Size</label>
+                  <label className="text-sm font-medium">{t('roomOverview.roomSize')}</label>
                   <Select value={selectedSize} onValueChange={setSelectedSize}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select size" />
@@ -2012,13 +2012,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Room Category</label>
+                  <label className="text-sm font-medium">{t('roomOverview.roomCategory')}</label>
                   <Select value={selectedCategory} onValueChange={setSelectedCategory}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none">{t('common.none')}</SelectItem>
                       {(HOTEL_ROOM_CATEGORIES[hotelName] || HOTEL_ROOM_CATEGORIES.default).map(cat => (
                         <SelectItem key={cat} value={cat}>
                           {cat}
@@ -2030,7 +2030,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 {/* Bed Configuration */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">🛏️ Bed Configuration</label>
-                  <p className="text-xs text-muted-foreground">Set the current guest bed requirement</p>
+                  <p className="text-xs text-muted-foreground">{t('roomOverview.bedRequirementHint')}</p>
                   <Select
                     value={(selectedRoom as any)?.bed_configuration || 'none'}
                     onValueChange={async (val) => {
@@ -2053,12 +2053,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       <SelectValue placeholder="Select bed configuration" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="Double Bed">Double Bed</SelectItem>
-                      <SelectItem value="Twin Beds">Twin Beds</SelectItem>
-                      <SelectItem value="Twin Beds Separated">Twin Beds Separated</SelectItem>
-                      <SelectItem value="Single Bed">Single Bed</SelectItem>
-                      <SelectItem value="Extra Cot Added">Extra Cot Added</SelectItem>
+                      <SelectItem value="none">{t('common.none')}</SelectItem>
+                      <SelectItem value="Double Bed">{t('bed.doubleBed')}</SelectItem>
+                      <SelectItem value="Twin Beds">{t('bed.twinBeds')}</SelectItem>
+                      <SelectItem value="Twin Beds Separated">{t('bed.twinBedsSeparated')}</SelectItem>
+                      <SelectItem value="Single Bed">{t('bed.singleBed')}</SelectItem>
+                      <SelectItem value="Extra Cot Added">{t('bed.extraCotAdded')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

@@ -348,6 +348,7 @@ function RoomChipsOverview({
   searchTerm: string;
   onSelect: (room: string) => void;
 }) {
+  const { t } = useTranslation();
   const chips = useMemo(() => {
     // Group by room. A room chip is RED if any uncleared item exists; GREEN if all cleared or no items.
     const map = new Map<string, {
@@ -393,13 +394,13 @@ function RoomChipsOverview({
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-base">Rooms at a glance</CardTitle>
+          <CardTitle className="text-base">{t('minibarChips.roomsAtAGlance')}</CardTitle>
           <div className="flex items-center gap-2 text-xs">
             <Badge className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100">
-              {pendingCount} needs refill
+              {t('minibarChips.needsRefillCount').replace('{count}', String(pendingCount))}
             </Badge>
             <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-100">
-              {cleanCount} up to date
+              {t('minibarChips.upToDateCount').replace('{count}', String(cleanCount))}
             </Badge>
           </div>
         </div>
@@ -411,8 +412,8 @@ function RoomChipsOverview({
               key={`${c.room}-${c.hotel}`}
               onClick={() => onSelect(c.room)}
               title={c.hasPending
-                ? `Needs refill · ${c.totalItems} item(s) · €${c.totalPrice.toFixed(2)}\nLast: ${c.lastItemName ?? ''} by ${c.lastRecorder ?? 'Unknown'}`
-                : `Minibar up to date · ${c.totalItems} item(s) recorded (refilled) · €${c.totalPrice.toFixed(2)}`}
+                ? `${t('minibarChips.needsRefill')} · ${c.totalItems} · €${c.totalPrice.toFixed(2)}\n${t('minibarChips.last')}: ${c.lastItemName ?? ''} — ${c.lastRecorder ?? t('common.unknown')}`
+                : `${t('minibarChips.upToDate')} · ${c.totalItems} · €${c.totalPrice.toFixed(2)}`}
               className={`px-3 py-2 rounded-lg border text-left transition-colors ${
                 c.hasPending
                   ? 'bg-red-50 border-red-300 hover:bg-red-100 text-red-900'
@@ -424,7 +425,7 @@ function RoomChipsOverview({
                 <span className={`h-2 w-2 rounded-full ${c.hasPending ? 'bg-red-500' : 'bg-emerald-500'}`} />
               </div>
               <div className="text-[10px] opacity-80 mt-0.5">
-                {c.hasPending ? `${c.totalItems} · €${c.totalPrice.toFixed(2)}` : 'Up to date'}
+                {c.hasPending ? `${c.totalItems} · €${c.totalPrice.toFixed(2)}` : t('minibarChips.upToDate')}
               </div>
               {c.lastRecorder && (
                 <div className="text-[10px] opacity-70 truncate max-w-[130px]">
@@ -1097,7 +1098,7 @@ export function MinibarTrackingView() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleClearAllRecords} className="bg-destructive hover:bg-destructive/90">
               Clear All Records
             </AlertDialogAction>
