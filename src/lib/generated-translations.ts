@@ -3992,6 +3992,7 @@ export const generatedTranslations: Record<string, Record<string, string>> = {
     "bed.extraCotAdded": "Додано додаткове ліжко"
   },
   "ru": {
+    "performance.noRatingsYet": "Оценок пока нет",
     "staff.createStaff": "Создать сотрудника",
     "housekeeping.tabs.staffManagement": "Управление персоналом",
     "housekeeping.tabs.pendingApprovals": "Ожидающие подтверждения",
