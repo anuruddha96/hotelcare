@@ -828,7 +828,7 @@ export function SupervisorApprovalView() {
     setGateRefilled(false);
     setGateAddedToPrevio(false);
     setMinibarGate({
-      title: `${hotelName} — ${items.length} minibar item(s) across rooms`,
+      title: `${hotelName} — ${t('minibarGate.itemsAcrossRooms').replace('{count}', String(items.length))}`,
       items,
       total,
       usageIds,
