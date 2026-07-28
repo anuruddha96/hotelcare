@@ -1801,7 +1801,7 @@ export function SupervisorApprovalView() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wine className="h-5 w-5 text-amber-600" />
-              Confirm before approving
+              {t('minibarGate.title')}
             </DialogTitle>
           </DialogHeader>
 
@@ -1810,20 +1810,19 @@ export function SupervisorApprovalView() {
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                 <p className="font-semibold">{minibarGate.title}</p>
                 <p className="text-xs mt-1">
-                  Minibar consumption is <strong>not synced to Previo</strong>. Please refill the
-                  minibar and add the charge to Previo manually before approving.
+                  {t('minibarGate.notice')}
                 </p>
               </div>
 
               <div className="max-h-40 overflow-y-auto rounded border bg-muted/30 p-2 text-xs space-y-1">
                 {minibarGate.items.map((it, i) => (
                   <div key={i} className="flex justify-between">
-                    <span>Room {it.room} · {it.qty}× {it.name}</span>
+                    <span>{t('rooms.room')} {it.room} · {it.qty}× {it.name}</span>
                     <span className="font-mono">€{it.price.toFixed(2)}</span>
                   </div>
                 ))}
                 <div className="flex justify-between pt-1 mt-1 border-t font-semibold">
-                  <span>Total</span>
+                  <span>{t('minibarGate.total')}</span>
                   <span className="font-mono">€{minibarGate.total.toFixed(2)}</span>
                 </div>
               </div>
@@ -1835,7 +1834,7 @@ export function SupervisorApprovalView() {
                     onCheckedChange={(v) => setGateRefilled(v === true)}
                     className="mt-0.5"
                   />
-                  <span>I confirm the minibar has been <strong>refilled</strong>.</span>
+                  <span>{t('minibarGate.confirmRefilled')}</span>
                 </label>
                 <label className="flex items-start gap-2 text-sm cursor-pointer">
                   <Checkbox
@@ -1843,13 +1842,13 @@ export function SupervisorApprovalView() {
                     onCheckedChange={(v) => setGateAddedToPrevio(v === true)}
                     className="mt-0.5"
                   />
-                  <span>I have <strong>added the charge in Previo</strong> (manual — not auto-synced).</span>
+                  <span>{t('minibarGate.confirmCharged')}</span>
                 </label>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" size="sm" disabled={gateBusy} onClick={resetMinibarGate}>
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button
                   size="sm"
