@@ -223,6 +223,11 @@ export async function runPmsRefresh(
   let updated = 0;
   let notFound = 0;
   let checkouts = 0;
+  // Room-number rosters recorded into pms_sync_history so managers get the same
+  // summary the manual XLSX upload used to produce.
+  const checkoutRoomNumbers: string[] = [];
+  const dailyRoomNumbers: string[] = [];
+  const unmatchedRoomNumbers: string[] = [];
   const errors: string[] = [];
   const proposedChanges: ProposedRoomChange[] = [];
   const today = new Date().toISOString().split("T")[0];
