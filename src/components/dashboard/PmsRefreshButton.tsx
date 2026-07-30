@@ -43,6 +43,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   }, []);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [justSuccess, setJustSuccess] = useState(false);
 
   // Show for all eligible managers regardless of whether the hotel has a
