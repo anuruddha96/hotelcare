@@ -253,8 +253,9 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
 
         {/* Bottom Section - Badges and Issues */}
         <div className="flex flex-wrap gap-1.5 pt-2">
-            {/* Towel Change Required Badge - Mobile Optimized */}
-            {room.towel_change_required && (
+            {/* Towel Change Required Badge — hidden for checkout rooms where a
+                full towel/linen change is always part of the clean. */}
+            {room.towel_change_required && !room.is_checkout_room && (
               <div className="w-full p-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg animate-pulse">
                 <div className="flex items-center gap-2">
                   <div className="text-lg">🏺</div>
