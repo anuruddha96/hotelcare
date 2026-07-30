@@ -5422,7 +5422,7 @@ export type Database = {
       }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
       soft_delete_user_profile: {
-        Args: { p_target_user_id: string }
+        Args: { p_caller_id?: string; p_target_user_id: string }
         Returns: Json
       }
       update_assignment_type: {

@@ -169,9 +169,10 @@ const extractRoomNumber = (raw: string): string => {
  */
 export async function runPmsRefresh(
   hotelId: string,
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; trigger?: "manual" | "auto" } = {},
 ): Promise<PmsSyncResult> {
   const dryRun = options.dryRun === true;
+  const trigger = options.trigger ?? "manual";
 
   // Step 1 — sync rooms catalog + mapping. Safe in dry-run because
   // `mapOnly:true` never writes to public.rooms; it only heals
@@ -222,6 +223,11 @@ export async function runPmsRefresh(
   let updated = 0;
   let notFound = 0;
   let checkouts = 0;
+  // Room-number rosters recorded into pms_sync_history so managers get the same
+  // summary the manual XLSX upload used to produce.
+  const checkoutRoomNumbers: string[] = [];
+  const dailyRoomNumbers: string[] = [];
+  const unmatchedRoomNumbers: string[] = [];
   const errors: string[] = [];
   const proposedChanges: ProposedRoomChange[] = [];
   const today = new Date().toISOString().split("T")[0];
@@ -376,6 +382,7 @@ export async function runPmsRefresh(
       }
       if (!roomsFound || roomsFound.length === 0) {
         notFound++;
+        if (unmatchedRoomNumbers.length < 200) unmatchedRoomNumbers.push(String(rawRoomName));
         if (dryRun) {
           proposedChanges.push({
             roomKey: `pms:${rawRoomName}`,
@@ -557,7 +564,9 @@ export async function runPmsRefresh(
       if (reservationDataAuthoritative) {
         updateData.guest_count = nextGuestCount;
         updateData.guest_nights_stayed = guestNightsStayed;
-        updateData.towel_change_required = towel;
+        // Checkout cleans always include a full towel + linen change, so never
+        // carry the separate "towel change required" flag on those rooms.
+        updateData.towel_change_required = towel && !effectiveCheckoutFlag;
         updateData.linen_change_required = linen;
         updateData.pms_metadata.scheduledDepartureToday = isScheduledDeparture;
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
@@ -571,7 +580,13 @@ export async function runPmsRefresh(
         updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
         if (!inferredBed) {
           delete updateData.pms_metadata.inferredBedConfig;
-          if (currentWasAutoInferred) updateData.bed_configuration = null;
+          // The stay that the bed setup belonged to is over: once PMS confirms
+          // the guest departed, reset the bed configuration to default even if
+          // a manager had set it manually (same lifecycle as minibar).
+          if (currentWasAutoInferred || isCheckedOut) {
+            updateData.bed_configuration = null;
+            delete updateData.pms_metadata.manualBedConfig;
+          }
         }
         if (isCheckedOut) {
           updateData.pms_metadata.readyToClean = true;
@@ -669,7 +684,13 @@ export async function runPmsRefresh(
         continue;
       }
       updated++;
-      if (updateData.is_checkout_room) checkouts++;
+      const roomLabelForSummary = String(room.room_number || rawRoomName);
+      if (updateData.is_checkout_room) {
+        checkouts++;
+        checkoutRoomNumbers.push(roomLabelForSummary);
+      } else if (reservationDataAuthoritative) {
+        dailyRoomNumbers.push(roomLabelForSummary);
+      }
 
       if (reservationDataAuthoritative && isCheckedOut) {
         await supabase
@@ -730,16 +751,43 @@ export async function runPmsRefresh(
     }
 
     try {
+      // Who triggered this sync — a real user for manual clicks, "System"
+      // for the automatic LiveSync / scheduler pass.
+      let syncedByUserId: string | null = null;
+      let syncedByName = trigger === "auto" ? "System (auto sync)" : "Unknown";
+      try {
+        const uid = (await supabase.auth.getUser()).data.user?.id ?? null;
+        if (uid) {
+          syncedByUserId = uid;
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("full_name, nickname")
+            .eq("id", uid)
+            .maybeSingle();
+          const name = (prof as any)?.full_name || (prof as any)?.nickname;
+          if (name) {
+            syncedByName = trigger === "auto" ? `System (auto sync · ${name})` : name;
+          }
+        }
+      } catch { /* keep defaults */ }
+
       await supabase.from("pms_sync_history").insert({
         hotel_id: hotelId,
         sync_type: "rooms_refresh",
         sync_status: status,
+        synced_by_user_id: syncedByUserId,
+        synced_by_name: syncedByName,
         error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
         data: {
+          trigger,
           updated,
           notFound,
           total: rows.length,
           checkouts,
+          dailyCount: dailyRoomNumbers.length,
+          checkoutRooms: checkoutRoomNumbers,
+          dailyRooms: dailyRoomNumbers,
+          unmatchedRooms: unmatchedRoomNumbers,
           reservationDataAuthoritative,
           managerFacingSuccess,
           reservationSource: (data as any)?.reservationSource ?? null,

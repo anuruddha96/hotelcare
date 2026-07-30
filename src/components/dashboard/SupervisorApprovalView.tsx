@@ -687,6 +687,26 @@ export function SupervisorApprovalView() {
         } catch (e) {
           console.error('Failed to auto-clear minibar on checkout approval', e);
         }
+
+        // The stay is over — special bed setup instructions (single beds, baby
+        // cot, beds together…) belonged to that guest and must reset to the
+        // room default, exactly like the minibar.
+        try {
+          const { data: roomRow } = await supabase
+            .from('rooms')
+            .select('pms_metadata')
+            .eq('id', assignment.room_id)
+            .maybeSingle();
+          const meta = { ...(((roomRow as any)?.pms_metadata as Record<string, any>) || {}) };
+          delete meta.inferredBedConfig;
+          delete meta.manualBedConfig;
+          await supabase
+            .from('rooms')
+            .update({ bed_configuration: null, pms_metadata: meta } as any)
+            .eq('id', assignment.room_id);
+        } catch (e) {
+          console.error('Failed to reset bed configuration on checkout approval', e);
+        }
       }
 
       // Push status to Previo (gated to test hotels inside the edge function)
@@ -1029,10 +1049,12 @@ export function SupervisorApprovalView() {
             )}
           </div>
 
-          {/* Special Requirements - always visible when present */}
-          {(assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && (
+          {/* Special Requirements - always visible when present.
+              Checkout cleans always include a full towel/linen change, so the
+              extra "Towel Change" badge is redundant noise there. */}
+          {((assignment.rooms?.towel_change_required && assignment.assignment_type !== 'checkout_cleaning') || assignment.rooms?.linen_change_required) && (
             <div className="flex flex-wrap gap-1.5">
-              {assignment.rooms.towel_change_required && (
+              {assignment.rooms.towel_change_required && assignment.assignment_type !== 'checkout_cleaning' && (
                 <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0.5">
                   🏺 Towel Change
                 </Badge>

@@ -61,6 +61,13 @@ interface AutoRoomAssignmentProps {
 type Step = 'select-staff' | 'preview' | 'confirm' | 'public-areas';
 
 // LocalStorage key for auto-save
+// Checkout cleans always include a full towel + linen change, so the extra
+// "Towel Change" marker is redundant noise on those rooms.
+const isCheckoutLike = (room: any): boolean =>
+  room?.is_checkout_room === true || room?.pms_metadata?.scheduledDepartureToday === true;
+const needsTowelChange = (room: any): boolean =>
+  !!room?.towel_change_required && !isCheckoutLike(room);
+
 function getSaveKey(hotel: string | null | undefined, date: string): string {
   return `auto_assignment_${hotel || 'unknown'}_${date}`;
 }
@@ -846,7 +853,7 @@ ${activePreviews.map(preview => {
       <tr><th>#</th><th>${t('autoAssign.room')}</th><th>${t('autoAssign.type')}</th><th>${t('autoAssign.floor')}</th><th>${t('autoAssign.category')}</th><th>${t('autoAssign.special')}</th></tr>
       ${sortByRoom(preview.rooms).map((room, i) => {
         const specials: string[] = [];
-        if (room.towel_change_required) specials.push('🧺 Towel');
+        if (needsTowelChange(room)) specials.push('🧺 Towel');
         if (room.linen_change_required) specials.push('🛏️ Clean Room (C)');
         const inferredBed = (room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration;
         if (inferredBed) specials.push(`Bed: ${inferredBed}`);
@@ -925,7 +932,7 @@ ${activePreviews.map(preview => {
         {room.room_category && (
           <span className="text-[9px] opacity-70 font-normal">{getCategoryShortName(room.room_category)}</span>
         )}
-        {room.towel_change_required && (
+        {needsTowelChange(room) && (
           <span className="text-[9px] px-0.5 font-bold text-blue-600">T</span>
         )}
         {room.linen_change_required && (
@@ -956,7 +963,7 @@ ${activePreviews.map(preview => {
           
           {/* Rows */}
           {activePreviews.map((p, i) => {
-            const towelCount = p.rooms.filter(r => r.towel_change_required).length;
+            const towelCount = p.rooms.filter(r => needsTowelChange(r)).length;
             const linenCount = p.rooms.filter(r => r.linen_change_required).length;
             const workloadPct = Math.min(100, Math.round((p.totalWithBreak / maxTime) * 100));
             const barColor = p.exceedsShift ? 'bg-destructive' : workloadPct > 80 ? 'bg-amber-500' : 'bg-green-500';
@@ -1341,7 +1348,7 @@ ${activePreviews.map(preview => {
                     const barColor = isOverShift ? 'bg-destructive' : workloadPct > 80 ? 'bg-amber-500' : 'bg-green-500';
                     const checkoutRooms = preview.rooms.filter(r => r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true);
                     const dailyRooms = preview.rooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true));
-                    const towelCount = preview.rooms.filter(r => r.towel_change_required).length;
+                    const towelCount = preview.rooms.filter(r => needsTowelChange(r)).length;
                     const linenCount = preview.rooms.filter(r => r.linen_change_required).length;
                     const activeStaffCount = activeCount;
                     // Column width: mobile grid cells auto-size to half width;

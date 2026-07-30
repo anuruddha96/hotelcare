@@ -11,6 +11,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { PmsSyncHistoryPanel } from '@/components/pms/PmsSyncHistoryPanel';
 
 interface Props {
   onRefreshed?: () => void;
@@ -43,6 +44,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   }, []);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [justSuccess, setJustSuccess] = useState(false);
 
   // Show for all eligible managers regardless of whether the hotel has a
@@ -253,10 +255,15 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
             )}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1 tabular-nums">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              className="inline-flex items-center gap-1 tabular-nums underline-offset-2 hover:underline"
+              title="View PMS sync history"
+            >
               <Clock className="h-3 w-3" />
               {relTime}
-            </span>
+            </button>
             {t.lastAt && total > 0 && (
               <>
                 <span className="opacity-40">·</span>
@@ -320,6 +327,12 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
           <span>{busy ? 'Refreshing' : justSuccess ? 'Synced!' : 'PMS Refresh'}</span>
         </span>
       </Button>
+
+      <PmsSyncHistoryPanel
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        hotelId={profile?.assigned_hotel ?? null}
+      />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>

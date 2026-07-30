@@ -113,7 +113,7 @@ function RoomChip({ room, editMode, assignStatus, staffName, onRoomClick, isSele
           >
             {room.room_number}
             {room.bed_type === 'shabath' && <span className="text-[7px] text-blue-700 font-bold ml-0.5">SH</span>}
-            {room.towel_change_required && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-blue-600 text-white">T</span>}
+            {room.towel_change_required && !room.is_checkout_room && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-blue-600 text-white">T</span>}
             {room.linen_change_required && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-orange-500 text-white">C</span>}
             {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-green-600 text-white">RC</span>}
             {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-orange-500 text-white">🧺</span>}
@@ -125,7 +125,7 @@ function RoomChip({ room, editMode, assignStatus, staffName, onRoomClick, isSele
           {room.room_category && <p className="text-[10px]">{room.room_category}</p>}
           {room.bed_type === 'shabath' && <p className="text-blue-600">✡ Shabath Room</p>}
           {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
-          {room.towel_change_required && <p className="text-blue-600">🔄 Towel Change</p>}
+          {room.towel_change_required && !room.is_checkout_room && <p className="text-blue-600">🔄 Towel Change</p>}
           {room.linen_change_required && <p className="text-orange-600">🛏️ Clean Room (C)</p>}
           {roomFlags.roomCleaning && <p className="text-green-600">🧹 Room Cleaning</p>}
           {roomFlags.collectExtraTowels && <p className="text-orange-600">🧺 Collect Extra Towels</p>}

@@ -46,9 +46,12 @@ serve(async (req) => {
 
     const callerId = userData.user.id;
 
-    // Perform soft delete via SECURITY DEFINER function (handles permission checks)
+    // Perform soft delete via SECURITY DEFINER function (handles permission checks).
+    // The service-role client carries no user JWT, so auth.uid() would be NULL
+    // inside the function — pass the caller id derived from the verified JWT.
     const { data: rpcRes, error: rpcErr } = await admin.rpc("soft_delete_user_profile", {
       p_target_user_id: target_user_id,
+      p_caller_id: callerId,
     });
 
     if (rpcErr) {
