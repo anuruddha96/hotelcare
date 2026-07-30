@@ -169,9 +169,10 @@ const extractRoomNumber = (raw: string): string => {
  */
 export async function runPmsRefresh(
   hotelId: string,
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; trigger?: "manual" | "auto" } = {},
 ): Promise<PmsSyncResult> {
   const dryRun = options.dryRun === true;
+  const trigger = options.trigger ?? "manual";
 
   // Step 1 — sync rooms catalog + mapping. Safe in dry-run because
   // `mapOnly:true` never writes to public.rooms; it only heals
