@@ -684,7 +684,13 @@ export async function runPmsRefresh(
         continue;
       }
       updated++;
-      if (updateData.is_checkout_room) checkouts++;
+      const roomLabelForSummary = String(room.room_number || rawRoomName);
+      if (updateData.is_checkout_room) {
+        checkouts++;
+        checkoutRoomNumbers.push(roomLabelForSummary);
+      } else if (reservationDataAuthoritative) {
+        dailyRoomNumbers.push(roomLabelForSummary);
+      }
 
       if (reservationDataAuthoritative && isCheckedOut) {
         await supabase
