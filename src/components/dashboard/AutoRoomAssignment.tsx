@@ -61,6 +61,13 @@ interface AutoRoomAssignmentProps {
 type Step = 'select-staff' | 'preview' | 'confirm' | 'public-areas';
 
 // LocalStorage key for auto-save
+// Checkout cleans always include a full towel + linen change, so the extra
+// "Towel Change" marker is redundant noise on those rooms.
+const isCheckoutLike = (room: any): boolean =>
+  room?.is_checkout_room === true || room?.pms_metadata?.scheduledDepartureToday === true;
+const needsTowelChange = (room: any): boolean =>
+  !!room?.towel_change_required && !isCheckoutLike(room);
+
 function getSaveKey(hotel: string | null | undefined, date: string): string {
   return `auto_assignment_${hotel || 'unknown'}_${date}`;
 }
