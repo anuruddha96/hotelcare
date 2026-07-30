@@ -598,6 +598,14 @@ const translations = {
     'dirtyLinen.removeFromCart': 'Remove from Cart',
     'dirtyLinen.noItemsCollected': 'No dirty linen collected today',
     'dirtyLinen.startCollecting': 'Start collecting from rooms to see them here',
+    'dirtyLinen.itemsCollectedFrom': 'Items collected from different rooms today. You can remove items if they were collected by mistake.',
+    'dirtyLinen.totalItemsLabel': '{count} total items',
+    'dirtyLinen.latest': 'Latest',
+    'dirtyLinen.saving': 'Saving...',
+    'dirtyLinen.saved': 'Saved',
+    'dirtyLinen.removeConfirmTitle': 'Remove from cart?',
+    'dirtyLinen.removeConfirmDescription': 'Are you sure you want to remove {item} ({count} items) from Room {room}? This will permanently delete this record.',
+    'dirtyLinen.remove': 'Remove',
     
     // Attendance Tracker
     'attendance.title': 'Attendance',
