@@ -751,16 +751,43 @@ export async function runPmsRefresh(
     }
 
     try {
+      // Who triggered this sync — a real user for manual clicks, "System"
+      // for the automatic LiveSync / scheduler pass.
+      let syncedByUserId: string | null = null;
+      let syncedByName = trigger === "auto" ? "System (auto sync)" : "Unknown";
+      try {
+        const uid = (await supabase.auth.getUser()).data.user?.id ?? null;
+        if (uid) {
+          syncedByUserId = uid;
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("full_name, nickname")
+            .eq("id", uid)
+            .maybeSingle();
+          const name = (prof as any)?.full_name || (prof as any)?.nickname;
+          if (name) {
+            syncedByName = trigger === "auto" ? `System (auto sync · ${name})` : name;
+          }
+        }
+      } catch { /* keep defaults */ }
+
       await supabase.from("pms_sync_history").insert({
         hotel_id: hotelId,
         sync_type: "rooms_refresh",
         sync_status: status,
+        synced_by_user_id: syncedByUserId,
+        synced_by_name: syncedByName,
         error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
         data: {
+          trigger,
           updated,
           notFound,
           total: rows.length,
           checkouts,
+          dailyCount: dailyRoomNumbers.length,
+          checkoutRooms: checkoutRoomNumbers,
+          dailyRooms: dailyRoomNumbers,
+          unmatchedRooms: unmatchedRoomNumbers,
           reservationDataAuthoritative,
           managerFacingSuccess,
           reservationSource: (data as any)?.reservationSource ?? null,
