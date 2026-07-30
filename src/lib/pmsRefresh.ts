@@ -382,6 +382,7 @@ export async function runPmsRefresh(
       }
       if (!roomsFound || roomsFound.length === 0) {
         notFound++;
+        if (unmatchedRoomNumbers.length < 200) unmatchedRoomNumbers.push(String(rawRoomName));
         if (dryRun) {
           proposedChanges.push({
             roomKey: `pms:${rawRoomName}`,
