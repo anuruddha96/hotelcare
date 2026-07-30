@@ -557,7 +557,9 @@ export async function runPmsRefresh(
       if (reservationDataAuthoritative) {
         updateData.guest_count = nextGuestCount;
         updateData.guest_nights_stayed = guestNightsStayed;
-        updateData.towel_change_required = towel;
+        // Checkout cleans always include a full towel + linen change, so never
+        // carry the separate "towel change required" flag on those rooms.
+        updateData.towel_change_required = towel && !effectiveCheckoutFlag;
         updateData.linen_change_required = linen;
         updateData.pms_metadata.scheduledDepartureToday = isScheduledDeparture;
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
@@ -571,7 +573,13 @@ export async function runPmsRefresh(
         updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
         if (!inferredBed) {
           delete updateData.pms_metadata.inferredBedConfig;
-          if (currentWasAutoInferred) updateData.bed_configuration = null;
+          // The stay that the bed setup belonged to is over: once PMS confirms
+          // the guest departed, reset the bed configuration to default even if
+          // a manager had set it manually (same lifecycle as minibar).
+          if (currentWasAutoInferred || isCheckedOut) {
+            updateData.bed_configuration = null;
+            delete updateData.pms_metadata.manualBedConfig;
+          }
         }
         if (isCheckedOut) {
           updateData.pms_metadata.readyToClean = true;
