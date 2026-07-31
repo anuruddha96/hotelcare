@@ -348,6 +348,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
             completed: 0,
             in_progress: 0,
             pending: 0,
+            dnd: 0,
           };
           summaryMap.set(staffId, summary);
         }
