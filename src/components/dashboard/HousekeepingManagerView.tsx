@@ -714,7 +714,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     </div>
 
                     {/* Status Breakdown */}
-                        <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="grid grid-cols-4 gap-2 text-center">
                       <div 
                         className="cursor-pointer hover:bg-green-50 rounded p-1 transition-colors"
                         onClick={() => {
