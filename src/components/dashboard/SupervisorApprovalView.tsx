@@ -1059,7 +1059,7 @@ export function SupervisorApprovalView() {
                   🏺 Towel Change
                 </Badge>
               )}
-              {assignment.rooms.linen_change_required && (
+              {assignment.rooms.linen_change_required && assignment.assignment_type !== 'checkout_cleaning' && (
                 <Badge className="bg-purple-500 text-white text-[10px] px-1.5 py-0.5">
                   🛏️ Linen Change
                 </Badge>
