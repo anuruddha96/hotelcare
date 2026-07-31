@@ -70,7 +70,7 @@ export function PendingRoomsDialog({
         `)
         .eq('assigned_to', staffId)
         .eq('assignment_date', selectedDate)
-        .eq('status', 'assigned')
+        .in('status', ['assigned', 'dnd_pending_retry'])
         .order('priority', { ascending: false })
         .order('ready_to_clean', { ascending: false });
 
