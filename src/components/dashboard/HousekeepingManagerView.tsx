@@ -760,7 +760,24 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                           <p className="text-xs text-orange-600 font-medium">{t('team.clickToView')}</p>
                         )}
                       </div>
+                      {/* DND (2nd attempt) — kept visible so parked rooms never vanish */}
+                      <div
+                        className="cursor-pointer hover:bg-purple-50 rounded p-1 transition-colors"
+                        onClick={() => {
+                          if (assignment.dnd > 0) {
+                            setSelectedStaff({ id: staff.id, name: staff.full_name });
+                            setPendingRoomsDialogOpen(true);
+                          }
+                        }}
+                      >
+                        <p className="text-lg font-semibold text-purple-600">{assignment.dnd}</p>
+                        <p className="text-xs text-muted-foreground">{t('status.dndPendingRetry')}</p>
+                        {assignment.dnd > 0 && (
+                          <p className="text-xs text-purple-600 font-medium">{t('team.clickToView')}</p>
+                        )}
+                      </div>
                     </div>
+
                   </>
                 ) : (
                   <div className="text-center py-4">
