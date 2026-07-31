@@ -361,6 +361,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         // Rooms awaiting a 2nd DND attempt get their own bucket so they never
         // silently drop out of the manager's team cards.
         else if (row.status === 'dnd_pending_retry') summary.dnd += 1;
+      });
+
+
 
 
       setTeamAssignments(Array.from(summaryMap.values()));
