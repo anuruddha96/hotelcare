@@ -134,6 +134,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     || !!assignment.rooms?.is_checkout_room
     || (assignment.rooms as any)?.pms_metadata?.scheduledDepartureToday === true;
   const showTowelChange = !!assignment.rooms?.towel_change_required && !isCheckoutClean;
+  // Checkout cleans always get a full linen + towel change, so the extra
+  // "bed linen change" instruction is noise there.
+  const showLinenChange = !!assignment.rooms?.linen_change_required && !isCheckoutClean;
   
   const cardClassName = [
     "group bg-card border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl w-full",
@@ -777,8 +780,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     : null;
   
   // Count special instructions
-  const hasSpecialInstructions = showTowelChange || assignment.rooms?.linen_change_required || !!bedInstruction || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [showTowelChange, assignment.rooms?.linen_change_required, !!bedInstruction, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = showTowelChange || showLinenChange || !!bedInstruction || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [showTowelChange, showLinenChange, !!bedInstruction, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
@@ -875,7 +878,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 🏺 {t('roomCard.towelChange')}
               </Badge>
             )}
-            {assignment.rooms?.linen_change_required && (
+            {showLinenChange && (
               <Badge 
                 variant="default" 
                 className="bg-accent text-accent-foreground border-border font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
@@ -931,7 +934,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
             </div>
           )}
-          {assignment.rooms?.linen_change_required && (
+          {showLinenChange && (
             <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-400 dark:border-purple-600 rounded-lg">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🛏️</span>
@@ -1697,7 +1700,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   🧺 {t('roomCard.towelChange') || 'Towel Change Required'}
                 </li>
               )}
-              {assignment.rooms?.linen_change_required && (
+              {showLinenChange && (
                 <li className="flex items-center gap-2 p-2 bg-purple-50 dark:bg-purple-950/30 rounded-md">
                   🛏️ {t('roomCard.bedLinenChange') || 'Bed Linen Change'}
                 </li>
