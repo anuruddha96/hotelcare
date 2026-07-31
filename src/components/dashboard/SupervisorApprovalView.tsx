@@ -1052,9 +1052,9 @@ export function SupervisorApprovalView() {
           {/* Special Requirements - always visible when present.
               Checkout cleans always include a full towel/linen change, so the
               extra "Towel Change" badge is redundant noise there. */}
-          {((assignment.rooms?.towel_change_required && assignment.assignment_type !== 'checkout_cleaning') || assignment.rooms?.linen_change_required) && (
+          {((assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && assignment.assignment_type !== 'checkout_cleaning') && (
             <div className="flex flex-wrap gap-1.5">
-              {assignment.rooms.towel_change_required && assignment.assignment_type !== 'checkout_cleaning' && (
+              {assignment.rooms.towel_change_required && (
                 <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0.5">
                   🏺 Towel Change
                 </Badge>

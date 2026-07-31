@@ -112,9 +112,10 @@ export function HousekeepingStaffView() {
     };
   }, [user?.id, selectedDate, showNotification, t]);
 
-  if (isMobile) {
-    return <MobileHousekeepingView />;
-  }
+  // NOTE: the mobile early-return lives further down, after all function
+  // declarations, otherwise the effects above hit a TDZ error
+  // ("Cannot access 'fetchAssignments' before initialization").
+
 
   const fetchAssignments = async () => {
     if (!user?.id) return;
@@ -291,7 +292,12 @@ export function HousekeepingStaffView() {
     }
   };
 
+  if (isMobile) {
+    return <MobileHousekeepingView />;
+  }
+
   if (loading) {
+
     return (
       <div className="flex justify-center items-center p-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>

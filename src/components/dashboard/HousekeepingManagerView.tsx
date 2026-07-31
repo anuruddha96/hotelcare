@@ -98,7 +98,10 @@ interface TeamAssignment {
   completed: number;
   in_progress: number;
   pending: number;
+  /** Rooms parked for a 2nd DND attempt — they must stay visible to managers. */
+  dnd: number;
 }
+
 
 interface RoomAssignment {
   id: string;
@@ -330,7 +333,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           completed: 0,
           in_progress: 0,
           pending: 0,
+          dnd: 0,
         });
+
       });
 
       filteredData.forEach((row: any) => {
@@ -345,6 +350,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
             completed: 0,
             in_progress: 0,
             pending: 0,
+            dnd: 0,
           };
           summaryMap.set(staffId, summary);
         }
@@ -352,7 +358,13 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         if (row.status === 'completed') summary.completed += 1;
         else if (row.status === 'in_progress') summary.in_progress += 1;
         else if (row.status === 'assigned') summary.pending += 1;
+        // Rooms awaiting a 2nd DND attempt get their own bucket so they never
+        // silently drop out of the manager's team cards.
+        else if (row.status === 'dnd_pending_retry') summary.dnd += 1;
       });
+
+
+
 
       setTeamAssignments(Array.from(summaryMap.values()));
     } catch (error) {
@@ -702,7 +714,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     </div>
 
                     {/* Status Breakdown */}
-                        <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="grid grid-cols-4 gap-2 text-center">
                       <div 
                         className="cursor-pointer hover:bg-green-50 rounded p-1 transition-colors"
                         onClick={() => {
@@ -748,7 +760,24 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                           <p className="text-xs text-orange-600 font-medium">{t('team.clickToView')}</p>
                         )}
                       </div>
+                      {/* DND (2nd attempt) — kept visible so parked rooms never vanish */}
+                      <div
+                        className="cursor-pointer hover:bg-purple-50 rounded p-1 transition-colors"
+                        onClick={() => {
+                          if (assignment.dnd > 0) {
+                            setSelectedStaff({ id: staff.id, name: staff.full_name });
+                            setPendingRoomsDialogOpen(true);
+                          }
+                        }}
+                      >
+                        <p className="text-lg font-semibold text-purple-600">{assignment.dnd}</p>
+                        <p className="text-xs text-muted-foreground">{t('status.dndPendingRetry')}</p>
+                        {assignment.dnd > 0 && (
+                          <p className="text-xs text-purple-600 font-medium">{t('team.clickToView')}</p>
+                        )}
+                      </div>
                     </div>
+
                   </>
                 ) : (
                   <div className="text-center py-4">

@@ -12,6 +12,13 @@ import { generatedTranslations } from '@/lib/generated-translations';
 
 const translations = {
   en: {
+    'dnd.secondAttemptTitle': '2nd attempt',
+    'dnd.retryNowHint': 'You can try this room again now. If the guest is still DND, tap below and take one photo — no room cleaning photos needed.',
+    'dnd.retryLaterHint': 'Try again after finishing your other rooms, or after 14:30. If the guest is still DND now, you can still send it to the supervisor below.',
+    'dnd.stillDndSendSupervisor': 'Still Do Not Disturb — send to supervisor',
+    'status.dndPendingRetry': 'DND · 2nd attempt',
+    'roomCard.managerNotes': 'Manager notes',
+    'roomCard.translateNote': 'Translate',
     // Dashboard
     'dashboard.title': 'Hotel Management Dashboard',
     'dashboard.subtitle': 'Manage all service requests of RD Hotels',
@@ -892,6 +899,13 @@ const translations = {
   },
   
   hu: {
+    'dnd.secondAttemptTitle': '2. próbálkozás',
+    'dnd.retryNowHint': 'Most újra megpróbálhatod ezt a szobát. Ha a vendég továbbra is DND, koppints alább és készíts egy fotót — takarítási fotók nem kellenek.',
+    'dnd.retryLaterHint': 'Próbáld újra a többi szoba után, vagy 14:30 után. Ha a vendég most is DND, alább elküldheted a felügyelőnek.',
+    'dnd.stillDndSendSupervisor': 'Továbbra is DND — küldés a felügyelőnek',
+    'status.dndPendingRetry': 'DND · 2. próbálkozás',
+    'roomCard.managerNotes': 'Vezetői megjegyzések',
+    'roomCard.translateNote': 'Fordítás',
     // Dashboard
     'dashboard.title': 'Szálloda Menedzsment Irányítópult',
     'dashboard.subtitle': 'RD Szállodák összes szolgáltatási kérésének kezelése',
@@ -1478,6 +1492,13 @@ const translations = {
   },
   
   es: {
+    'dnd.secondAttemptTitle': '2.º intento',
+    'dnd.retryNowHint': 'Puedes intentar esta habitación de nuevo. Si el huésped sigue en DND, toca abajo y haz una foto — no hacen falta fotos de limpieza.',
+    'dnd.retryLaterHint': 'Inténtalo tras terminar tus otras habitaciones o después de las 14:30. Si el huésped sigue en DND, puedes enviarlo al supervisor abajo.',
+    'dnd.stillDndSendSupervisor': 'Sigue en No Molestar — enviar al supervisor',
+    'status.dndPendingRetry': 'DND · 2.º intento',
+    'roomCard.managerNotes': 'Notas del gerente',
+    'roomCard.translateNote': 'Traducir',
     // Dashboard
     'dashboard.title': 'Panel de Gestión Hotelera',
     'dashboard.subtitle': 'Gestionar todas las solicitudes de servicio de RD Hotels',
@@ -1755,6 +1776,13 @@ const translations = {
   },
   
   vi: {
+    'dnd.secondAttemptTitle': 'Lần thử thứ 2',
+    'dnd.retryNowHint': 'Bạn có thể thử lại phòng này ngay. Nếu khách vẫn treo biển DND, hãy nhấn bên dưới và chụp một ảnh — không cần ảnh dọn phòng.',
+    'dnd.retryLaterHint': 'Hãy thử lại sau khi xong các phòng khác, hoặc sau 14:30. Nếu khách vẫn DND, bạn vẫn có thể gửi cho giám sát bên dưới.',
+    'dnd.stillDndSendSupervisor': 'Vẫn treo biển DND — gửi cho giám sát',
+    'status.dndPendingRetry': 'DND · lần thử 2',
+    'roomCard.managerNotes': 'Ghi chú của quản lý',
+    'roomCard.translateNote': 'Dịch',
     // Dashboard
     'dashboard.title': 'Bảng Điều Khiển Quản Lý Khách Sạn',
     'dashboard.subtitle': 'Quản lý tất cả yêu cầu dịch vụ của RD Hotels',
@@ -2004,6 +2032,13 @@ const translations = {
   },
   
   mn: {
+    'dnd.secondAttemptTitle': '2 дахь оролдлого',
+    'dnd.retryNowHint': 'Та энэ өрөөг дахин үзэж болно. Зочин хэвээр DND бол доор дарж нэг зураг аваарай — цэвэрлэгээний зураг шаардлагагүй.',
+    'dnd.retryLaterHint': 'Бусад өрөөгөө дуусгасны дараа эсвэл 14:30-аас хойш дахин оролдоно уу. Одоо ч DND бол доороос хяналтын ажилтанд илгээж болно.',
+    'dnd.stillDndSendSupervisor': 'Хэвээр DND — хяналтын ажилтанд илгээх',
+    'status.dndPendingRetry': 'DND · 2 дахь оролдлого',
+    'roomCard.managerNotes': 'Менежерийн тэмдэглэл',
+    'roomCard.translateNote': 'Орчуулах',
     // Dashboard
     'dashboard.title': 'Зочид Буудлын Удирдлагын Самбар',
     'dashboard.subtitle': 'RD Hotels-ийн бүх үйлчилгээний хүсэлтийг удирдах',
@@ -2270,6 +2305,13 @@ const translations = {
   },
 
   az: {
+    'dnd.secondAttemptTitle': '2-ci cəhd',
+    'dnd.retryNowHint': 'Bu otağı indi yenidən yoxlaya bilərsiniz. Qonaq hələ də DND-dirsə, aşağıya toxunub bir foto çəkin — təmizlik fotoları lazım deyil.',
+    'dnd.retryLaterHint': 'Digər otaqlarınızı bitirdikdən sonra və ya 14:30-dan sonra yenidən cəhd edin. Qonaq indi də DND-dirsə, aşağıdan superviyzora göndərə bilərsiniz.',
+    'dnd.stillDndSendSupervisor': 'Hələ də DND — superviyzora göndər',
+    'status.dndPendingRetry': 'DND · 2-ci cəhd',
+    'roomCard.managerNotes': 'Menecer qeydləri',
+    'roomCard.translateNote': 'Tərcümə et',
     // Core UI - Azerbaijani translations. Missing keys fall back to English at runtime.
     'dashboard.title': 'Otel İdarəetmə Paneli',
     'dashboard.subtitle': 'RD Otellərinin bütün xidmət sorğularını idarə edin',
@@ -2305,6 +2347,13 @@ const translations = {
   },
 
   tl: {
+    'dnd.secondAttemptTitle': 'Ika-2 subok',
+    'dnd.retryNowHint': 'Puwede mo nang subukan ulit ang kuwartong ito. Kung DND pa rin ang bisita, i-tap sa ibaba at kumuha ng isang larawan — hindi na kailangan ng mga larawan ng paglilinis.',
+    'dnd.retryLaterHint': 'Subukan ulit pagkatapos ng iba mong kuwarto, o pagkalipas ng 14:30. Kung DND pa rin, puwede mo pa ring ipadala sa superbisor sa ibaba.',
+    'dnd.stillDndSendSupervisor': 'DND pa rin — ipadala sa superbisor',
+    'status.dndPendingRetry': 'DND · ika-2 subok',
+    'roomCard.managerNotes': 'Mga tala ng manager',
+    'roomCard.translateNote': 'Isalin',
     // Filipino (Tagalog). Missing keys fall back to English at runtime.
     'dashboard.title': 'Dashboard ng Hotel',
     'dashboard.subtitle': 'Pamahalaan ang lahat ng kahilingan ng serbisyo sa RD Hotels',
@@ -2354,6 +2403,13 @@ const translations = {
   },
 
   uk: {
+    'dnd.secondAttemptTitle': '2-га спроба',
+    'dnd.retryNowHint': 'Можете спробувати цей номер ще раз. Якщо гість досі DND, натисніть нижче та зробіть одне фото — фото прибирання не потрібні.',
+    'dnd.retryLaterHint': 'Спробуйте після інших номерів або після 14:30. Якщо гість досі DND, можете надіслати супервайзеру нижче.',
+    'dnd.stillDndSendSupervisor': 'Досі «Не турбувати» — надіслати супервайзеру',
+    'status.dndPendingRetry': 'DND · 2-га спроба',
+    'roomCard.managerNotes': 'Нотатки менеджера',
+    'roomCard.translateNote': 'Перекласти',
     // Ukrainian. Missing keys fall back to English at runtime.
     'dashboard.title': 'Панель керування готелем',
     'dashboard.subtitle': 'Керуйте всіма сервісними запитами RD Hotels',
@@ -3205,6 +3261,13 @@ const translations = {
     'dirtyLinen.remove': 'Видалити',
   },
   ru: {
+    'dnd.secondAttemptTitle': '2-я попытка',
+    'dnd.retryNowHint': 'Можно попробовать этот номер снова. Если гость всё ещё DND, нажмите ниже и сделайте одно фото — фото уборки не нужны.',
+    'dnd.retryLaterHint': 'Попробуйте после других номеров или после 14:30. Если гость всё ещё DND, можно отправить супервайзеру ниже.',
+    'dnd.stillDndSendSupervisor': 'Всё ещё «Не беспокоить» — отправить супервайзеру',
+    'status.dndPendingRetry': 'DND · 2-я попытка',
+    'roomCard.managerNotes': 'Заметки менеджера',
+    'roomCard.translateNote': 'Перевести',
     'dashboard.title': 'Панель управления отелем',
     'dashboard.subtitle': 'Управление всеми запросами на обслуживание отелей RD',
     'dashboard.tickets': 'Заявки',

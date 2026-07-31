@@ -65,7 +65,8 @@ export function MobileHousekeepingCard({
   // separate "Towel Change" instruction for them.
   const isCheckoutClean = assignment.assignment_type === 'checkout_cleaning' || assignment.rooms?.is_checkout_room === true;
   const towelChangeRequired = assignment.rooms?.towel_change_required && !isCheckoutClean;
-  const linenChangeRequired = assignment.rooms?.linen_change_required;
+  // Checkout cleans always include full linen — don't repeat it as an instruction.
+  const linenChangeRequired = assignment.rooms?.linen_change_required && !isCheckoutClean;
   const bedConfiguration = assignment.rooms?.bed_configuration;
   const assignmentNotes = assignment.notes;
   const guestNights = assignment.rooms?.guest_nights_stayed;

@@ -268,7 +268,7 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
             )}
 
             {/* Linen Change Required Badge - Mobile Optimized */}
-            {room.linen_change_required && (
+            {room.linen_change_required && !room.is_checkout_room && (
               <div className="w-full p-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg animate-pulse">
                 <div className="flex items-center gap-2">
                   <div className="text-lg">🛏️</div>
@@ -287,7 +287,7 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
               </Badge>
             )}
 
-            {room.linen_change_required && (
+            {room.linen_change_required && !room.is_checkout_room && (
               <Badge variant="default" className="text-xs bg-purple-100 text-purple-800 border-purple-200 hidden">
                 🛏️ Linen Change
               </Badge>

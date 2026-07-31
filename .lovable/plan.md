@@ -1,44 +1,52 @@
-## 1. Clear special bed instructions after checkout (like minibar)
+## What I verified first
 
-Today `rooms.bed_configuration` persists after the guest leaves. PMS refresh only clears it when the value was auto-inferred and still matches the stored marker (`src/lib/pmsRefresh.ts` ~L513-575); manager-set values are deliberately preserved forever.
+- `HousekeepingManagerView.tsx` counts assignment statuses into only three buckets (`completed`, `in_progress`, `assigned`) and the room-chip list filters by those statuses — so `dnd_pending_retry` rooms fall out of every bucket and vanish from manager housekeeper cards. Confirmed root cause.
+- The 2nd-attempt DND block in `AssignedRoomCard.tsx` is hardcoded English ("2nd attempt — …", "You can try this room again now…", "Still Do Not Disturb — send to supervisor"), and the status chip renders the raw enum `DND PENDING_RETRY`.
+- Manager messages are inserted in `HotelRoomOverview.tsx` with `assignment_id: null`, but the housekeeper card queries `housekeeping_notes` with `.eq('assignment_id', assignment.id)` — so a manager message never reaches the housekeeper (Room 305 case). Confirmed root cause.
+- The approval card labels every `housekeeping_notes` row "HOUSEKEEPER MESSAGES" regardless of `created_by`, and shows only a bare time — hence Room 202 looking like a housekeeper message.
+- `roomCard.managerNotes` and `roomCard.translateNote` exist in **no** language bundle (that's the raw `ROOMCARD.MANAGERNOTES` in Room 203).
+- All `dirtyLinen.*` keys (incl. `totalItemsLabel`, `removeConfirm*`) **are** present in the English bundle now; that finding looks already fixed, so this plan verifies it in the browser rather than assuming.
+- Manual bed configuration is saved in `HotelRoomOverview.tsx` as a plain `rooms.bed_configuration` update — no author or timestamp is stored, so provenance has to be added.
 
-- In `SupervisorApprovalView.tsx`, extend the existing checkout auto-clear block (the one that clears minibar on `checkout_cleaning` approval, ~L679) to also reset the room to default: `bed_configuration = null`, drop `pms_metadata.inferredBedConfig` and any manual bed-override marker.
-- In `pmsRefresh.ts`, when PMS confirms the guest has departed (`isCheckedOut`) and the incoming housekeeping note carries no bed instruction, clear `bed_configuration` regardless of whether it was manager-set — the override belonged to the finished stay.
-- Keep during-stay behaviour unchanged: daily cleans on nights 1..n-1 still show the instruction.
+## Plan
 
-## 2. PMS sync history + room summary for admins & managers
+**1. DND rooms visible to managers**
+- Add a `dnd` bucket in `HousekeepingManagerView.tsx`: count `dnd_pending_retry` (and rooms flagged `is_dnd`) as their own tile next to Done / Working / Pending, and include those assignments in the clickable room-chip list so they never disappear.
+- Include `dnd_pending_retry` in the hotel-overview housekeeper card status mapping and chip badge, with a distinct purple "DND · 2nd attempt" style.
 
-- Make the PMS Refresh pill (`src/components/dashboard/PmsRefreshButton.tsx`) clickable to open a history dialog; also link it from `PmsSyncControls`.
-- Enrich the `pms_sync_history` insert in `pmsRefresh.ts` to record `synced_by_user_id` / `synced_by_name` (current profile, or `System (auto sync)` when triggered by LiveSync/scheduler) and a room summary in `data`: daily rooms, checkout rooms, updated, unmatched, total, plus the room-number lists.
-- New dialog shows, per sync: time, who triggered it (or System), status, and a summary block mirroring the old manual XLSX upload report (checkout rooms vs daily rooms, counts and room chips).
-- Migration: add a manager-readable RLS policy already exists for `pms_sync_history` (admin/manager/housekeeping_manager) — no change needed there.
+**2. DND 2nd-attempt UI translated**
+- Add keys `dnd.secondAttemptTitle`, `dnd.retryNowHint`, `dnd.retryLaterHint`, `dnd.stillDndSendSupervisor`, `status.dndPendingRetry` to en/hu/es/vi/mn/uk/ru/az/tl and use them in `AssignedRoomCard.tsx` (banner + status chip) and in the manager views.
 
-## 3. Francesca's sync failure (investigate first)
+**3. Checkout rooms: no "Bed Linen Change"**
+- Suppress the linen badge/instruction block for checkout cleans exactly as towels already are, in `AssignedRoomCard.tsx`, `MobileHousekeepingCard.tsx`, `HotelRoomOverview.tsx`, `SupervisorApprovalView.tsx`, `ApprovalHistoryView.tsx` and `AutoRoomAssignment.tsx` (shared `needsLinenChange(assignment)` helper next to the towel one).
 
-Confirmed so far: Francesca is `role = manager`, `assigned_hotel = 'ottofiori'`, org `rdhotels` — identical to Ricsi/Petra, so it is not a role or hotel-alias mismatch. Confirmed problem area: `pms_configurations` has **admin-only SELECT policy**, so any manager-facing code that reads that table directly (e.g. `PmsSyncControls`) silently gets nothing, while the dashboard button works through the `hotel_has_active_previo` security-definer RPC. Whether that is the exact failure she hit is **unconfirmed**.
+**4. Manager → housekeeper messages actually delivered**
+- Manager send in `HotelRoomOverview.tsx`: resolve today's assignment for that room and store its `assignment_id` (keep `null` only when no assignment exists).
+- Housekeeper card fetch: match on `assignment_id = this assignment` **OR** (`room_id` = this room AND note created today in Budapest time AND `assignment_id is null`). Same for the realtime subscription (subscribe on `room_id`).
+- Messages show for checkout rooms that are still "waiting for guest checkout" / not started — the message block is rendered regardless of assignment status.
+- Each message gets a "Translate" action using the existing `translate-note` edge function into the viewer's selected language, plus an auto-translate on load when the note language differs.
 
-Steps:
-1. Reproduce by checking her recent `pms_sync_history` / `pms_change_events` rows and the room-update RLS path for her profile.
-2. Add a migration granting managers/housekeeping managers/front office SELECT on `pms_configurations` for their own hotel (read-only; write stays admin-only) so the sync card and status are consistent for every manager.
-3. Replace the silent failure with an explicit error toast naming the cause (no config / not permitted / API error) instead of a generic "PMS not connected".
+**5. Message attribution (sender, role, Budapest time)**
+- Join `profiles` on `created_by` when loading notes in `SupervisorApprovalView.tsx` and `AssignedRoomCard.tsx`.
+- Render sender name + role badge ("Manager" vs "Housekeeper") with distinct colours and left/right alignment, and the timestamp formatted through `budapestTime.ts` as `MMM d, HH:mm`.
+- Section header becomes "Messages" instead of "Housekeeper messages".
 
-## 4. Dirty Linen dialog shows raw keys in English
+**6. Manager note translation on the housekeeper card**
+- Add the missing `roomCard.managerNotes` / `roomCard.translateNote` keys to every language bundle, so Room 203 shows a real label and a working translate link.
 
-`src/hooks/useTranslation.tsx` — add the missing keys to the **en** bundle (they exist for hu/es/vi/mn/uk/ru): `dirtyLinen.itemsCollectedFrom`, `totalItemsLabel`, `latest`, `saving`, `saved`, `removeConfirmTitle`, `removeConfirmDescription`, `remove`.
+**7. Bed configuration provenance**
+- On manual save, write `pms_metadata.manualBedConfig = { value, setBy: <user id>, setByName, setAt }`.
+- Display "Set by {name} · {Budapest date/time}" under the bed-configuration block on the manager overview and on the housekeeper card; PMS-inferred configs show "From PMS" instead.
+- Existing checkout reset logic already clears `manualBedConfig`, so provenance clears with it.
 
-## 5. Delete User is broken
+**8. Dirty Linen dialog**
+- Re-verify in the running app (English) that the cart total, intro line, save status, "Latest" badge and remove-confirmation render real words; fix any key that still falls through.
 
-`supabase/functions/admin-delete-user/index.ts` calls `soft_delete_user_profile` on the service-role client, so `auth.uid()` inside the SECURITY DEFINER function is NULL and it always returns "Not authenticated".
-
-- Migration: add an optional `p_caller_id uuid default null` parameter; the function uses `coalesce(p_caller_id, auth.uid())` and keeps all existing permission checks against that caller.
-- Edge function: pass `p_caller_id: callerId` (already derived from the verified JWT). Ownership can never be spoofed because `callerId` comes from `supabase.auth.getUser()`, not the request body.
-- Verify end-to-end by deleting a throwaway profile and confirming `deleted_at` / `deleted_by` are set and the badge shows for admins only.
-
-## 6. Towel-change noise on checkout rooms
-
-`AssignedRoomCard` already hides it, but the flag still surfaces elsewhere. Suppress the towel badge/instruction whenever the room/assignment is a checkout clean in: `SupervisorApprovalView` (~L1033), `ApprovalHistoryView` (~L448), `MobileHousekeepingCard`, `EnhancedRoomCardV2`, `HotelFloorMap`, and the Auto-Assign chips/summary. Additionally, in `pmsRefresh.ts` stop writing `towel_change_required = true` for rooms flagged as checkout so the data itself stays clean.
+**9. Delete User**
+- Re-verify the `admin-delete-user` → `soft_delete_user_profile` path end-to-end with an explicit caller id; if the RPC signature still lacks `p_caller_id`, add a migration for it and pass the caller's id from the edge function so the "Not authenticated" 403 cannot recur.
 
 ## Technical notes
-
-- Two migrations: (a) `soft_delete_user_profile` caller-id parameter, (b) manager SELECT policy on `pms_configurations`.
-- No schema change needed for sync history; existing `synced_by_user_id` / `synced_by_name` / `data` columns cover the new panel.
+- No schema change needed for messaging; only `housekeeping_notes.assignment_id` population and query widening.
+- Bed provenance is stored inside the existing `rooms.pms_metadata` JSON — no migration.
+- The only possible migration is the `soft_delete_user_profile(p_caller_id)` signature, applied for approval separately.
+- There is also a runtime error in the housekeeper views (`Cannot access 'fetchAssignments' before initialization`) that I'll fix along the way.
