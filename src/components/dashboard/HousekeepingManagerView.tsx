@@ -358,7 +358,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         if (row.status === 'completed') summary.completed += 1;
         else if (row.status === 'in_progress') summary.in_progress += 1;
         else if (row.status === 'assigned') summary.pending += 1;
-      });
+        // Rooms awaiting a 2nd DND attempt get their own bucket so they never
+        // silently drop out of the manager's team cards.
+        else if (row.status === 'dnd_pending_retry') summary.dnd += 1;
+
 
       setTeamAssignments(Array.from(summaryMap.values()));
     } catch (error) {
