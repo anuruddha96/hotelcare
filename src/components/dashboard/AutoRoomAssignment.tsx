@@ -68,6 +68,10 @@ const isCheckoutLike = (room: any): boolean =>
 const needsTowelChange = (room: any): boolean =>
   !!room?.towel_change_required && !isCheckoutLike(room);
 
+// Checkout cleans already include a full linen change.
+const needsLinenChange = (room: any): boolean =>
+  !!room?.linen_change_required && !isCheckoutLike(room);
+
 function getSaveKey(hotel: string | null | undefined, date: string): string {
   return `auto_assignment_${hotel || 'unknown'}_${date}`;
 }
@@ -854,7 +858,7 @@ ${activePreviews.map(preview => {
       ${sortByRoom(preview.rooms).map((room, i) => {
         const specials: string[] = [];
         if (needsTowelChange(room)) specials.push('🧺 Towel');
-        if (room.linen_change_required) specials.push('🛏️ Clean Room (C)');
+        if (needsLinenChange(room)) specials.push('🛏️ Clean Room (C)');
         const inferredBed = (room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration;
         if (inferredBed) specials.push(`Bed: ${inferredBed}`);
         if (room.notes) specials.push(String(room.notes));
@@ -935,7 +939,7 @@ ${activePreviews.map(preview => {
         {needsTowelChange(room) && (
           <span className="text-[9px] px-0.5 font-bold text-blue-600">T</span>
         )}
-        {room.linen_change_required && (
+        {needsLinenChange(room) && (
           <span className="text-[9px] px-0.5 font-bold text-orange-600">C</span>
         )}
         {((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration) && (
