@@ -837,7 +837,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 ? t('housekeeping.completed')
                 : assignment.status === 'assigned'
                 ? t('housekeeping.waiting')
+                : assignment.status === 'dnd_pending_retry'
+                ? t('status.dndPendingRetry')
                 : assignment.status.replace('_', ' ')
+
               }
             </Badge>
             {hasSpecialInstructions && (
