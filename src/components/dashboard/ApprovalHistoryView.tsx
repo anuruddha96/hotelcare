@@ -445,7 +445,7 @@ export function ApprovalHistoryView() {
                       </div>
                     )}
 
-                    {((assignment.rooms?.towel_change_required && assignment.assignment_type !== 'checkout_cleaning') || assignment.rooms?.linen_change_required) && (
+                    {((assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && assignment.assignment_type !== 'checkout_cleaning') && (
                       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border-2 border-blue-200">
                         <h4 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
                           <AlertTriangle className="h-4 w-4" />
@@ -457,7 +457,7 @@ export function ApprovalHistoryView() {
                               ✓ {t('supervisor.towelChangeRequired')} {assignment.rooms?.guest_nights_stayed ? `(${assignment.rooms.guest_nights_stayed} nights)` : ''}
                             </p>
                           )}
-                          {assignment.rooms?.linen_change_required && (
+                          {assignment.rooms?.linen_change_required && assignment.assignment_type !== 'checkout_cleaning' && (
                             <p className="text-blue-800">
                               ✓ {t('supervisor.linenChangeRequired')} {assignment.rooms?.guest_nights_stayed ? `(${assignment.rooms.guest_nights_stayed} nights)` : ''}
                             </p>
