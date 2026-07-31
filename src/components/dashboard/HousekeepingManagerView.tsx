@@ -98,7 +98,10 @@ interface TeamAssignment {
   completed: number;
   in_progress: number;
   pending: number;
+  /** Rooms parked for a 2nd DND attempt — they must stay visible to managers. */
+  dnd: number;
 }
+
 
 interface RoomAssignment {
   id: string;
