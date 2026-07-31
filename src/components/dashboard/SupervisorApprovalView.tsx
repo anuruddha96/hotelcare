@@ -1054,12 +1054,12 @@ export function SupervisorApprovalView() {
               extra "Towel Change" badge is redundant noise there. */}
           {((assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && assignment.assignment_type !== 'checkout_cleaning') && (
             <div className="flex flex-wrap gap-1.5">
-              {assignment.rooms.towel_change_required && assignment.assignment_type !== 'checkout_cleaning' && (
+              {assignment.rooms.towel_change_required && (
                 <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0.5">
                   🏺 Towel Change
                 </Badge>
               )}
-              {assignment.rooms.linen_change_required && assignment.assignment_type !== 'checkout_cleaning' && (
+              {assignment.rooms.linen_change_required && (
                 <Badge className="bg-purple-500 text-white text-[10px] px-1.5 py-0.5">
                   🛏️ Linen Change
                 </Badge>

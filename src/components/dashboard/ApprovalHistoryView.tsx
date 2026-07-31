@@ -452,12 +452,12 @@ export function ApprovalHistoryView() {
                           {t('supervisor.specialRequirements')}
                         </h4>
                         <div className="space-y-1 text-sm">
-                          {assignment.rooms?.towel_change_required && assignment.assignment_type !== 'checkout_cleaning' && (
+                          {assignment.rooms?.towel_change_required && (
                             <p className="text-blue-800">
                               ✓ {t('supervisor.towelChangeRequired')} {assignment.rooms?.guest_nights_stayed ? `(${assignment.rooms.guest_nights_stayed} nights)` : ''}
                             </p>
                           )}
-                          {assignment.rooms?.linen_change_required && assignment.assignment_type !== 'checkout_cleaning' && (
+                          {assignment.rooms?.linen_change_required && (
                             <p className="text-blue-800">
                               ✓ {t('supervisor.linenChangeRequired')} {assignment.rooms?.guest_nights_stayed ? `(${assignment.rooms.guest_nights_stayed} nights)` : ''}
                             </p>
