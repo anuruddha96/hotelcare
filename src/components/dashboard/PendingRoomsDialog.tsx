@@ -28,6 +28,7 @@ interface PendingAssignment {
   is_checkout_room: boolean;
   priority: number;
   notes?: string;
+  status?: string;
 }
 
 export function PendingRoomsDialog({
@@ -56,6 +57,7 @@ export function PendingRoomsDialog({
         .from('room_assignments')
         .select(`
           id,
+          status,
           estimated_duration,
           ready_to_clean,
           pms_hold,
@@ -87,6 +89,7 @@ export function PendingRoomsDialog({
         is_checkout_room: item.rooms.is_checkout_room,
         priority: item.priority,
         notes: item.notes,
+        status: item.status,
       }));
 
       // Sort with unified priority matching housekeeper view
@@ -260,6 +263,11 @@ export function PendingRoomsDialog({
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
                     <span className="font-medium">Room {assignment.room_number}</span>
+                    {assignment.status === 'dnd_pending_retry' && (
+                      <Badge variant="outline" className="border-purple-300 bg-purple-100 text-purple-800 text-[10px] dark:bg-purple-950 dark:text-purple-300">
+                        {t('status.dndPendingRetry')}
+                      </Badge>
+                    )}
                     <span className="text-muted-foreground">• {assignment.hotel}</span>
                   </div>
                   <div className="flex items-center gap-2">
