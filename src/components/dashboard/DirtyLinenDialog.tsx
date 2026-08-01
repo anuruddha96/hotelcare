@@ -366,6 +366,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           </div>
         </DialogHeader>
 
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
         {showMyRecords ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
