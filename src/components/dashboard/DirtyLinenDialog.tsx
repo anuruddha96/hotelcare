@@ -486,7 +486,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
             </div>
 
 
-            <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {linenItems.map((item) => (
                 <Card key={item.id} className="p-2 hover:bg-muted/50 transition-colors">
                   <div className="flex items-center justify-between gap-2">
