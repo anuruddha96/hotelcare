@@ -464,30 +464,27 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           </div>
         ) : (
           <>
-            <Card className="mb-4">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center justify-between">
-                  {t('dirtyLinen.todaysCount')}
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">
-                      {getTotalItems()} {t('dirtyLinen.items')}
-                    </Badge>
-                    {autoSaving && (
-                      <div className="flex items-center gap-1">
-                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
-                        <span className="text-xs text-muted-foreground">{t('dirtyLinen.saving')}</span>
-                      </div>
-                    )}
-                    {lastSaved && !autoSaving && (
-                      <div className="flex items-center gap-1">
-                        <CheckCircle className="h-3 w-3 text-green-500" />
-                        <span className="text-xs text-muted-foreground">{t('dirtyLinen.saved')}</span>
-                      </div>
-                    )}
+            <div className="mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
+              <span className="text-sm font-semibold">{t('dirtyLinen.todaysCount')}</span>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {getTotalItems()} {t('dirtyLinen.items')}
+                </Badge>
+                {autoSaving && (
+                  <div className="flex items-center gap-1">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
+                    <span className="text-xs text-muted-foreground">{t('dirtyLinen.saving')}</span>
                   </div>
-                </CardTitle>
-              </CardHeader>
-            </Card>
+                )}
+                {lastSaved && !autoSaving && (
+                  <div className="flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3 text-green-500" />
+                    <span className="text-xs text-muted-foreground">{t('dirtyLinen.saved')}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
 
             <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-2">
               {linenItems.map((item) => (
