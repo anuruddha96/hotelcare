@@ -524,17 +524,17 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
         )}
         </div>
 
-
-        <div className="flex gap-2 pt-4">
+        <div className="flex gap-2 pt-2 shrink-0 border-t mt-1">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
             {t('common.close')}
           </Button>
-          <div className="flex-1 text-center">
+          <div className="flex-1 text-center self-center">
             <p className="text-xs text-muted-foreground">
               {t('dirtyLinen.autoSave')}
             </p>
           </div>
         </div>
+
       </DialogContent>
     </Dialog>
   );
