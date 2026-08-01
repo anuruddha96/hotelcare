@@ -345,7 +345,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl w-[96vw] max-h-[92vh] h-[92vh] flex flex-col p-3 sm:p-6 gap-2 overflow-hidden">
+
         <DialogHeader className="space-y-3">
           <div className="flex items-center gap-2 pr-8">
             <Shirt className="h-5 w-5 flex-shrink-0" />
