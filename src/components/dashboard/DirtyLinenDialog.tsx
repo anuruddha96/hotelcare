@@ -345,7 +345,8 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl w-[96vw] max-h-[92vh] h-[92vh] flex flex-col p-3 sm:p-6 gap-2 overflow-hidden">
+
         <DialogHeader className="space-y-3">
           <div className="flex items-center gap-2 pr-8">
             <Shirt className="h-5 w-5 flex-shrink-0" />
@@ -365,6 +366,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           </div>
         </DialogHeader>
 
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
         {showMyRecords ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -462,51 +464,48 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           </div>
         ) : (
           <>
-            <Card className="mb-4">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center justify-between">
-                  {t('dirtyLinen.todaysCount')}
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">
-                      {getTotalItems()} {t('dirtyLinen.items')}
-                    </Badge>
-                    {autoSaving && (
-                      <div className="flex items-center gap-1">
-                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
-                        <span className="text-xs text-muted-foreground">{t('dirtyLinen.saving')}</span>
-                      </div>
-                    )}
-                    {lastSaved && !autoSaving && (
-                      <div className="flex items-center gap-1">
-                        <CheckCircle className="h-3 w-3 text-green-500" />
-                        <span className="text-xs text-muted-foreground">{t('dirtyLinen.saved')}</span>
-                      </div>
-                    )}
+            <div className="mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
+              <span className="text-sm font-semibold">{t('dirtyLinen.todaysCount')}</span>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {getTotalItems()} {t('dirtyLinen.items')}
+                </Badge>
+                {autoSaving && (
+                  <div className="flex items-center gap-1">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
+                    <span className="text-xs text-muted-foreground">{t('dirtyLinen.saving')}</span>
                   </div>
-                </CardTitle>
-              </CardHeader>
-            </Card>
+                )}
+                {lastSaved && !autoSaving && (
+                  <div className="flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3 text-green-500" />
+                    <span className="text-xs text-muted-foreground">{t('dirtyLinen.saved')}</span>
+                  </div>
+                )}
+              </div>
+            </div>
 
-            <div className="space-y-3">
+
+            <div className="grid grid-cols-2 gap-2">
               {linenItems.map((item) => (
-                <Card key={item.id} className="p-3 hover:bg-muted/50 transition-colors">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Shirt className="h-4 w-4 text-primary flex-shrink-0" />
-                      <Label className="text-sm font-medium truncate">
+                <Card key={item.id} className="p-2 hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <Shirt className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                      <Label className="text-xs sm:text-sm font-medium leading-tight line-clamp-2">
                         {getLinenDisplayName(item.name, item.display_name, t)}
                       </Label>
                     </div>
-                    
-                    <div className="flex items-center gap-2">
+
+                    <div className="flex items-center gap-1 flex-shrink-0">
                       <Input
                         type="number"
                         min="0"
                         value={getCount(item.id)}
                         onChange={(e) => updateCount(item.id, parseInt(e.target.value) || 0)}
-                        className="h-8 w-16 text-center"
+                        className="h-8 w-12 px-1 text-center text-sm"
                       />
-                      
+
                       <Button
                         type="button"
                         variant="outline"
@@ -523,17 +522,19 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
             </div>
           </>
         )}
+        </div>
 
-        <div className="flex gap-2 pt-4">
+        <div className="flex gap-2 pt-2 shrink-0 border-t mt-1">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
             {t('common.close')}
           </Button>
-          <div className="flex-1 text-center">
+          <div className="flex-1 text-center self-center">
             <p className="text-xs text-muted-foreground">
               {t('dirtyLinen.autoSave')}
             </p>
           </div>
         </div>
+
       </DialogContent>
     </Dialog>
   );
