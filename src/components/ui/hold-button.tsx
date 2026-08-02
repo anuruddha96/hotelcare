@@ -27,6 +27,19 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
     const progressIntervalRef = React.useRef<NodeJS.Timeout>()
     const startTimeRef = React.useRef<number>(0)
 
+    const isMountedRef = React.useRef(true)
+
+    /** Some Android WebViews throw when vibration is blocked by permissions policy. */
+    const safeVibrate = (pattern: number | number[]) => {
+      try {
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+          navigator.vibrate(pattern)
+        }
+      } catch {
+        /* vibration unavailable — ignore */
+      }
+    }
+
     const startHolding = () => {
       if (disabled || isComplete) return
       
@@ -34,10 +47,7 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
       setProgress(0)
       startTimeRef.current = Date.now()
 
-      // Vibrate on mobile
-      if (navigator.vibrate) {
-        navigator.vibrate(50)
-      }
+      safeVibrate(50)
 
       // Progress animation
       progressIntervalRef.current = setInterval(() => {
@@ -48,19 +58,28 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
 
       // Complete action
       holdTimerRef.current = setTimeout(() => {
+        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
+        if (!isMountedRef.current) return
+
         setIsComplete(true)
         setIsHolding(false)
-        
-        // Success vibration pattern
-        if (navigator.vibrate) {
-          navigator.vibrate([50, 100, 50])
-        }
 
-        // Trigger completion
-        onHoldComplete()
+        // Success vibration pattern
+        safeVibrate([50, 100, 50])
+
+        // Trigger completion — never let a throw escape into the render tree.
+        try {
+          const result: any = onHoldComplete()
+          if (result && typeof result.catch === 'function') {
+            result.catch((err: unknown) => console.error('HoldButton onHoldComplete rejected:', err))
+          }
+        } catch (err) {
+          console.error('HoldButton onHoldComplete failed:', err)
+        }
 
         // Reset after animation
         setTimeout(() => {
+          if (!isMountedRef.current) return
           setIsComplete(false)
           setProgress(0)
         }, 500)
@@ -82,7 +101,9 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
     }
 
     React.useEffect(() => {
+      isMountedRef.current = true
       return () => {
+        isMountedRef.current = false
         if (holdTimerRef.current) clearTimeout(holdTimerRef.current)
         if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
       }

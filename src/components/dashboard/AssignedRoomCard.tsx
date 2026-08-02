@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
+import { setLastAction, reportClientError } from '@/lib/clientErrorReporter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { HoldButton } from '@/components/ui/hold-button';
@@ -538,6 +539,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       toast.success(message);
     } catch (error) {
       console.error('Error updating assignment status:', error);
+      void reportClientError(error, {
+        context: 'updateAssignmentStatus',
+        action: `status=${newStatus} assignment=${assignment.id}`,
+      });
       toast.error('Failed to update status');
     } finally {
       setLoading(false);
@@ -1101,6 +1106,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   holdDuration={2000}
                   onHoldComplete={() => {
                     console.log('Hold complete, starting room...');
+                    setLastAction('start-room', `assignment=${assignment.id} room=${assignment.rooms?.room_number ?? '?'}`);
                     updateAssignmentStatus('in_progress');
                   }}
                   disabled={loading}

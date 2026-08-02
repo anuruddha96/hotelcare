@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle, Camera, Shirt, MapPin, Ban, BellOff } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
@@ -542,10 +543,16 @@ export function MobileHousekeepingView() {
           <div className="space-y-3">
             {assignments.map((assignment) => (
               <div key={assignment.id}>
-                <AssignedRoomCard
-                  assignment={assignment}
-                  onStatusUpdate={handleStatusUpdate}
-                />
+                <ErrorBoundary
+                  context={`AssignedRoomCard:${assignment.id}`}
+                  fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
+                  fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
+                >
+                  <AssignedRoomCard
+                    assignment={assignment}
+                    onStatusUpdate={handleStatusUpdate}
+                  />
+                </ErrorBoundary>
               </div>
             ))}
           </div>

@@ -522,6 +522,57 @@ export type Database = {
         }
         Relationships: []
       }
+      client_error_logs: {
+        Row: {
+          component_stack: string | null
+          context: string | null
+          created_at: string
+          device_memory: string | null
+          error_message: string
+          error_stack: string | null
+          hotel: string | null
+          id: string
+          last_action: string | null
+          organization_slug: string | null
+          route: string | null
+          screen_size: string | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          component_stack?: string | null
+          context?: string | null
+          created_at?: string
+          device_memory?: string | null
+          error_message: string
+          error_stack?: string | null
+          hotel?: string | null
+          id?: string
+          last_action?: string | null
+          organization_slug?: string | null
+          route?: string | null
+          screen_size?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          component_stack?: string | null
+          context?: string | null
+          created_at?: string
+          device_memory?: string | null
+          error_message?: string
+          error_stack?: string | null
+          hotel?: string | null
+          id?: string
+          last_action?: string | null
+          organization_slug?: string | null
+          route?: string | null
+          screen_size?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       comments: {
         Row: {
           content: string
