@@ -101,7 +101,9 @@ const HoldButton = React.forwardRef<HTMLButtonElement, HoldButtonProps>(
     }
 
     React.useEffect(() => {
+      isMountedRef.current = true
       return () => {
+        isMountedRef.current = false
         if (holdTimerRef.current) clearTimeout(holdTimerRef.current)
         if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
       }
