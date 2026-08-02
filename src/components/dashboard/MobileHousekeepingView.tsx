@@ -543,10 +543,16 @@ export function MobileHousekeepingView() {
           <div className="space-y-3">
             {assignments.map((assignment) => (
               <div key={assignment.id}>
-                <AssignedRoomCard
-                  assignment={assignment}
-                  onStatusUpdate={handleStatusUpdate}
-                />
+                <ErrorBoundary
+                  context={`AssignedRoomCard:${assignment.id}`}
+                  fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
+                  fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
+                >
+                  <AssignedRoomCard
+                    assignment={assignment}
+                    onStatusUpdate={handleStatusUpdate}
+                  />
+                </ErrorBoundary>
               </div>
             ))}
           </div>
