@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, MapPin, Ban, BellOff } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MobileHousekeepingView } from './MobileHousekeepingView';
 import { PublicAreaTaskCard } from './PublicAreaTaskCard';
 import { toast } from 'sonner';
