@@ -539,6 +539,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       toast.success(message);
     } catch (error) {
       console.error('Error updating assignment status:', error);
+      void reportClientError(error, {
+        context: 'updateAssignmentStatus',
+        action: `status=${newStatus} assignment=${assignment.id}`,
+      });
       toast.error('Failed to update status');
     } finally {
       setLoading(false);
