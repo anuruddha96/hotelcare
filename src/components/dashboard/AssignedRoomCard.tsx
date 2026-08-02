@@ -1101,6 +1101,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   holdDuration={2000}
                   onHoldComplete={() => {
                     console.log('Hold complete, starting room...');
+                    setLastAction('start-room', `assignment=${assignment.id} room=${assignment.rooms?.room_number ?? '?'}`);
                     updateAssignmentStatus('in_progress');
                   }}
                   disabled={loading}
