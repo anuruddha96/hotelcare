@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle, Camera, Shirt, MapPin, Ban, BellOff } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
