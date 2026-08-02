@@ -506,11 +506,17 @@ export function HousekeepingStaffView() {
           <div className="space-y-3">
             {assignments
               .map((assignment) => (
-                <AssignedRoomCard
+                <ErrorBoundary
                   key={assignment.id}
-                  assignment={assignment}
-                  onStatusUpdate={handleStatusUpdate}
-                />
+                  context={`AssignedRoomCard:${assignment.id}`}
+                  fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
+                  fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
+                >
+                  <AssignedRoomCard
+                    assignment={assignment}
+                    onStatusUpdate={handleStatusUpdate}
+                  />
+                </ErrorBoundary>
               ))}
           </div>
         )}
