@@ -715,6 +715,47 @@ export async function runPmsRefresh(
           .in("status", ["assigned", "in_progress"]);
       }
 
+      // Reconcile today's assignments whose type no longer matches the PMS
+      // truth (e.g. auto-assign ran before the morning sync and inherited
+      // yesterday's checkout flags). Only untouched work is corrected —
+      // in-progress / completed cleans keep their type.
+      if (reservationDataAuthoritative) {
+        const desiredType = effectiveCheckoutFlag ? "checkout_cleaning" : "daily_cleaning";
+        const { data: staleAsg } = await supabase
+          .from("room_assignments")
+          .select("id, assignment_type")
+          .eq("room_id", room.id)
+          .eq("assignment_date", today)
+          .in("status", ["assigned", "dnd_pending_retry"] as any);
+        const mismatched = (staleAsg ?? []).filter((a: any) => a.assignment_type !== desiredType);
+        if (mismatched.length > 0) {
+          const patch: Record<string, any> = {
+            assignment_type: desiredType,
+            updated_at: new Date().toISOString(),
+          };
+          // Daily rooms are always cleanable; checkout rooms only once PMS
+          // confirms the guest actually left.
+          patch.ready_to_clean = effectiveCheckoutFlag ? isCheckedOut : true;
+          const { error: asgErr } = await supabase
+            .from("room_assignments")
+            .update(patch as any)
+            .in("id", mismatched.map((m: any) => m.id));
+          if (!asgErr) {
+            eventInserts.push({
+              hotel_id: hotelId,
+              room_id: room.id,
+              room_label: room.room_number || rawRoomName,
+              event_type: "assignment_type_corrected",
+              source: "pms_sync",
+              before: { assignment_type: mismatched[0].assignment_type },
+              after: { assignment_type: desiredType },
+              is_conflict: false,
+            });
+          }
+        }
+      }
+
+
       if (eventInserts.length > 0) {
         const insertRes: any = await supabase
           .from("pms_change_events" as any)
