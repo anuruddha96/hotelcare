@@ -617,10 +617,13 @@ export async function runPmsRefresh(
         if (isCheckedOut) {
           updateData.pms_metadata.readyToClean = true;
           updateData.pms_metadata.checkedOutAt = new Date().toISOString();
+          // Date-stamp the release so it can never leak into a later day.
+          updateData.pms_metadata.readyToCleanDate = today;
         }
         if (!isCheckedOut) {
           delete updateData.pms_metadata.readyToClean;
           delete updateData.pms_metadata.checkedOutAt;
+          delete updateData.pms_metadata.readyToCleanDate;
         }
       }
       if (effectiveStatus) {
