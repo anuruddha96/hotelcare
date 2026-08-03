@@ -14,7 +14,9 @@ const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
   "manual_moved_at", "manual_moved_by",
+  "manual_no_show", "manual_no_show_at", "manual_no_show_by",
 ];
+
 
 // Previo concatenates all department-tab notes into a single `note` field,
 // each prefixed with a Czech/English label: `Systém -` (OTA / channel-manager
