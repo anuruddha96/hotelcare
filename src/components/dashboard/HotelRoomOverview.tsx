@@ -871,13 +871,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     e.stopPropagation();
                     setActionLoading(`ready-${room.id}`);
                     try {
-                      const { error } = await supabase.from('room_assignments').update({ ready_to_clean: true } as any).eq('room_id', room.id).eq('assignment_date', selectedDate).eq('assignment_type', 'checkout_cleaning');
-                      if (error) throw error;
-                      setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+                      await releaseReadyToClean(room);
                       toast.success(`Room ${room.room_number} ready to clean`);
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
                   }}
+
                 >
                   <CheckCircle className="h-4 w-4" /> ✅ {t('roomOverview.markReadyToClean')}
                 </button>
