@@ -928,48 +928,30 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 </div>
               )}
 
-              {/* Manager overrides: bucket switch + no-show */}
+              {/* Manager override: mark / clear no-show for today */}
               {isManagerOrAdmin && (
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    className="flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-                    disabled={actionLoading === `switch-${room.id}`}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      setActionLoading(`switch-${room.id}`);
-                      try {
-                        const target = !isCheckoutBucket(room);
-                        await switchRoomType(room, target);
-                        toast.success(`Room ${room.room_number} → ${target ? t('roomOverview.checkoutRooms') : t('roomOverview.dailyRooms')}`);
-                      } catch { toast.error('Failed to switch room type'); }
-                      finally { setActionLoading(null); }
-                    }}
-                  >
-                    <ArrowLeftRight className="h-3 w-3" />
-                    {isCheckoutBucket(room) ? t('roomOverview.switchToDaily') : t('roomOverview.switchToCheckout')}
-                  </button>
-                  <button
-                    className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] font-semibold border transition-colors ${
-                      isPmsNoShow(room)
-                        ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-                        : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                    }`}
-                    disabled={actionLoading === `noshow-${room.id}`}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      setActionLoading(`noshow-${room.id}`);
-                      try {
-                        const next = !isPmsNoShow(room);
-                        await setManualNoShow(room, next);
-                        toast.success(`Room ${room.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
-                      } catch { toast.error('Failed to update no-show'); }
-                      finally { setActionLoading(null); }
-                    }}
-                  >
-                    {isPmsNoShow(room) ? t('roomOverview.clearNoShow') : t('roomOverview.markNoShow')}
-                  </button>
-                </div>
+                <button
+                  className={`w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] font-semibold border transition-colors ${
+                    isPmsNoShow(room)
+                      ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                      : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                  }`}
+                  disabled={actionLoading === `noshow-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`noshow-${room.id}`);
+                    try {
+                      const next = !isPmsNoShow(room);
+                      await setManualNoShow(room, next);
+                      toast.success(`Room ${room.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
+                    } catch { toast.error('Failed to update no-show'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  {isPmsNoShow(room) ? t('roomOverview.clearNoShow') : t('roomOverview.markNoShow')}
+                </button>
               )}
+
 
 
 
