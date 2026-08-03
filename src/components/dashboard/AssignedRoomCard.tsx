@@ -930,7 +930,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 variant="outline" 
                 className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full hover:bg-muted/80 transition-colors flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
-                {getAssignmentTypeLabel(assignment.assignment_type)}
+                {getAssignmentTypeLabel(
+                  isCheckoutClean ? 'checkout_cleaning'
+                    : assignment.assignment_type === 'checkout_cleaning' ? 'daily_cleaning'
+                    : assignment.assignment_type,
+                )}
               </Badge>
             )}
           </div>
