@@ -533,6 +533,120 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const noShowRooms = rooms.filter(r => isNoShow(r) && !isEarlyCheckout(r) && !r.is_checkout_room);
   const earlyCheckoutRooms = rooms.filter(r => isEarlyCheckout(r));
 
+  // ---- Shared manager actions (chip popover + detail dialog) ----------------
+
+  const mergeRoomMetadata = async (room: RoomData, patch: Record<string, any>) => {
+    const nextMeta = { ...((room.pms_metadata as any) || {}), ...patch };
+    const { error } = await supabase
+      .from('rooms')
+      .update({ pms_metadata: nextMeta } as any)
+      .eq('id', room.id);
+    if (error) throw error;
+    setRooms(prev => prev.map(r => r.id === room.id ? { ...r, pms_metadata: nextMeta } : r));
+    return nextMeta;
+  };
+
+  // Manual release of a checkout room. Stamped in pms_metadata so the next PMS
+  // refresh does not re-block the room as "guest still in house".
+  const releaseReadyToClean = async (room: RoomData) => {
+    const { error } = await supabase
+      .from('room_assignments')
+      .update({ ready_to_clean: true, pms_hold: false, pms_hold_reason: null } as any)
+      .eq('room_id', room.id)
+      .eq('assignment_date', selectedDate)
+      .eq('assignment_type', 'checkout_cleaning');
+    if (error) throw error;
+    await mergeRoomMetadata(room, {
+      manualReadyToCleanAt: new Date().toISOString(),
+      manualReadyToCleanBy: profile?.full_name || profile?.id || null,
+    });
+    setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+  };
+
+  // Switch a room between the Checkout and Daily buckets. The manual decision
+  // is persisted as a sticky override so the next PMS sync keeps it for today.
+  const switchRoomType = async (room: RoomData, newIsCheckout: boolean) => {
+    const nowIso = new Date().toISOString();
+    const by = profile?.full_name || profile?.id || null;
+    const meta = (room.pms_metadata as any) || {};
+    const nextMeta = {
+      ...meta,
+      manual_checkout: newIsCheckout,
+      manual_daily: !newIsCheckout,
+      manual_moved_at: nowIso,
+      manual_moved_by: by,
+      ...(newIsCheckout
+        ? { manual_checkout_at: nowIso, manual_checkout_by: by }
+        : { manual_daily_at: nowIso, manual_daily_by: by, scheduledDepartureToday: false, departureTime: null, checkedOutToday: false }),
+    };
+    const { error: roomErr } = await supabase
+      .from('rooms')
+      .update({ is_checkout_room: newIsCheckout, pms_metadata: nextMeta } as any)
+      .eq('id', room.id);
+    if (roomErr) throw roomErr;
+
+    const assignment = assignmentMap.get(room.id);
+    if (assignment) {
+      const { error: asgErr } = await supabase
+        .from('room_assignments')
+        .update({
+          assignment_type: newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning',
+          // Daily rooms are immediately cleanable; a fresh checkout waits for release.
+          ready_to_clean: newIsCheckout ? false : true,
+        } as any)
+        .eq('room_id', room.id)
+        .eq('assignment_date', selectedDate);
+      if (asgErr) throw asgErr;
+      setAssignments(prev => prev.map(a => a.room_id === room.id
+        ? { ...a, assignment_type: newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning', ready_to_clean: !newIsCheckout }
+        : a));
+    }
+    setRooms(prev => prev.map(r => r.id === room.id
+      ? { ...r, is_checkout_room: newIsCheckout, pms_metadata: nextMeta }
+      : r));
+
+    await supabase.from('pms_change_events').insert({
+      hotel_id: room.hotel,
+      room_id: room.id,
+      room_label: room.room_number,
+      event_type: 'room_type_switched_manual',
+      source: 'manager_ui',
+      before: { is_checkout_room: !newIsCheckout },
+      after: { is_checkout_room: newIsCheckout },
+      is_conflict: false,
+    } as any);
+  };
+
+  // Manually mark / unmark a room as a no-show for today.
+  const setManualNoShow = async (room: RoomData, value: boolean) => {
+    const nowIso = new Date().toISOString();
+    await mergeRoomMetadata(room, value
+      ? {
+          manual_no_show: true,
+          manual_no_show_at: nowIso,
+          manual_no_show_by: profile?.full_name || profile?.id || null,
+          isNoShow: true,
+        }
+      : {
+          manual_no_show: false,
+          manual_no_show_at: nowIso,
+          manual_no_show_by: profile?.full_name || profile?.id || null,
+          isNoShow: false,
+        });
+    await supabase.from('pms_change_events').insert({
+      hotel_id: room.hotel,
+      room_id: room.id,
+      room_label: room.room_number,
+      event_type: value ? 'no_show_marked_manual' : 'no_show_cleared_manual',
+      source: 'manager_ui',
+      before: { isNoShow: !value },
+      after: { isNoShow: value },
+      is_conflict: false,
+    } as any);
+  };
+
+
+
   const groupByFloor = (roomList: RoomData[]) => {
     const floorMap = new Map<number, RoomData[]>();
     roomList.forEach(room => {
