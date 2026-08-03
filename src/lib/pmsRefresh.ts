@@ -480,11 +480,20 @@ export async function runPmsRefresh(
       }
       const currentCheckoutFlag = !!room.is_checkout_room;
       const manualOverride = existingMetadata?.manual_checkout === true;
+      // A manager explicitly moved this room to Daily today. That decision wins
+      // over the PMS departure flag for the rest of the day, otherwise the room
+      // snaps straight back into Checkout Rooms on the next refresh.
+      const manualDailyOverride = existingMetadata?.manual_daily === true
+        || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
+      const manualNoShowOverride = existingMetadata?.manual_no_show === true;
       const hasProtectedCheckoutAssignment = protectedCheckoutAssignmentRoomIds.has(room.id);
-      const preserveExistingCheckout = currentCheckoutFlag && !shouldBeCheckoutRoom && (
+      const preserveExistingCheckout = !manualDailyOverride && currentCheckoutFlag && !shouldBeCheckoutRoom && (
         !reservationDataAuthoritative || manualOverride || hasProtectedCheckoutAssignment
       );
-      const effectiveCheckoutFlag = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+      const effectiveCheckoutFlag = manualDailyOverride
+        ? false
+        : preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+
       if (reservationDataAuthoritative && effectiveCheckoutFlag !== currentCheckoutFlag) {
         const label = isCheckedOut
           ? "Checked out"
