@@ -2076,24 +2076,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           setActionLoading('ready');
                           try {
                             if (assignment) {
-                              const { error } = await supabase
-                                .from('room_assignments')
-                                .update({ ready_to_clean: true } as any)
-                                .eq('room_id', selectedRoom.id)
-                                .eq('assignment_date', selectedDate)
-                                .eq('assignment_type', 'checkout_cleaning');
-                              if (error) throw error;
+                              await releaseReadyToClean(selectedRoom);
                             } else {
                               const { error } = await supabase
                                 .from('rooms')
                                 .update({ status: 'ready_to_clean' } as any)
                                 .eq('id', selectedRoom.id);
                               if (error) throw error;
-                            }
-                            if (assignment) {
-                              setAssignments(prev => prev.map(a => 
-                                a.room_id === selectedRoom.id ? { ...a, ready_to_clean: true } : a
-                              ));
                             }
                             toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
                             setRoomSizeDialogOpen(false);
@@ -2117,28 +2106,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       disabled={actionLoading === 'switch'}
                       onClick={async () => {
                         setActionLoading('switch');
-                        const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
                         const newIsCheckout = !isCheckout;
                         try {
-                          const updates = [
-                            supabase
-                              .from('rooms')
-                              .update({ is_checkout_room: newIsCheckout } as any)
-                              .eq('id', selectedRoom.id)
-                              .then(),
-                          ];
-                          if (assignment) {
-                            updates.push(
-                              supabase
-                                .from('room_assignments')
-                                .update({ assignment_type: newType } as any)
-                                .eq('room_id', selectedRoom.id)
-                                .eq('assignment_date', selectedDate)
-                                .then()
-                            );
-                          }
-                          const results = await Promise.all(updates);
-                          if (results.some(r => r.error)) throw results.find(r => r.error)?.error;
+                          await switchRoomType(selectedRoom, newIsCheckout);
                           toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
                           setRoomSizeDialogOpen(false);
                           await fetchData();
@@ -2152,6 +2122,33 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       {actionLoading === 'switch' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-blue-600" />}
                       Switch to {isCheckout ? 'Daily' : 'Checkout'}
                     </Button>
+                    {/* Mark / clear no-show */}
+                    {isManagerOrAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start gap-2"
+                        disabled={actionLoading === 'noshow'}
+                        onClick={async () => {
+                          setActionLoading('noshow');
+                          try {
+                            const next = !isPmsNoShow(selectedRoom);
+                            await setManualNoShow(selectedRoom, next);
+                            toast.success(`Room ${selectedRoom.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
+                            setRoomSizeDialogOpen(false);
+                            await fetchData();
+                          } catch {
+                            toast.error('Failed to update no-show');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'noshow' ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4 text-rose-600" />}
+                        {isPmsNoShow(selectedRoom) ? t('roomOverview.clearNoShow') : t('roomOverview.markNoShow')}
+                      </Button>
+                    )}
+
                   </div>
                 </>
               );
