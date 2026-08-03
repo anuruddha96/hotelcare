@@ -93,15 +93,21 @@ const getDateOnly = (value: unknown): string | null => {
 };
 
 const hasManualRoomOverride = (meta?: Record<string, any> | null): boolean =>
-  !!meta && (meta.manual_checkout === true || meta.manual_daily === true || "manual_checkout" in meta || "manual_daily" in meta);
+  !!meta && (
+    meta.manual_checkout === true || meta.manual_daily === true || meta.manual_no_show === true ||
+    "manual_checkout" in meta || "manual_daily" in meta || "manual_no_show" in meta
+  );
 
 const isStaleManualRoomOverride = (meta: Record<string, any> | undefined, today: string): boolean => {
   if (!hasManualRoomOverride(meta)) return false;
-  const manualDate = getDateOnly(meta?.manual_moved_at ?? meta?.manual_checkout_at ?? meta?.manual_daily_at);
+  const manualDate = getDateOnly(
+    meta?.manual_moved_at ?? meta?.manual_checkout_at ?? meta?.manual_daily_at ?? meta?.manual_no_show_at,
+  );
   if (manualDate) return manualDate < today;
   const syncDate = getDateOnly(meta?.pmsSyncDate ?? meta?.lastPmsRefreshDate);
   return !!syncDate && syncDate < today;
 };
+
 
 const stripManualRoomOverride = (meta: Record<string, any> | undefined): Record<string, any> | undefined => {
   if (!meta) return undefined;
