@@ -585,14 +585,16 @@ export async function runPmsRefresh(
         // carry the separate "towel change required" flag on those rooms.
         updateData.towel_change_required = towel && !effectiveCheckoutFlag;
         updateData.linen_change_required = linen;
-        updateData.pms_metadata.scheduledDepartureToday = isScheduledDeparture;
+        updateData.pms_metadata.scheduledDepartureToday = manualDailyOverride ? false : isScheduledDeparture;
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
-        updateData.pms_metadata.departureTime = departureParsed;
-        updateData.pms_metadata.checkedOutToday = isCheckedOut;
+        updateData.pms_metadata.departureTime = manualDailyOverride ? null : departureParsed;
+        updateData.pms_metadata.checkedOutToday = manualDailyOverride ? false : isCheckedOut;
         updateData.pms_metadata.reservationStatusId = row.RawReservationStatusId ?? row.ReservationStatusId ?? null;
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
-        updateData.pms_metadata.isNoShow = row.IsNoShow === true;
+        // A manager's manual no-show mark for today wins over the PMS snapshot.
+        updateData.pms_metadata.isNoShow = manualNoShowOverride || row.IsNoShow === true;
+
         // Arrival today (vacant room expecting a guest) — neither checkout nor
         // a daily stayover; surfaced in its own Arrivals bucket in Team View.
         updateData.pms_metadata.arrivalToday = !effectiveCheckoutFlag && (
