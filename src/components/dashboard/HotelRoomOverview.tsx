@@ -12,7 +12,7 @@ import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban, AlertTriangle } from 'lucide-react';
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
@@ -488,10 +488,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     (room.pms_metadata as any)?.pmsSyncDate === todayBudapest();
 
   const isCheckoutBucket = (room: RoomData) => {
+    // A manager's explicit "switch to Daily" for today wins over everything.
+    if ((room.pms_metadata as any)?.manual_daily === true) return false;
     if (room.is_checkout_room || isScheduledCheckoutRoom(room)) return true;
     if (hasFreshPms(room)) return false;
     return assignmentMap.get(room.id)?.assignment_type === 'checkout_cleaning';
   };
+
 
   const isArrivalOnly = (room: RoomData) =>
     !isCheckoutBucket(room) &&
@@ -529,6 +532,120 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const noShowRooms = rooms.filter(r => isNoShow(r) && !isEarlyCheckout(r) && !r.is_checkout_room);
   const earlyCheckoutRooms = rooms.filter(r => isEarlyCheckout(r));
+
+  // ---- Shared manager actions (chip popover + detail dialog) ----------------
+
+  const mergeRoomMetadata = async (room: RoomData, patch: Record<string, any>) => {
+    const nextMeta = { ...((room.pms_metadata as any) || {}), ...patch };
+    const { error } = await supabase
+      .from('rooms')
+      .update({ pms_metadata: nextMeta } as any)
+      .eq('id', room.id);
+    if (error) throw error;
+    setRooms(prev => prev.map(r => r.id === room.id ? { ...r, pms_metadata: nextMeta } : r));
+    return nextMeta;
+  };
+
+  // Manual release of a checkout room. Stamped in pms_metadata so the next PMS
+  // refresh does not re-block the room as "guest still in house".
+  const releaseReadyToClean = async (room: RoomData) => {
+    const { error } = await supabase
+      .from('room_assignments')
+      .update({ ready_to_clean: true, pms_hold: false, pms_hold_reason: null } as any)
+      .eq('room_id', room.id)
+      .eq('assignment_date', selectedDate)
+      .eq('assignment_type', 'checkout_cleaning');
+    if (error) throw error;
+    await mergeRoomMetadata(room, {
+      manualReadyToCleanAt: new Date().toISOString(),
+      manualReadyToCleanBy: profile?.full_name || profile?.id || null,
+    });
+    setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+  };
+
+  // Switch a room between the Checkout and Daily buckets. The manual decision
+  // is persisted as a sticky override so the next PMS sync keeps it for today.
+  const switchRoomType = async (room: RoomData, newIsCheckout: boolean) => {
+    const nowIso = new Date().toISOString();
+    const by = profile?.full_name || profile?.id || null;
+    const meta = (room.pms_metadata as any) || {};
+    const nextMeta = {
+      ...meta,
+      manual_checkout: newIsCheckout,
+      manual_daily: !newIsCheckout,
+      manual_moved_at: nowIso,
+      manual_moved_by: by,
+      ...(newIsCheckout
+        ? { manual_checkout_at: nowIso, manual_checkout_by: by }
+        : { manual_daily_at: nowIso, manual_daily_by: by, scheduledDepartureToday: false, departureTime: null, checkedOutToday: false }),
+    };
+    const { error: roomErr } = await supabase
+      .from('rooms')
+      .update({ is_checkout_room: newIsCheckout, pms_metadata: nextMeta } as any)
+      .eq('id', room.id);
+    if (roomErr) throw roomErr;
+
+    const assignment = assignmentMap.get(room.id);
+    if (assignment) {
+      const { error: asgErr } = await supabase
+        .from('room_assignments')
+        .update({
+          assignment_type: newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning',
+          // Daily rooms are immediately cleanable; a fresh checkout waits for release.
+          ready_to_clean: newIsCheckout ? false : true,
+        } as any)
+        .eq('room_id', room.id)
+        .eq('assignment_date', selectedDate);
+      if (asgErr) throw asgErr;
+      setAssignments(prev => prev.map(a => a.room_id === room.id
+        ? { ...a, assignment_type: newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning', ready_to_clean: !newIsCheckout }
+        : a));
+    }
+    setRooms(prev => prev.map(r => r.id === room.id
+      ? { ...r, is_checkout_room: newIsCheckout, pms_metadata: nextMeta }
+      : r));
+
+    await supabase.from('pms_change_events').insert({
+      hotel_id: room.hotel,
+      room_id: room.id,
+      room_label: room.room_number,
+      event_type: 'room_type_switched_manual',
+      source: 'manager_ui',
+      before: { is_checkout_room: !newIsCheckout },
+      after: { is_checkout_room: newIsCheckout },
+      is_conflict: false,
+    } as any);
+  };
+
+  // Manually mark / unmark a room as a no-show for today.
+  const setManualNoShow = async (room: RoomData, value: boolean) => {
+    const nowIso = new Date().toISOString();
+    await mergeRoomMetadata(room, value
+      ? {
+          manual_no_show: true,
+          manual_no_show_at: nowIso,
+          manual_no_show_by: profile?.full_name || profile?.id || null,
+          isNoShow: true,
+        }
+      : {
+          manual_no_show: false,
+          manual_no_show_at: nowIso,
+          manual_no_show_by: profile?.full_name || profile?.id || null,
+          isNoShow: false,
+        });
+    await supabase.from('pms_change_events').insert({
+      hotel_id: room.hotel,
+      room_id: room.id,
+      room_label: room.room_number,
+      event_type: value ? 'no_show_marked_manual' : 'no_show_cleared_manual',
+      source: 'manager_ui',
+      before: { isNoShow: !value },
+      after: { isNoShow: value },
+      is_conflict: false,
+    } as any);
+  };
+
+
 
   const groupByFloor = (roomList: RoomData[]) => {
     const floorMap = new Map<number, RoomData[]>();
@@ -754,13 +871,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     e.stopPropagation();
                     setActionLoading(`ready-${room.id}`);
                     try {
-                      const { error } = await supabase.from('room_assignments').update({ ready_to_clean: true } as any).eq('room_id', room.id).eq('assignment_date', selectedDate).eq('assignment_type', 'checkout_cleaning');
-                      if (error) throw error;
-                      setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+                      await releaseReadyToClean(room);
                       toast.success(`Room ${room.room_number} ready to clean`);
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
                   }}
+
                 >
                   <CheckCircle className="h-4 w-4" /> ✅ {t('roomOverview.markReadyToClean')}
                 </button>
@@ -785,7 +901,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                             .eq('assignment_date', selectedDate)
                             .eq('assignment_type', 'checkout_cleaning');
                           if (error) throw error;
+                          // Drop the manual-release stamp so the PMS sync can
+                          // keep the room blocked while the guest is in house.
+                          await mergeRoomMetadata(room, { manualReadyToCleanAt: null, manualReadyToCleanBy: null });
                           // Audit trail so cron/reconcile understands this was intentional.
+
                           await supabase.from('pms_change_events').insert({
                             hotel_id: room.hotel,
                             room_id: room.id,
@@ -807,6 +927,33 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   )}
                 </div>
               )}
+
+              {/* Manager override: mark / clear no-show for today */}
+              {isManagerOrAdmin && (
+                <button
+                  className={`w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] font-semibold border transition-colors ${
+                    isPmsNoShow(room)
+                      ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                      : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                  }`}
+                  disabled={actionLoading === `noshow-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`noshow-${room.id}`);
+                    try {
+                      const next = !isPmsNoShow(room);
+                      await setManualNoShow(room, next);
+                      toast.success(`Room ${room.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
+                    } catch { toast.error('Failed to update no-show'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  {isPmsNoShow(room) ? t('roomOverview.clearNoShow') : t('roomOverview.markNoShow')}
+                </button>
+              )}
+
+
+
 
               {/* Services Section */}
               <div className="space-y-1">
@@ -958,23 +1105,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   onClick={async (e) => {
                     e.stopPropagation();
                     setActionLoading(`switch-${room.id}`);
-                    const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
                     const newIsCheckout = !isCheckout;
                     try {
-                      const updates = [
-                        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', room.id).then(),
-                      ];
-                      if (assignment) {
-                        updates.push(
-                          supabase.from('room_assignments').update({ assignment_type: newType } as any).eq('room_id', room.id).eq('assignment_date', selectedDate).then()
-                        );
-                      }
-                      await Promise.all(updates);
+                      await switchRoomType(room, newIsCheckout);
                       toast.success(`Room ${room.room_number} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
                       await fetchData();
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
                   }}
+
                 >
                   <ArrowLeftRight className="h-3 w-3" /> {isCheckout ? t('roomOverview.switchToDaily') : t('roomOverview.switchToCheckout')}
                 </button>
@@ -1937,24 +2076,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           setActionLoading('ready');
                           try {
                             if (assignment) {
-                              const { error } = await supabase
-                                .from('room_assignments')
-                                .update({ ready_to_clean: true } as any)
-                                .eq('room_id', selectedRoom.id)
-                                .eq('assignment_date', selectedDate)
-                                .eq('assignment_type', 'checkout_cleaning');
-                              if (error) throw error;
+                              await releaseReadyToClean(selectedRoom);
                             } else {
                               const { error } = await supabase
                                 .from('rooms')
                                 .update({ status: 'ready_to_clean' } as any)
                                 .eq('id', selectedRoom.id);
                               if (error) throw error;
-                            }
-                            if (assignment) {
-                              setAssignments(prev => prev.map(a => 
-                                a.room_id === selectedRoom.id ? { ...a, ready_to_clean: true } : a
-                              ));
                             }
                             toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
                             setRoomSizeDialogOpen(false);
@@ -1978,28 +2106,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       disabled={actionLoading === 'switch'}
                       onClick={async () => {
                         setActionLoading('switch');
-                        const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
                         const newIsCheckout = !isCheckout;
                         try {
-                          const updates = [
-                            supabase
-                              .from('rooms')
-                              .update({ is_checkout_room: newIsCheckout } as any)
-                              .eq('id', selectedRoom.id)
-                              .then(),
-                          ];
-                          if (assignment) {
-                            updates.push(
-                              supabase
-                                .from('room_assignments')
-                                .update({ assignment_type: newType } as any)
-                                .eq('room_id', selectedRoom.id)
-                                .eq('assignment_date', selectedDate)
-                                .then()
-                            );
-                          }
-                          const results = await Promise.all(updates);
-                          if (results.some(r => r.error)) throw results.find(r => r.error)?.error;
+                          await switchRoomType(selectedRoom, newIsCheckout);
                           toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
                           setRoomSizeDialogOpen(false);
                           await fetchData();
@@ -2013,6 +2122,33 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       {actionLoading === 'switch' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-blue-600" />}
                       Switch to {isCheckout ? 'Daily' : 'Checkout'}
                     </Button>
+                    {/* Mark / clear no-show */}
+                    {isManagerOrAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start gap-2"
+                        disabled={actionLoading === 'noshow'}
+                        onClick={async () => {
+                          setActionLoading('noshow');
+                          try {
+                            const next = !isPmsNoShow(selectedRoom);
+                            await setManualNoShow(selectedRoom, next);
+                            toast.success(`Room ${selectedRoom.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
+                            setRoomSizeDialogOpen(false);
+                            await fetchData();
+                          } catch {
+                            toast.error('Failed to update no-show');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'noshow' ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4 text-rose-600" />}
+                        {isPmsNoShow(selectedRoom) ? t('roomOverview.clearNoShow') : t('roomOverview.markNoShow')}
+                      </Button>
+                    )}
+
                   </div>
                 </>
               );

@@ -14,7 +14,9 @@ const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
   "manual_moved_at", "manual_moved_by",
+  "manual_no_show", "manual_no_show_at", "manual_no_show_by",
 ];
+
 
 // Previo concatenates all department-tab notes into a single `note` field,
 // each prefixed with a Czech/English label: `Systém -` (OTA / channel-manager
@@ -91,15 +93,21 @@ const getDateOnly = (value: unknown): string | null => {
 };
 
 const hasManualRoomOverride = (meta?: Record<string, any> | null): boolean =>
-  !!meta && (meta.manual_checkout === true || meta.manual_daily === true || "manual_checkout" in meta || "manual_daily" in meta);
+  !!meta && (
+    meta.manual_checkout === true || meta.manual_daily === true || meta.manual_no_show === true ||
+    "manual_checkout" in meta || "manual_daily" in meta || "manual_no_show" in meta
+  );
 
 const isStaleManualRoomOverride = (meta: Record<string, any> | undefined, today: string): boolean => {
   if (!hasManualRoomOverride(meta)) return false;
-  const manualDate = getDateOnly(meta?.manual_moved_at ?? meta?.manual_checkout_at ?? meta?.manual_daily_at);
+  const manualDate = getDateOnly(
+    meta?.manual_moved_at ?? meta?.manual_checkout_at ?? meta?.manual_daily_at ?? meta?.manual_no_show_at,
+  );
   if (manualDate) return manualDate < today;
   const syncDate = getDateOnly(meta?.pmsSyncDate ?? meta?.lastPmsRefreshDate);
   return !!syncDate && syncDate < today;
 };
+
 
 const stripManualRoomOverride = (meta: Record<string, any> | undefined): Record<string, any> | undefined => {
   if (!meta) return undefined;
@@ -472,11 +480,20 @@ export async function runPmsRefresh(
       }
       const currentCheckoutFlag = !!room.is_checkout_room;
       const manualOverride = existingMetadata?.manual_checkout === true;
+      // A manager explicitly moved this room to Daily today. That decision wins
+      // over the PMS departure flag for the rest of the day, otherwise the room
+      // snaps straight back into Checkout Rooms on the next refresh.
+      const manualDailyOverride = existingMetadata?.manual_daily === true
+        || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
+      const manualNoShowOverride = existingMetadata?.manual_no_show === true;
       const hasProtectedCheckoutAssignment = protectedCheckoutAssignmentRoomIds.has(room.id);
-      const preserveExistingCheckout = currentCheckoutFlag && !shouldBeCheckoutRoom && (
+      const preserveExistingCheckout = !manualDailyOverride && currentCheckoutFlag && !shouldBeCheckoutRoom && (
         !reservationDataAuthoritative || manualOverride || hasProtectedCheckoutAssignment
       );
-      const effectiveCheckoutFlag = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+      const effectiveCheckoutFlag = manualDailyOverride
+        ? false
+        : preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+
       if (reservationDataAuthoritative && effectiveCheckoutFlag !== currentCheckoutFlag) {
         const label = isCheckedOut
           ? "Checked out"
@@ -568,14 +585,16 @@ export async function runPmsRefresh(
         // carry the separate "towel change required" flag on those rooms.
         updateData.towel_change_required = towel && !effectiveCheckoutFlag;
         updateData.linen_change_required = linen;
-        updateData.pms_metadata.scheduledDepartureToday = isScheduledDeparture;
+        updateData.pms_metadata.scheduledDepartureToday = manualDailyOverride ? false : isScheduledDeparture;
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
-        updateData.pms_metadata.departureTime = departureParsed;
-        updateData.pms_metadata.checkedOutToday = isCheckedOut;
+        updateData.pms_metadata.departureTime = manualDailyOverride ? null : departureParsed;
+        updateData.pms_metadata.checkedOutToday = manualDailyOverride ? false : isCheckedOut;
         updateData.pms_metadata.reservationStatusId = row.RawReservationStatusId ?? row.ReservationStatusId ?? null;
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
-        updateData.pms_metadata.isNoShow = row.IsNoShow === true;
+        // A manager's manual no-show mark for today wins over the PMS snapshot.
+        updateData.pms_metadata.isNoShow = manualNoShowOverride || row.IsNoShow === true;
+
         // Arrival today (vacant room expecting a guest) — neither checkout nor
         // a daily stayover; surfaced in its own Arrivals bucket in Team View.
         updateData.pms_metadata.arrivalToday = !effectiveCheckoutFlag && (
@@ -715,32 +734,42 @@ export async function runPmsRefresh(
           .in("status", ["assigned", "in_progress"]);
       }
 
-      // Reconcile today's assignments whose type no longer matches the PMS
-      // truth (e.g. auto-assign ran before the morning sync and inherited
-      // yesterday's checkout flags). Only untouched work is corrected —
-      // in-progress / completed cleans keep their type.
+      // Reconcile today's assignments against the PMS truth:
+      //  * assignment_type must match the PMS bucket (auto-assign may have run
+      //    before the morning sync and inherited yesterday's checkout flags);
+      //  * ready_to_clean must follow one single rule — daily rooms are always
+      //    cleanable, checkout rooms only once PMS confirms the guest left, or
+      //    once a manager released the room manually today.
+      // Only untouched work is corrected — in-progress / completed cleans keep
+      // their type and their release state.
       if (reservationDataAuthoritative) {
         const desiredType = effectiveCheckoutFlag ? "checkout_cleaning" : "daily_cleaning";
+        const manuallyReleasedToday =
+          getDateOnly(existingMetadata?.manualReadyToCleanAt) === today;
+        const pmsConfirmedDeparted = isCheckedOut || existingMetadata?.readyToClean === true;
+        const desiredRtc = effectiveCheckoutFlag
+          ? (pmsConfirmedDeparted || manuallyReleasedToday)
+          : true;
         const { data: staleAsg } = await supabase
           .from("room_assignments")
-          .select("id, assignment_type")
+          .select("id, assignment_type, ready_to_clean")
           .eq("room_id", room.id)
           .eq("assignment_date", today)
           .in("status", ["assigned", "dnd_pending_retry"] as any);
         const mismatched = (staleAsg ?? []).filter((a: any) => a.assignment_type !== desiredType);
-        if (mismatched.length > 0) {
+        const wrongRtc = (staleAsg ?? []).filter((a: any) => !!a.ready_to_clean !== desiredRtc);
+        const idsToPatch = Array.from(new Set([...mismatched, ...wrongRtc].map((a: any) => a.id)));
+        if (idsToPatch.length > 0) {
           const patch: Record<string, any> = {
             assignment_type: desiredType,
+            ready_to_clean: desiredRtc,
             updated_at: new Date().toISOString(),
           };
-          // Daily rooms are always cleanable; checkout rooms only once PMS
-          // confirms the guest actually left.
-          patch.ready_to_clean = effectiveCheckoutFlag ? isCheckedOut : true;
           const { error: asgErr } = await supabase
             .from("room_assignments")
             .update(patch as any)
-            .in("id", mismatched.map((m: any) => m.id));
-          if (!asgErr) {
+            .in("id", idsToPatch);
+          if (!asgErr && mismatched.length > 0) {
             eventInserts.push({
               hotel_id: hotelId,
               room_id: room.id,
@@ -752,8 +781,21 @@ export async function runPmsRefresh(
               is_conflict: false,
             });
           }
+          if (!asgErr && wrongRtc.length > 0) {
+            eventInserts.push({
+              hotel_id: hotelId,
+              room_id: room.id,
+              room_label: room.room_number || rawRoomName,
+              event_type: "ready_to_clean_corrected",
+              source: "pms_sync",
+              before: { ready_to_clean: !!wrongRtc[0].ready_to_clean },
+              after: { ready_to_clean: desiredRtc },
+              is_conflict: false,
+            });
+          }
         }
       }
+
 
 
       if (eventInserts.length > 0) {

@@ -1,32 +1,37 @@
-## What I found (verified against the live database)
+## What I verified in the live data (Hotel Ottofiori, 2026-08-03)
 
-Today's PMS sync for Ottofiori actually **worked correctly**. In the `rooms` table for 2026‑08‑03, exactly **14 rooms** carry `is_checkout_room = true` (102, 103, 104, 105, 202, 204, 301, 303, 304, 305, 402, 404, 405, 406) — this matches the 14 departure rows in your Previo Cleaning list. `pmsSyncDate` is today on all 21 rooms.
-
-The "19" comes from the **UI**, not the sync:
-
-- `HotelRoomOverview.tsx` buckets a room into Checkout Rooms if `is_checkout_room` **OR** today's assignment has `assignment_type = 'checkout_cleaning'`.
-- Today's assignments for **101, 201, 205, 401, 403** were created as `checkout_cleaning` while those rooms still carried yesterday's checkout flags (they were genuine checkouts on 08‑02). Today's PMS sync correctly cleared their flags, but the already-created assignment rows kept the old type.
-- 14 PMS checkouts + those 5 stale assignments = the 19 shown, and Daily Rooms drops to 2 instead of the real 6–7.
-
-Also confirmed: **no-show count of 0 is correct** — no reservation for today has a no-show status or note in the current snapshot. Room 401 is a special case: it is vacant with an arrival today (14:30), so it is neither a checkout nor a daily stayover, but the current code has no arrival bucket and would fall into Daily.
+- **Room 401**: `guest_count = 1`, `scheduledDepartureToday = false`, `isNoShow = false`, assignment `daily_cleaning`, `ready_to_clean = true`. So it is currently treated as an occupied stayover, not a no-show.
+- **No-show rule is too narrow.** In `previo-pms-sync`, a reservation is flagged no-show only when `arrivalDate === today` **and** `statusId === 8` (or the note literally says "no show"). A guest who never arrived on an earlier date, or whose reservation carries a different Previo status, is silently counted as in-house — which is exactly the 401 case.
+- **RTC is wrong on real checkouts.** Today 7 checkout assignments (102, 103, 104, 202, 404, 405, 406) have `ready_to_clean = true` while the room's own `pms_metadata.readyToClean` is not set (guest not confirmed departed). Only 105, 202, 402, 406 rooms carry a PMS `readyToClean` flag. Creation paths disagree: `RoomAssignmentDialog` and `SimpleRoomAssignment` block checkouts correctly, but `pmsRefresh`'s assignment-type reconciliation sets `ready_to_clean = true` for anything it re-types to daily, and once a checkout flag flips the row keeps a stale `true`. Nothing re-blocks a checkout assignment when PMS says the guest has not left.
+- **Previo clean-status push has never logged a single run.** `pms_sync_history` has **zero** rows with `sync_type = 'room_status_update'` (all time), and `previo-update-room-status` has no edge-function logs — despite 15 approvals yesterday. Config is fine (`status_push_enabled = true`, `outbound_kill_switch = false`, no allowlist for `ottofiori`), so the break is on the invocation side, not the gate. Root cause still to be confirmed by an instrumented test call.
+- **Petra is right about checkout → daily.** The Team View "Switch to Daily" button only sets `rooms.is_checkout_room = false` and the assignment type. But the bucketing function treats `pms_metadata.scheduledDepartureToday === true` as authoritative checkout, and that flag is untouched — so the room instantly snaps back to Checkout Rooms. The drag-and-drop path writes a `manual_checkout` override, the button does not, and neither clears `scheduledDepartureToday`.
 
 ## The fix
 
-**1. Make PMS the single source of truth for buckets (frontend)**
-- In `HotelRoomOverview.tsx`, when today's PMS snapshot is authoritative (`pms_metadata.pmsSyncDate` = today's Budapest date), bucket **only** on `is_checkout_room` / `scheduledDepartureToday` / `manual_checkout`. Use `assignment_type` as a fallback only when there is no fresh PMS data for the room.
-- Same rule applied wherever the checkout/daily label is derived for cards: `AssignedRoomCard.tsx` (housekeeper "Checkout Clean" header), `HousekeepingManagerView.tsx`, `FloorMap`, and the section counters ("14 PMS · 0 manual").
+**1. Manual no-show from a room chip (admins + managers)**
+- Add "Mark as No-Show" / "Clear No-Show" to the room chip popover in `HotelRoomOverview.tsx` (same permission gate as the other manager actions).
+- Writes `pms_metadata.manualNoShow = { value, at, by }` and surfaces the room in the existing No-Show section with the red ring and an "M" manual marker.
+- Marking a no-show removes it from Daily/Arrival buckets, cancels/parks today's not-yet-started assignment for that room, and logs a `pms_change_events` entry (`no_show_marked_manual`) with user + Budapest timestamp.
+- Manual marks survive the next PMS refresh for the rest of the day (same stale-override expiry already used for `manual_checkout`).
 
-**2. Reconcile assignments on every PMS refresh (frontend sync path)**
-- In `src/lib/pmsRefresh.ts`, after room updates, correct today's `room_assignments` whose `assignment_type` no longer matches the PMS classification, but only for assignments still in `assigned` / `dnd_pending_retry` state (never touch `in_progress`, `completed`, or approved work).
-- Also realign `ready_to_clean` and the checkout-derived towel/linen expectations for those rows, and log a `pms_change_events` entry (`assignment_type_corrected`) so managers can see it in the changes drawer.
-- Rooms already started as a checkout clean keep their type and get a small "PMS: daily" mismatch hint on the chip instead of being silently switched.
+**2. Better API-side no-show detection**
+- In `previo-pms-sync`, widen the rule: flag no-show when the reservation covers today and Previo reports a no-show status, regardless of whether `arrivalDate === today`; keep the note-text fallback.
+- Add a corroborating signal: reservation not checked in (never reached status 5/6) while its arrival date is already in the past → no-show candidate.
+- No-show rooms report `Occupied = "No"`, `People = 0`, no departure — so `pmsRefresh` stops writing a phantom `guest_count` (401's "1 guest").
 
-**3. Add an Arrival bucket so vacant-with-arrival rooms are correct**
-- Persist `arrivalToday` in `pms_metadata` during refresh (the Previo row already carries `Arrival` / `ArrivalDate`).
-- In the overview, rooms that are not checkout, not occupied, and have an arrival today render in a small **Arrivals** section (prep/inspection) instead of being counted as Daily Rooms.
+**3. Fix RTC (ready to clean)**
+- Single rule everywhere: a `checkout_cleaning` assignment is ready to clean **only** when PMS confirms departure (`pms_metadata.readyToClean` / `checkedOutToday`) or a manager releases it manually; `daily_cleaning` is always ready.
+- In `pmsRefresh.ts`, apply that rule on every refresh to today's not-started assignments — including re-blocking rows that are wrongly `true` — not only when the assignment type changes.
+- Correct today's 7 wrong rows as a one-off so the board is right immediately.
 
-**4. One-off data correction for today**
-- Reset the 5 stale `checkout_cleaning` assignments (101, 201, 205, 401, 403) to `daily_cleaning` where they have not been started, so today's board is right immediately without waiting for the next sync.
+**4. Verify and repair the Previo clean-status push**
+- Instrument `pushCleanStatusToPrevio` so failures are visible: log every attempt to `pms_sync_history` (including invocation failures, which currently vanish), and surface a toast with the reason.
+- Run a controlled test invoke of `previo-update-room-status` against one mapped Ottofiori room to determine whether the break is the function invocation, hotel resolution, room mapping, or the Previo endpoint itself, then fix the identified cause.
+- Fall back to the existing `previo-outbound-worker` queue when the direct call fails, so an approval is never silently lost.
 
-## Result
-Checkout Rooms shows 14, Daily Rooms shows the real stayovers, Arrivals are separated, no-show stays accurate, and a future auto-assign run before the day's sync can no longer poison the buckets.
+**5. Make manual checkout → daily stick**
+- The "Switch to Daily" chip button and the drag-drop path share one helper that: sets `is_checkout_room`, writes the `manual_checkout` override with user + timestamp, **clears `scheduledDepartureToday` / `checkedOutToday`** for the day, updates the assignment type, and resets `ready_to_clean` per rule 3.
+- The override is respected by the next PMS refresh for the rest of the day and shows the amber "M" badge so it is auditable.
+
+## Technical notes
+Files touched: `src/components/dashboard/HotelRoomOverview.tsx`, `src/lib/pmsRefresh.ts`, `src/components/dashboard/SupervisorApprovalView.tsx`, `src/components/dashboard/AutoRoomAssignment.tsx`, `supabase/functions/previo-pms-sync/index.ts`, and possibly `supabase/functions/previo-update-room-status/index.ts`. Plus translation keys for the new no-show actions across all supported languages, and a one-off data correction for today's RTC rows. No schema change is expected.

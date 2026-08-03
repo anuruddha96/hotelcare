@@ -755,29 +755,58 @@ export function SupervisorApprovalView() {
 
   /**
    * Push a room's clean status to Previo via the edge function.
-   * The edge function is currently gated to the `previo-test` hotel only —
-   * for every other hotel it returns `{ skipped: true }` and is a no-op.
-   * Returns a normalized result for UI feedback.
+   * Hotels are gated by their PMS configuration flags; disabled hotels get
+   * `{ skipped: true }`. Every attempt is logged to `pms_sync_history` so a
+   * silently failing invoke (network/auth) is visible in the sync history.
    */
   const pushCleanStatusToPrevio = async (
     roomId: string,
   ): Promise<{ status: 'success' | 'skipped' | 'failed'; error?: string }> => {
+    const logAttempt = async (
+      syncStatus: 'success' | 'skipped' | 'failed',
+      details: Record<string, any>,
+      errorMessage?: string,
+    ) => {
+      try {
+        await supabase.from('pms_sync_history').insert({
+          hotel_id: (await supabase.from('rooms').select('hotel').eq('id', roomId).maybeSingle()).data?.hotel || 'unknown',
+          sync_type: 'room_status_update',
+          direction: 'push',
+          sync_status: syncStatus,
+          error_message: errorMessage ?? null,
+          data: { room_id: roomId, source: 'approval_ui', ...details },
+        } as any);
+      } catch (logErr) {
+        console.error('Failed to log Previo push attempt:', logErr);
+      }
+    };
+
     try {
       const { data, error } = await supabase.functions.invoke('previo-update-room-status', {
         body: { roomId, status: 'clean' },
       });
       if (error) {
         console.error('❌ Previo update error:', error);
+        await logAttempt('failed', { stage: 'invoke' }, error.message);
         return { status: 'failed', error: error.message };
       }
-      if (data?.skipped) return { status: 'skipped' };
-      if (data?.success) return { status: 'success' };
+      if (data?.skipped) {
+        await logAttempt('skipped', { reason: data?.message ?? 'skipped by edge function' });
+        return { status: 'skipped' };
+      }
+      if (data?.success) {
+        // The edge function logs its own success row; keep this one lightweight.
+        return { status: 'success' };
+      }
+      await logAttempt('failed', { response: data ?? null }, data?.error || 'unknown response');
       return { status: 'failed', error: data?.error || 'unknown response' };
     } catch (e: any) {
       console.error('Failed to update Previo:', e);
+      await logAttempt('failed', { stage: 'exception' }, e?.message || 'invoke failed');
       return { status: 'failed', error: e?.message || 'invoke failed' };
     }
   };
+
 
   const performBulkApprove = async (hotelName: string) => {
     const assignments = hotelGroups[hotelName];
