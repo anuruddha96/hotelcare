@@ -1123,23 +1123,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   onClick={async (e) => {
                     e.stopPropagation();
                     setActionLoading(`switch-${room.id}`);
-                    const newType = isCheckout ? 'daily_cleaning' : 'checkout_cleaning';
                     const newIsCheckout = !isCheckout;
                     try {
-                      const updates = [
-                        supabase.from('rooms').update({ is_checkout_room: newIsCheckout } as any).eq('id', room.id).then(),
-                      ];
-                      if (assignment) {
-                        updates.push(
-                          supabase.from('room_assignments').update({ assignment_type: newType } as any).eq('room_id', room.id).eq('assignment_date', selectedDate).then()
-                        );
-                      }
-                      await Promise.all(updates);
+                      await switchRoomType(room, newIsCheckout);
                       toast.success(`Room ${room.room_number} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
                       await fetchData();
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
                   }}
+
                 >
                   <ArrowLeftRight className="h-3 w-3" /> {isCheckout ? t('roomOverview.switchToDaily') : t('roomOverview.switchToCheckout')}
                 </button>
