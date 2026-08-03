@@ -749,7 +749,13 @@ export async function runPmsRefresh(
         const desiredType = effectiveCheckoutFlag ? "checkout_cleaning" : "daily_cleaning";
         const manuallyReleasedToday =
           getDateOnly(existingMetadata?.manualReadyToCleanAt) === today;
-        const pmsConfirmedDeparted = isCheckedOut || existingMetadata?.readyToClean === true;
+        // A stored readyToClean flag only counts when it was produced today.
+        // Without the date guard yesterday's departure kept releasing today's
+        // still-occupied checkout rooms as RTC.
+        const storedRtcDate =
+          getDateOnly(existingMetadata?.readyToCleanDate ?? existingMetadata?.checkedOutAt);
+        const pmsConfirmedDeparted =
+          isCheckedOut || (existingMetadata?.readyToClean === true && storedRtcDate === today);
         const desiredRtc = effectiveCheckoutFlag
           ? (pmsConfirmedDeparted || manuallyReleasedToday)
           : true;
