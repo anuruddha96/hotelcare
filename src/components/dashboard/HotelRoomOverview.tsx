@@ -583,7 +583,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
-    const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || room.is_checkout_room || isScheduledCheckoutRoom(room);
+    const isCheckout = isCheckoutBucket(room);
     const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
     const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms;
 
