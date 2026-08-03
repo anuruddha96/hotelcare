@@ -23,6 +23,7 @@ import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
 
 
 interface RoomData {
