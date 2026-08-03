@@ -901,7 +901,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                             .eq('assignment_date', selectedDate)
                             .eq('assignment_type', 'checkout_cleaning');
                           if (error) throw error;
+                          // Drop the manual-release stamp so the PMS sync can
+                          // keep the room blocked while the guest is in house.
+                          await mergeRoomMetadata(room, { manualReadyToCleanAt: null, manualReadyToCleanBy: null });
                           // Audit trail so cron/reconcile understands this was intentional.
+
                           await supabase.from('pms_change_events').insert({
                             hotel_id: room.hotel,
                             room_id: room.id,
