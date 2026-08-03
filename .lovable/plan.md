@@ -1,39 +1,32 @@
-## Problem
+## What I found (verified against the live database)
 
-When Nykipanchuk_073 presses and holds **Start** on a room card, the app goes to a blank white screen. Other users are fine.
+Today's PMS sync for Ottofiori actually **worked correctly**. In the `rooms` table for 2026‑08‑03, exactly **14 rooms** carry `is_checkout_room = true` (102, 103, 104, 105, 202, 204, 301, 303, 304, 305, 402, 404, 405, 406) — this matches the 14 departure rows in your Previo Cleaning list. `pmsSyncDate` is today on all 21 rooms.
 
-What I confirmed by reading the code:
+The "19" comes from the **UI**, not the sync:
 
-- The Start button is `HoldButton` (`src/components/ui/hold-button.tsx`), which fires `updateAssignmentStatus('in_progress')` in `src/components/dashboard/AssignedRoomCard.tsx` after a 2s hold. It calls `navigator.vibrate` on touch start.
-- On success the card re-renders into its `in_progress` layout (timer, checklist tiles, minibar, photo capture).
-- `src/main.tsx` renders `<App />` with **no error boundary anywhere above the housekeeper views** — the only `ErrorBoundary` in the project is used inside `SimplifiedPhotoCapture`. So any render-time exception in the in-progress card unmounts the whole React tree and leaves a literally blank page, with no message, no recovery button, and nothing recorded.
+- `HotelRoomOverview.tsx` buckets a room into Checkout Rooms if `is_checkout_room` **OR** today's assignment has `assignment_type = 'checkout_cleaning'`.
+- Today's assignments for **101, 201, 205, 401, 403** were created as `checkout_cleaning` while those rooms still carried yesterday's checkout flags (they were genuine checkouts on 08‑02). Today's PMS sync correctly cleared their flags, but the already-created assignment rows kept the old type.
+- 14 PMS checkouts + those 5 stale assignments = the 19 shown, and Daily Rooms drops to 2 instead of the real 6–7.
 
-That last point is the real app-side bug: whatever her device-specific trigger is (an unsupported browser API in the in-progress branch, or a low-memory WebView kill), the app currently has no safety net and no way for us to see the error. I have **not** yet identified the specific throwing line — it doesn't reproduce on other devices, and no error from her session exists in the logs we can read. So step 1 of the plan is to make the failure visible instead of guessing.
+Also confirmed: **no-show count of 0 is correct** — no reservation for today has a no-show status or note in the current snapshot. Room 401 is a special case: it is vacant with an arrival today (14:30), so it is neither a checkout nor a daily stayover, but the current code has no arrival bucket and would fall into Daily.
 
-## Plan
+## The fix
 
-### 1. Never show a white screen again (root safety net)
-- Wrap the app in `src/main.tsx` (and inside `App`'s provider tree) with the existing `ErrorBoundary`, styled as a friendly full-screen fallback: message in the user's language, a **Reload** button, and a small "copy diagnostics" line.
-- Add a `window.onerror` / `unhandledrejection` listener that renders the same fallback if a crash escapes React.
+**1. Make PMS the single source of truth for buckets (frontend)**
+- In `HotelRoomOverview.tsx`, when today's PMS snapshot is authoritative (`pms_metadata.pmsSyncDate` = today's Budapest date), bucket **only** on `is_checkout_room` / `scheduledDepartureToday` / `manual_checkout`. Use `assignment_type` as a fallback only when there is no fresh PMS data for the room.
+- Same rule applied wherever the checkout/daily label is derived for cards: `AssignedRoomCard.tsx` (housekeeper "Checkout Clean" header), `HousekeepingManagerView.tsx`, `FloorMap`, and the section counters ("14 PMS · 0 manual").
 
-### 2. Isolate the room card
-- Wrap each `AssignedRoomCard` (and the mobile card) in its own boundary, so a single bad room degrades to an inline "This room card failed to load — Retry" tile while the rest of the list keeps working. She can then still use other rooms and the manager can see which room breaks.
+**2. Reconcile assignments on every PMS refresh (frontend sync path)**
+- In `src/lib/pmsRefresh.ts`, after room updates, correct today's `room_assignments` whose `assignment_type` no longer matches the PMS classification, but only for assignments still in `assigned` / `dnd_pending_retry` state (never touch `in_progress`, `completed`, or approved work).
+- Also realign `ready_to_clean` and the checkout-derived towel/linen expectations for those rows, and log a `pms_change_events` entry (`assignment_type_corrected`) so managers can see it in the changes drawer.
+- Rooms already started as a checkout clean keep their type and get a small "PMS: daily" mismatch hint on the chip instead of being silently switched.
 
-### 3. Capture diagnostics we can actually read
-- On any caught crash, write one row to a small `client_error_logs` table (user id, hotel, route, room/assignment id, error message + stack, user agent, screen size, memory hint) via Supabase, plus `console.error`. This is what will finally tell us what her phone is doing — the crash is currently invisible to us.
-- Include the last user action ("start-room") so we can correlate.
+**3. Add an Arrival bucket so vacant-with-arrival rooms are correct**
+- Persist `arrivalToday` in `pms_metadata` during refresh (the Previo row already carries `Arrival` / `ArrivalDate`).
+- In the overview, rooms that are not checkout, not occupied, and have an arrival today render in a small **Arrivals** section (prep/inspection) instead of being counted as Daily Rooms.
 
-### 4. Harden the known device-sensitive spots in the start path
-- Guard `navigator.vibrate` in `HoldButton` in a `try/catch` (some Android WebViews throw when vibration is blocked by permission policy).
-- Guard date/`Intl` formatting used by the in-progress card (timer start time, Budapest-time helpers) so a malformed or null `started_at` renders "—" instead of throwing.
-- Add `pointercancel` / `touchcancel` handling to `HoldButton` so an interrupted long press cleans up its timers rather than firing later against an unmounted card.
+**4. One-off data correction for today**
+- Reset the 5 stale `checkout_cleaning` assignments (101, 201, 205, 401, 403) to `daily_cleaning` where they have not been started, so today's board is right immediately without waiting for the next sync.
 
-### 5. Verify
-- Run the housekeeper flow in a headless browser at her phone's viewport, force a throw inside the in-progress branch, and confirm the fallback UI appears instead of a white screen and that a diagnostics row is written.
-- Then ask her to try once more; whatever her device hits will now be captured, and I can ship the precise fix in a short follow-up.
-
-## Technical notes
-
-- Files: `src/main.tsx`, `src/App.tsx`, `src/components/ErrorBoundary.tsx` (extend with `onError` reporting + variant prop), `src/components/ui/hold-button.tsx`, `src/components/dashboard/AssignedRoomCard.tsx`, `src/components/dashboard/HousekeepingStaffView.tsx`, `src/components/dashboard/MobileHousekeepingCard.tsx`, plus a new `src/lib/clientErrorReporter.ts`.
-- One migration: `public.client_error_logs` with grants (`INSERT` for `authenticated`, `SELECT` for admins via `has_role`), RLS enabled.
-- If the diagnostics show no JS error at all when she crashes, the cause is a WebView out-of-memory kill; the follow-up would then be reducing in-progress card memory (lazy-mounting the photo/minibar dialogs instead of keeping them mounted).
+## Result
+Checkout Rooms shows 14, Daily Rooms shows the real stayovers, Arrivals are separated, no-show stays accurate, and a future auto-assign run before the day's sync can no longer poison the buckets.
