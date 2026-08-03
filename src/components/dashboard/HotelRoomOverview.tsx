@@ -488,10 +488,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     (room.pms_metadata as any)?.pmsSyncDate === todayBudapest();
 
   const isCheckoutBucket = (room: RoomData) => {
+    // A manager's explicit "switch to Daily" for today wins over everything.
+    if ((room.pms_metadata as any)?.manual_daily === true) return false;
     if (room.is_checkout_room || isScheduledCheckoutRoom(room)) return true;
     if (hasFreshPms(room)) return false;
     return assignmentMap.get(room.id)?.assignment_type === 'checkout_cleaning';
   };
+
 
   const isArrivalOnly = (room: RoomData) =>
     !isCheckoutBucket(room) &&
