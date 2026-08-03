@@ -617,10 +617,13 @@ export async function runPmsRefresh(
         if (isCheckedOut) {
           updateData.pms_metadata.readyToClean = true;
           updateData.pms_metadata.checkedOutAt = new Date().toISOString();
+          // Date-stamp the release so it can never leak into a later day.
+          updateData.pms_metadata.readyToCleanDate = today;
         }
         if (!isCheckedOut) {
           delete updateData.pms_metadata.readyToClean;
           delete updateData.pms_metadata.checkedOutAt;
+          delete updateData.pms_metadata.readyToCleanDate;
         }
       }
       if (effectiveStatus) {
@@ -746,7 +749,13 @@ export async function runPmsRefresh(
         const desiredType = effectiveCheckoutFlag ? "checkout_cleaning" : "daily_cleaning";
         const manuallyReleasedToday =
           getDateOnly(existingMetadata?.manualReadyToCleanAt) === today;
-        const pmsConfirmedDeparted = isCheckedOut || existingMetadata?.readyToClean === true;
+        // A stored readyToClean flag only counts when it was produced today.
+        // Without the date guard yesterday's departure kept releasing today's
+        // still-occupied checkout rooms as RTC.
+        const storedRtcDate =
+          getDateOnly(existingMetadata?.readyToCleanDate ?? existingMetadata?.checkedOutAt);
+        const pmsConfirmedDeparted =
+          isCheckedOut || (existingMetadata?.readyToClean === true && storedRtcDate === today);
         const desiredRtc = effectiveCheckoutFlag
           ? (pmsConfirmedDeparted || manuallyReleasedToday)
           : true;

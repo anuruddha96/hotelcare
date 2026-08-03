@@ -37,6 +37,7 @@ import {
   FairnessMetrics
 } from '@/lib/roomAssignmentAlgorithm';
 import { getLocalDateString } from '@/lib/utils';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
 
 const PUBLIC_AREAS = [
   { key: 'lobby_cleaning', name: 'Lobby', icon: '🏨' },
@@ -495,8 +496,7 @@ export function AutoRoomAssignment({
     // Rebalance only PMS-confirmed departed checkout rooms. A scheduled
     // checkout time (for example 11:00) is not enough to mark RTC.
     const isPmsConfirmedReadyToClean = (r: RoomForAssignment) =>
-      (r.pms_metadata as any)?.checkedOutToday === true ||
-      (r.pms_metadata as any)?.readyToClean === true;
+      isPmsRtcToday(r.pms_metadata as any);
     const departedPool: RoomForAssignment[] = [];
     const rebalanced = previews.map(p => {
       const kept: RoomForAssignment[] = [];
@@ -553,8 +553,7 @@ export function AutoRoomAssignment({
     try {
       // Create all assignments with checkout-first priority ordering
       const isPmsConfirmedReadyToClean = (room: RoomForAssignment): boolean =>
-        (room.pms_metadata as any)?.checkedOutToday === true ||
-        (room.pms_metadata as any)?.readyToClean === true;
+        isPmsRtcToday(room.pms_metadata as any);
 
       const assignments = assignmentPreviews.flatMap(preview => {
         // Assign priority based on room type urgency:
