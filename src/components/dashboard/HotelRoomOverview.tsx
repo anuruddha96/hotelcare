@@ -167,7 +167,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverNotes, setPopoverNotes] = useState<string>('');
-  const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | null>(null);
+  const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | 'arrival' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [managerMessage, setManagerMessage] = useState('');
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
@@ -1157,7 +1157,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily' | 'noshow') => {
+  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
     e.preventDefault();
     setDragOverSection(null);
     justDraggedRef.current = Date.now();
@@ -1300,7 +1300,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow') => {
+  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
     // Right column: live today rooms for this section (unchanged).
     const todayRooms = roomList;
 
