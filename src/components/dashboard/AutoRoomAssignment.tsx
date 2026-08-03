@@ -37,6 +37,7 @@ import {
   FairnessMetrics
 } from '@/lib/roomAssignmentAlgorithm';
 import { getLocalDateString } from '@/lib/utils';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
 
 const PUBLIC_AREAS = [
   { key: 'lobby_cleaning', name: 'Lobby', icon: '🏨' },
@@ -552,8 +553,7 @@ export function AutoRoomAssignment({
     try {
       // Create all assignments with checkout-first priority ordering
       const isPmsConfirmedReadyToClean = (room: RoomForAssignment): boolean =>
-        (room.pms_metadata as any)?.checkedOutToday === true ||
-        (room.pms_metadata as any)?.readyToClean === true;
+        isPmsRtcToday(room.pms_metadata as any);
 
       const assignments = assignmentPreviews.flatMap(preview => {
         // Assign priority based on room type urgency:

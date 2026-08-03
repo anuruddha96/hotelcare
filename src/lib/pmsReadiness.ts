@@ -1,4 +1,4 @@
-import { getBudapestToday } from "@/lib/budapestTime";
+import { todayBudapest } from "@/lib/budapestTime";
 
 const dateOnly = (value: unknown): string | null => {
   if (!value) return null;
@@ -21,6 +21,6 @@ export const isPmsRtcToday = (meta: Record<string, any> | null | undefined): boo
   if (!flagged) return false;
   const stamp = dateOnly(meta.readyToCleanDate ?? meta.checkedOutAt);
   if (!stamp) return false;
-  const today = getBudapestToday();
+  const today = todayBudapest();
   return stamp === today || stamp === new Date().toISOString().split("T")[0];
 };
