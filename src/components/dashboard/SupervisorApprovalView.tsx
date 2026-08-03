@@ -769,7 +769,7 @@ export function SupervisorApprovalView() {
     ) => {
       try {
         await supabase.from('pms_sync_history').insert({
-          hotel_id: profile?.assigned_hotel || 'unknown',
+          hotel_id: (await supabase.from('rooms').select('hotel').eq('id', roomId).maybeSingle()).data?.hotel || 'unknown',
           sync_type: 'room_status_update',
           direction: 'push',
           sync_status: syncStatus,
