@@ -576,8 +576,15 @@ export async function runPmsRefresh(
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
         updateData.pms_metadata.isNoShow = row.IsNoShow === true;
+        // Arrival today (vacant room expecting a guest) — neither checkout nor
+        // a daily stayover; surfaced in its own Arrivals bucket in Team View.
+        updateData.pms_metadata.arrivalToday = !effectiveCheckoutFlag && (
+          !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
+        );
+        updateData.pms_metadata.occupiedToday = classification.isDailyRoom;
         updateData.pms_metadata.noteOta = row.NoteOta ?? null;
         updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+
         if (!inferredBed) {
           delete updateData.pms_metadata.inferredBedConfig;
           // The stay that the bed setup belonged to is over: once PMS confirms
