@@ -48,6 +48,7 @@ import { RoomAssignmentChangeDialog } from './RoomAssignmentChangeDialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { todayBudapest } from '@/lib/budapestTime';
 
 interface AssignedRoomCardProps {
   assignment: {
@@ -127,14 +128,22 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const isHighPriority = assignment.priority >= 3;
   const showPriorityGlow = isHighPriority && assignment.status !== 'completed' && assignment.status !== 'in_progress';
   
+  // PMS is the source of truth for checkout vs daily whenever today's
+  // snapshot exists — a stale assignment_type (auto-assign ran before the
+  // morning sync) must not label a stayover as a checkout clean.
+  const pmsMetaForType = (assignment.rooms as any)?.pms_metadata;
+  const hasFreshPmsForType = pmsMetaForType?.pmsSyncDate === todayBudapest();
+  const pmsSaysCheckout = !!assignment.rooms?.is_checkout_room
+    || pmsMetaForType?.scheduledDepartureToday === true;
+  const isCheckoutClean = hasFreshPmsForType
+    ? pmsSaysCheckout
+    : (assignment.assignment_type === 'checkout_cleaning' || pmsSaysCheckout);
   // Check if this is a checkout room waiting for guest to leave
-  const isCheckoutWaiting = assignment.assignment_type === 'checkout_cleaning' && !assignment.ready_to_clean;
+  const isCheckoutWaiting = isCheckoutClean && !assignment.ready_to_clean;
   // Checkout cleans always include a full towel change — hide the extra
   // "Towel Change" badges/instructions to avoid redundant noise.
-  const isCheckoutClean = assignment.assignment_type === 'checkout_cleaning'
-    || !!assignment.rooms?.is_checkout_room
-    || (assignment.rooms as any)?.pms_metadata?.scheduledDepartureToday === true;
   const showTowelChange = !!assignment.rooms?.towel_change_required && !isCheckoutClean;
+
   // Checkout cleans always get a full linen + towel change, so the extra
   // "bed linen change" instruction is noise there.
   const showLinenChange = !!assignment.rooms?.linen_change_required && !isCheckoutClean;
@@ -921,7 +930,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 variant="outline" 
                 className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full hover:bg-muted/80 transition-colors flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
-                {getAssignmentTypeLabel(assignment.assignment_type)}
+                {getAssignmentTypeLabel(
+                  isCheckoutClean ? 'checkout_cleaning'
+                    : assignment.assignment_type === 'checkout_cleaning' ? 'daily_cleaning'
+                    : assignment.assignment_type,
+                )}
               </Badge>
             )}
           </div>
@@ -1265,7 +1278,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {assignment.assignment_type !== 'checkout_cleaning' && (
+                  {!isCheckoutClean && (
                     <button
                       type="button"
                       onClick={() => setDailyPhotoDialogOpen(true)}

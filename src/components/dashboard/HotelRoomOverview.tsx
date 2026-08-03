@@ -22,6 +22,8 @@ import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { todayBudapest } from '@/lib/budapestTime';
+
 
 interface RoomData {
   id: string;
@@ -165,7 +167,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverNotes, setPopoverNotes] = useState<string>('');
-  const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | null>(null);
+  const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | 'arrival' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [managerMessage, setManagerMessage] = useState('');
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
@@ -479,17 +481,35 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const isScheduledCheckoutRoom = (room: RoomData) =>
     room.pms_metadata?.scheduledDepartureToday === true;
 
-  const checkoutRooms = rooms.filter(r => {
-    const assignment = assignmentMap.get(r.id);
-    return r.is_checkout_room || isScheduledCheckoutRoom(r) || assignment?.assignment_type === 'checkout_cleaning';
-  });
+  // When today's PMS snapshot is present, PMS is the single source of truth
+  // for the bucket. Assignment type is only a fallback for rooms with no
+  // fresh PMS data (it can be stale when auto-assign ran before the sync).
+  const hasFreshPms = (room: RoomData) =>
+    (room.pms_metadata as any)?.pmsSyncDate === todayBudapest();
+
+  const isCheckoutBucket = (room: RoomData) => {
+    if (room.is_checkout_room || isScheduledCheckoutRoom(room)) return true;
+    if (hasFreshPms(room)) return false;
+    return assignmentMap.get(room.id)?.assignment_type === 'checkout_cleaning';
+  };
+
+  const isArrivalOnly = (room: RoomData) =>
+    !isCheckoutBucket(room) &&
+    hasFreshPms(room) &&
+    (room.pms_metadata as any)?.arrivalToday === true &&
+    (room.pms_metadata as any)?.occupiedToday !== true;
+
+  const checkoutRooms = rooms.filter(isCheckoutBucket);
+  const arrivalRooms = rooms.filter(r => isArrivalOnly(r) && (r.pms_metadata as any)?.isNoShow !== true);
   const dailyRooms = rooms.filter(r => {
-    const assignment = assignmentMap.get(r.id);
-    if (r.is_checkout_room || isScheduledCheckoutRoom(r) || assignment?.assignment_type === 'checkout_cleaning') return false;
+    if (isCheckoutBucket(r)) return false;
     // No-show rooms surface in their own section below.
     if ((r.pms_metadata as any)?.isNoShow === true) return false;
+    // Arrivals get their own section (vacant room, guest expected today).
+    if (isArrivalOnly(r)) return false;
     return true;
   });
+
 
   const isPmsNoShow = (room: RoomData) =>
     (room.pms_metadata as any)?.isNoShow === true;
@@ -563,7 +583,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
-    const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || room.is_checkout_room || isScheduledCheckoutRoom(room);
+    const isCheckout = isCheckoutBucket(room);
     const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
     const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms;
 
@@ -1137,7 +1157,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily' | 'noshow') => {
+  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
     e.preventDefault();
     setDragOverSection(null);
     justDraggedRef.current = Date.now();
@@ -1280,7 +1300,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow') => {
+  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
     // Right column: live today rooms for this section (unchanged).
     const todayRooms = roomList;
 
@@ -1643,12 +1663,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                {renderSection(t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
                <div className="border-t border-border/50" />
                {renderSection(t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {arrivalRooms.length > 0 && (
+                 <>
+                   <div className="border-t border-border/50" />
+                   {renderSection(t('team.arrivalRooms'), arrivalRooms, <BedDouble className="h-3.5 w-3.5 text-emerald-600" />, 'arrival')}
+                 </>
+               )}
                {noShowRooms.length > 0 && (
                  <>
                    <div className="border-t border-border/50" />
                    {renderSection(t('team.noShowRooms'), noShowRooms, <BedDouble className="h-3.5 w-3.5 text-red-600" />, 'noshow')}
                  </>
                )}
+
             </>
           )}
           {publicAreaTasks.length > 0 && (

@@ -576,8 +576,15 @@ export async function runPmsRefresh(
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
         updateData.pms_metadata.isNoShow = row.IsNoShow === true;
+        // Arrival today (vacant room expecting a guest) — neither checkout nor
+        // a daily stayover; surfaced in its own Arrivals bucket in Team View.
+        updateData.pms_metadata.arrivalToday = !effectiveCheckoutFlag && (
+          !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
+        );
+        updateData.pms_metadata.occupiedToday = classification.isDailyRoom;
         updateData.pms_metadata.noteOta = row.NoteOta ?? null;
         updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+
         if (!inferredBed) {
           delete updateData.pms_metadata.inferredBedConfig;
           // The stay that the bed setup belonged to is over: once PMS confirms
@@ -707,6 +714,47 @@ export async function runPmsRefresh(
           .eq("assignment_type", "checkout_cleaning")
           .in("status", ["assigned", "in_progress"]);
       }
+
+      // Reconcile today's assignments whose type no longer matches the PMS
+      // truth (e.g. auto-assign ran before the morning sync and inherited
+      // yesterday's checkout flags). Only untouched work is corrected —
+      // in-progress / completed cleans keep their type.
+      if (reservationDataAuthoritative) {
+        const desiredType = effectiveCheckoutFlag ? "checkout_cleaning" : "daily_cleaning";
+        const { data: staleAsg } = await supabase
+          .from("room_assignments")
+          .select("id, assignment_type")
+          .eq("room_id", room.id)
+          .eq("assignment_date", today)
+          .in("status", ["assigned", "dnd_pending_retry"] as any);
+        const mismatched = (staleAsg ?? []).filter((a: any) => a.assignment_type !== desiredType);
+        if (mismatched.length > 0) {
+          const patch: Record<string, any> = {
+            assignment_type: desiredType,
+            updated_at: new Date().toISOString(),
+          };
+          // Daily rooms are always cleanable; checkout rooms only once PMS
+          // confirms the guest actually left.
+          patch.ready_to_clean = effectiveCheckoutFlag ? isCheckedOut : true;
+          const { error: asgErr } = await supabase
+            .from("room_assignments")
+            .update(patch as any)
+            .in("id", mismatched.map((m: any) => m.id));
+          if (!asgErr) {
+            eventInserts.push({
+              hotel_id: hotelId,
+              room_id: room.id,
+              room_label: room.room_number || rawRoomName,
+              event_type: "assignment_type_corrected",
+              source: "pms_sync",
+              before: { assignment_type: mismatched[0].assignment_type },
+              after: { assignment_type: desiredType },
+              is_conflict: false,
+            });
+          }
+        }
+      }
+
 
       if (eventInserts.length > 0) {
         const insertRes: any = await supabase
