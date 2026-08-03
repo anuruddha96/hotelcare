@@ -785,10 +785,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {(() => {
-            const pmsRtc = isCheckout && (
-              (room as any).pms_metadata?.checkedOutToday === true ||
-              (room as any).pms_metadata?.readyToClean === true
-            );
+            // Only a departure confirmed by PMS *today* counts as RTC.
+            const pmsRtc = isCheckout && isPmsRtcToday((room as any).pms_metadata);
             const showRtc = (assignment?.ready_to_clean || (!assignment && pmsRtc))
               && isCheckout
               && !(assignment?.status === 'completed' && assignment?.supervisor_approved);
