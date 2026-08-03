@@ -48,6 +48,7 @@ import { RoomAssignmentChangeDialog } from './RoomAssignmentChangeDialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { todayBudapest } from '@/lib/budapestTime';
 
 interface AssignedRoomCardProps {
   assignment: {
@@ -1273,7 +1274,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {assignment.assignment_type !== 'checkout_cleaning' && (
+                  {!isCheckoutClean && (
                     <button
                       type="button"
                       onClick={() => setDailyPhotoDialogOpen(true)}
