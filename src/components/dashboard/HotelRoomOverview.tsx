@@ -479,17 +479,35 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const isScheduledCheckoutRoom = (room: RoomData) =>
     room.pms_metadata?.scheduledDepartureToday === true;
 
-  const checkoutRooms = rooms.filter(r => {
-    const assignment = assignmentMap.get(r.id);
-    return r.is_checkout_room || isScheduledCheckoutRoom(r) || assignment?.assignment_type === 'checkout_cleaning';
-  });
+  // When today's PMS snapshot is present, PMS is the single source of truth
+  // for the bucket. Assignment type is only a fallback for rooms with no
+  // fresh PMS data (it can be stale when auto-assign ran before the sync).
+  const hasFreshPms = (room: RoomData) =>
+    (room.pms_metadata as any)?.pmsSyncDate === todayBudapest();
+
+  const isCheckoutBucket = (room: RoomData) => {
+    if (room.is_checkout_room || isScheduledCheckoutRoom(room)) return true;
+    if (hasFreshPms(room)) return false;
+    return assignmentMap.get(room.id)?.assignment_type === 'checkout_cleaning';
+  };
+
+  const isArrivalOnly = (room: RoomData) =>
+    !isCheckoutBucket(room) &&
+    hasFreshPms(room) &&
+    (room.pms_metadata as any)?.arrivalToday === true &&
+    (room.pms_metadata as any)?.occupiedToday !== true;
+
+  const checkoutRooms = rooms.filter(isCheckoutBucket);
+  const arrivalRooms = rooms.filter(r => isArrivalOnly(r) && (r.pms_metadata as any)?.isNoShow !== true);
   const dailyRooms = rooms.filter(r => {
-    const assignment = assignmentMap.get(r.id);
-    if (r.is_checkout_room || isScheduledCheckoutRoom(r) || assignment?.assignment_type === 'checkout_cleaning') return false;
+    if (isCheckoutBucket(r)) return false;
     // No-show rooms surface in their own section below.
     if ((r.pms_metadata as any)?.isNoShow === true) return false;
+    // Arrivals get their own section (vacant room, guest expected today).
+    if (isArrivalOnly(r)) return false;
     return true;
   });
+
 
   const isPmsNoShow = (room: RoomData) =>
     (room.pms_metadata as any)?.isNoShow === true;
