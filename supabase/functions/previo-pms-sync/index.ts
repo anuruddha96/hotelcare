@@ -762,29 +762,33 @@ serve(async (req) => {
         isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
 
       // No-show is a RESERVATION state, not "the room has no reservation".
-      // Real definition: reception booked a guest to arrive today and they
-      // never checked in. Previo marks such reservations with statusId 6.
-      // A room with no reservation at all is simply vacant.
+      // Previo marks such reservations with statusId 8. The reservation may
+      // have arrived today OR earlier (a multi-night booking the guest never
+      // showed up for), so check any reservation that spans today rather than
+      // only today's arrivals. A room with no reservation is simply vacant.
       const noteLower = (res?.note ?? "").toLowerCase();
+      const spansToday = !!res && res.arrivalDate <= today && res.departureDate >= today;
       const isNoShow = !!res
-        && res.arrivalDate === today
+        && spansToday
         && (isNoShowStatus(res.statusId) || noteLower.includes("no show") || noteLower.includes("no-show"));
 
       return {
         Room: r.name,
         RoomId: r.roomId,
         RoomKindName: r.roomKindName,
-        Occupied: isOccupied || isDeparture ? "Yes" : "No",
+        // A no-show never occupies the room, and it is not a real arrival.
+        Occupied: !isNoShow && (isOccupied || isDeparture) ? "Yes" : "No",
         // Prefer the real reservation departure time; fall back to 11:00
         // (Ottofiori standard check-out) so the chip is never blank.
-        Departure: isDeparture ? (res?.departureTime || "11:00") : null,
-        DepartureTomorrow: departureTomorrowConfirmed,
+        Departure: !isNoShow && isDeparture ? (res?.departureTime || "11:00") : null,
+        DepartureTomorrow: !isNoShow && departureTomorrowConfirmed,
         DepartureDate: res?.departureDate ?? null,
         ArrivalDate: res?.arrivalDate ?? null,
-        Arrival: isArrival ? "15:00" : null,
+        Arrival: !isNoShow && isArrival ? "15:00" : null,
         CheckedOut: isCheckedOut,
-        IsCheckoutRoom: isCheckoutRoom,
+        IsCheckoutRoom: !isNoShow && isCheckoutRoom,
         IsNoShow: isNoShow,
+
         // Keep the legacy field safe for stale browser bundles that used to
         // treat statusId=5 as checked-out. Raw value remains available below
         // for audit/storage, but only true checkout statuses are exposed here.
