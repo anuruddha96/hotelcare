@@ -288,11 +288,15 @@ serve(async (req) => {
   // Organization slug lives on hotel_configurations -> organizations.
   const { data: hotelCfg } = await service
     .from("hotel_configurations")
-    .select("organization_id, organizations(slug)")
+    .select("organization_id")
     .eq("hotel_id", hotelId)
     .maybeSingle();
-  const orgSlug: string =
-    (hotelCfg as { organizations?: { slug?: string } } | null)?.organizations?.slug || body.orgSlug || "";
+  let orgSlug: string = body.orgSlug || "";
+  const orgId = (hotelCfg as { organization_id?: string } | null)?.organization_id;
+  if (orgId) {
+    const { data: org } = await service.from("organizations").select("slug").eq("id", orgId).maybeSingle();
+    orgSlug = (org as { slug?: string } | null)?.slug || orgSlug;
+  }
   if (!orgSlug) return json({ error: `No organization found for ${hotelId}` }, 404);
   const hotId = String(conf.pms_hotel_id || "");
   let creds;
