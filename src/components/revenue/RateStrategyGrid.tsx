@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -210,7 +210,7 @@ export default function RateStrategyGrid({
                   const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
                   const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [];
                   return (
-                    <>
+                    <Fragment key={rt.id}>
                       <tr key={`${rt.id}-head`} className="bg-muted/40">
                         <td
                           colSpan={dates.length + 1}
@@ -239,7 +239,7 @@ export default function RateStrategyGrid({
                           })}
                         </tr>
                       ))}
-                    </>
+                    </Fragment>
                   );
                 })}
                 <tr className="bg-muted/30">
