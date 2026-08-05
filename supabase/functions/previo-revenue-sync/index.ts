@@ -251,7 +251,9 @@ serve(async (req) => {
   const token = (req.headers.get("Authorization") || "").replace("Bearer ", "");
   let actorId: string | null = null;
   let actorName: string | null = null;
-  if (token !== SERVICE) {
+  const probeToken = Deno.env.get("PREVIO_PROBE_TOKEN") || "";
+  const probeAuthorized = !!probeToken && (req.headers.get("x-probe-token") || "") === probeToken;
+  if (token !== SERVICE && !probeAuthorized) {
     if (!token) return json({ error: "Unauthorized" }, 401);
     const anon = createClient(SUPABASE_URL, ANON);
     const { data: userRes } = await anon.auth.getUser(token);
