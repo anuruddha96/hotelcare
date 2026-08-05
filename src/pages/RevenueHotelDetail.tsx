@@ -458,6 +458,7 @@ export default function RevenueHotelDetail() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="grid"><CalIcon className="h-4 w-4 mr-1" />Rate Grid</TabsTrigger>
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
@@ -466,7 +467,25 @@ export default function RevenueHotelDetail() {
           <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="grid" className="space-y-3">
+          <RateStrategyGrid
+            loading={live.loading}
+            today={live.today}
+            roomTypes={live.roomTypes}
+            rates={live.rates}
+            metrics={live.metrics}
+            pickupWindowDays={pickupWindow}
+            onPickupWindowChange={setPickupWindow}
+          />
+          <div className="grid gap-3 lg:grid-cols-2">
+            <PickupHorizonChart metrics={live.metrics} />
+            <PickupRangeSummary nights={live.nights} />
+          </div>
+          {live.error && <p className="text-sm text-destructive">{live.error}</p>}
+        </TabsContent>
+
         <TabsContent value="prices">
+
           <div className="mb-2 flex items-center justify-end gap-2 text-xs">
             <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-muted-foreground">
               <input
