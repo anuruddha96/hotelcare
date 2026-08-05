@@ -16,6 +16,8 @@ import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, Resp
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { Header } from "@/components/layout/Header";
+import { isRevenueAdmin } from "@/lib/roleAccess";
+import { resolveHotelKeys } from "@/lib/hotelKeys";
 
 interface PickupDateRow { stay_date: string; delta: number }
 interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
