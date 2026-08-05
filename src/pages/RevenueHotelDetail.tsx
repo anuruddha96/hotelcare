@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +31,8 @@ import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
 import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
+import { isRevenueAdmin } from "@/lib/roleAccess";
+import { formatDistance } from "date-fns";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
@@ -50,7 +52,7 @@ interface Row {
   abnormal: boolean; minNights: number | null; events: Event[];
 }
 
-const ALLOWED = ["admin", "top_management"];
+const ALLOWED = ["admin", "top_management", "top_management_manager"];
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
@@ -62,6 +64,7 @@ export default function RevenueHotelDetail() {
   const { profile, loading } = useAuth();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [hotelName, setHotelName] = useState("");
   const [snapshots, setSnapshots] = useState<Snap[]>([]);
