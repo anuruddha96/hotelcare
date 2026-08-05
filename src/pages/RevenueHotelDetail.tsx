@@ -93,6 +93,38 @@ export default function RevenueHotelDetail() {
     dowPercent: {}, monthlyPercent: {}, leadTimePercent: {},
   });
 
+  const revAdmin = isRevenueAdmin(profile?.role);
+  const [syncing, setSyncing] = useState(false);
+  const [syncStep, setSyncStep] = useState("Connecting to Previo…");
+  const [syncPct, setSyncPct] = useState(0);
+  const autoSyncedRef = useRef(false);
+
+  /** Pull fresh Previo revenue + occupancy data with visible progress. */
+  async function runSync() {
+    if (!hotelId || syncing) return;
+    setSyncing(true);
+    setSyncPct(8);
+    setSyncStep("Connecting to Previo…");
+    try {
+      setSyncPct(25);
+      setSyncStep("Pulling rates, reservations and room types…");
+      const revRes = await supabase.functions.invoke("previo-revenue-sync", { body: { hotelId } });
+      if (revRes.error) throw new Error(revRes.error.message);
+      setSyncPct(65);
+      setSyncStep("Refreshing occupancy for the next 90 days…");
+      await supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } });
+      setSyncPct(88);
+      setSyncStep("Recalculating pickup, ADR and RevPAR…");
+      await Promise.all([load(), live.reload()]);
+      setSyncPct(100);
+      setSyncStep("Up to date");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setTimeout(() => { setSyncing(false); setSyncPct(0); }, 600);
+    }
+  }
+
   useEffect(() => {
     if (loading) return;
     if (!profile || !ALLOWED.includes(profile.role)) {
@@ -100,6 +132,18 @@ export default function RevenueHotelDetail() {
       return;
     }
     void load();
+  }, [loading, profile?.role, hotelId]);
+
+  // Executives (and ?autosync=1) land straight on a freshly synced Rate Grid.
+  useEffect(() => {
+    if (loading || !profile || !hotelId) return;
+    if (autoSyncedRef.current) return;
+    const wants = searchParams.get("autosync") === "1" || !isRevenueAdmin(profile.role);
+    if (!wants) return;
+    autoSyncedRef.current = true;
+    setTab("grid");
+    void runSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId]);
 
   async function load() {
