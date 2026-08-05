@@ -78,7 +78,9 @@ export default function RevenueHotelDetail() {
   const [refRoomInfo, setRefRoomInfo] = useState<{ name: string; base_price_eur: number; num_rooms: number } | null>(null);
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
-  const [tab, setTab] = useState("prices");
+  const [tab, setTab] = useState("grid");
+  const [pickupWindow, setPickupWindow] = useState(1);
+  const live = useRevenueHotelData(hotelId ?? null, 190, pickupWindow);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
