@@ -155,8 +155,9 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   // Full management access: admin, top_management, top_management_manager, manager, housekeeping_manager, marketing, control_finance, hr, front_office
   const hasManagerAccess = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
   const isAdmin = userRole === 'admin';
-  // Executive read-only viewers (Top Management): see informational tabs, skip operational ones
-  const isExecutiveReadOnly = ['top_management', 'top_management_manager'].includes(userRole);
+  // Top Management now has the exact same Housekeeping powers as a manager
+  // (assignments, dirty linen, minibar, approvals). No executive read-only mode.
+  const isExecutiveReadOnly = false;
   // Hybrid: a manager who is also flagged as a housekeeper (can be assigned rooms).
   const isHybridHousekeeper = hasManagerAccess && !!(profile as any)?.acts_as_housekeeper;
 
