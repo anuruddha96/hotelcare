@@ -27,6 +27,10 @@ import AnalystPanel from "@/components/revenue/AnalystPanel";
 import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
+import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
+import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
+import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
+import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
@@ -74,7 +78,9 @@ export default function RevenueHotelDetail() {
   const [refRoomInfo, setRefRoomInfo] = useState<{ name: string; base_price_eur: number; num_rooms: number } | null>(null);
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
-  const [tab, setTab] = useState("prices");
+  const [tab, setTab] = useState("grid");
+  const [pickupWindow, setPickupWindow] = useState(1);
+  const live = useRevenueHotelData(hotelId ?? null, 190, pickupWindow);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -458,6 +464,7 @@ export default function RevenueHotelDetail() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="grid"><CalIcon className="h-4 w-4 mr-1" />Rate Grid</TabsTrigger>
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
@@ -466,7 +473,25 @@ export default function RevenueHotelDetail() {
           <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
         </TabsList>
 
+        <TabsContent value="grid" className="space-y-3">
+          <RateStrategyGrid
+            loading={live.loading}
+            today={live.today}
+            roomTypes={live.roomTypes}
+            rates={live.rates}
+            metrics={live.metrics}
+            pickupWindowDays={pickupWindow}
+            onPickupWindowChange={setPickupWindow}
+          />
+          <div className="grid gap-3 lg:grid-cols-2">
+            <PickupHorizonChart metrics={live.metrics} />
+            <PickupRangeSummary nights={live.nights} />
+          </div>
+          {live.error && <p className="text-sm text-destructive">{live.error}</p>}
+        </TabsContent>
+
         <TabsContent value="prices">
+
           <div className="mb-2 flex items-center justify-end gap-2 text-xs">
             <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-muted-foreground">
               <input

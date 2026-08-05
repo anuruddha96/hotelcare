@@ -1,0 +1,208 @@
+// Revenue Management analytics helpers.
+//
+// Everything here works off the three Previo-backed tables:
+//   revenue_booking_nights   — one row per booked room-night (+ booking creation time)
+//   revenue_daily_snapshots  — rooms sold / available / revenue captured once per day
+//   revenue_room_type_rates  — base rate plan price per room type / date / occupancy
+//
+// All calendar maths is done in Budapest time, matching the property clock.
+
+export const BUDAPEST_TZ = "Europe/Budapest";
+
+export function budapestToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUDAPEST_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+export function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+}
+
+export function dateRange(from: string, to: string): string[] {
+  const out: string[] = [];
+  const n = daysBetween(from, to);
+  for (let i = 0; i <= n; i++) out.push(addDays(from, i));
+  return out;
+}
+
+/** 0 = Sunday … 6 = Saturday, for a plain YYYY-MM-DD. */
+export function dayOfWeek(isoDate: string): number {
+  return new Date(`${isoDate}T00:00:00Z`).getUTCDay();
+}
+
+export function isWeekend(isoDate: string): boolean {
+  const d = dayOfWeek(isoDate);
+  return d === 0 || d === 5 || d === 6; // Fri / Sat / Sun
+}
+
+export function formatDay(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(undefined, {
+    timeZone: "UTC",
+    day: "numeric",
+  });
+}
+
+export function formatWeekday(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(undefined, {
+    timeZone: "UTC",
+    weekday: "short",
+  });
+}
+
+export function formatMonth(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(undefined, {
+    timeZone: "UTC",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+export interface BookingNight {
+  stay_date: string;
+  res_id: string;
+  obk_id: string | null;
+  room_type_name: string | null;
+  nightly_price_eur: number | null;
+  created_at_pms: string | null;
+  guests: number | null;
+}
+
+export interface DailySnapshot {
+  stay_date: string;
+  captured_date: string;
+  rooms_sold: number;
+  rooms_available: number;
+  occupancy_pct: number;
+  revenue_eur: number;
+  adr_eur: number | null;
+  new_bookings: number;
+}
+
+export interface RoomTypeRate {
+  stay_date: string;
+  obk_id: string;
+  room_type_name: string | null;
+  occupancy: number;
+  price: number;
+  currency: string;
+}
+
+export interface DayMetrics {
+  stay_date: string;
+  roomsSold: number;
+  roomsAvailable: number;
+  occupancyPct: number;
+  revenueEur: number;
+  adrEur: number | null;
+  revparEur: number | null;
+  /** Bookings created inside the pickup window (never negative). */
+  newBookings: number;
+  /** Net movement vs. the comparison snapshot — negative means cancellations. */
+  netPickup: number | null;
+}
+
+/**
+ * Build per-date metrics for [from, to].
+ *
+ * `newBookings` is exact and always available: it counts booked room-nights whose
+ * booking was created inside the pickup window.
+ * `netPickup` compares today's rooms-sold against the snapshot captured
+ * `windowDays` ago, so it also reflects cancellations. It is null until at least
+ * one older snapshot exists.
+ */
+export function buildDayMetrics(params: {
+  from: string;
+  to: string;
+  nights: BookingNight[];
+  snapshots: DailySnapshot[];
+  roomsAvailable: number;
+  windowDays: number;
+}): DayMetrics[] {
+  const { from, to, nights, snapshots, roomsAvailable, windowDays } = params;
+  const today = budapestToday();
+  const windowStart = addDays(today, -Math.max(0, windowDays - 1));
+
+  const sold = new Map<string, number>();
+  const revenue = new Map<string, number>();
+  const created = new Map<string, number>();
+  for (const n of nights) {
+    sold.set(n.stay_date, (sold.get(n.stay_date) ?? 0) + 1);
+    revenue.set(n.stay_date, (revenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
+    if (n.created_at_pms) {
+      const createdDay = budapestDayOf(n.created_at_pms);
+      if (createdDay >= windowStart) created.set(n.stay_date, (created.get(n.stay_date) ?? 0) + 1);
+    }
+  }
+
+  // Latest snapshot at or before the comparison date, per stay_date.
+  const compareDate = addDays(today, -windowDays);
+  const baseline = new Map<string, number>();
+  for (const s of snapshots) {
+    if (s.captured_date > compareDate) continue;
+    const prev = baseline.get(`${s.stay_date}`);
+    if (prev === undefined) baseline.set(s.stay_date, s.rooms_sold);
+  }
+
+  return dateRange(from, to).map((d) => {
+    const rs = sold.get(d) ?? 0;
+    const rev = Math.round((revenue.get(d) ?? 0) * 100) / 100;
+    const avail = roomsAvailable || 0;
+    const base = baseline.get(d);
+    return {
+      stay_date: d,
+      roomsSold: rs,
+      roomsAvailable: avail,
+      occupancyPct: avail ? Math.round((rs / avail) * 1000) / 10 : 0,
+      revenueEur: rev,
+      adrEur: rs ? Math.round((rev / rs) * 100) / 100 : null,
+      revparEur: avail ? Math.round((rev / avail) * 100) / 100 : null,
+      newBookings: created.get(d) ?? 0,
+      netPickup: base === undefined ? null : rs - base,
+    };
+  });
+}
+
+/** Budapest calendar day of an ISO timestamp. */
+export function budapestDayOf(isoTimestamp: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUDAPEST_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(isoTimestamp));
+}
+
+/**
+ * Pickup heat colour. 0 = neutral, 1-2 = light -> stronger orange, 3+ = red.
+ * Negative pickup (cancellations) reads blue so it never looks like demand.
+ */
+export function pickupHeat(pickup: number): { bg: string; text: string; label: string } {
+  if (pickup <= -2) return { bg: "bg-sky-200 dark:bg-sky-900/60", text: "text-sky-900 dark:text-sky-100", label: "cancellations" };
+  if (pickup === -1) return { bg: "bg-sky-100 dark:bg-sky-900/40", text: "text-sky-900 dark:text-sky-100", label: "cancellation" };
+  if (pickup <= 0) return { bg: "", text: "text-foreground", label: "no movement" };
+  if (pickup === 1) return { bg: "bg-orange-100 dark:bg-orange-900/40", text: "text-orange-900 dark:text-orange-100", label: "light pickup" };
+  if (pickup === 2) return { bg: "bg-orange-300 dark:bg-orange-800/70", text: "text-orange-950 dark:text-orange-50", label: "building pickup" };
+  if (pickup === 3) return { bg: "bg-red-400 dark:bg-red-800", text: "text-white", label: "strong pickup" };
+  return { bg: "bg-red-600 dark:bg-red-700", text: "text-white", label: "peak pickup" };
+}
+
+export function occupancyTone(pct: number): string {
+  if (pct >= 90) return "text-red-600 dark:text-red-400";
+  if (pct >= 70) return "text-amber-600 dark:text-amber-400";
+  return "text-emerald-600 dark:text-emerald-400";
+}
+
+export function eur(value: number | null | undefined, digits = 0): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `€${value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+}

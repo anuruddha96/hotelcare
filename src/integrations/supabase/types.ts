@@ -4125,6 +4125,105 @@ export type Database = {
           },
         ]
       }
+      revenue_booking_nights: {
+        Row: {
+          captured_at: string
+          created_at: string
+          created_at_pms: string | null
+          guests: number | null
+          hotel_id: string
+          id: string
+          nightly_price_eur: number | null
+          obj_id: string | null
+          obk_id: string | null
+          organization_slug: string
+          res_id: string
+          room_type_name: string | null
+          status_id: number
+          stay_date: string
+        }
+        Insert: {
+          captured_at?: string
+          created_at?: string
+          created_at_pms?: string | null
+          guests?: number | null
+          hotel_id: string
+          id?: string
+          nightly_price_eur?: number | null
+          obj_id?: string | null
+          obk_id?: string | null
+          organization_slug: string
+          res_id: string
+          room_type_name?: string | null
+          status_id?: number
+          stay_date: string
+        }
+        Update: {
+          captured_at?: string
+          created_at?: string
+          created_at_pms?: string | null
+          guests?: number | null
+          hotel_id?: string
+          id?: string
+          nightly_price_eur?: number | null
+          obj_id?: string | null
+          obk_id?: string | null
+          organization_slug?: string
+          res_id?: string
+          room_type_name?: string | null
+          status_id?: number
+          stay_date?: string
+        }
+        Relationships: []
+      }
+      revenue_daily_snapshots: {
+        Row: {
+          adr_eur: number | null
+          captured_at: string
+          captured_date: string
+          created_at: string
+          hotel_id: string
+          id: string
+          new_bookings: number
+          occupancy_pct: number
+          organization_slug: string
+          revenue_eur: number
+          rooms_available: number
+          rooms_sold: number
+          stay_date: string
+        }
+        Insert: {
+          adr_eur?: number | null
+          captured_at?: string
+          captured_date: string
+          created_at?: string
+          hotel_id: string
+          id?: string
+          new_bookings?: number
+          occupancy_pct?: number
+          organization_slug: string
+          revenue_eur?: number
+          rooms_available?: number
+          rooms_sold?: number
+          stay_date: string
+        }
+        Update: {
+          adr_eur?: number | null
+          captured_at?: string
+          captured_date?: string
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          new_bookings?: number
+          occupancy_pct?: number
+          organization_slug?: string
+          revenue_eur?: number
+          rooms_available?: number
+          rooms_sold?: number
+          stay_date?: string
+        }
+        Relationships: []
+      }
       revenue_ingest_runs: {
         Row: {
           duration_ms: number | null
@@ -4171,6 +4270,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      revenue_room_type_rates: {
+        Row: {
+          captured_at: string
+          closed_to_arrival: boolean
+          closed_to_departure: boolean
+          created_at: string
+          currency: string
+          hotel_id: string
+          id: string
+          min_stay: number | null
+          obk_id: string
+          occupancy: number
+          organization_slug: string
+          price: number
+          rate_plan_id: string
+          room_type_name: string | null
+          source: string
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          captured_at?: string
+          closed_to_arrival?: boolean
+          closed_to_departure?: boolean
+          created_at?: string
+          currency?: string
+          hotel_id: string
+          id?: string
+          min_stay?: number | null
+          obk_id: string
+          occupancy?: number
+          organization_slug: string
+          price: number
+          rate_plan_id?: string
+          room_type_name?: string | null
+          source?: string
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          captured_at?: string
+          closed_to_arrival?: boolean
+          closed_to_departure?: boolean
+          created_at?: string
+          currency?: string
+          hotel_id?: string
+          id?: string
+          min_stay?: number | null
+          obk_id?: string
+          occupancy?: number
+          organization_slug?: string
+          price?: number
+          rate_plan_id?: string
+          room_type_name?: string | null
+          source?: string
+          stay_date?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       room_assignments: {
         Row: {
