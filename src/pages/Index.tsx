@@ -5,7 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
-import { isReceptionRole } from '@/lib/roleAccess';
+import { isExecutiveRole, isReceptionRole } from '@/lib/roleAccess';
 
 const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager'];
 
@@ -68,6 +68,11 @@ const Index = () => {
   // Overview upload. Browsing the rest of the app is opt-in via links.
   if (profile && isReceptionRole(profile.role)) {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/reception`} replace />;
+  }
+
+  // Top management land on Revenue Management → Rate Grid, freshly synced.
+  if (profile && isExecutiveRole(profile.role)) {
+    return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
   }
 
   if (loading) {

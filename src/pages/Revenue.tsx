@@ -16,6 +16,8 @@ import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, Resp
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { Header } from "@/components/layout/Header";
+import { isRevenueAdmin } from "@/lib/roleAccess";
+import { resolveHotelKeys } from "@/lib/hotelKeys";
 
 interface PickupDateRow { stay_date: string; delta: number }
 interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
@@ -70,6 +72,24 @@ export default function Revenue() {
     if (loading) return;
     if (!profile || !ALLOWED.includes(profile.role)) {
       navigate(`/${organizationSlug || "rdhotels"}`);
+      return;
+    }
+    // Top management never sees the multi-hotel picker: send them straight to
+    // their own hotel's Rate Grid, which auto-syncs on arrival.
+    if (!isRevenueAdmin(profile.role)) {
+      void (async () => {
+        const keys = await resolveHotelKeys(profile.assigned_hotel);
+        const { data } = await supabase
+          .from("hotel_configurations")
+          .select("hotel_id")
+          .in("hotel_id", keys.length ? keys : ["__none__"])
+          .eq("is_active", true)
+          .maybeSingle();
+        const hid = data?.hotel_id ?? profile.assigned_hotel;
+        if (hid) {
+          navigate(`/${organizationSlug || profile.organization_slug || "rdhotels"}/revenue/${hid}?autosync=1`, { replace: true });
+        }
+      })();
       return;
     }
     void load();

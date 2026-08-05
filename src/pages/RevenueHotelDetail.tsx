@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +31,8 @@ import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
 import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
+import { isRevenueAdmin } from "@/lib/roleAccess";
+import { formatDistance } from "date-fns";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
@@ -50,7 +52,7 @@ interface Row {
   abnormal: boolean; minNights: number | null; events: Event[];
 }
 
-const ALLOWED = ["admin", "top_management"];
+const ALLOWED = ["admin", "top_management", "top_management_manager"];
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
@@ -62,6 +64,7 @@ export default function RevenueHotelDetail() {
   const { profile, loading } = useAuth();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [hotelName, setHotelName] = useState("");
   const [snapshots, setSnapshots] = useState<Snap[]>([]);
@@ -93,6 +96,38 @@ export default function RevenueHotelDetail() {
     dowPercent: {}, monthlyPercent: {}, leadTimePercent: {},
   });
 
+  const revAdmin = isRevenueAdmin(profile?.role);
+  const [syncing, setSyncing] = useState(false);
+  const [syncStep, setSyncStep] = useState("Connecting to Previo…");
+  const [syncPct, setSyncPct] = useState(0);
+  const autoSyncedRef = useRef(false);
+
+  /** Pull fresh Previo revenue + occupancy data with visible progress. */
+  async function runSync() {
+    if (!hotelId || syncing) return;
+    setSyncing(true);
+    setSyncPct(8);
+    setSyncStep("Connecting to Previo…");
+    try {
+      setSyncPct(25);
+      setSyncStep("Pulling rates, reservations and room types…");
+      const revRes = await supabase.functions.invoke("previo-revenue-sync", { body: { hotelId } });
+      if (revRes.error) throw new Error(revRes.error.message);
+      setSyncPct(65);
+      setSyncStep("Refreshing occupancy for the next 90 days…");
+      await supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } });
+      setSyncPct(88);
+      setSyncStep("Recalculating pickup, ADR and RevPAR…");
+      await Promise.all([load(), live.reload()]);
+      setSyncPct(100);
+      setSyncStep("Up to date");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setTimeout(() => { setSyncing(false); setSyncPct(0); }, 600);
+    }
+  }
+
   useEffect(() => {
     if (loading) return;
     if (!profile || !ALLOWED.includes(profile.role)) {
@@ -100,6 +135,18 @@ export default function RevenueHotelDetail() {
       return;
     }
     void load();
+  }, [loading, profile?.role, hotelId]);
+
+  // Executives (and ?autosync=1) land straight on a freshly synced Rate Grid.
+  useEffect(() => {
+    if (loading || !profile || !hotelId) return;
+    if (autoSyncedRef.current) return;
+    const wants = searchParams.get("autosync") === "1" || !isRevenueAdmin(profile.role);
+    if (!wants) return;
+    autoSyncedRef.current = true;
+    setTab("grid");
+    void runSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId]);
 
   async function load() {
@@ -402,45 +449,75 @@ export default function RevenueHotelDetail() {
   }
 
   return (
-    <div className="container mx-auto p-4 space-y-3">
-      {/* Header bar — RPG style */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Back
-        </Button>
-        <h1 className="text-xl font-semibold flex-1 min-w-0 truncate">{hotelName}</h1>
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" onClick={() => setCursor(c => view === "week" ? addDays(c,-7) : addDays(startOfMonth(c),-1))}><ChevronLeft className="h-4 w-4" /></Button>
-          <div className="px-3 font-medium min-w-[140px] text-center">{view === "week" ? `Week of ${iso(gridDays[0]).slice(5)}` : fmtMonth(cursor)}</div>
-          <Button variant="outline" size="icon" onClick={() => setCursor(c => view === "week" ? addDays(c,7) : addDays(startOfMonth(c),35))}><ChevronRight className="h-4 w-4" /></Button>
-          <Button variant="ghost" size="sm" onClick={() => setCursor(startOfMonth(new Date()))}>Today</Button>
-        </div>
-        <div className="flex border rounded-md overflow-hidden">
-          {(["week","month","quarter","year"] as const).map(v => (
-            <button key={v} className={`px-3 py-1 text-sm capitalize ${view===v?"bg-primary text-primary-foreground":""}`} onClick={() => setView(v)}>{v}</button>
-          ))}
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
-        <Button variant="outline" size="sm" onClick={pullFromPrevio}>
-          <RefreshCw className="h-4 w-4 mr-1" />Pull from Previo
-        </Button>
-        <Button variant="outline" size="sm" onClick={runAutopilot} disabled={autopilotBusy}>
-          {autopilotBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Bot className="h-4 w-4 mr-1" />}Run Autopilot
-        </Button>
-        <div className="flex flex-col items-end">
-          <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
-            {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Push to Previo
+    <div className="container mx-auto p-3 sm:p-4 space-y-3">
+      {/* Header — quiet by default, tools only for revenue admins */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {revAdmin && (
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
+            <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
-          {lastPushAt && (
-            <span className="text-[10px] text-muted-foreground mt-0.5">
-              last: {new Date(lastPushAt).toLocaleString()}
-            </span>
-          )}
+        )}
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg sm:text-xl font-semibold truncate">{hotelName}</h1>
+          <p className="text-[11px] text-muted-foreground truncate">
+            Revenue management{live.lastSyncAt ? ` · synced ${formatDistance(new Date(live.lastSyncAt), new Date())} ago` : ""}
+          </p>
         </div>
+        <Button variant="outline" size="sm" onClick={() => void runSync()} disabled={syncing}>
+          {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+          Sync
+        </Button>
+        {revAdmin && (
+          <>
+            <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
+            <Button variant="outline" size="sm" onClick={pullFromPrevio}>
+              <RefreshCw className="h-4 w-4 mr-1" />Pull rates
+            </Button>
+            <Button variant="outline" size="sm" onClick={runAutopilot} disabled={autopilotBusy}>
+              {autopilotBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Bot className="h-4 w-4 mr-1" />}Autopilot
+            </Button>
+            <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
+              {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Push
+            </Button>
+          </>
+        )}
       </div>
 
-      {/* Reference price banner */}
-      {refRoomInfo && (
+      {/* Calendar navigation only matters on the calendar-style admin tabs */}
+      {revAdmin && (tab === "prices" || tab === "calendar") && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" onClick={() => setCursor(c => view === "week" ? addDays(c,-7) : addDays(startOfMonth(c),-1))}><ChevronLeft className="h-4 w-4" /></Button>
+            <div className="px-3 font-medium min-w-[140px] text-center">{view === "week" ? `Week of ${iso(gridDays[0]).slice(5)}` : fmtMonth(cursor)}</div>
+            <Button variant="outline" size="icon" onClick={() => setCursor(c => view === "week" ? addDays(c,7) : addDays(startOfMonth(c),35))}><ChevronRight className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" onClick={() => setCursor(startOfMonth(new Date()))}>Today</Button>
+          </div>
+          <div className="flex border rounded-md overflow-hidden">
+            {(["week","month","quarter","year"] as const).map(v => (
+              <button key={v} className={`px-3 py-1 text-sm capitalize ${view===v?"bg-primary text-primary-foreground":""}`} onClick={() => setView(v)}>{v}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sync progress — engaging status while Previo data lands */}
+      {syncing && (
+        <Card className="border-primary/40 bg-primary/5">
+          <CardContent className="py-3 flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium truncate">{syncStep}</div>
+              <div className="mt-1.5 h-1.5 w-full rounded-full bg-primary/15 overflow-hidden">
+                <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${syncPct}%` }} />
+              </div>
+            </div>
+            <span className="text-xs tabular-nums text-muted-foreground">{syncPct}%</span>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Reference price banner (admin detail — noise for executives) */}
+      {revAdmin && refRoomInfo && (
         <div className="rounded-lg border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <div>
             <span className="text-muted-foreground">Reference room: </span>
@@ -452,18 +529,11 @@ export default function RevenueHotelDetail() {
             <span className="font-bold text-base">€{refRoomInfo.base_price_eur}</span>
             <span className="text-muted-foreground text-xs"> / night</span>
           </div>
-          <div className="text-xs text-muted-foreground">
-            Each day shows the rate from Previo's Pricelist screen
-            (<span className="text-primary font-medium">PMS</span>),
-            falling back to the average booked rate
-            (<span className="text-emerald-700 font-medium">ADR</span>) or this base reference
-            (<span className="font-medium">default</span>).
-          </div>
         </div>
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap h-auto">
+        <TabsList className={`flex-wrap h-auto ${revAdmin ? "" : "hidden"}`}>
           <TabsTrigger value="grid"><CalIcon className="h-4 w-4 mr-1" />Rate Grid</TabsTrigger>
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
@@ -484,7 +554,7 @@ export default function RevenueHotelDetail() {
             onPickupWindowChange={setPickupWindow}
           />
           <div className="grid gap-3 lg:grid-cols-2">
-            <PickupHorizonChart metrics={live.metrics} />
+            <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
             <PickupRangeSummary nights={live.nights} />
           </div>
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
