@@ -92,7 +92,7 @@ serve(async (req) => {
         error: r.errorMessage,
         bytes: r.text.length,
         tags,
-        sample: r.text.slice(0, 1500),
+        sample: r.text.slice(0, url.searchParams.get("full") ? 60000 : 1500),
       });
     } catch (e) {
       results.push({ method: c.method, ok: false, error: String(e) });
