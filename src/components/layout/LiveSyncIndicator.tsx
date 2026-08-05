@@ -28,8 +28,15 @@ export function LiveSyncIndicator() {
 
   const taskList = (Object.keys(tasks) as TaskName[]).map((k) => ({ key: k, ...tasks[k] }));
   const anySyncing = taskList.some((t) => t.status === "syncing");
-  const anyError = taskList.some((t) => t.status === "error");
-  const anyPartial = taskList.some((t) => t.status === "partial");
+  // Only a real PMS-side failure of a supported core task counts as "Sync failed".
+  // Optional/unsupported feeds (e.g. Previo change events) must not raise a red flag.
+  const CORE: TaskName[] = ["pms", "revenue"];
+  const anyError = taskList.some(
+    (t) => t.status === "error" && t.meta?.supported !== false && CORE.includes(t.key),
+  );
+  const anyPartial = taskList.some(
+    (t) => t.meta?.supported !== false && (t.status === "partial" || (t.status === "error" && !CORE.includes(t.key))),
+  );
   const lastAt = taskList
     .map((t) => t.lastAt?.getTime() ?? 0)
     .reduce((a, b) => Math.max(a, b), 0);
