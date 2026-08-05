@@ -70,6 +70,11 @@ const Index = () => {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/reception`} replace />;
   }
 
+  // Top management land on Revenue Management → Rate Grid, freshly synced.
+  if (profile && isExecutiveRole(profile.role)) {
+    return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
