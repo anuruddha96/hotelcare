@@ -554,7 +554,7 @@ export default function RevenueHotelDetail() {
             onPickupWindowChange={setPickupWindow}
           />
           <div className="grid gap-3 lg:grid-cols-2">
-            <PickupHorizonChart metrics={live.metrics} />
+            <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
             <PickupRangeSummary nights={live.nights} />
           </div>
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
