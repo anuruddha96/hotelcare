@@ -33,13 +33,17 @@ serve(async (req) => {
     to = body.to || to;
   }
 
+  const probeToken = Deno.env.get("PREVIO_PROBE_TOKEN") || "";
+  const providedProbeToken = req.headers.get("x-probe-token") || "";
+  const probeAuthorized = !!probeToken && providedProbeToken === probeToken;
+
   const token = (req.headers.get("Authorization") || "").replace("Bearer ", "");
-  if (!token) {
+  if (!token && !probeAuthorized) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  if (token !== SERVICE) {
+  if (!probeAuthorized && token !== SERVICE) {
     const anon = createClient(SUPABASE_URL, ANON);
     const { data: userRes } = await anon.auth.getUser(token);
     if (!userRes?.user) {
