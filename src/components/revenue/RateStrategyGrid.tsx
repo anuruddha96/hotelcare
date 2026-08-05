@@ -21,15 +21,17 @@ interface Props {
 }
 
 const RANGE_OPTIONS = [
-  { value: 30, label: "30 days" },
-  { value: 60, label: "60 days" },
-  { value: 90, label: "90 days" },
-  { value: 120, label: "120 days" },
-  { value: 180, label: "6 months" },
+  { value: 14, label: "14d" },
+  { value: 30, label: "30d" },
+  { value: 60, label: "60d" },
+  { value: 90, label: "90d" },
+  { value: 120, label: "120d" },
+  { value: 180, label: "6m" },
 ];
 
 const PICKUP_WINDOWS = [
-  { value: 1, label: "Yesterday" },
+  { value: 1, label: "Today" },
+  { value: 2, label: "Last 2 days" },
   { value: 3, label: "Last 3 days" },
   { value: 7, label: "Last 7 days" },
   { value: 14, label: "Last 14 days" },
@@ -37,35 +39,29 @@ const PICKUP_WINDOWS = [
 ];
 
 /**
- * Excel-style strategy calendar: room types down the left, dates across the top.
- * Each cell shows the live Previo base-plan price for that room type on that date.
- * The header rows carry occupancy and pickup, with pickup driving the heat colour.
+ * Previo-style pricelist grid: room types down the left with one sub-row per
+ * guest count (1/2/3/4 people), dates across the top. No occupancy filter —
+ * every occupancy level Previo prices is visible at once.
  */
 export default function RateStrategyGrid({
   loading, today, roomTypes, rates, metrics, pickupWindowDays, onPickupWindowChange,
 }: Props) {
-  const [days, setDays] = useState(90);
-  const [occupancy, setOccupancy] = useState(2);
+  const [days, setDays] = useState(30);
 
   const dates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
 
-  const availableOccupancies = useMemo(() => {
-    const s = new Set<number>();
-    for (const r of rates) s.add(r.occupancy);
-    return Array.from(s).sort((a, b) => a - b);
-  }, [rates]);
-
-  // obk_id -> stay_date -> price, for the chosen guest count.
+  // obk_id -> occupancy -> stay_date -> price
   const priceMap = useMemo(() => {
-    const m = new Map<string, Map<string, number>>();
+    const m = new Map<string, Map<number, Map<string, number>>>();
     for (const r of rates) {
-      if (r.occupancy !== occupancy) continue;
-      let inner = m.get(r.obk_id);
-      if (!inner) { inner = new Map(); m.set(r.obk_id, inner); }
-      inner.set(r.stay_date, Number(r.price));
+      let byOcc = m.get(r.obk_id);
+      if (!byOcc) { byOcc = new Map(); m.set(r.obk_id, byOcc); }
+      let byDate = byOcc.get(r.occupancy);
+      if (!byDate) { byDate = new Map(); byOcc.set(r.occupancy, byDate); }
+      byDate.set(r.stay_date, Number(r.price));
     }
     return m;
-  }, [rates, occupancy]);
+  }, [rates]);
 
   const metricByDate = useMemo(() => {
     const m = new Map<string, DayMetrics>();
@@ -79,7 +75,6 @@ export default function RateStrategyGrid({
     return priced.length ? priced : roomTypes;
   }, [roomTypes, priceMap]);
 
-  // Month spans for the grouped header.
   const monthSpans = useMemo(() => {
     const out: Array<{ label: string; span: number }> = [];
     for (const d of dates) {
@@ -91,26 +86,19 @@ export default function RateStrategyGrid({
     return out;
   }, [dates]);
 
-  const cellW = "min-w-[54px] w-[54px]";
+  const cellW = "min-w-[52px] w-[52px]";
+  const stickyW = "min-w-[130px] sm:min-w-[180px]";
 
   return (
     <Card data-training="revenue-grid">
       <CardHeader className="pb-3 gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base flex items-center gap-2">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
             <CalendarRange className="h-4 w-4 text-primary" />
             Rate &amp; pickup calendar
-            <Badge variant="outline" className="font-normal">Previo base plan · EUR</Badge>
+            <Badge variant="outline" className="font-normal hidden sm:inline-flex">Previo base plan · EUR</Badge>
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={String(occupancy)} onValueChange={(v) => setOccupancy(Number(v))}>
-              <SelectTrigger className="h-8 w-[130px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(availableOccupancies.length ? availableOccupancies : [1, 2]).map((o) => (
-                  <SelectItem key={o} value={String(o)}>{o} guest{o > 1 ? "s" : ""}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
               <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -140,7 +128,6 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-red-400 dark:bg-red-800 border inline-block" />3 bookings</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-red-600 dark:bg-red-700 border inline-block" />4+ bookings</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-100 dark:bg-sky-900/40 border inline-block" />cancellations</span>
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-muted border inline-block" />weekend column</span>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -153,11 +140,11 @@ export default function RateStrategyGrid({
             No room types yet — run a sync to pull them from Previo.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="text-xs border-collapse">
+          <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
+            <table className="text-[11px] sm:text-xs border-collapse">
               <thead className="sticky top-0 z-20">
                 <tr>
-                  <th className="sticky left-0 z-30 bg-card border-b border-r px-2 py-1 text-left min-w-[170px]" />
+                  <th className={`sticky left-0 z-30 bg-card border-b border-r px-2 py-1 text-left ${stickyW}`} />
                   {monthSpans.map((m, i) => (
                     <th
                       key={`${m.label}-${i}`}
@@ -169,7 +156,7 @@ export default function RateStrategyGrid({
                   ))}
                 </tr>
                 <tr>
-                  <th className="sticky left-0 z-30 bg-card border-b border-r px-2 py-1 text-left">Date</th>
+                  <th className={`sticky left-0 z-30 bg-card border-b border-r px-2 py-1 text-left ${stickyW}`}>Date</th>
                   {dates.map((d) => (
                     <th
                       key={d}
@@ -181,7 +168,7 @@ export default function RateStrategyGrid({
                   ))}
                 </tr>
                 <tr>
-                  <th className="sticky left-0 z-30 bg-card border-b border-r px-2 py-1 text-left font-medium">
+                  <th className={`sticky left-0 z-30 bg-card border-b border-r px-2 py-1 text-left font-medium ${stickyW}`}>
                     Pickup
                   </th>
                   {dates.map((d) => {
@@ -200,7 +187,7 @@ export default function RateStrategyGrid({
                   })}
                 </tr>
                 <tr>
-                  <th className="sticky left-0 z-30 bg-card border-b border-r px-2 py-1 text-left font-medium">
+                  <th className={`sticky left-0 z-30 bg-card border-b border-r px-2 py-1 text-left font-medium ${stickyW}`}>
                     Occupancy
                   </th>
                   {dates.map((d) => {
@@ -219,31 +206,55 @@ export default function RateStrategyGrid({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((rt) => (
-                  <tr key={rt.id} className="hover:bg-muted/40">
-                    <td className="sticky left-0 z-10 bg-card border-b border-r px-2 py-1 whitespace-nowrap">
-                      <span className="font-medium">{rt.name}</span>
-                      {rt.is_reference && <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0">REF</Badge>}
-                      <span className="ml-1 text-[10px] text-muted-foreground">×{rt.num_rooms}</span>
-                    </td>
-                    {dates.map((d) => {
-                      const price = rt.pms_room_id ? priceMap.get(rt.pms_room_id)?.get(d) : undefined;
-                      return (
+                {rows.map((rt) => {
+                  const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
+                  const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [];
+                  return (
+                    <>
+                      <tr key={`${rt.id}-head`} className="bg-muted/40">
                         <td
-                          key={d}
-                          className={`${cellW} border-b px-1 py-1 text-center tabular-nums ${isWeekend(d) ? "bg-muted/50" : ""} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                          colSpan={dates.length + 1}
+                          className="sticky left-0 border-b px-2 py-1 font-semibold whitespace-nowrap"
                         >
-                          {price === undefined ? <span className="text-muted-foreground">—</span> : eur(price)}
+                          {rt.name}
+                          {rt.is_reference && <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0">REF</Badge>}
+                          <span className="ml-1 text-[10px] font-normal text-muted-foreground">×{rt.num_rooms} rooms</span>
                         </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                      </tr>
+                      {(occs.length ? occs : [2]).map((occ) => (
+                        <tr key={`${rt.id}-${occ}`} className="hover:bg-muted/30">
+                          <td className={`sticky left-0 z-10 bg-card border-b border-r px-2 py-1 whitespace-nowrap ${stickyW}`}>
+                            <span className="text-muted-foreground">{occ} {occ > 1 ? "people" : "person"}</span>
+                          </td>
+                          {dates.map((d) => {
+                            const price = byOcc?.get(occ)?.get(d);
+                            return (
+                              <td
+                                key={d}
+                                className={`${cellW} border-b px-1 py-1 text-center tabular-nums ${isWeekend(d) ? "bg-muted/50" : ""} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                              >
+                                {price === undefined ? <span className="text-muted-foreground">—</span> : eur(price)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </>
+                  );
+                })}
                 <tr className="bg-muted/30">
-                  <td className="sticky left-0 z-10 bg-muted/30 border-r px-2 py-1 font-medium">ADR (realised)</td>
+                  <td className={`sticky left-0 z-10 bg-muted/30 border-r px-2 py-1 font-medium ${stickyW}`}>ADR (realised)</td>
                   {dates.map((d) => (
                     <td key={d} className={`${cellW} px-1 py-1 text-center tabular-nums ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}>
                       {eur(metricByDate.get(d)?.adrEur ?? null)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="bg-muted/30">
+                  <td className={`sticky left-0 z-10 bg-muted/30 border-r px-2 py-1 font-medium ${stickyW}`}>RevPAR</td>
+                  {dates.map((d) => (
+                    <td key={d} className={`${cellW} px-1 py-1 text-center tabular-nums ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}>
+                      {eur(metricByDate.get(d)?.revparEur ?? null)}
                     </td>
                   ))}
                 </tr>
