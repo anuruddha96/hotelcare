@@ -277,14 +277,23 @@ serve(async (req) => {
 
   const { data: cfg } = await service
     .from("pms_configurations")
-    .select("pms_hotel_id, credentials_secret_name, organization_slug")
+    .select("pms_hotel_id, credentials_secret_name")
     .eq("hotel_id", hotelId)
     .eq("pms_type", "previo")
     .maybeSingle();
   if (!cfg) return json({ error: `No Previo configuration for ${hotelId}` }, 404);
 
-  const conf = cfg as { pms_hotel_id?: string; credentials_secret_name?: string; organization_slug?: string };
-  const orgSlug = conf.organization_slug || body.orgSlug || "";
+  const conf = cfg as { pms_hotel_id?: string; credentials_secret_name?: string };
+
+  // Organization slug lives on hotel_configurations -> organizations.
+  const { data: hotelCfg } = await service
+    .from("hotel_configurations")
+    .select("organization_id, organizations(slug)")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  const orgSlug: string =
+    (hotelCfg as { organizations?: { slug?: string } } | null)?.organizations?.slug || body.orgSlug || "";
+  if (!orgSlug) return json({ error: `No organization found for ${hotelId}` }, 404);
   const hotId = String(conf.pms_hotel_id || "");
   let creds;
   try {
