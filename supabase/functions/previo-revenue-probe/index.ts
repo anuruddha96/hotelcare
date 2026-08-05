@@ -73,17 +73,10 @@ serve(async (req) => {
   const hotId = String((cfg as any).pms_hotel_id || "");
 
   const term = `<term><from>${from}</from><to>${to}</to></term>`;
-  const candidates: Array<{ method: string; extraXml: string }> = [
-    { method: "getRates", extraXml: term },
-    { method: "getRates", extraXml: `<dateFrom>${from}</dateFrom><dateTo>${to}</dateTo>` },
-    { method: "getPricelists", extraXml: "" },
-    { method: "getPricelist", extraXml: term },
-    { method: "getRateplans", extraXml: "" },
-    { method: "getObjects", extraXml: "" },
-    { method: "getObjectTypes", extraXml: "" },
-    { method: "getAvailability", extraXml: term },
-    { method: "getPrices", extraXml: term },
-  ];
+  const extra = url.searchParams.get("methods");
+  const candidates: Array<{ method: string; extraXml: string }> = (extra ? extra.split(",") : [])
+    .map((m) => ({ method: m.trim(), extraXml: term }));
+  if (!candidates.length) candidates.push({ method: "getRates", extraXml: term });
 
   const results: any[] = [];
   for (const c of candidates) {
