@@ -72,6 +72,24 @@ export default function Revenue() {
       navigate(`/${organizationSlug || "rdhotels"}`);
       return;
     }
+    // Top management never sees the multi-hotel picker: send them straight to
+    // their own hotel's Rate Grid, which auto-syncs on arrival.
+    if (!isRevenueAdmin(profile.role)) {
+      void (async () => {
+        const keys = await resolveHotelKeys(profile.assigned_hotel);
+        const { data } = await supabase
+          .from("hotel_configurations")
+          .select("hotel_id")
+          .in("hotel_id", keys.length ? keys : ["__none__"])
+          .eq("is_active", true)
+          .maybeSingle();
+        const hid = data?.hotel_id ?? profile.assigned_hotel;
+        if (hid) {
+          navigate(`/${organizationSlug || profile.organization_slug || "rdhotels"}/revenue/${hid}?autosync=1`, { replace: true });
+        }
+      })();
+      return;
+    }
     void load();
     // Re-load when URL org changes (admin switching tenants)
     // eslint-disable-next-line react-hooks/exhaustive-deps
