@@ -27,6 +27,10 @@ import AnalystPanel from "@/components/revenue/AnalystPanel";
 import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
+import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
+import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
+import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
+import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
 interface Rec { id: string; stay_date: string; current_rate_eur: number | null; recommended_rate_eur: number; delta_eur: number; reason: string | null; status: string; }
