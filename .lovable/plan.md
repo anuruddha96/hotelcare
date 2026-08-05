@@ -1,37 +1,58 @@
-## What I verified in the live data (Hotel Ottofiori, 2026-08-03)
+# Revenue Management rebuild (Previo-driven, Ottofiori first)
 
-- **Room 401**: `guest_count = 1`, `scheduledDepartureToday = false`, `isNoShow = false`, assignment `daily_cleaning`, `ready_to_clean = true`. So it is currently treated as an occupied stayover, not a no-show.
-- **No-show rule is too narrow.** In `previo-pms-sync`, a reservation is flagged no-show only when `arrivalDate === today` **and** `statusId === 8` (or the note literally says "no show"). A guest who never arrived on an earlier date, or whose reservation carries a different Previo status, is silently counted as in-house — which is exactly the 401 case.
-- **RTC is wrong on real checkouts.** Today 7 checkout assignments (102, 103, 104, 202, 404, 405, 406) have `ready_to_clean = true` while the room's own `pms_metadata.readyToClean` is not set (guest not confirmed departed). Only 105, 202, 402, 406 rooms carry a PMS `readyToClean` flag. Creation paths disagree: `RoomAssignmentDialog` and `SimpleRoomAssignment` block checkouts correctly, but `pmsRefresh`'s assignment-type reconciliation sets `ready_to_clean = true` for anything it re-types to daily, and once a checkout flag flips the row keeps a stale `true`. Nothing re-blocks a checkout assignment when PMS says the guest has not left.
-- **Previo clean-status push has never logged a single run.** `pms_sync_history` has **zero** rows with `sync_type = 'room_status_update'` (all time), and `previo-update-room-status` has no edge-function logs — despite 15 approvals yesterday. Config is fine (`status_push_enabled = true`, `outbound_kill_switch = false`, no allowlist for `ottofiori`), so the break is on the invocation side, not the gate. Root cause still to be confirmed by an instrumented test call.
-- **Petra is right about checkout → daily.** The Team View "Switch to Daily" button only sets `rooms.is_checkout_room = false` and the assignment type. But the bucketing function treats `pms_metadata.scheduledDepartureToday === true` as authoritative checkout, and that flag is untouched — so the room instantly snaps back to Checkout Rooms. The drag-and-drop path writes a `manual_checkout` override, the button does not, and neither clears `scheduledDepartureToday`.
+Scope: the Revenue Management section only. Nothing in housekeeping, PMS sync for rooms, or approvals is touched.
 
-## The fix
+## Feasibility — what I verified
 
-**1. Manual no-show from a room chip (admins + managers)**
-- Add "Mark as No-Show" / "Clear No-Show" to the room chip popover in `HotelRoomOverview.tsx` (same permission gate as the other manager actions).
-- Writes `pms_metadata.manualNoShow = { value, at, by }` and surfaces the room in the existing No-Show section with the red ring and an "M" manual marker.
-- Marking a no-show removes it from Daily/Arrival buckets, cancels/parks today's not-yet-started assignment for that room, and logs a `pms_change_events` entry (`no_show_marked_manual`) with user + Budapest timestamp.
-- Manual marks survive the next PMS refresh for the rest of the day (same stale-override expiry already used for `manual_checkout`).
+- Previo's XML API documents a **`getRates`** method that returns the *final* price per room type / rate plan / date, with occupancy-based pricing and rate-plan derivation already applied. That matches the "Alap" (base) sheet you downloaded from `pms.previo.app/.../rates`: room type rows x date columns, with 1 Guest / 2 Guest / 3 Guest prices, room status and rooms-for-sale.
+- Pickup does **not** need the report file: `searchReservations` exposes creation date + stay dates, so pickup for any date range and any "as of" window can be computed exactly (Budapest time) instead of parsing an XLSX.
+- Occupancy comes from the same reservation pull against total room inventory (`/rest/rooms`), which is how 7D/30D occupancy will be recomputed accurately.
 
-**2. Better API-side no-show detection**
-- In `previo-pms-sync`, widen the rule: flag no-show when the reservation covers today and Previo reports a no-show status, regardless of whether `arrivalDate === today`; keep the note-text fallback.
-- Add a corroborating signal: reservation not checked in (never reached status 5/6) while its arrival date is already in the past → no-show candidate.
-- No-show rooms report `Occupied = "No"`, `People = 0`, no departure — so `pmsRefresh` stops writing a phantom `guest_count` (401's "1 guest").
+Because API entitlements are per-account, **step 1 of the build is a read-only probe** against Ottofiori's Previo credentials that calls `getRates` (plus rate-plan/pricelist listing) and prints exactly what comes back. If `getRates` is not enabled on your account, the calendar falls back to an **admin-only** upload of the `priceList.xlsx` you shared (I'll parse the exact "Alap" layout above), and I'll tell you which one is in effect. Everything else in this plan works from the API regardless.
 
-**3. Fix RTC (ready to clean)**
-- Single rule everywhere: a `checkout_cleaning` assignment is ready to clean **only** when PMS confirms departure (`pms_metadata.readyToClean` / `checkedOutToday`) or a manager releases it manually; `daily_cleaning` is always ready.
-- In `pmsRefresh.ts`, apply that rule on every refresh to today's not-started assignments — including re-blocking rows that are wrongly `true` — not only when the assignment type changes.
-- Correct today's 7 wrong rows as a one-off so the board is right immediately.
+## What changes
 
-**4. Verify and repair the Previo clean-status push**
-- Instrument `pushCleanStatusToPrevio` so failures are visible: log every attempt to `pms_sync_history` (including invocation failures, which currently vanish), and surface a toast with the reason.
-- Run a controlled test invoke of `previo-update-room-status` against one mapped Ottofiori room to determine whether the break is the function invocation, hotel resolution, room mapping, or the Previo endpoint itself, then fix the identified cause.
-- Fall back to the existing `previo-outbound-worker` queue when the direct call fails, so an approval is never silently lost.
+### 1. Hotel scoping
+Revenue Management shows **only the hotel currently selected** in the hotel switcher (org + assigned hotel). No multi-hotel card grid unless the user is on "All Hotels" as an admin.
 
-**5. Make manual checkout → daily stick**
-- The "Switch to Daily" chip button and the drag-drop path share one helper that: sets `is_checkout_room`, writes the `manual_checkout` override with user + timestamp, **clears `scheduledDepartureToday` / `checkedOutToday`** for the day, updates the assignment type, and resets `ready_to_clean` per rule 3.
-- The override is respected by the next PMS refresh for the rest of the day and shows the amber "M" badge so it is auditable.
+### 2. Hotel overview card (the screen in your screenshot)
+- 7D and 30D occupancy recomputed from the live reservation pull (rooms sold / sellable rooms, Budapest calendar days), not from stale snapshots.
+- The "Next 14 days" chart becomes a **range-adjustable chart**: 14d / 30d / 90d / 6 months, with occupancy, pickup and reference rate on one timeline.
+- Peak-pickup days rendered in red on the chart.
+- A **pickup range summarizer**: pick a date range (Budapest time) and get total pickup, per-day breakdown, and the biggest movers.
+- Uploads removed for everyone except admins; `Sync` is the only refresh path for managers and runs on click.
+
+### 3. Sync correctness
+Rewrite the revenue sync so one click pulls, for the selected hotel only:
+- reservations (stay dates, created-at, room type, price, status, cancellations) for today .. +6 months,
+- room inventory and room types,
+- rates per room type / date / occupancy (from `getRates`),
+and writes date-scoped snapshots in Budapest time. Cancellations are subtracted so pickup can be negative (your report shows -1 days). Every sync writes a history row with counts and errors so a silent partial sync is visible.
+
+### 4. Rooms & rate-plan mapping (admins)
+- Settings shows every room type returned by Previo for the hotel, alongside the existing mapping rows, so you can confirm the mapping is correct.
+- One room type is flagged **reference**; other types carry a derivation rule (% or fixed €) measured against the reference.
+- After mapping is confirmed, an admin can set a new reference price for a date or date range and press **Update prices** — the app computes the derived prices for all other room types and pushes them to Previo, then re-pulls to confirm the stored rates match what was pushed.
+
+### 5. "Open" → Excel-style rate & pickup calendar
+- Left column: room types from the API. Top: dates.
+- Horizontal scroll with **clear month borders**, weekends shaded differently.
+- Each cell shows the exact price for that room type on that date, in **EUR**, taken from the **Alap / base** rate plan.
+- A pickup heat row/overlay per date: user-selectable pickup window (e.g. "since yesterday", "last 3 days", "last 7 days"); 1 pickup = light orange, 2 = stronger orange, 3+ = red.
+- Occupancy and rooms-for-sale shown per date so price, occupancy and pickup are readable together.
 
 ## Technical notes
-Files touched: `src/components/dashboard/HotelRoomOverview.tsx`, `src/lib/pmsRefresh.ts`, `src/components/dashboard/SupervisorApprovalView.tsx`, `src/components/dashboard/AutoRoomAssignment.tsx`, `supabase/functions/previo-pms-sync/index.ts`, and possibly `supabase/functions/previo-update-room-status/index.ts`. Plus translation keys for the new no-show actions across all supported languages, and a one-off data correction for today's RTC rows. No schema change is expected.
+
+- New edge function `previo-revenue-sync` (replacing the current revenue pull path) using the existing `callPrevioXml` / `fetchPrevioWithAuth` helpers and per-hotel `pms_configurations`; hard-scoped to the requested hotel and its org.
+- New tables/columns for per-room-type per-date rates by occupancy, and for pickup snapshots keyed by (stay_date, captured_date) so any pickup window can be derived without re-pulling.
+- All date math via `src/lib/budapestTime.ts`.
+- Currency normalized to EUR at read time; non-EUR rate plans are flagged rather than silently converted.
+- Upload entry points gated behind the admin role in `Revenue.tsx` and `RevenueHotelDetail.tsx`.
+
+## Order of work
+
+1. Read-only Previo probe for `getRates` / rate plans / pricelists on Ottofiori — report exactly what is available.
+2. Sync rewrite + storage schema.
+3. Hotel overview (scoping, accurate 7D/30D, adjustable chart, pickup range tool, upload gating).
+4. Excel-style calendar with pickup heat.
+5. Mapping confirmation + reference-price push.
