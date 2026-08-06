@@ -121,6 +121,12 @@ function isNoShowStatus(statusId: number): boolean {
   return statusId === 8;
 }
 
+function isInHouseStatus(statusId: number): boolean {
+  // Previo: 3 = in house (checked in), 5 = checked-in (legacy REST value).
+  return statusId === 3 || statusId === 5;
+}
+
+
 const RESERVATION_UNAVAILABLE_MANAGER_MESSAGE =
   "PMS room list synced, but Previo did not send checkout/daily data. Room buckets were not changed.";
 
@@ -777,16 +783,18 @@ serve(async (req) => {
       const departureTomorrowConfirmed =
         isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
 
-      // No-show is a RESERVATION state, not "the room has no reservation".
-      // Previo marks such reservations with statusId 8. The reservation may
-      // have arrived today OR earlier (a multi-night booking the guest never
-      // showed up for), so check any reservation that spans today rather than
-      // only today's arrivals. A room with no reservation is simply vacant.
-      const noteLower = (res?.note ?? "").toLowerCase();
+      // No-show is a RESERVATION state, not "the room has no reservation" and
+      // not a phrase found somewhere in the note text. Previo marks a no-show
+      // with statusId 8. Free-text matching used to flag in-house guests whose
+      // OTA blob happened to contain the words "no show".
       const spansToday = !!res && res.arrivalDate <= today && res.departureDate >= today;
-      const isNoShow = !!res
-        && spansToday
-        && (isNoShowStatus(res.statusId) || noteLower.includes("no show") || noteLower.includes("no-show"));
+      const isNoShow = !!res && spansToday && isNoShowStatus(res.statusId);
+
+      // Arrival that has not checked in yet (Previo status still "reserved").
+      // This is NOT a no-show — it only becomes one when Previo says so.
+      const isNotArrived = !!res && isArrival && !isNoShow && !isCheckedOut
+        && !isInHouseStatus(res.statusId);
+
 
       return {
         Room: r.name,
@@ -804,6 +812,8 @@ serve(async (req) => {
         CheckedOut: isCheckedOut,
         IsCheckoutRoom: !isNoShow && isCheckoutRoom,
         IsNoShow: isNoShow,
+        NotArrived: isNotArrived,
+
 
         // Keep the legacy field safe for stale browser bundles that used to
         // treat statusId=5 as checked-out. Raw value remains available below

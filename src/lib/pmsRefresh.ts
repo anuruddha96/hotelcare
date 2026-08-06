@@ -16,6 +16,15 @@ const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_moved_at", "manual_moved_by",
   "manual_no_show", "manual_no_show_at", "manual_no_show_by",
 ];
+// Per-day PMS state that must be wiped when a new work day starts, so the
+// morning auto-assign can never inherit yesterday's checkout/no-show picture.
+const STALE_DAY_METADATA_KEYS = [
+  "checkedOutToday", "checkedOutAt", "readyToClean", "readyToCleanDate",
+  "departureTime", "scheduledDepartureToday", "scheduledDepartureTomorrow",
+  "isNoShow", "notArrived", "arrivalToday", "occupiedToday", "stayThroughToday",
+  "manualReadyToCleanAt",
+];
+
 
 
 // Previo concatenates all department-tab notes into a single `note` field,
@@ -325,7 +334,7 @@ export async function runPmsRefresh(
         //    today.
         const { data: staleRooms } = await supabase
           .from("rooms")
-          .select("id, notes, pms_metadata")
+          .select("id, notes, pms_metadata, is_checkout_room")
           .in("hotel", hotelKeys);
         const cleanupUpdates: Array<Promise<any>> = [];
         for (const r of staleRooms ?? []) {
@@ -346,8 +355,19 @@ export async function runPmsRefresh(
             for (const k of MANUAL_ROOM_OVERRIDE_KEYS) {
               if (k in meta) { delete meta[k]; changed = true; }
             }
+            // Yesterday's bucket state must never survive into a new day:
+            // auto-assign runs early in the morning and would otherwise build
+            // checkout tasks from flags that belong to the previous day.
+            for (const k of STALE_DAY_METADATA_KEYS) {
+              if (k in meta) { delete meta[k]; changed = true; }
+            }
             if (changed) patch.pms_metadata = meta;
+            if ((r as any).is_checkout_room) {
+              patch.is_checkout_room = false;
+              patch.checkout_time = null;
+            }
           }
+
           const notes = (r as any).notes as string | null;
           if (notes) {
             let cleanedNotes: string | null = notes;
@@ -441,7 +461,7 @@ export async function runPmsRefresh(
       })[0];
       matchedRoomIds.add(room.id);
 
-      const classification = classifyPmsHousekeepingRow(row);
+      const classification = classifyPmsHousekeepingRow(row, today);
       const departureParsed = classification.departureTime;
       const isScheduledDeparture = classification.isScheduledDeparture;
       const isDepartureTomorrow = classification.isDepartureTomorrow;
@@ -517,12 +537,18 @@ export async function runPmsRefresh(
         || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
       const manualNoShowOverride = existingMetadata?.manual_no_show === true;
       const hasProtectedCheckoutAssignment = protectedCheckoutAssignmentRoomIds.has(room.id);
+      // When PMS positively reports a stay-through guest (future departure
+      // date, no checkout today) nothing may keep the checkout flag alive —
+      // not even an in-progress checkout cleaning that was generated from
+      // yesterday's stale flag. Only an explicit manager checkout mark wins.
+      const pmsSaysStaying = classification.isStayThrough;
       const preserveExistingCheckout = !manualDailyOverride && currentCheckoutFlag && !shouldBeCheckoutRoom && (
-        !reservationDataAuthoritative || manualOverride || hasProtectedCheckoutAssignment
+        manualOverride || (!pmsSaysStaying && (!reservationDataAuthoritative || hasProtectedCheckoutAssignment))
       );
       const effectiveCheckoutFlag = manualDailyOverride
         ? false
         : preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+
 
       if (reservationDataAuthoritative && effectiveCheckoutFlag !== currentCheckoutFlag) {
         const label = isCheckedOut
@@ -631,8 +657,15 @@ export async function runPmsRefresh(
           !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
         );
         updateData.pms_metadata.occupiedToday = classification.isDailyRoom;
+        // Arrival that has not checked in yet — shown as "Not checked in" in
+        // the Arrivals bucket. Never treated as a no-show on its own.
+        updateData.pms_metadata.notArrived = !effectiveCheckoutFlag
+          && !updateData.pms_metadata.isNoShow
+          && classification.isNotArrived;
+        updateData.pms_metadata.stayThroughToday = classification.isStayThrough;
         updateData.pms_metadata.noteOta = row.NoteOta ?? null;
         updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+
 
         if (!inferredBed) {
           delete updateData.pms_metadata.inferredBedConfig;
@@ -789,12 +822,19 @@ export async function runPmsRefresh(
         const desiredRtc = effectiveCheckoutFlag
           ? (pmsConfirmedDeparted || manuallyReleasedToday)
           : true;
+        // A phantom checkout task generated from yesterday's stale flag must be
+        // corrected even when a housekeeper already started it, otherwise the
+        // in-progress clean keeps the wrong flag alive forever.
+        const statusesToCorrect = (pmsSaysStaying && !effectiveCheckoutFlag)
+          ? ["assigned", "dnd_pending_retry", "in_progress"]
+          : ["assigned", "dnd_pending_retry"];
         const { data: staleAsg } = await supabase
           .from("room_assignments")
           .select("id, assignment_type, ready_to_clean")
           .eq("room_id", room.id)
           .eq("assignment_date", today)
-          .in("status", ["assigned", "dnd_pending_retry"] as any);
+          .in("status", statusesToCorrect as any);
+
         const mismatched = (staleAsg ?? []).filter((a: any) => a.assignment_type !== desiredType);
         const wrongRtc = (staleAsg ?? []).filter((a: any) => !!a.ready_to_clean !== desiredRtc);
         const idsToPatch = Array.from(new Set([...mismatched, ...wrongRtc].map((a: any) => a.id)));
