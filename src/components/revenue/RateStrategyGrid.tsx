@@ -387,6 +387,11 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
         </div>
+        <p className="text-[11px] text-muted-foreground">
+          Prices come straight from the Previo pricelist (one row per room type and guest count).
+          Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care.
+          {canEditRates ? " Tap any price to draft a change — nothing reaches Previo until you push it." : ""}
+        </p>
         {canEditRates && pending.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs">
@@ -712,10 +717,16 @@ export default function RateStrategyGrid({
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-muted-foreground">
-            These prices are written to Previo immediately and become live for guests.
-            Anything that fails stays here with its error so you can retry.
-          </p>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              These prices are written to Previo immediately and become live for guests.
+              Anything that fails stays here with its error so you can retry.
+            </p>
+            <p className="text-xs rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
+              Writing prices back requires Previo to enable rate-write access for this property.
+              Until they confirm the endpoint, pushes will fail with a Previo error and your drafts stay safe here.
+            </p>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
             <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
