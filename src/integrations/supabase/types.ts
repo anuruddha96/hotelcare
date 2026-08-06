@@ -4162,6 +4162,7 @@ export type Database = {
           obk_id: string | null
           organization_slug: string
           res_id: string
+          room_key: string
           room_type_name: string | null
           source_name: string | null
           status_id: number
@@ -4182,6 +4183,7 @@ export type Database = {
           obk_id?: string | null
           organization_slug: string
           res_id: string
+          room_key?: string
           room_type_name?: string | null
           source_name?: string | null
           status_id?: number
@@ -4202,6 +4204,7 @@ export type Database = {
           obk_id?: string | null
           organization_slug?: string
           res_id?: string
+          room_key?: string
           room_type_name?: string | null
           source_name?: string | null
           status_id?: number
@@ -4216,40 +4219,67 @@ export type Database = {
         Row: {
           cancelled_at: string | null
           created_at: string
+          created_at_pms: string | null
+          guests: number | null
           hotel_id: string
           id: string
           nightly_price_eur: number | null
+          obj_id: string | null
           obk_id: string | null
           organization_slug: string | null
           res_id: string
+          room_key: string
           room_type_name: string | null
+          source_name: string | null
+          status_id: number | null
           stay_date: string
+          stay_from: string | null
+          stay_to: string | null
+          total_price_eur: number | null
           updated_at: string
         }
         Insert: {
           cancelled_at?: string | null
           created_at?: string
+          created_at_pms?: string | null
+          guests?: number | null
           hotel_id: string
           id?: string
           nightly_price_eur?: number | null
+          obj_id?: string | null
           obk_id?: string | null
           organization_slug?: string | null
           res_id: string
+          room_key?: string
           room_type_name?: string | null
+          source_name?: string | null
+          status_id?: number | null
           stay_date: string
+          stay_from?: string | null
+          stay_to?: string | null
+          total_price_eur?: number | null
           updated_at?: string
         }
         Update: {
           cancelled_at?: string | null
           created_at?: string
+          created_at_pms?: string | null
+          guests?: number | null
           hotel_id?: string
           id?: string
           nightly_price_eur?: number | null
+          obj_id?: string | null
           obk_id?: string | null
           organization_slug?: string | null
           res_id?: string
+          room_key?: string
           room_type_name?: string | null
+          source_name?: string | null
+          status_id?: number | null
           stay_date?: string
+          stay_from?: string | null
+          stay_to?: string | null
+          total_price_eur?: number | null
           updated_at?: string
         }
         Relationships: []
