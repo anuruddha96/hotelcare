@@ -741,7 +741,7 @@ Deno.serve(async (req) => {
     const cost = (inTok / 1e6) * inCost + (outTok / 1e6) * outCost;
 
     const { data: run, error: runErr } = await admin.from("rm_analysis_runs").insert({
-      hotel_id: hotelId, organization_slug: hotelCfg.organization_slug ?? orgSlug, mode, model,
+      hotel_id: hotelId, organization_slug: hotelSlug ?? orgSlug, mode, model,
       data_fingerprint: fingerprint, period_start: today, period_end: horizonEnd,
       metrics, output: parsed, status: "ok",
       prompt_tokens: inTok, completion_tokens: outTok, total_tokens: inTok + outTok,
@@ -752,7 +752,7 @@ Deno.serve(async (req) => {
     const recs = (parsed.priority_recommendations ?? []) as Record<string, unknown>[];
     if (recs.length) {
       await admin.from("rm_recommendations").insert(recs.map((r, i) => ({
-        run_id: run.id, hotel_id: hotelId, organization_slug: hotelCfg.organization_slug ?? orgSlug,
+        run_id: run.id, hotel_id: hotelId, organization_slug: hotelSlug ?? orgSlug,
         priority: Number(r.priority ?? i + 1),
         category: String(r.category ?? "monitoring"),
         arrival_date: (r.arrival_date as string) || null,
