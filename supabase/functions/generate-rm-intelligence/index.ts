@@ -92,7 +92,9 @@ interface DayForecast {
   confidence: number;
   recommended_adr_min: number | null;
   recommended_adr_max: number | null;
+  drivers: string[];
   /** External signals (hotel or city events) overlapping this stay date. */
+
   events: { title: string; category: string | null; impact: string | null; source: string }[];
 }
 
