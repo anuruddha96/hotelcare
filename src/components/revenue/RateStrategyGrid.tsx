@@ -101,7 +101,7 @@ function MetricInfo({ title, body }: { title: string; body: string }) {
 }
 
 type Row =
-  | { kind: "group"; key: string; label: string; note: string }
+  | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string }
   | { kind: "rate"; key: string; label: string; obk: string | null; occ: number; roomTypeName: string }
   | { kind: "adr"; key: string; label: string }
   | { kind: "revpar"; key: string; label: string };
