@@ -42,17 +42,16 @@ interface AiOutput {
   monitoring_items: { signal: string; current_value: string; trigger: string; next_review: string }[];
   data_quality: { confidence: number; missing_sources: string[]; warnings: string[] };
 }
-interface DayForecast {
-  stay_date: string; occupancy_pct: number; forecast_occupancy_pct: number;
-  adr_eur: number | null; recommended_adr_min: number | null; recommended_adr_max: number | null;
-  rooms_remaining: number; pickup_1d: number; pickup_7d: number;
-  pace_variance_pct: number | null; demand_score: number; confidence: number;
-}
+type DayForecast = OutlookDay;
 interface Metrics {
   forecasts: DayForecast[];
+  forecast_horizon?: {
+    room_nights: number; occupancy_pct: number; room_revenue_eur: number; sellout_dates: string[];
+  };
   kpi_horizon: Record<string, number | null>;
   data_quality: Record<string, string | number>;
 }
+
 
 type Status = "new" | "applied" | "partially_applied" | "not_useful" | "incorrect" | "already_planned" | "dismissed" | "snoozed";
 
