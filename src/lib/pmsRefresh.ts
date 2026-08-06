@@ -514,8 +514,13 @@ export async function runPmsRefresh(
       // finished clean is supposed to satisfy. Without this guard every
       // refresh after the clean re-dirtied the room (root cause of room 104
       // showing dirty hours after it was cleaned and approved).
+      // Exception: if PMS confirmed the departure AFTER the clean finished,
+      // the room genuinely needs a fresh checkout clean.
+      const lastCleanedAt = (room as any).last_cleaned_at as string | null | undefined;
+      const checkedOutAfterClean = !!existingMetadata?.checkedOutAt && !!lastCleanedAt
+        && new Date(existingMetadata.checkedOutAt as string).getTime() > new Date(lastCleanedAt).getTime();
       const cleanedToday =
-        getDateOnly((room as any).last_cleaned_at) === today && room.status === "clean";
+        getDateOnly(lastCleanedAt) === today && room.status === "clean" && !checkedOutAfterClean;
       const effectiveStatus = pmsNeedsCleaning
         ? row.IsNoShow === true
           ? "clean"
