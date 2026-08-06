@@ -135,7 +135,7 @@ function MetricInfo({ title, body }: { title: string; body: string }) {
 }
 
 type Row =
-  | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string }
+  | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string; rawName: string }
   | { kind: "rate"; key: string; label: string; obk: string | null; occ: number; roomTypeName: string }
   | { kind: "adr"; key: string; label: string }
   | { kind: "revpar"; key: string; label: string };
@@ -219,7 +219,7 @@ export default function RateStrategyGrid({
     const out: Row[] = [];
     for (const rt of pricedTypes) {
       const label = localizedRoomTypeName(rt.name, rt.name_translations, language);
-      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label });
+      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name });
       const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
       const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [2];
       for (const occ of occs) {
@@ -677,7 +677,7 @@ export default function RateStrategyGrid({
                     {dates.map((d) => {
                       if (row.kind === "group") {
                         const units = row.units;
-                        const left = leftByTypeDate?.get(`${row.typeName}|${d}`);
+                        const left = leftByTypeDate?.get(`${row.rawName}|${d}`);
                         return (
                           <div
                             key={d}
