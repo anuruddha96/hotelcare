@@ -188,6 +188,7 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
 
   return (
     <TooltipProvider>
+      <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
