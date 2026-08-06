@@ -22,7 +22,7 @@ type PeriodKey = "today" | "yesterday" | "week" | "month" | "custom";
 
 const PERIODS: Array<{ key: PeriodKey; label: string }> = [
   { key: "today", label: "Today" },
-  { key: "yesterday", label: "Yesterday" },
+  { key: "yesterday", label: "Yesterday + today" },
   { key: "week", label: "This week (Mon–Sun)" },
   { key: "month", label: "This month" },
   { key: "custom", label: "Custom…" },
@@ -168,15 +168,21 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
               <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false}
                 interval={Math.max(0, Math.floor(data.length / 8))} />
-              <YAxis yAxisId="left" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={24} />
+              {/* Pickup owns the left axis so single-room days stay visible
+                  even when ADR runs in the hundreds. */}
+              <YAxis yAxisId="pickup" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={24}
+                allowDecimals={false} domain={[(min: number) => Math.min(0, min) - 1, (max: number) => Math.max(2, max) + 1]} />
               <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={30} />
+              {/* ADR gets its own hidden scale — shown in the tooltip and legend. */}
+              <YAxis yAxisId="adr" orientation="right" hide domain={["dataMin - 20", "dataMax + 20"]} />
               {monthMarks.map((m) => (
                 <ReferenceLine
-                  key={m.date} yAxisId="left" x={m.label} stroke="hsl(var(--foreground) / 0.35)"
+                  key={m.date} yAxisId="pickup" x={m.label} stroke="hsl(var(--foreground) / 0.35)"
                   strokeDasharray="2 2"
                   label={{ value: m.month, position: "top", fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                 />
               ))}
+              <ReferenceLine yAxisId="pickup" y={0} stroke="hsl(var(--muted-foreground) / 0.4)" />
               <RTooltip
                 contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                 formatter={(value: unknown, name: string) => {
@@ -185,24 +191,27 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   return [value as number, name];
                 }}
               />
-              <Bar yAxisId="left" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18}>
+              <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}>
                 {data.map((d) => <Cell key={d.date} fill={barColor(d.pickup)} />)}
               </Bar>
               {showOcc && (
                 <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
               )}
               {showAdr && (
-                <Line yAxisId="left" type="monotone" dataKey="adr" name="ADR" stroke="hsl(160 84% 39%)" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />
+                <Line yAxisId="adr" type="monotone" dataKey="adr" name="ADR" stroke="hsl(160 84% 39%)" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />
               )}
               <Legend wrapperStyle={{ fontSize: 11 }} />
+
             </ComposedChart>
           </ResponsiveContainer>
         </div>
         <p className="px-3 pt-2 text-[11px] text-muted-foreground">
           Bars show net pickup (new bookings minus cancellations) for each arrival date within the
-          measurement window. The occupancy line reads on the right axis, ADR on the left. Dashed
-          lines mark the start of each month. Source: Previo reservations, refreshed at each sync.
+          measurement window, on the left axis. Occupancy reads on the right axis; ADR has its own
+          scale and is shown in the tooltip. Dashed lines mark the start of each month.
+          Source: Previo reservations, refreshed at each sync.
         </p>
+
       </CardContent>
     </Card>
   );

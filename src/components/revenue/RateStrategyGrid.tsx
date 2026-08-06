@@ -47,11 +47,13 @@ const RANGE_OPTIONS = [
 
 const PICKUP_WINDOWS = [
   { value: 1, label: "Today" },
-  { value: 2, label: "Last 2 days" },
+  { value: 2, label: "Yesterday + today" },
   { value: 3, label: "Last 3 days" },
   { value: 7, label: "Last 7 days" },
   { value: 14, label: "Last 14 days" },
   { value: 30, label: "Last 30 days" },
+  { value: 60, label: "Last 60 days" },
+  { value: 90, label: "Last 90 days" },
 ];
 
 /** Row geometry — the two panes must agree pixel for pixel. */
@@ -150,7 +152,9 @@ export default function RateStrategyGrid({
   const [pushing, setPushing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const dates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
+  const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
+  /** When on, the grid shows only the cells flagged by the safety net. */
+  const [reviewOnly, setReviewOnly] = useState(false);
 
   // obk_id -> occupancy -> stay_date -> price
   const priceMap = useMemo(() => {
@@ -176,7 +180,7 @@ export default function RateStrategyGrid({
     return priced.length ? priced : roomTypes;
   }, [roomTypes, priceMap]);
 
-  const rows = useMemo<Row[]>(() => {
+  const allRows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     for (const rt of pricedTypes) {
       const label = localizedRoomTypeName(rt.name, rt.name_translations, language);
@@ -254,8 +258,8 @@ export default function RateStrategyGrid({
   function onScroll() {
     const el = scrollRef.current;
     if (!el) return;
-    const idx = Math.min(dates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
-    const label = formatMonth(dates[idx]);
+    const idx = Math.min(allDates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
+    const label = formatMonth(allDates[idx]);
     setVisibleMonth((prev) => (prev === label ? prev : label));
     const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
     if (nearEnd) {
@@ -325,17 +329,35 @@ export default function RateStrategyGrid({
     }
   }
 
-  const suspicious = useMemo(() => {
-    let n = 0;
-    for (const r of rows) {
+  /** Cells priced below the critical safety-net threshold — likely typos. */
+  const flagged = useMemo(() => {
+    let count = 0;
+    const dateKeys = new Set<string>();
+    const rowKeys = new Set<string>();
+    for (const r of allRows) {
       if (r.kind !== "rate" || !r.obk) continue;
-      for (const d of dates) {
+      for (const d of allDates) {
         const p = priceMap.get(r.obk)?.get(r.occ)?.get(d);
-        if (rateTone(p, thresholds).severity === "critical") n += 1;
+        if (rateTone(p, thresholds).severity === "critical") {
+          count += 1;
+          dateKeys.add(d);
+          rowKeys.add(r.key);
+        }
       }
     }
-    return n;
-  }, [rows, dates, priceMap, thresholds]);
+    return { count, dateKeys, rowKeys };
+  }, [allRows, allDates, priceMap, thresholds]);
+
+  const suspicious = flagged.count;
+
+  useEffect(() => { if (suspicious === 0) setReviewOnly(false); }, [suspicious]);
+
+  const dates = reviewOnly && flagged.dateKeys.size
+    ? allDates.filter((d) => flagged.dateKeys.has(d))
+    : allDates;
+  const rows = reviewOnly && flagged.rowKeys.size
+    ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
+    : allRows;
 
   function cellFor(row: Row, d: string) {
     if (row.kind === "group") return null;
@@ -352,9 +374,18 @@ export default function RateStrategyGrid({
             <CalendarRange className="h-4 w-4 text-primary" />
             Rate &amp; pickup calendar
             {suspicious > 0 && (
-              <Badge variant="destructive" className="gap-1 font-normal">
-                <AlertTriangle className="h-3 w-3" />{suspicious} to check
-              </Badge>
+              <span className="flex items-center gap-1">
+                <button type="button" onClick={() => setReviewOnly((v) => !v)}>
+                  <Badge variant={reviewOnly ? "default" : "destructive"} className="gap-1 font-normal cursor-pointer">
+                    <AlertTriangle className="h-3 w-3" />
+                    {reviewOnly ? "Showing" : "Review"} {suspicious} price{suspicious === 1 ? "" : "s"}
+                  </Badge>
+                </button>
+                <MetricInfo
+                  title="Prices to review"
+                  body={`${suspicious} price cells are below your critical safety-net threshold (set in Revenue settings). That is usually a typing mistake (e.g. 2 EUR instead of 200) or a rate that was never loaded for that date. Tap the badge to show only those cells; tap again to see the whole calendar.`}
+                />
+              </span>
             )}
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
@@ -439,7 +470,7 @@ export default function RateStrategyGrid({
               {rows.map((r) => (
                 <div
                   key={r.key}
-                  className={`flex items-center px-2 border-b ${r.kind === "group" ? "bg-muted/50 font-semibold" : r.kind === "rate" ? "text-muted-foreground" : "bg-muted/30 font-medium"}`}
+                  className={`flex items-center px-2 border-b ${r.kind === "group" ? "bg-muted/50 font-semibold" : r.kind === "rate" ? "text-muted-foreground" : "bg-primary/10 border-l-2 border-l-primary font-semibold"}`}
                   style={{ height: rowH(r.kind) }}
                 >
                   {r.kind === "group" ? (
@@ -545,7 +576,7 @@ export default function RateStrategyGrid({
                 {rows.map((row) => (
                   <div
                     key={row.key}
-                    className={`flex border-b ${row.kind === "group" ? "bg-muted/50" : row.kind === "rate" ? "" : "bg-muted/30"}`}
+                    className={`flex border-b ${row.kind === "group" ? "bg-muted/50" : row.kind === "rate" ? "" : "bg-primary/10 font-semibold"}`}
                     style={{ height: rowH(row.kind) }}
                   >
                     {dates.map((d) => {
