@@ -16,6 +16,15 @@ const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_moved_at", "manual_moved_by",
   "manual_no_show", "manual_no_show_at", "manual_no_show_by",
 ];
+// Per-day PMS state that must be wiped when a new work day starts, so the
+// morning auto-assign can never inherit yesterday's checkout/no-show picture.
+const STALE_DAY_METADATA_KEYS = [
+  "checkedOutToday", "checkedOutAt", "readyToClean", "readyToCleanDate",
+  "departureTime", "scheduledDepartureToday", "scheduledDepartureTomorrow",
+  "isNoShow", "notArrived", "arrivalToday", "occupiedToday", "stayThroughToday",
+  "manualReadyToCleanAt",
+];
+
 
 
 // Previo concatenates all department-tab notes into a single `note` field,
