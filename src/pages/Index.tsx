@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
@@ -79,7 +79,7 @@ const Index = () => {
   // Only on a bare landing though: once they explicitly ask for a dashboard
   // tab (?tab=housekeeping …) we must NOT bounce them back to Revenue,
   // otherwise the legacy tabs are unreachable for executives.
-  if (profile && isExecutiveRole(profile.role) && !hasExplicitTab) {
+  if (profile && isExecutiveRole(profile.role) && !hasExplicitTab.current) {
     return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
   }
 
