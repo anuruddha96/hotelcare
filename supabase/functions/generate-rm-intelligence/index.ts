@@ -613,12 +613,23 @@ Deno.serve(async (req) => {
       weak_demand_dates: [...forecasts].filter((f) => f.lead_time_days <= 30)
         .sort((a, b) => a.demand_score - b.demand_score).slice(0, 8),
       demand_score_weights: DEMAND_WEIGHTS,
+      market_signals: {
+        events: eventSignals
+          .filter((e) => e.end >= today && e.start <= horizonEnd)
+          .sort((a, b) => a.start.localeCompare(b.start)).slice(0, 60),
+        event_dates: [...eventsByDate.keys()].sort(),
+        note: "Events are manually maintained property and city entries. They adjust the demand score by a bounded amount and never justify a price change on their own.",
+      },
+      outcome_feedback: outcomeFeedback,
       data_quality: {
         market_rates: "unavailable — no market-rate provider configured",
-        events: "unavailable — no event provider configured",
+        events: eventSignals.length
+          ? `${eventSignals.length} manually maintained event signal(s) loaded`
+          : "no event signals recorded for this property",
         rate_plans_and_promotions: "not exposed by the Previo reservation feed; channel is used as a proxy",
         history_days_loaded: Math.min(365, (snapRes.data ?? []).length ? 365 : 0),
       },
+
     };
 
     /* -------------------------------------------------- cache / debounce */
