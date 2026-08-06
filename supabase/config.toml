@@ -165,3 +165,6 @@ verify_jwt = true
 
 [functions.generate-rm-intelligence]
 verify_jwt = true
+
+[functions.rm-measure-outcomes]
+verify_jwt = true

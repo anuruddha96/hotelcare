@@ -93,12 +93,33 @@ interface DayForecast {
   recommended_adr_min: number | null;
   recommended_adr_max: number | null;
   drivers: string[];
+  /** External signals (hotel or city events) overlapping this stay date. */
+
+  events: { title: string; category: string | null; impact: string | null; source: string }[];
 }
 
+export interface EventSignal {
+  title: string; category: string | null; impact: string | null; source: string;
+  start: string; end: string;
+}
+
+/** Impact strings map to a bounded demand-score boost (never a rate decision on their own). */
+function eventBoost(evts: DayForecast["events"]): number {
+  let b = 0;
+  for (const e of evts) {
+    const i = (e.impact ?? "").toLowerCase();
+    b += i.includes("very") || i.includes("high") ? 10 : i.includes("medium") ? 6 : i.includes("negative") || i.includes("low") ? -4 : 3;
+  }
+  return Math.max(-10, Math.min(15, b));
+}
 
 const DEMAND_WEIGHTS = { pickup: 0.30, pressure: 0.30, pace: 0.25, leadtime: 0.15 };
 
-function buildForecasts(nights: NightRow[], today: string, roomsAvailable: number): DayForecast[] {
+function buildForecasts(
+  nights: NightRow[], today: string, roomsAvailable: number,
+  eventsByDate: Map<string, DayForecast["events"]> = new Map(),
+): DayForecast[] {
+
   const byDate = new Map<string, NightRow[]>();
   for (const n of nights) {
     if (!byDate.has(n.stay_date)) byDate.set(n.stay_date, []);
@@ -140,15 +161,18 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
     const fcOcc = roomsAvailable > 0 ? (fcSold / roomsAvailable) * 100 : 0;
 
     // Demand score (0-100), transparent components.
+    const dayEvents = eventsByDate.get(date) ?? [];
+    const evBoost = eventBoost(dayEvents);
     const pickupComp = Math.min(100, dailyPickup * 25);
     const pressureComp = Math.min(100, occ + (remaining <= 3 ? 20 : 0));
     const paceComp = paceVar === null ? 50 : Math.max(0, Math.min(100, 50 + paceVar));
     const leadComp = Math.max(0, Math.min(100, 100 - Math.abs(lead - 21) * 2));
-    const score = Math.round(
+    const score = Math.max(0, Math.min(100, Math.round(
       pickupComp * DEMAND_WEIGHTS.pickup + pressureComp * DEMAND_WEIGHTS.pressure +
-      paceComp * DEMAND_WEIGHTS.pace + leadComp * DEMAND_WEIGHTS.leadtime,
-    );
+      paceComp * DEMAND_WEIGHTS.pace + leadComp * DEMAND_WEIGHTS.leadtime + evBoost,
+    )));
     const cls = score >= 80 ? "very_high" : score >= 62 ? "high" : score >= 38 ? "normal" : score >= 20 ? "low" : "very_low";
+
 
     // Confidence: more history/pickup + closer horizon = higher.
     const confidence = Math.max(20, Math.min(95, Math.round(
@@ -189,6 +213,10 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
     if (paceVar !== null) drivers.push(`pace ${paceVar >= 0 ? "+" : ""}${round(paceVar, 0)}% vs comparable ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow(date)]}s`);
     if (selloutRisk === "high") drivers.push("forecast to close out — protect the last rooms");
     if (score < 20 && lead <= 21) drivers.push("weak demand inside the booking window");
+    for (const e of dayEvents) {
+      drivers.push(`${e.source === "hotel" ? "Property event" : "City event"}: ${e.title}${e.impact ? ` (${e.impact} impact)` : ""}`);
+    }
+
 
     out.push({
       stay_date: date,
@@ -218,6 +246,8 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       recommended_adr_min: recMin,
       recommended_adr_max: recMax,
       drivers,
+      events: dayEvents,
+
     });
 
   }
@@ -363,6 +393,8 @@ Clearly distinguish: observed fact, calculated metric, forecast, assumption, rec
 Do not recommend a price increase solely because pickup exists. Consider current occupancy, remaining inventory, lead time, historical pace, demand confidence, price position, room-type availability, cancellation risk, length-of-stay effect, channel commission, event signals and market comparisons.
 Do not recommend advertising simply because ADR is below target. Recommend additional marketing spend only when there is evidence of profitable incremental demand, adequate net ADR, available inventory, suitable lead time and a measurable campaign opportunity.
 Avoid generic advice. Every recommendation must cite the exact metrics supporting it. Where evidence is weak, say so. Where no action is warranted, recommend monitoring rather than making a change.
+Use market_signals (manually maintained property and city events) as supporting context only: cite an event by name when it strengthens a date-level case, never treat it as a verified demand forecast, and never invent events that are not listed.
+Use outcome_feedback (adoption rate and measured revenue delta of your previous recommendations for this property) to calibrate: repeat categories that measurably worked, stop repeating categories that were consistently rejected or measured negative, and say when you are adjusting because of past outcomes.
 Return only the required structured JSON.`;
 
 // Rough USD per 1M tokens for cost estimation only (input/output).
@@ -427,7 +459,7 @@ Deno.serve(async (req) => {
     const historyStart = addDays(today, -365);
 
     /* ----------------------------------------------- verified data load */
-    const [nights, cancelled, settingsRes, roomTypesRes, snapRes] = await Promise.all([
+    const [nights, cancelled, settingsRes, roomTypesRes, snapRes, hotelEvRes, marketEvRes] = await Promise.all([
       fetchAll<NightRow>((f, t) => admin.from("revenue_booking_nights")
         .select("stay_date,res_id,room_key,room_type_name,nightly_price_eur,created_at_pms,source_name,stay_from,stay_to,guests,status_id")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
@@ -440,7 +472,36 @@ Deno.serve(async (req) => {
       admin.from("revenue_daily_snapshots").select("stay_date,captured_date,rooms_sold,rooms_available,adr_eur,revenue_eur")
         .eq("hotel_id", hotelId).gte("stay_date", historyStart).lte("stay_date", horizonEnd)
         .order("captured_date", { ascending: false }).limit(2000),
+      admin.from("hotel_events").select("title,category,impact,event_date,end_date,notes")
+        .eq("hotel_id", hotelId).lte("event_date", horizonEnd).limit(300),
+      admin.from("market_events").select("title,category,expected_impact,event_date,end_date,venue,city,source,confidence")
+        .lte("event_date", horizonEnd).gte("event_date", addDays(today, -14)).limit(300),
     ]);
+
+    /* ------------------------------------- Phase 3: external market signals */
+    const eventSignals: EventSignal[] = [];
+    for (const e of (hotelEvRes.data ?? []) as Record<string, string | null>[]) {
+      eventSignals.push({
+        title: String(e.title ?? "Event"), category: e.category ?? null, impact: e.impact ?? null,
+        source: "hotel", start: String(e.event_date), end: String(e.end_date ?? e.event_date),
+      });
+    }
+    for (const e of (marketEvRes.data ?? []) as Record<string, string | null>[]) {
+      eventSignals.push({
+        title: `${e.title ?? "Event"}${e.venue ? ` — ${e.venue}` : ""}`, category: e.category ?? null,
+        impact: e.expected_impact ?? null, source: e.source ?? "market",
+        start: String(e.event_date), end: String(e.end_date ?? e.event_date),
+      });
+    }
+    const eventsByDate = new Map<string, DayForecast["events"]>();
+    for (const ev of eventSignals) {
+      for (let d = ev.start; d <= ev.end && diffDays(d, ev.start) < 60; d = addDays(d, 1)) {
+        if (d < today || d > horizonEnd) continue;
+        const list = eventsByDate.get(d) ?? [];
+        list.push({ title: ev.title, category: ev.category, impact: ev.impact, source: ev.source });
+        eventsByDate.set(d, list);
+      }
+    }
 
     const settings = settingsRes.data as Record<string, unknown> | null;
     const roomTypes = (roomTypesRes.data ?? []) as { name: string; num_rooms: number; is_sellable: boolean | null; counts_toward_inventory: boolean | null }[];
@@ -452,7 +513,39 @@ Deno.serve(async (req) => {
 
     if (!roomsAvailable) throw new Error("No sellable room inventory configured for this hotel");
 
-    const forecasts = buildForecasts(nights, today, roomsAvailable);
+    const forecasts = buildForecasts(nights, today, roomsAvailable, eventsByDate);
+
+    /* ----------------------------- Phase 4: learn from measured outcomes */
+    const { data: pastRecs } = await admin.from("rm_recommendations")
+      .select("category, headline, status, confidence, arrival_date, outcome, created_at")
+      .eq("hotel_id", hotelId)
+      .gte("created_at", addDays(today, -60))
+      .order("created_at", { ascending: false }).limit(120);
+    const past = (pastRecs ?? []) as { category: string; status: string; outcome: Record<string, unknown> | null }[];
+    const measured = past.filter((r) => r.outcome && typeof r.outcome === "object" && "revenue_delta_eur" in r.outcome);
+    const applied = past.filter((r) => r.status === "applied" || r.status === "partially_applied");
+    const byCategory: Record<string, { total: number; applied: number; measured: number; revenue_delta_eur: number }> = {};
+    for (const r of past) {
+      const c = r.category || "other";
+      byCategory[c] ??= { total: 0, applied: 0, measured: 0, revenue_delta_eur: 0 };
+      byCategory[c].total += 1;
+      if (r.status === "applied" || r.status === "partially_applied") byCategory[c].applied += 1;
+      const delta = Number((r.outcome as Record<string, unknown> | null)?.revenue_delta_eur ?? NaN);
+      if (Number.isFinite(delta)) { byCategory[c].measured += 1; byCategory[c].revenue_delta_eur = round(byCategory[c].revenue_delta_eur + delta); }
+    }
+    const outcomeFeedback = {
+      window_days: 60,
+      recommendations_issued: past.length,
+      applied_count: applied.length,
+      adoption_rate_pct: past.length ? round((applied.length / past.length) * 100, 1) : null,
+      measured_count: measured.length,
+      measured_revenue_delta_eur: round(measured.reduce(
+        (s, r) => s + (Number((r.outcome as Record<string, unknown>).revenue_delta_eur) || 0), 0)),
+      by_category: byCategory,
+    };
+
+
+
 
     /* ------------------------------------------------ created-today KPIs */
     const createdToday = nights.filter((n) => n.created_at_pms && tzDay(n.created_at_pms) === today);
@@ -522,12 +615,23 @@ Deno.serve(async (req) => {
       weak_demand_dates: [...forecasts].filter((f) => f.lead_time_days <= 30)
         .sort((a, b) => a.demand_score - b.demand_score).slice(0, 8),
       demand_score_weights: DEMAND_WEIGHTS,
+      market_signals: {
+        events: eventSignals
+          .filter((e) => e.end >= today && e.start <= horizonEnd)
+          .sort((a, b) => a.start.localeCompare(b.start)).slice(0, 60),
+        event_dates: [...eventsByDate.keys()].sort(),
+        note: "Events are manually maintained property and city entries. They adjust the demand score by a bounded amount and never justify a price change on their own.",
+      },
+      outcome_feedback: outcomeFeedback,
       data_quality: {
         market_rates: "unavailable — no market-rate provider configured",
-        events: "unavailable — no event provider configured",
+        events: eventSignals.length
+          ? `${eventSignals.length} manually maintained event signal(s) loaded`
+          : "no event signals recorded for this property",
         rate_plans_and_promotions: "not exposed by the Previo reservation feed; channel is used as a proxy",
         history_days_loaded: Math.min(365, (snapRes.data ?? []).length ? 365 : 0),
       },
+
     };
 
     /* -------------------------------------------------- cache / debounce */

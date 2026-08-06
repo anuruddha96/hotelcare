@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { eur } from "@/lib/revenueAnalytics";
 import DemandRateOutlookChart, { type OutlookDay } from "./DemandRateOutlookChart";
+import MarketSignalsPanel from "./MarketSignalsPanel";
+import RecommendationOutcomesPanel from "./RecommendationOutcomesPanel";
 
 
 /* ---------------------------------------------------------------- types */
@@ -52,6 +54,7 @@ interface Metrics {
   };
   kpi_horizon: Record<string, number | null>;
   data_quality: Record<string, string | number>;
+  market_signals?: { events?: { title: string; start: string; end: string; impact: string | null; source: string }[] };
 }
 
 
@@ -170,6 +173,8 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
     return m;
   }, [metrics]);
 
+  const eventCount = metrics?.market_signals?.events?.length ?? 0;
+
   const leaks = useMemo(() => {
     const rows = output?.adr_leakage ?? [];
     const filtered = leakFilter === "all" ? rows : rows.filter((r) => r.dimension === leakFilter);
@@ -186,6 +191,7 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
 
   return (
     <TooltipProvider>
+      <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -331,7 +337,7 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
                               </span>
                             )}
                             <span>{confidenceLabel(rec.confidence)} · {rec.confidence}%</span>
-                            <span>Market rates unavailable</span>
+                            <span>{eventCount ? `${eventCount} event signal(s) in horizon` : "No event signals recorded"}</span>
                           </div>
 
                           <Collapsible>
@@ -343,7 +349,7 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
                             </CollapsibleTrigger>
                             <CollapsibleContent className="pt-1 space-y-1 text-[11px] text-muted-foreground">
                               <p>Based on: internal booking data, pickup and pace history from your own reservations.</p>
-                              <p>Market rates unavailable · No reliable event signal configured.</p>
+                              <p>Market rates unavailable · {eventCount ? `${eventCount} manually recorded event signal(s) considered.` : "No event signals recorded for this property."}</p>
                               {rec.risk && <p>Risk: {rec.risk}</p>}
                               {rec.expected_impact?.method && <p>Impact method: {rec.expected_impact.method}</p>}
                               <p>Data through {generatedAt ? new Date(generatedAt).toLocaleString() : "—"}.</p>
@@ -493,6 +499,13 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {/* Phase 3 — external demand signals feeding the analysis */}
+      <MarketSignalsPanel hotelId={hotelId} />
+
+      {/* Phase 4 — measured outcomes of applied recommendations */}
+      <RecommendationOutcomesPanel hotelId={hotelId} />
+      </div>
     </TooltipProvider>
   );
 }
