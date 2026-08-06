@@ -615,10 +615,12 @@ Deno.serve(async (req) => {
     const message = (e instanceof Error ? e.message : String(e)).replace(/sk-[A-Za-z0-9_-]+/g, "***");
     console.error("generate-rm-intelligence failed:", message);
     if (hotelId) {
-      await admin.from("rm_analysis_runs").insert({
-        hotel_id: hotelId, organization_slug: orgSlug, mode, model,
-        status: "error", error: message.slice(0, 500), created_by: userId,
-      }).select("id").maybeSingle().catch(() => null);
+      try {
+        await admin.from("rm_analysis_runs").insert({
+          hotel_id: hotelId, organization_slug: orgSlug, mode, model,
+          status: "error", error: message.slice(0, 500), created_by: userId,
+        });
+      } catch (_logErr) { /* never block the response on logging */ }
     }
     return new Response(JSON.stringify({ error: message }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
