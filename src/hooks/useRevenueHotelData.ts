@@ -181,6 +181,6 @@ export function useRevenueHotelData(
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, cancellations, metrics, lastSyncAt, reload,
+    nights, snapshots, rates, cancellations, metrics, lastSyncAt, thresholds, reload,
   };
 }
