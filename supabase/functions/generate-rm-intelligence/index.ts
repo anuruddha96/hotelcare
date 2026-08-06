@@ -513,6 +513,37 @@ Deno.serve(async (req) => {
 
     const forecasts = buildForecasts(nights, today, roomsAvailable, eventsByDate);
 
+    /* ----------------------------- Phase 4: learn from measured outcomes */
+    const { data: pastRecs } = await admin.from("rm_recommendations")
+      .select("category, headline, status, confidence, arrival_date, outcome, created_at")
+      .eq("hotel_id", hotelId)
+      .gte("created_at", addDays(today, -60))
+      .order("created_at", { ascending: false }).limit(120);
+    const past = (pastRecs ?? []) as { category: string; status: string; outcome: Record<string, unknown> | null }[];
+    const measured = past.filter((r) => r.outcome && typeof r.outcome === "object" && "revenue_delta_eur" in r.outcome);
+    const applied = past.filter((r) => r.status === "applied" || r.status === "partially_applied");
+    const byCategory: Record<string, { total: number; applied: number; measured: number; revenue_delta_eur: number }> = {};
+    for (const r of past) {
+      const c = r.category || "other";
+      byCategory[c] ??= { total: 0, applied: 0, measured: 0, revenue_delta_eur: 0 };
+      byCategory[c].total += 1;
+      if (r.status === "applied" || r.status === "partially_applied") byCategory[c].applied += 1;
+      const delta = Number((r.outcome as Record<string, unknown> | null)?.revenue_delta_eur ?? NaN);
+      if (Number.isFinite(delta)) { byCategory[c].measured += 1; byCategory[c].revenue_delta_eur = round(byCategory[c].revenue_delta_eur + delta); }
+    }
+    const outcomeFeedback = {
+      window_days: 60,
+      recommendations_issued: past.length,
+      applied_count: applied.length,
+      adoption_rate_pct: past.length ? round((applied.length / past.length) * 100, 1) : null,
+      measured_count: measured.length,
+      measured_revenue_delta_eur: round(measured.reduce(
+        (s, r) => s + (Number((r.outcome as Record<string, unknown>).revenue_delta_eur) || 0), 0)),
+      by_category: byCategory,
+    };
+
+
+
 
     /* ------------------------------------------------ created-today KPIs */
     const createdToday = nights.filter((n) => n.created_at_pms && tzDay(n.created_at_pms) === today);
