@@ -528,7 +528,16 @@ Deno.serve(async (req) => {
 
     if (!roomsAvailable) throw new Error("No sellable room inventory configured for this hotel");
 
-    const forecasts = buildForecasts(nights, today, roomsAvailable, eventsByDate);
+    // Manual demand grades set by the revenue manager (they win over the computed index).
+    const { data: overrideRows } = await admin.from("demand_overrides")
+      .select("stay_date, score, note")
+      .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd);
+    const overridesByDate = new Map<string, { score: number; note: string | null }>();
+    for (const o of (overrideRows ?? []) as { stay_date: string; score: number; note: string | null }[]) {
+      overridesByDate.set(o.stay_date, { score: Number(o.score), note: o.note ?? null });
+    }
+
+    const forecasts = buildForecasts(nights, today, roomsAvailable, eventsByDate, overridesByDate);
 
     /* ----------------------------- Phase 4: learn from measured outcomes */
     const { data: pastRecs } = await admin.from("rm_recommendations")
