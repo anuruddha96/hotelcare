@@ -138,6 +138,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics,
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
+  demandByDate, leftByTypeDate,
 }: Props) {
   const { language } = useTranslation();
   const isMobile = useIsMobile();
