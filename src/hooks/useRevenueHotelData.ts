@@ -128,11 +128,24 @@ export function useRevenueHotelData(
       ]);
 
       setRoomTypes((rt.data ?? []) as RevenueRoomType[]);
+      setRoomTypes(((rt.data ?? []) as any[]).map((r) => ({
+        ...r,
+        name_translations: (r.name_translations ?? {}) as Record<string, string>,
+      })) as RevenueRoomType[]);
       setNights(nightRows);
       setSnapshots(snapRows);
       setRates(rateRows);
       setCancellations(cancelRows);
-      setSellableOverride(((settings as any)?.data?.sellable_rooms as number | null) ?? null);
+      const s = (settings as any)?.data ?? null;
+      setSellableOverride((s?.sellable_rooms as number | null) ?? null);
+      setThresholds({
+        rateWarnBelowEur: Number(s?.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur),
+        rateCriticalBelowEur: Number(s?.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur),
+        rateMaxSaneEur: Number(s?.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur),
+        occupancyLowPct: Number(s?.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
+        occupancyHighPct: Number(s?.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
+        pickupStrongThreshold: Number(s?.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
+      });
       setLastSyncAt((sync.data as { created_at?: string } | null)?.created_at ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
