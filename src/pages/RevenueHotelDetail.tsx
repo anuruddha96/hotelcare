@@ -56,6 +56,9 @@ interface Row {
 }
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
+
+/** Data younger than this is considered fresh — no automatic re-sync. */
+const FRESH_SYNC_MS = 15 * 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
