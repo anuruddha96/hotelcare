@@ -209,12 +209,22 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
         )
       : null;
 
+    // A multi-room booking arrives as several reservation items sharing one
+    // resId. Give each room item its own key (object / room type plus an
+    // occurrence counter for identical rooms) so no room overwrites another —
+    // otherwise rooms sold, and therefore occupancy, is undercounted.
+    const baseKey = objId ?? obkId ?? "room";
+    const seen = seenRooms.get(`${resId}|${baseKey}`) ?? 0;
+    seenRooms.set(`${resId}|${baseKey}`, seen + 1);
+    const roomKey = seen === 0 ? baseKey : `${baseKey}#${seen}`;
+
     for (let i = 0; i < nights; i++) {
       const stayDate = addDays(stayFrom, i);
       if (stayDate < from || stayDate > to) continue;
       out.push({
         stay_date: stayDate,
         res_id: resId,
+        room_key: roomKey,
         obk_id: obkId,
         obj_id: objId,
         status_id: statusId,
