@@ -400,7 +400,25 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
                 </div>
               )}
 
+              {/* ------------------------------- demand and rate outlook */}
+              {(metrics?.forecasts?.length ?? 0) > 0 && (
+                <>
+                  <DemandRateOutlookChart forecasts={metrics!.forecasts} />
+                  {metrics?.forecast_horizon && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Full {metrics.forecasts.length}-day horizon forecast:{" "}
+                      {Math.round(metrics.forecast_horizon.occupancy_pct)}% occupancy,{" "}
+                      {Math.round(metrics.forecast_horizon.room_nights)} room nights,{" "}
+                      {eur(Math.round(metrics.forecast_horizon.room_revenue_eur))} room revenue.
+                      {metrics.forecast_horizon.sellout_dates.length > 0 &&
+                        ` ${metrics.forecast_horizon.sellout_dates.length} date(s) forecast to close out.`}
+                    </p>
+                  )}
+                </>
+              )}
+
               {/* ------------------------------------------- ADR leakage */}
+
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-medium">What is lowering ADR?</h3>
