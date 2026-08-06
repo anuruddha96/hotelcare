@@ -325,7 +325,7 @@ export async function runPmsRefresh(
         //    today.
         const { data: staleRooms } = await supabase
           .from("rooms")
-          .select("id, notes, pms_metadata")
+          .select("id, notes, pms_metadata, is_checkout_room")
           .in("hotel", hotelKeys);
         const cleanupUpdates: Array<Promise<any>> = [];
         for (const r of staleRooms ?? []) {
@@ -346,8 +346,19 @@ export async function runPmsRefresh(
             for (const k of MANUAL_ROOM_OVERRIDE_KEYS) {
               if (k in meta) { delete meta[k]; changed = true; }
             }
+            // Yesterday's bucket state must never survive into a new day:
+            // auto-assign runs early in the morning and would otherwise build
+            // checkout tasks from flags that belong to the previous day.
+            for (const k of STALE_DAY_METADATA_KEYS) {
+              if (k in meta) { delete meta[k]; changed = true; }
+            }
             if (changed) patch.pms_metadata = meta;
+            if ((r as any).is_checkout_room) {
+              patch.is_checkout_room = false;
+              patch.checkout_time = null;
+            }
           }
+
           const notes = (r as any).notes as string | null;
           if (notes) {
             let cleanedNotes: string | null = notes;
