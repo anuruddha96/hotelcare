@@ -178,6 +178,11 @@ export function buildDayMetrics(params: {
     if (prev === undefined) baseline.set(s.stay_date, s.rooms_sold);
   }
 
+  // With no reservations loaded at all the horizon is simply not synced yet.
+  // Comparing "0 rooms sold" against old snapshots would invent a huge
+  // negative pickup, so report "unknown" instead.
+  const hasBookings = nights.length > 0;
+
   return dateRange(from, to).map((d) => {
     const rs = sold.get(d) ?? 0;
     const rev = Math.round((revenue.get(d) ?? 0) * 100) / 100;
@@ -193,9 +198,11 @@ export function buildDayMetrics(params: {
       revparEur: avail ? Math.round((rev / avail) * 100) / 100 : null,
       newBookings: created.get(d) ?? 0,
       cancelledBookings: cancelled.get(d) ?? 0,
-      netPickup: hasCreationData
-        ? (created.get(d) ?? 0) - (cancelled.get(d) ?? 0)
-        : base === undefined ? null : rs - base,
+      netPickup: !hasBookings
+        ? null
+        : hasCreationData
+          ? (created.get(d) ?? 0) - (cancelled.get(d) ?? 0)
+          : base === undefined ? null : rs - base,
     };
   });
 }
