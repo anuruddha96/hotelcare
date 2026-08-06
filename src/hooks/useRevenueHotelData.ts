@@ -59,6 +59,7 @@ export interface RevenueHotelData {
   cancellations: CancelledNight[];
   metrics: DayMetrics[];
   lastSyncAt: string | null;
+  thresholds: RevenueThresholds;
   reload: () => Promise<void>;
 }
 
