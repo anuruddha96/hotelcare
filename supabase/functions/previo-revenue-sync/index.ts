@@ -168,6 +168,11 @@ interface Night {
   created_at_pms: string | null;
   nightly_price_eur: number | null;
   guests: number;
+  /** Booking channel / OTA name when Previo exposes it. */
+  source_name: string | null;
+  total_price_eur: number | null;
+  stay_from: string;
+  stay_to: string;
 }
 
 function parseReservationNights(xml: string, from: string, to: string): Night[] {
@@ -190,6 +195,11 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
     const obkId = grab(grab(r, "objectKind") ?? "", "obkId") ?? grab(r, "obkId");
     const objId = grab(grab(r, "object") ?? "", "objId") ?? grab(r, "objId");
     const created = pmsTimestampToIso(grab(r, "created"));
+    // Previo names the booking channel differently per endpoint version.
+    const sourceRaw =
+      grab(r, "sourceName") ?? grab(r, "source") ?? grab(r, "partner") ??
+      grab(r, "channel") ?? grab(r, "marketCode") ?? null;
+    const source = sourceRaw ? sourceRaw.replace(/<[^>]*>/g, "").trim() || null : null;
     // Previo exposes the cancellation moment under a few different tags
     // depending on the endpoint version; fall back to the last change.
     const cancelledAt = isCancelled
@@ -212,6 +222,10 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
         cancelled_at: cancelledAt,
         nightly_price_eur: nightly,
         guests,
+        source_name: source,
+        total_price_eur: Number.isFinite(total) ? total : null,
+        stay_from: stayFrom,
+        stay_to: stayTo,
       });
     }
   }
@@ -462,6 +476,10 @@ serve(async (req) => {
       created_at_pms: n.created_at_pms,
       nightly_price_eur: n.nightly_price_eur,
       guests: n.guests,
+      source_name: n.source_name,
+      total_price_eur: n.total_price_eur,
+      stay_from: n.stay_from,
+      stay_to: n.stay_to,
       captured_at: new Date().toISOString(),
     }));
     for (let i = 0; i < nightPayload.length; i += 500) {
