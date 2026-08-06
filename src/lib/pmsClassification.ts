@@ -11,7 +11,16 @@ export interface PmsHousekeepingClassification {
   isCheckoutRoom: boolean;
   isDepartureTomorrow: boolean;
   isDailyRoom: boolean;
+  /**
+   * PMS positively states the guest stays past today (departure date in the
+   * future and no departure/checkout signal for today). Used to break stale
+   * checkout flags that would otherwise be preserved forever.
+   */
+  isStayThrough: boolean;
+  /** Reservation starts today but the guest has not checked in yet. */
+  isNotArrived: boolean;
 }
+
 
 export const excelTimeToString = (val: any): string | null => {
   if (val === null || val === undefined || val === "") return null;
