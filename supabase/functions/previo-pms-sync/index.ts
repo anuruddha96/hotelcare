@@ -121,6 +121,12 @@ function isNoShowStatus(statusId: number): boolean {
   return statusId === 8;
 }
 
+function isInHouseStatus(statusId: number): boolean {
+  // Previo: 3 = in house (checked in), 5 = checked-in (legacy REST value).
+  return statusId === 3 || statusId === 5;
+}
+
+
 const RESERVATION_UNAVAILABLE_MANAGER_MESSAGE =
   "PMS room list synced, but Previo did not send checkout/daily data. Room buckets were not changed.";
 
