@@ -162,6 +162,8 @@ interface Night {
   stay_date: string;
   cancelled_at?: string | null;
   res_id: string;
+  /** Distinguishes each room of a multi-room reservation. */
+  room_key: string;
   obk_id: string | null;
   obj_id: string | null;
   status_id: number;
@@ -177,6 +179,8 @@ interface Night {
 
 function parseReservationNights(xml: string, from: string, to: string): Night[] {
   const out: Night[] = [];
+  /** How many room items each reservation already produced in this document. */
+  const seenRooms = new Map<string, number>();
   for (const r of blocks(xml, "reservation")) {
     const resId = grab(r, "resId");
     if (!resId) continue;
