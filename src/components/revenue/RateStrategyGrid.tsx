@@ -330,6 +330,16 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
         </div>
+        {canEditRates && pending.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+            <span className="text-xs">
+              <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} saved as draft — not in Previo yet.
+            </span>
+            <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
+              <Send className="h-3.5 w-3.5 mr-1" />Review &amp; push
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
