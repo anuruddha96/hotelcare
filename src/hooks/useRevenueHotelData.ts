@@ -5,6 +5,7 @@ import {
   budapestToday,
   buildDayMetrics,
   type BookingNight,
+  type CancelledNight,
   type DailySnapshot,
   type DayMetrics,
   type RoomTypeRate,
@@ -19,6 +20,10 @@ export interface RevenueRoomType {
   derivation_mode: string;
   derivation_value: number;
   sort_order: number;
+  /** False for non-room products (breakfast, coffee, visitor centre …). */
+  is_sellable: boolean;
+  /** False for duplicated PMS groupings that would double-count inventory. */
+  counts_toward_inventory: boolean;
 }
 
 /** Supabase caps a single select at 1000 rows — page through everything. */
@@ -48,6 +53,7 @@ export interface RevenueHotelData {
   nights: BookingNight[];
   snapshots: DailySnapshot[];
   rates: RoomTypeRate[];
+  cancellations: CancelledNight[];
   metrics: DayMetrics[];
   lastSyncAt: string | null;
   reload: () => Promise<void>;
@@ -68,6 +74,8 @@ export function useRevenueHotelData(
   const [nights, setNights] = useState<BookingNight[]>([]);
   const [snapshots, setSnapshots] = useState<DailySnapshot[]>([]);
   const [rates, setRates] = useState<RoomTypeRate[]>([]);
+  const [cancellations, setCancellations] = useState<CancelledNight[]>([]);
+  const [sellableOverride, setSellableOverride] = useState<number | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
   const today = budapestToday();
@@ -78,9 +86,9 @@ export function useRevenueHotelData(
     setLoading(true);
     setError(null);
     try {
-      const [rt, nightRows, snapRows, rateRows, sync] = await Promise.all([
+      const [rt, nightRows, snapRows, rateRows, cancelRows, settings, sync] = await Promise.all([
         supabase.from("room_types")
-          .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order")
+          .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order, is_sellable, counts_toward_inventory")
           .eq("hotel_id", hotelId).order("sort_order"),
         fetchAll<BookingNight>(
           () => supabase.from("revenue_booking_nights") as any,
@@ -100,6 +108,14 @@ export function useRevenueHotelData(
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
             .order("stay_date"),
         ),
+        fetchAll<CancelledNight>(
+          () => supabase.from("revenue_cancelled_nights") as any,
+          (q) => q.select("stay_date, res_id, obk_id, cancelled_at")
+            .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
+            .order("stay_date"),
+        ),
+        supabase.from("hotel_revenue_settings")
+          .select("sellable_rooms").eq("hotel_id", hotelId).maybeSingle(),
         supabase.from("pms_sync_history")
           .select("created_at").eq("hotel_id", hotelId).eq("sync_type", "revenue_sync")
           .order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -109,6 +125,8 @@ export function useRevenueHotelData(
       setNights(nightRows);
       setSnapshots(snapRows);
       setRates(rateRows);
+      setCancellations(cancelRows);
+      setSellableOverride(((settings as any)?.data?.sellable_rooms as number | null) ?? null);
       setLastSyncAt((sync.data as { created_at?: string } | null)?.created_at ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -120,8 +138,16 @@ export function useRevenueHotelData(
 
   useEffect(() => { void reload(); }, [reload]);
 
-  // Physical inventory: prefer the PMS room counts stored on room_types.
-  const roomsAvailable = roomTypes.reduce((s, r) => s + (r.num_rooms || 0), 0)
+  // Physical inventory. Previo lists the same physical rooms twice (unit groups
+  // AND rate-plan room types) plus non-room products, so summing every row
+  // massively inflates the denominator and pushes occupancy down. Count only
+  // sellable room types explicitly flagged as inventory, and let an admin
+  // override win outright.
+  const inventoryFromTypes = roomTypes
+    .filter((r) => r.is_sellable !== false && r.counts_toward_inventory !== false)
+    .reduce((s, r) => s + (r.num_rooms || 0), 0);
+  const roomsAvailable = sellableOverride
+    || inventoryFromTypes
     || (snapshots[0]?.rooms_available ?? 0);
 
   const metrics = buildDayMetrics({
@@ -129,12 +155,13 @@ export function useRevenueHotelData(
     to: horizonEnd,
     nights,
     snapshots,
+    cancellations,
     roomsAvailable,
     windowDays: pickupWindowDays,
   });
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, metrics, lastSyncAt, reload,
+    nights, snapshots, rates, cancellations, metrics, lastSyncAt, reload,
   };
 }

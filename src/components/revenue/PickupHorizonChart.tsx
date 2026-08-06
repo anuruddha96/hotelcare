@@ -72,7 +72,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   const data = useMemo(() => metrics.slice(0, days).map((m) => ({
     date: m.stay_date,
     label: new Date(`${m.stay_date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", day: "numeric", month: "short" }),
-    pickup: m.netPickup ?? m.newBookings,
+    pickup: m.netPickup ?? 0,
     occ: Math.round(m.occupancyPct),
     adr: m.adrEur,
   })), [metrics, days]);

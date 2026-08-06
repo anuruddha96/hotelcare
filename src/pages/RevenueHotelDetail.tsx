@@ -32,6 +32,8 @@ import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
 import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { isRevenueAdmin } from "@/lib/roleAccess";
+import { Header } from "@/components/layout/Header";
+import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { formatDistance } from "date-fns";
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
@@ -449,7 +451,12 @@ export default function RevenueHotelDetail() {
   }
 
   return (
-    <div className="container mx-auto p-3 sm:p-4 space-y-3">
+    <div className="min-h-screen bg-background">
+      <Header />
+      <div className="container mx-auto px-3 sm:px-4 pt-3">
+        <MainTabsBar current="revenue" />
+      </div>
+      <div className="container mx-auto p-3 sm:p-4 space-y-3">
       {/* Header — quiet by default, tools only for revenue admins */}
       <div className="flex items-center gap-2 flex-wrap">
         {revAdmin && (
@@ -765,6 +772,7 @@ export default function RevenueHotelDetail() {
 
       <BulkEditDialog open={bulkOpen} onClose={() => setBulkOpen(false)} hotelId={hotelId!}
         orgSlug={profile?.organization_slug ?? "rdhotels"} userId={profile?.id} rowsByDate={rowsByDate} onSaved={load} />
+      </div>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
-import { Shirt, Plus, CheckCircle, Trash2 } from 'lucide-react';
+import { Shirt, Plus, Minus, CheckCircle, Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { getLocalDateString } from '@/lib/utils';
 import { translateLinenItem } from '@/lib/linen-item-i18n';
@@ -486,34 +486,47 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
             </div>
 
 
-            <div className="grid grid-cols-2 gap-2">
+            {/* Label sits on its own line above the counter so long Cyrillic
+                item names wrap in full instead of being clipped. */}
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
               {linenItems.map((item) => (
                 <Card key={item.id} className="p-2 hover:bg-muted/50 transition-colors">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <Shirt className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                      <Label className="text-xs sm:text-sm font-medium leading-tight line-clamp-2">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-start gap-1.5">
+                      <Shirt className="h-3.5 w-3.5 text-primary flex-shrink-0 mt-0.5" />
+                      <Label className="text-xs sm:text-sm font-medium leading-tight break-words hyphens-auto">
                         {getLinenDisplayName(item.name, item.display_name, t)}
                       </Label>
                     </div>
 
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="flex items-center gap-1 w-full">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 w-9 p-0 shrink-0"
+                        disabled={getCount(item.id) <= 0}
+                        onClick={() => updateCount(item.id, Math.max(0, getCount(item.id) - 1))}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </Button>
+
                       <Input
                         type="number"
                         min="0"
                         value={getCount(item.id)}
                         onChange={(e) => updateCount(item.id, parseInt(e.target.value) || 0)}
-                        className="h-8 w-12 px-1 text-center text-sm"
+                        className="h-9 flex-1 min-w-0 px-1 text-center text-sm"
                       />
 
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-8 w-8 p-0"
+                        className="h-9 w-9 p-0 shrink-0"
                         onClick={() => updateCount(item.id, getCount(item.id) + 1)}
                       >
-                        <Plus className="h-3 w-3" />
+                        <Plus className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>

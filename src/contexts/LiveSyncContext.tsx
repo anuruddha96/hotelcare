@@ -277,37 +277,59 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     [runPms, runRevenue, runCheckouts],
   );
 
-  // Morning full PMS sync: the first time an eligible user opens the app on a
-  // given day we run a complete Previo refresh once and keep them informed
-  // with a live toast (syncing → result). Later logins that day are skipped.
+  // First-sync-of-the-day prompt. The decision is made from the PROPERTY's
+  // sync history, not this browser: once anyone has synced the hotel today,
+  // nobody else is prompted. We never sync silently — the user gets an
+  // actionable prompt so they can't assign rooms against stale PMS data.
   useEffect(() => {
     if (!enabled || !hotelId || !user?.id) return;
     const today = new Date().toISOString().slice(0, 10);
-    const key = `liveSync.morningPms.${user.id}.${hotelId}.${today}`;
-    if (localStorage.getItem(key) === "1") return;
-    localStorage.setItem(key, "1");
+    const promptedKey = `liveSync.pmsPrompt.${user.id}.${hotelId}.${today}`;
+    if (sessionStorage.getItem(promptedKey) === "1") return;
     let cancelled = false;
+
     (async () => {
-      const { toast } = await import("sonner");
-      const toastId = toast.loading("Good morning — syncing today's PMS data from Previo…", {
-        description: "Checkouts, daily stays and room notes are being refreshed.",
-      });
-      const r = await runPms(true);
+      const { data } = await supabase
+        .from("pms_sync_history")
+        .select("created_at, sync_status")
+        .eq("hotel_id", hotelId)
+        .gte("created_at", `${today}T00:00:00`)
+        .in("sync_status", ["success", "partial"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
       if (cancelled) return;
-      if (r.status === "error") {
-        localStorage.removeItem(key); // allow a retry later today
-        toast.error("Morning PMS sync failed", { id: toastId, description: r.message });
-      } else if (r.status === "partial") {
-        toast.warning("PMS data incomplete", { id: toastId, description: r.message });
-      } else {
-        const meta = (r.meta || {}) as any;
-        toast.success("Today's PMS data is up to date", {
-          id: toastId,
-          description: `${meta.updated ?? 0} rooms updated · ${meta.checkouts ?? 0} checkout rooms`,
+      if (data) return; // someone already synced this property today
+      sessionStorage.setItem(promptedKey, "1");
+
+      const { toast } = await import("sonner");
+      const runNow = async () => {
+        const toastId = toast.loading("Syncing today's PMS data from Previo…", {
+          description: "Checkouts, daily stays and room notes are being refreshed.",
         });
-      }
-      void runCheckouts(true);
+        const r = await runPms(true);
+        if (r.status === "error") {
+          sessionStorage.removeItem(promptedKey);
+          toast.error("PMS sync failed", { id: toastId, description: r.message });
+        } else if (r.status === "partial") {
+          toast.warning("PMS data incomplete", { id: toastId, description: r.message });
+        } else {
+          const meta = (r.meta || {}) as any;
+          toast.success("Today's PMS data is up to date", {
+            id: toastId,
+            description: `${meta.updated ?? 0} rooms updated · ${meta.checkouts ?? 0} checkout rooms`,
+          });
+        }
+        void runCheckouts(true);
+      };
+
+      toast.warning("Today's PMS data hasn't been synced yet", {
+        duration: 30000,
+        description: "Refresh from Previo before assigning rooms so checkouts and arrivals are correct.",
+        action: { label: "Refresh now", onClick: () => void runNow() },
+      });
     })();
+
     return () => { cancelled = true; };
   }, [enabled, hotelId, user?.id, runPms, runCheckouts]);
 

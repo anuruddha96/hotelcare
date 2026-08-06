@@ -160,6 +160,7 @@ function parseRates(xml: string, ratePlanFilter: string | null): RateRow[] {
 
 interface Night {
   stay_date: string;
+  cancelled_at?: string | null;
   res_id: string;
   obk_id: string | null;
   obj_id: string | null;
@@ -175,7 +176,7 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
     const resId = grab(r, "resId");
     if (!resId) continue;
     const statusId = parseInt(grab(r, "statusId") ?? "0", 10);
-    if (statusId === CANCELLED_STATUS || statusId === NOSHOW_STATUS) continue;
+    const isCancelled = statusId === CANCELLED_STATUS || statusId === NOSHOW_STATUS;
 
     const term = grab(r, "term") ?? "";
     const stayFrom = (grab(term, "from") ?? "").slice(0, 10);
@@ -189,6 +190,14 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
     const obkId = grab(grab(r, "objectKind") ?? "", "obkId") ?? grab(r, "obkId");
     const objId = grab(grab(r, "object") ?? "", "objId") ?? grab(r, "objId");
     const created = pmsTimestampToIso(grab(r, "created"));
+    // Previo exposes the cancellation moment under a few different tags
+    // depending on the endpoint version; fall back to the last change.
+    const cancelledAt = isCancelled
+      ? pmsTimestampToIso(
+          grab(r, "dateCanc") ?? grab(r, "canceled") ?? grab(r, "cancelled") ??
+          grab(r, "changed") ?? grab(r, "modified") ?? grab(r, "created"),
+        )
+      : null;
 
     for (let i = 0; i < nights; i++) {
       const stayDate = addDays(stayFrom, i);
@@ -200,6 +209,7 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
         obj_id: objId,
         status_id: statusId,
         created_at_pms: created,
+        cancelled_at: cancelledAt,
         nightly_price_eur: nightly,
         guests,
       });
@@ -315,7 +325,28 @@ serve(async (req) => {
   else errors.push(`getObjectKinds: [${kindsRes.status}] ${kindsRes.errorMessage ?? "failed"}`);
 
   const nameByObk = new Map(roomTypes.map((r) => [r.obkId, r.name]));
-  const totalRooms = roomTypes.reduce((s, r) => s + r.numRooms, 0);
+
+  // Previo mixes three things in getObjectKinds: physical unit groups
+  // ("Room (cap 2) — 15 units"), sellable rate-plan room types covering the
+  // SAME physical rooms, and non-room products (breakfast, coffee, tickets).
+  // Summing everything triples the denominator and craters occupancy.
+  const NON_ROOM = /breakfast|coffee|dessert|reggeli|parking|transfer|ticket|látógat|latogat|spa|massage|extra/i;
+  const UNIT_GROUP = /^Room \(cap/i;
+  const isNonRoom = (name: string) => NON_ROOM.test(name);
+  const hasUnitGroups = roomTypes.some((r) => UNIT_GROUP.test(r.name));
+  const countsForInventory = (name: string) =>
+    !isNonRoom(name) && (hasUnitGroups ? UNIT_GROUP.test(name) : true);
+  const totalRoomsFromKinds = roomTypes
+    .filter((r) => countsForInventory(r.name))
+    .reduce((s, r) => s + r.numRooms, 0);
+  const { data: revSettings } = await service
+    .from("hotel_revenue_settings")
+    .select("sellable_rooms")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  const totalRooms =
+    Number((revSettings as { sellable_rooms?: number } | null)?.sellable_rooms || 0) ||
+    totalRoomsFromKinds;
 
   if (roomTypes.length && orgSlug) {
     const { data: existing } = await service
@@ -333,7 +364,13 @@ serve(async (req) => {
       if (match) {
         // Keep manual pricing/derivation edits, refresh only PMS-owned facts.
         await service.from("room_types")
-          .update({ name: rt.name, num_rooms: rt.numRooms, sort_order: rt.order })
+          .update({
+            name: rt.name,
+            num_rooms: rt.numRooms,
+            sort_order: rt.order,
+            is_sellable: !isNonRoom(rt.name),
+            counts_toward_inventory: countsForInventory(rt.name),
+          })
           .eq("id", match.id);
       } else {
         await service.from("room_types").insert({
@@ -342,6 +379,8 @@ serve(async (req) => {
           name: rt.name,
           pms_room_id: rt.obkId,
           num_rooms: rt.numRooms,
+          is_sellable: !isNonRoom(rt.name),
+          counts_toward_inventory: countsForInventory(rt.name),
           is_reference: !hasReference && rt.order === Math.min(...roomTypes.map((r) => r.order)),
           derivation_mode: "absolute",
           derivation_value: 0,
@@ -397,7 +436,9 @@ serve(async (req) => {
       nightMap.set(`${n.res_id}|${n.stay_date}`, n);
     }
   }
-  const nights = Array.from(nightMap.values());
+  const allNights = Array.from(nightMap.values());
+  const nights = allNights.filter((n) => !n.cancelled_at);
+  const cancelledNights = allNights.filter((n) => !!n.cancelled_at);
 
   if (!resCall.errors.length) {
     // Full replace for the horizon so cancellations disappear immediately.
@@ -428,6 +469,34 @@ serve(async (req) => {
         .from("revenue_booking_nights")
         .upsert(nightPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,stay_date" });
       if (error) errors.push(`booking nights upsert: ${error.message}`);
+    }
+  }
+
+  // ---------- 3b. cancelled nights (make pickup able to go negative) ----------
+  if (!resCall.errors.length) {
+    const { error: delCancelErr } = await service
+      .from("revenue_cancelled_nights")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", from)
+      .lte("stay_date", to);
+    if (delCancelErr) errors.push(`cancelled nights delete: ${delCancelErr.message}`);
+
+    const cancelPayload = cancelledNights.map((n) => ({
+      hotel_id: hotelId,
+      organization_slug: orgSlug,
+      stay_date: n.stay_date,
+      res_id: n.res_id,
+      obk_id: n.obk_id,
+      room_type_name: n.obk_id ? nameByObk.get(n.obk_id) ?? null : null,
+      nightly_price_eur: n.nightly_price_eur,
+      cancelled_at: n.cancelled_at,
+    }));
+    for (let i = 0; i < cancelPayload.length; i += 500) {
+      const { error } = await service
+        .from("revenue_cancelled_nights")
+        .upsert(cancelPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,obk_id,stay_date" });
+      if (error) errors.push(`cancelled nights upsert: ${error.message}`);
     }
   }
 
