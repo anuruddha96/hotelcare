@@ -12,6 +12,8 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { eur } from "@/lib/revenueAnalytics";
+import DemandRateOutlookChart, { type OutlookDay } from "./DemandRateOutlookChart";
+
 
 /* ---------------------------------------------------------------- types */
 interface Evidence { metric: string; value: string; comparison: string }
