@@ -608,11 +608,9 @@ export default function RevenueHotelDetail() {
             onPickupWindowChange={setPickupWindow}
           />
 
-          <div className="grid gap-3 lg:grid-cols-2">
-            <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
-            <PickupRangeSummary nights={live.nights} />
-          </div>
-          <TodaysBookingsPanel hotelId={hotelId ?? null} today={live.today} />
+          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
+          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
+
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>
 
