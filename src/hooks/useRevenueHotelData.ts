@@ -80,6 +80,7 @@ export function useRevenueHotelData(
   const [rates, setRates] = useState<RoomTypeRate[]>([]);
   const [cancellations, setCancellations] = useState<CancelledNight[]>([]);
   const [sellableOverride, setSellableOverride] = useState<number | null>(null);
+  const [thresholds, setThresholds] = useState<RevenueThresholds>(DEFAULT_THRESHOLDS);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
   const today = budapestToday();
