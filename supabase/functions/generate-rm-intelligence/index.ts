@@ -450,12 +450,20 @@ Deno.serve(async (req) => {
     if (!hotelId) throw new Error("hotel_id required");
 
     // Property isolation: the hotel must belong to the caller's organization.
-    const { data: hotelCfg } = await admin
+    // hotel_configurations stores organization_id — the slug lives on organizations.
+    const { data: hotelCfg, error: hotelErr } = await admin
       .from("hotel_configurations")
-      .select("hotel_id, hotel_name, organization_slug")
+      .select("hotel_id, hotel_name, organization_id")
       .eq("hotel_id", hotelId).maybeSingle();
-    if (!hotelCfg) throw new Error("Unknown hotel");
-    if (profile.role !== "admin" && orgSlug && hotelCfg.organization_slug && hotelCfg.organization_slug !== orgSlug) {
+    if (hotelErr) throw new Error(`Could not load the property: ${hotelErr.message}`);
+    if (!hotelCfg) throw new Error(`Unknown hotel: ${hotelId}`);
+    let hotelSlug: string | null = null;
+    if (hotelCfg.organization_id) {
+      const { data: org } = await admin.from("organizations")
+        .select("slug").eq("id", hotelCfg.organization_id).maybeSingle();
+      hotelSlug = org?.slug ?? null;
+    }
+    if (profile.role !== "admin" && orgSlug && hotelSlug && hotelSlug !== orgSlug) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
