@@ -507,7 +507,17 @@ Deno.serve(async (req) => {
         const n = losByRes.get(r.res_id) ?? 1;
         return n === 1 ? "1 night" : n <= 3 ? "2-3 nights" : n <= 6 ? "4-6 nights" : "7+ nights";
       }),
-      forecasts: forecasts.slice(0, mode === "deep" ? HORIZON_DAYS : 45),
+      // Full horizon is kept for the UI outlook chart; the AI payload is sliced below.
+      forecasts,
+      forecast_horizon: {
+        room_nights: round(forecasts.reduce((s, f) => s + f.forecast_rooms_sold, 0), 1),
+        occupancy_pct: round(
+          (forecasts.reduce((s, f) => s + f.forecast_rooms_sold, 0) / (roomsAvailable * forecasts.length)) * 100, 1),
+        room_revenue_eur: round(forecasts.reduce((s, f) => s + (f.forecast_room_revenue_eur ?? 0), 0)),
+        sellout_dates: forecasts.filter((f) => f.sellout_risk === "high" || f.sellout_risk === "sold_out")
+          .map((f) => f.stay_date),
+      },
+
       top_demand_dates: [...forecasts].sort((a, b) => b.demand_score - a.demand_score).slice(0, 10),
       weak_demand_dates: [...forecasts].filter((f) => f.lead_time_days <= 30)
         .sort((a, b) => a.demand_score - b.demand_score).slice(0, 8),
