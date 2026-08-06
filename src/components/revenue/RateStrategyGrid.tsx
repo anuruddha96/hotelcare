@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, CalendarRange } from "lucide-react";
+import { Loader2, CalendarRange, Info } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend, pickupHeat,
   type DayMetrics, type RoomTypeRate,
@@ -37,6 +38,28 @@ const PICKUP_WINDOWS = [
   { value: 14, label: "Last 14 days" },
   { value: 30, label: "Last 30 days" },
 ];
+
+
+/** Small info bubble that works on hover and on touch. */
+function MetricInfo({ title, body }: { title: string; body: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`What is ${title}?`}
+          className="ml-1 inline-flex align-middle text-muted-foreground hover:text-foreground"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-64 text-xs leading-relaxed">
+        <p className="font-semibold mb-1">{title}</p>
+        <p className="text-muted-foreground">{body}</p>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /**
  * Previo-style pricelist grid: room types down the left with one sub-row per
@@ -173,15 +196,17 @@ export default function RateStrategyGrid({
                   </th>
                   {dates.map((d) => {
                     const m = metricByDate.get(d);
-                    const pickup = m?.netPickup ?? m?.newBookings ?? 0;
-                    const heat = pickupHeat(pickup);
+                    const pickup = m?.netPickup ?? null;
+                    const heat = pickupHeat(pickup ?? 0);
                     return (
                       <th
                         key={d}
-                        title={`${d} · ${pickup > 0 ? "+" : ""}${pickup} (${heat.label})`}
+                        title={pickup === null
+                          ? `${d} · pickup not available yet`
+                          : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${heat.label}) — ${m?.newBookings ?? 0} new, ${m?.cancelledBookings ?? 0} cancelled`}
                         className={`${cellW} border-b px-1 py-1 text-center font-semibold ${heat.bg} ${heat.text} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
                       >
-                        {pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}
+                        {pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}
                       </th>
                     );
                   })}
@@ -243,7 +268,13 @@ export default function RateStrategyGrid({
                   );
                 })}
                 <tr className="bg-muted/30">
-                  <td className={`sticky left-0 z-10 bg-muted/30 border-r px-2 py-1 font-medium ${stickyW}`}>ADR (realised)</td>
+                  <td className={`sticky left-0 z-10 bg-muted/30 border-r px-2 py-1 font-medium ${stickyW}`}>
+                    ADR (realised)
+                    <MetricInfo
+                      title="ADR = Average Daily Rate"
+                      body="Room revenue ÷ rooms sold. The average price of the rooms you actually sold that night."
+                    />
+                  </td>
                   {dates.map((d) => (
                     <td key={d} className={`${cellW} px-1 py-1 text-center tabular-nums ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}>
                       {eur(metricByDate.get(d)?.adrEur ?? null)}
@@ -251,7 +282,13 @@ export default function RateStrategyGrid({
                   ))}
                 </tr>
                 <tr className="bg-muted/30">
-                  <td className={`sticky left-0 z-10 bg-muted/30 border-r px-2 py-1 font-medium ${stickyW}`}>RevPAR</td>
+                  <td className={`sticky left-0 z-10 bg-muted/30 border-r px-2 py-1 font-medium ${stickyW}`}>
+                    RevPAR
+                    <MetricInfo
+                      title="RevPAR = ADR × Occupancy"
+                      body="Revenue per available room: room revenue ÷ all sellable rooms. It shows what every room in the hotel earns on average, sold or not."
+                    />
+                  </td>
                   {dates.map((d) => (
                     <td key={d} className={`${cellW} px-1 py-1 text-center tabular-nums ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}>
                       {eur(metricByDate.get(d)?.revparEur ?? null)}
