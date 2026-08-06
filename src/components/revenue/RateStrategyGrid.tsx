@@ -34,6 +34,10 @@ interface Props {
   thresholds?: RevenueThresholds;
   /** Only these users may draft a new price for a cell. */
   canEditRates?: boolean;
+  /** Internal demand grade per stay date (old-school demand book). */
+  demandByDate?: Map<string, { score: number; band: DemandBand; drivers: string[] }>;
+  /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
+  leftByTypeDate?: Map<string, number>;
 }
 
 const RANGE_OPTIONS = [
