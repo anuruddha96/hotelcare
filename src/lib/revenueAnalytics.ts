@@ -112,6 +112,8 @@ export interface DayMetrics {
   revenueEur: number;
   adrEur: number | null;
   revparEur: number | null;
+  /** Rooms still sellable on this date (inventory minus rooms sold). */
+  roomsLeft: number;
   /** Bookings created inside the pickup window (never negative). */
   newBookings: number;
   /** Room-nights cancelled inside the pickup window (never negative). */
