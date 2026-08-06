@@ -704,7 +704,9 @@ export async function runPmsRefresh(
       }
       if (effectiveStatus) {
         updateData.status = effectiveStatus;
-        if (effectiveStatus === "clean") {
+        // Only stamp a new "cleaned at" when the room actually transitions to
+        // clean — never re-stamp a room that was already clean.
+        if (effectiveStatus === "clean" && room.status !== "clean") {
           updateData.last_cleaned_at = new Date().toISOString();
         }
       }
