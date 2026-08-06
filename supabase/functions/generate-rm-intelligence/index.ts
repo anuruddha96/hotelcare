@@ -155,6 +155,11 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       35 + Math.min(30, sold * 2) + Math.min(20, p7 * 4) + (lead <= 30 ? 10 : lead <= 60 ? 5 : 0),
     )));
 
+    // Uncertainty band: the less confident the forecast, the wider the cone.
+    const spread = ((100 - confidence) / 100) * Math.max(4, fcOcc - occ + 6);
+    const fcLow = Math.max(occ, fcOcc - spread);
+    const fcHigh = Math.min(100, fcOcc + spread);
+
     // Recommended ADR band derived from the day's own realised ADR and demand.
     let recMin: number | null = null, recMax: number | null = null;
     if (adr !== null) {
@@ -163,11 +168,27 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       recMax = round(adr * (1 + uplift[1]));
     }
 
+    // Forecast ADR blends the realised ADR with the recommended band mid-point,
+    // weighted by the share of the night still to be sold.
+    let fcAdr: number | null = null;
+    if (adr !== null) {
+      const remainingShare = fcSold > 0 ? Math.max(0, fcSold - sold) / fcSold : 0;
+      const bandMid = recMin !== null && recMax !== null ? (recMin + recMax) / 2 : adr;
+      fcAdr = round(adr * (1 - remainingShare) + bandMid * remainingShare);
+    }
+
+    const selloutRisk = remaining === 0 ? "sold_out"
+      : fcHigh >= 97 || remaining <= 2 ? "high"
+      : fcOcc >= 85 ? "medium"
+      : fcOcc >= 60 ? "low" : "very_low";
+
     const drivers: string[] = [];
     if (p1 > 0) drivers.push(`${p1} room-night(s) picked up in the last 24h`);
     if (p7 > 0) drivers.push(`${p7} room-night(s) picked up in the last 7 days`);
     if (remaining <= 3 && sold > 0) drivers.push(`only ${remaining} room(s) remaining`);
     if (paceVar !== null) drivers.push(`pace ${paceVar >= 0 ? "+" : ""}${round(paceVar, 0)}% vs comparable ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow(date)]}s`);
+    if (selloutRisk === "high") drivers.push("forecast to close out — protect the last rooms");
+    if (score < 20 && lead <= 21) drivers.push("weak demand inside the booking window");
 
     out.push({
       stay_date: date,
@@ -184,8 +205,13 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       historical_pace_same_weekday: baseline === null ? null : round(baseline, 1),
       pace_variance_pct: paceVar === null ? null : round(paceVar, 1),
       forecast_occupancy_pct: round(fcOcc, 1),
-      forecast_adr_eur: adr === null ? null : round(adr),
-      forecast_room_revenue_eur: adr === null ? null : round(fcSold * adr),
+      forecast_occupancy_low_pct: round(fcLow, 1),
+      forecast_occupancy_high_pct: round(fcHigh, 1),
+      forecast_rooms_sold: round(fcSold, 1),
+      forecast_adr_eur: fcAdr,
+      forecast_revpar_eur: fcAdr === null || roomsAvailable <= 0 ? null : round((fcSold * fcAdr) / roomsAvailable),
+      forecast_room_revenue_eur: fcAdr === null ? null : round(fcSold * fcAdr),
+      sellout_risk: selloutRisk,
       demand_score: score,
       demand_class: cls,
       confidence,
@@ -193,6 +219,7 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       recommended_adr_max: recMax,
       drivers,
     });
+
   }
   return out;
 }
