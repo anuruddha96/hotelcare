@@ -31,6 +31,7 @@ import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
 import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
+import TodaysBookingsPanel from "@/components/revenue/TodaysBookingsPanel";
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
@@ -611,6 +612,7 @@ export default function RevenueHotelDetail() {
             <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
             <PickupRangeSummary nights={live.nights} />
           </div>
+          <TodaysBookingsPanel hotelId={hotelId ?? null} today={live.today} />
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>
 
