@@ -10,6 +10,7 @@ import {
   type DayMetrics,
   type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
+import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
 
 export interface RevenueRoomType {
   id: string;
@@ -24,6 +25,8 @@ export interface RevenueRoomType {
   is_sellable: boolean;
   /** False for duplicated PMS groupings that would double-count inventory. */
   counts_toward_inventory: boolean;
+  /** { en: "Economy double room", hu: "…" } produced by the translate job. */
+  name_translations: Record<string, string>;
 }
 
 /** Supabase caps a single select at 1000 rows — page through everything. */
@@ -56,6 +59,7 @@ export interface RevenueHotelData {
   cancellations: CancelledNight[];
   metrics: DayMetrics[];
   lastSyncAt: string | null;
+  thresholds: RevenueThresholds;
   reload: () => Promise<void>;
 }
 
@@ -76,6 +80,7 @@ export function useRevenueHotelData(
   const [rates, setRates] = useState<RoomTypeRate[]>([]);
   const [cancellations, setCancellations] = useState<CancelledNight[]>([]);
   const [sellableOverride, setSellableOverride] = useState<number | null>(null);
+  const [thresholds, setThresholds] = useState<RevenueThresholds>(DEFAULT_THRESHOLDS);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
   const today = budapestToday();
@@ -88,7 +93,7 @@ export function useRevenueHotelData(
     try {
       const [rt, nightRows, snapRows, rateRows, cancelRows, settings, sync] = await Promise.all([
         supabase.from("room_types")
-          .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order, is_sellable, counts_toward_inventory")
+          .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order, is_sellable, counts_toward_inventory, name_translations")
           .eq("hotel_id", hotelId).order("sort_order"),
         fetchAll<BookingNight>(
           () => supabase.from("revenue_booking_nights") as any,
@@ -115,18 +120,32 @@ export function useRevenueHotelData(
             .order("stay_date"),
         ),
         supabase.from("hotel_revenue_settings")
-          .select("sellable_rooms").eq("hotel_id", hotelId).maybeSingle(),
+          .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold")
+          .eq("hotel_id", hotelId).maybeSingle(),
         supabase.from("pms_sync_history")
           .select("created_at").eq("hotel_id", hotelId).eq("sync_type", "revenue_sync")
           .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
 
-      setRoomTypes((rt.data ?? []) as RevenueRoomType[]);
+      
+      setRoomTypes(((rt.data ?? []) as any[]).map((r) => ({
+        ...r,
+        name_translations: (r.name_translations ?? {}) as Record<string, string>,
+      })) as RevenueRoomType[]);
       setNights(nightRows);
       setSnapshots(snapRows);
       setRates(rateRows);
       setCancellations(cancelRows);
-      setSellableOverride(((settings as any)?.data?.sellable_rooms as number | null) ?? null);
+      const s = (settings as any)?.data ?? null;
+      setSellableOverride((s?.sellable_rooms as number | null) ?? null);
+      setThresholds({
+        rateWarnBelowEur: Number(s?.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur),
+        rateCriticalBelowEur: Number(s?.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur),
+        rateMaxSaneEur: Number(s?.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur),
+        occupancyLowPct: Number(s?.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
+        occupancyHighPct: Number(s?.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
+        pickupStrongThreshold: Number(s?.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
+      });
       setLastSyncAt((sync.data as { created_at?: string } | null)?.created_at ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -162,6 +181,6 @@ export function useRevenueHotelData(
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, cancellations, metrics, lastSyncAt, reload,
+    nights, snapshots, rates, cancellations, metrics, lastSyncAt, thresholds, reload,
   };
 }

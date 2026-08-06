@@ -28,6 +28,7 @@ import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
+import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
 import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
@@ -118,6 +119,11 @@ export default function RevenueHotelDetail() {
       setSyncPct(65);
       setSyncStep("Refreshing occupancy for the next 90 days…");
       await supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } });
+      setSyncPct(80);
+      setSyncStep("Translating room-type names…");
+      // Previo publishes names in the property's own language; translate once
+      // so the grid reads correctly in every app language.
+      await supabase.functions.invoke("translate-room-types", { body: { hotelId } });
       setSyncPct(88);
       setSyncStep("Recalculating pickup, ADR and RevPAR…");
       await Promise.all([load(), live.reload()]);
@@ -551,15 +557,26 @@ export default function RevenueHotelDetail() {
         </TabsList>
 
         <TabsContent value="grid" className="space-y-3">
+          <RevenuePulsePanel
+            today={live.today}
+            metrics={live.metrics}
+            roomsAvailable={live.roomsAvailable}
+            thresholds={live.thresholds}
+          />
           <RateStrategyGrid
             loading={live.loading}
             today={live.today}
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
             roomTypes={live.roomTypes}
             rates={live.rates}
             metrics={live.metrics}
+            thresholds={live.thresholds}
+            canEditRates={revAdmin}
             pickupWindowDays={pickupWindow}
             onPickupWindowChange={setPickupWindow}
           />
+
           <div className="grid gap-3 lg:grid-cols-2">
             <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
             <PickupRangeSummary nights={live.nights} />

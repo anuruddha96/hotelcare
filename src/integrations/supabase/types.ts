@@ -1568,8 +1568,15 @@ export type Database = {
           notify_email: string[]
           notify_on: Json
           notify_sms: string[]
+          occupancy_high_pct: number
+          occupancy_low_pct: number
           organization_slug: string
           pickup_increase_tiers: Json
+          pickup_strong_threshold: number
+          rate_alert_emails_enabled: boolean
+          rate_critical_below_eur: number
+          rate_max_sane_eur: number
+          rate_warn_below_eur: number
           sellable_rooms: number | null
           skip_within_days: number
           surge_increase_eur: number
@@ -1595,8 +1602,15 @@ export type Database = {
           notify_email?: string[]
           notify_on?: Json
           notify_sms?: string[]
+          occupancy_high_pct?: number
+          occupancy_low_pct?: number
           organization_slug: string
           pickup_increase_tiers?: Json
+          pickup_strong_threshold?: number
+          rate_alert_emails_enabled?: boolean
+          rate_critical_below_eur?: number
+          rate_max_sane_eur?: number
+          rate_warn_below_eur?: number
           sellable_rooms?: number | null
           skip_within_days?: number
           surge_increase_eur?: number
@@ -1622,8 +1636,15 @@ export type Database = {
           notify_email?: string[]
           notify_on?: Json
           notify_sms?: string[]
+          occupancy_high_pct?: number
+          occupancy_low_pct?: number
           organization_slug?: string
           pickup_increase_tiers?: Json
+          pickup_strong_threshold?: number
+          rate_alert_emails_enabled?: boolean
+          rate_critical_below_eur?: number
+          rate_max_sane_eur?: number
+          rate_warn_below_eur?: number
           sellable_rooms?: number | null
           skip_within_days?: number
           surge_increase_eur?: number
@@ -4316,6 +4337,102 @@ export type Database = {
           },
         ]
       }
+      revenue_rate_alerts: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          notified_at: string | null
+          occupancy: number | null
+          organization_slug: string | null
+          price: number
+          room_type_name: string
+          severity: string
+          stay_date: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          notified_at?: string | null
+          occupancy?: number | null
+          organization_slug?: string | null
+          price: number
+          room_type_name: string
+          severity?: string
+          stay_date: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          notified_at?: string | null
+          occupancy?: number | null
+          organization_slug?: string | null
+          price?: number
+          room_type_name?: string
+          severity?: string
+          stay_date?: string
+        }
+        Relationships: []
+      }
+      revenue_rate_drafts: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          currency: string
+          hotel_id: string
+          id: string
+          new_price: number
+          obk_id: string | null
+          occupancy: number
+          old_price: number | null
+          organization_slug: string | null
+          push_error: string | null
+          pushed_at: string | null
+          room_type_name: string
+          status: string
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          hotel_id: string
+          id?: string
+          new_price: number
+          obk_id?: string | null
+          occupancy?: number
+          old_price?: number | null
+          organization_slug?: string | null
+          push_error?: string | null
+          pushed_at?: string | null
+          room_type_name: string
+          status?: string
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          hotel_id?: string
+          id?: string
+          new_price?: number
+          obk_id?: string | null
+          occupancy?: number
+          old_price?: number | null
+          organization_slug?: string | null
+          push_error?: string | null
+          pushed_at?: string | null
+          room_type_name?: string
+          status?: string
+          stay_date?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       revenue_room_type_rates: {
         Row: {
           captured_at: string
@@ -4597,6 +4714,7 @@ export type Database = {
           max_price_eur: number
           min_price_eur: number
           name: string
+          name_translations: Json
           num_rooms: number
           organization_slug: string
           pms_rate_id: string | null
@@ -4617,6 +4735,7 @@ export type Database = {
           max_price_eur?: number
           min_price_eur?: number
           name: string
+          name_translations?: Json
           num_rooms?: number
           organization_slug: string
           pms_rate_id?: string | null
@@ -4637,6 +4756,7 @@ export type Database = {
           max_price_eur?: number
           min_price_eur?: number
           name?: string
+          name_translations?: Json
           num_rooms?: number
           organization_slug?: string
           pms_rate_id?: string | null
