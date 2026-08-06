@@ -384,26 +384,34 @@ export default function RateStrategyGrid({
                 Pickup
                 <MetricInfo
                   title="Net pickup"
-                  body="New room-nights booked in the selected window minus room-nights cancelled in the same window. Negative means the date lost rooms."
+                  body="New room-nights booked in the selected window minus room-nights cancelled in the same window. Negative means the date lost rooms. Source: Previo reservations."
                 />
               </div>
               <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
                 Occupancy
+                <MetricInfo
+                  title="Occupancy"
+                  body="Rooms sold ÷ sellable rooms for that night. Rooms sold come from Previo; the sellable-room count comes from your room types (non-sellable products excluded)."
+                />
               </div>
               {rows.map((r) => (
                 <div
                   key={r.key}
                   className={`flex items-center px-2 border-b ${r.kind === "group" ? "bg-muted/50 font-semibold" : r.kind === "rate" ? "text-muted-foreground" : "bg-muted/30 font-medium"}`}
-                  style={{ height: ROW_H }}
+                  style={{ height: rowH(r.kind) }}
                 >
-                  <span className="truncate" title={r.label}>{r.label}</span>
-                  {r.kind === "group" && (
-                    <span className="ml-1 text-[10px] font-normal text-muted-foreground shrink-0">{r.note}</span>
+                  {r.kind === "group" ? (
+                    <span className="leading-tight line-clamp-2 break-words" title={r.label}>
+                      {r.label}
+                      <span className="ml-1 text-[10px] font-normal text-muted-foreground">{r.note}</span>
+                    </span>
+                  ) : (
+                    <span className="truncate" title={r.label}>{r.label}</span>
                   )}
                   {r.kind === "adr" && (
                     <MetricInfo
                       title="ADR = Average Daily Rate"
-                      body="Room revenue ÷ rooms sold. The average price of the rooms you actually sold that night."
+                      body="Room revenue ÷ rooms sold. The average price of the rooms you actually sold that night. Calculated in Hotel Care from Previo booking data."
                     />
                   )}
                   {r.kind === "revpar" && (
@@ -424,8 +432,20 @@ export default function RateStrategyGrid({
               style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
             >
               <div style={{ width: dates.length * CELL_W }}>
+                {/* Month band — always tells you which month you are scrolled into */}
+                <div className="flex bg-muted/60" style={{ height: MONTH_H }}>
+                  {monthBands(dates).map((b) => (
+                    <div
+                      key={b.key}
+                      className="shrink-0 flex items-center border-l-2 border-l-foreground/30 px-2 text-[11px] font-semibold"
+                      style={{ width: b.span * CELL_W }}
+                    >
+                      <span className="sticky left-1 truncate">{b.label}</span>
+                    </div>
+                  ))}
+                </div>
                 {/* Date header */}
-                <div className="flex border-b bg-card" style={{ height: HEAD_H }}>
+                <div className="flex border-b bg-card" style={{ height: DAY_H }}>
                   {dates.map((d) => (
                     <div
                       key={d}
@@ -437,6 +457,7 @@ export default function RateStrategyGrid({
                     </div>
                   ))}
                 </div>
+
 
                 {/* Pickup */}
                 <div className="flex border-b" style={{ height: ROW_H }}>
