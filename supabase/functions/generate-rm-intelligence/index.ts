@@ -168,10 +168,13 @@ function buildForecasts(
     const pressureComp = Math.min(100, occ + (remaining <= 3 ? 20 : 0));
     const paceComp = paceVar === null ? 50 : Math.max(0, Math.min(100, 50 + paceVar));
     const leadComp = Math.max(0, Math.min(100, 100 - Math.abs(lead - 21) * 2));
-    const score = Math.max(0, Math.min(100, Math.round(
+    const computed = Math.max(0, Math.min(100, Math.round(
       pickupComp * DEMAND_WEIGHTS.pickup + pressureComp * DEMAND_WEIGHTS.pressure +
       paceComp * DEMAND_WEIGHTS.pace + leadComp * DEMAND_WEIGHTS.leadtime + evBoost,
     )));
+    // A manager's manual grade always wins over the computed index (old-school demand book).
+    const manual = overridesByDate.get(date) ?? null;
+    const score = manual ? Math.max(0, Math.min(100, manual.score)) : computed;
     const cls = score >= 80 ? "very_high" : score >= 62 ? "high" : score >= 38 ? "normal" : score >= 20 ? "low" : "very_low";
 
 
