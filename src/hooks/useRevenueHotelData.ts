@@ -93,7 +93,7 @@ export function useRevenueHotelData(
     try {
       const [rt, nightRows, snapRows, rateRows, cancelRows, settings, sync] = await Promise.all([
         supabase.from("room_types")
-          .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order, is_sellable, counts_toward_inventory")
+          .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order, is_sellable, counts_toward_inventory, name_translations")
           .eq("hotel_id", hotelId).order("sort_order"),
         fetchAll<BookingNight>(
           () => supabase.from("revenue_booking_nights") as any,
