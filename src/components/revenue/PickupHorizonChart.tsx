@@ -47,6 +47,10 @@ function windowForPeriod(key: PeriodKey, customDays: number): number {
   }
 }
 
+/** Legend swatch for pickup — matches the typical positive-pickup bar. */
+const PICKUP_LEGEND_COLOR = "hsl(28 96% 60%)";
+const ADR_COLOR = "hsl(160 84% 39%)";
+
 function barColor(pickup: number): string {
   if (pickup < 0) return "hsl(199 89% 60%)";
   if (pickup === 0) return "hsl(var(--muted-foreground) / 0.25)";
