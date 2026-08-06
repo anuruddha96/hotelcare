@@ -30,8 +30,8 @@ import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
-import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
-import TodaysBookingsPanel from "@/components/revenue/TodaysBookingsPanel";
+import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
+
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
