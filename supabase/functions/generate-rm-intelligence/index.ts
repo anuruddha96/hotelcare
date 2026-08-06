@@ -457,7 +457,7 @@ Deno.serve(async (req) => {
     const historyStart = addDays(today, -365);
 
     /* ----------------------------------------------- verified data load */
-    const [nights, cancelled, settingsRes, roomTypesRes, snapRes] = await Promise.all([
+    const [nights, cancelled, settingsRes, roomTypesRes, snapRes, hotelEvRes, marketEvRes] = await Promise.all([
       fetchAll<NightRow>((f, t) => admin.from("revenue_booking_nights")
         .select("stay_date,res_id,room_key,room_type_name,nightly_price_eur,created_at_pms,source_name,stay_from,stay_to,guests,status_id")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
@@ -470,7 +470,36 @@ Deno.serve(async (req) => {
       admin.from("revenue_daily_snapshots").select("stay_date,captured_date,rooms_sold,rooms_available,adr_eur,revenue_eur")
         .eq("hotel_id", hotelId).gte("stay_date", historyStart).lte("stay_date", horizonEnd)
         .order("captured_date", { ascending: false }).limit(2000),
+      admin.from("hotel_events").select("title,category,impact,event_date,end_date,notes")
+        .eq("hotel_id", hotelId).lte("event_date", horizonEnd).limit(300),
+      admin.from("market_events").select("title,category,expected_impact,event_date,end_date,venue,city,source,confidence")
+        .lte("event_date", horizonEnd).gte("event_date", addDays(today, -14)).limit(300),
     ]);
+
+    /* ------------------------------------- Phase 3: external market signals */
+    const eventSignals: EventSignal[] = [];
+    for (const e of (hotelEvRes.data ?? []) as Record<string, string | null>[]) {
+      eventSignals.push({
+        title: String(e.title ?? "Event"), category: e.category ?? null, impact: e.impact ?? null,
+        source: "hotel", start: String(e.event_date), end: String(e.end_date ?? e.event_date),
+      });
+    }
+    for (const e of (marketEvRes.data ?? []) as Record<string, string | null>[]) {
+      eventSignals.push({
+        title: `${e.title ?? "Event"}${e.venue ? ` — ${e.venue}` : ""}`, category: e.category ?? null,
+        impact: e.expected_impact ?? null, source: e.source ?? "market",
+        start: String(e.event_date), end: String(e.end_date ?? e.event_date),
+      });
+    }
+    const eventsByDate = new Map<string, DayForecast["events"]>();
+    for (const ev of eventSignals) {
+      for (let d = ev.start; d <= ev.end && diffDays(d, ev.start) < 60; d = addDays(d, 1)) {
+        if (d < today || d > horizonEnd) continue;
+        const list = eventsByDate.get(d) ?? [];
+        list.push({ title: ev.title, category: ev.category, impact: ev.impact, source: ev.source });
+        eventsByDate.set(d, list);
+      }
+    }
 
     const settings = settingsRes.data as Record<string, unknown> | null;
     const roomTypes = (roomTypesRes.data ?? []) as { name: string; num_rooms: number; is_sellable: boolean | null; counts_toward_inventory: boolean | null }[];
@@ -482,7 +511,8 @@ Deno.serve(async (req) => {
 
     if (!roomsAvailable) throw new Error("No sellable room inventory configured for this hotel");
 
-    const forecasts = buildForecasts(nights, today, roomsAvailable);
+    const forecasts = buildForecasts(nights, today, roomsAvailable, eventsByDate);
+
 
     /* ------------------------------------------------ created-today KPIs */
     const createdToday = nights.filter((n) => n.created_at_pms && tzDay(n.created_at_pms) === today);
