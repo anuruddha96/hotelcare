@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import {
-  Area, Bar, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine,
+  Area, Bar, CartesianGrid, Cell as RCell, ComposedChart, Legend, Line, ReferenceLine,
   ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
@@ -196,9 +196,9 @@ export default function DemandRateOutlookChart({ forecasts, onOpenDate }: Props)
               fill="hsl(var(--primary) / 0.15)" name="Forecast range"
             />
 
-            <Bar yAxisId="occ" dataKey="occupancy_pct" name="Occupancy on the books" radius={[3, 3, 0, 0]}
-              // per-point colour comes from the row's `fill` field
-              fill="hsl(var(--primary))" />
+            <Bar yAxisId="occ" dataKey="occupancy_pct" name="Occupancy on the books" radius={[3, 3, 0, 0]}>
+              {data.map((d) => <RCell key={d.stay_date} fill={d.fill} />)}
+            </Bar>
             <Line yAxisId="occ" type="monotone" dataKey="forecast_occupancy_pct" name="Forecast occupancy"
               stroke="hsl(var(--primary))" strokeWidth={2} strokeDasharray="4 3" dot={false} />
             <Line yAxisId="rate" type="monotone" dataKey="adr_eur" name="ADR"
