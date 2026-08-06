@@ -20,6 +20,7 @@ import {
   DEFAULT_THRESHOLDS, type RevenueThresholds,
 } from "@/lib/revenueThresholds";
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
+import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 
 interface Props {
   loading: boolean;
@@ -34,6 +35,10 @@ interface Props {
   thresholds?: RevenueThresholds;
   /** Only these users may draft a new price for a cell. */
   canEditRates?: boolean;
+  /** Internal demand grade per stay date (old-school demand book). */
+  demandByDate?: Map<string, { score: number; band: DemandBand; drivers: string[] }>;
+  /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
+  leftByTypeDate?: Map<string, number>;
 }
 
 const RANGE_OPTIONS = [
@@ -79,6 +84,35 @@ function monthBands(dates: string[]) {
   return out;
 }
 
+/** Colour coding for the internal demand grade. */
+function demandTone(band: DemandBand): string {
+  switch (band) {
+    case "very_strong": return "bg-red-500 text-white";
+    case "strong": return "bg-orange-300 text-orange-950 dark:bg-orange-700 dark:text-orange-50";
+    case "normal": return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
+    case "soft": return "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100";
+    default: return "bg-muted text-muted-foreground";
+  }
+}
+
+/** Short label so the cell stays readable at 60px. */
+const DEMAND_SHORT: Record<DemandBand, string> = {
+  very_strong: "V.High",
+  strong: "High",
+  normal: "Med",
+  soft: "Low",
+  weak: "Low",
+};
+
+/** How much inventory is left, colour-graded from plenty to sold out. */
+function leftTone(left: number, units: number): string {
+  if (units <= 0) return "text-muted-foreground";
+  if (left <= 0) return "bg-destructive/20 text-destructive font-semibold";
+  const pct = left / units;
+  if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
+  return "text-muted-foreground";
+}
+
 /** Small info bubble that works on hover and on touch. */
 function MetricInfo({ title, body }: { title: string; body: string }) {
   return (
@@ -101,7 +135,7 @@ function MetricInfo({ title, body }: { title: string; body: string }) {
 }
 
 type Row =
-  | { kind: "group"; key: string; label: string; note: string }
+  | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string; rawName: string }
   | { kind: "rate"; key: string; label: string; obk: string | null; occ: number; roomTypeName: string }
   | { kind: "adr"; key: string; label: string }
   | { kind: "revpar"; key: string; label: string };
@@ -133,6 +167,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics,
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
+  demandByDate, leftByTypeDate,
 }: Props) {
   const { language } = useTranslation();
   const isMobile = useIsMobile();
@@ -184,7 +219,7 @@ export default function RateStrategyGrid({
     const out: Row[] = [];
     for (const rt of pricedTypes) {
       const label = localizedRoomTypeName(rt.name, rt.name_translations, language);
-      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}` });
+      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name });
       const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
       const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [2];
       for (const occ of occs) {
@@ -467,6 +502,20 @@ export default function RateStrategyGrid({
                   body="Rooms sold ÷ sellable rooms for that night. Rooms sold come from Previo; the sellable-room count comes from your room types (non-sellable products excluded)."
                 />
               </div>
+              <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
+                Left to sell
+                <MetricInfo
+                  title="Rooms left to sell"
+                  body="Sellable rooms minus rooms sold for that night, for the whole house. The room-type rows show the same figure per room type."
+                />
+              </div>
+              <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
+                Demand
+                <MetricInfo
+                  title="Demand grade"
+                  body="Hotel Care's own 0–100 demand grade for that date, built from booking pace against comparable weekdays, recent pickup, how much inventory is left this close to arrival, recorded events and any manual manager override. Low / Med / High / V.High."
+                />
+              </div>
               {rows.map((r) => (
                 <div
                   key={r.key}
@@ -572,6 +621,52 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
+                {/* Left to sell — house level */}
+                <div className="flex border-b" style={{ height: ROW_H }}>
+                  {dates.map((d) => {
+                    const m = metricByDate.get(d);
+                    const units = m?.roomsAvailable ?? 0;
+                    const left = m?.roomsLeft ?? 0;
+                    return (
+                      <div
+                        key={d}
+                        title={`${left} of ${units} rooms left to sell on ${d}`}
+                        className={`flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                        style={{ width: CELL_W }}
+                      >
+                        <span className="leading-none">{units ? (left === 0 ? "Sold out" : left) : "—"}</span>
+                        {units > 0 && (
+                          <span className="mt-0.5 h-1 w-8 rounded-full bg-muted overflow-hidden">
+                            <span
+                              className="block h-full bg-primary/60"
+                              style={{ width: `${Math.round((left / units) * 100)}%` }}
+                            />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Demand grade */}
+                <div className="flex border-b" style={{ height: ROW_H }}>
+                  {dates.map((d) => {
+                    const dem = demandByDate?.get(d);
+                    return (
+                      <div
+                        key={d}
+                        title={dem
+                          ? `${d} · demand ${BAND_LABEL[dem.band]} (${dem.score}/100)\n${dem.drivers.slice(0, 4).join("\n")}`
+                          : `${d} · demand not available yet`}
+                        className={`flex items-center justify-center shrink-0 text-[10px] font-semibold ${dem ? demandTone(dem.band) : "text-muted-foreground"} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                        style={{ width: CELL_W }}
+                      >
+                        {dem ? DEMAND_SHORT[dem.band] : "·"}
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {/* Room-type / metric rows */}
                 {rows.map((row) => (
                   <div
@@ -581,7 +676,20 @@ export default function RateStrategyGrid({
                   >
                     {dates.map((d) => {
                       if (row.kind === "group") {
-                        return <div key={d} className="shrink-0" style={{ width: CELL_W }} />;
+                        const units = row.units;
+                        const left = leftByTypeDate?.get(`${row.rawName}|${d}`);
+                        return (
+                          <div
+                            key={d}
+                            title={left === undefined
+                              ? `${row.typeName} · availability not synced for ${d}`
+                              : `${row.typeName} · ${left} of ${units} left on ${d}`}
+                            className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                            style={{ width: CELL_W }}
+                          >
+                            {left === undefined ? "" : left === 0 ? "Sold out" : `${left} left`}
+                          </div>
+                        );
                       }
                       if (row.kind !== "rate") {
                         return (
