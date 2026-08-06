@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
-import { Shirt, Plus, CheckCircle, Trash2 } from 'lucide-react';
+import { Shirt, Plus, Minus, CheckCircle, Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { getLocalDateString } from '@/lib/utils';
 import { translateLinenItem } from '@/lib/linen-item-i18n';
