@@ -59,7 +59,10 @@ const statusLooksCheckedOut = (val: any): boolean => {
   return ["checkedout", "departed", "left", "leaved"].includes(s) || s === "6" || s === "9";
 };
 
-export const classifyPmsHousekeepingRow = (row: any): PmsHousekeepingClassification => {
+export const classifyPmsHousekeepingRow = (
+  row: any,
+  today?: string,
+): PmsHousekeepingClassification => {
   const departureTime = excelTimeToString(row.Departure);
   const nightTotal = parseNightTotal(row["Night / Total"]);
   const isScheduledDeparture = departureTime !== null;
@@ -79,6 +82,19 @@ export const classifyPmsHousekeepingRow = (row: any): PmsHousekeepingClassificat
     (nightTotal !== null && nightTotal.currentNight > 0)
   );
 
+  const departureDate = row.DepartureDate ? String(row.DepartureDate).slice(0, 10) : null;
+  const arrivalDate = row.ArrivalDate ? String(row.ArrivalDate).slice(0, 10) : null;
+  // PMS positively says the guest is still in-house tomorrow: departure date is
+  // in the future AND there is no departure/checkout signal today.
+  const isStayThrough = !isCheckoutRoom
+    && !!today
+    && !!departureDate
+    && departureDate > today
+    && (occupiedYes(row.Occupied) || (!!arrivalDate && arrivalDate <= today));
+
+  const isNotArrived = row.NotArrived === true
+    || (!!today && !!arrivalDate && arrivalDate === today && !isCheckoutRoom && !occupiedYes(row.Occupied));
+
   return {
     departureTime,
     nightTotal,
@@ -87,5 +103,8 @@ export const classifyPmsHousekeepingRow = (row: any): PmsHousekeepingClassificat
     isCheckoutRoom,
     isDepartureTomorrow,
     isDailyRoom,
+    isStayThrough,
+    isNotArrived,
   };
+
 };
