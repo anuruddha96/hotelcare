@@ -772,6 +772,7 @@ export default function RevenueHotelDetail() {
 
       <BulkEditDialog open={bulkOpen} onClose={() => setBulkOpen(false)} hotelId={hotelId!}
         orgSlug={profile?.organization_slug ?? "rdhotels"} userId={profile?.id} rowsByDate={rowsByDate} onSaved={load} />
+      </div>
     </div>
   );
 }
