@@ -504,7 +504,7 @@ export default function RateStrategyGrid({
                   <div
                     key={row.key}
                     className={`flex border-b ${row.kind === "group" ? "bg-muted/50" : row.kind === "rate" ? "" : "bg-muted/30"}`}
-                    style={{ height: ROW_H }}
+                    style={{ height: rowH(row.kind) }}
                   >
                     {dates.map((d) => {
                       if (row.kind === "group") {
