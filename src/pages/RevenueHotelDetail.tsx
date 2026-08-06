@@ -31,6 +31,8 @@ import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
 import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
+import MonthPerformanceHeader from "@/components/revenue/MonthPerformanceHeader";
+import { buildDemandBoard } from "@/lib/demandScore";
 import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePanel";
 
 
