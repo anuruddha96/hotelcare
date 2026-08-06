@@ -484,6 +484,7 @@ serve(async (req) => {
       organization_slug: orgSlug,
       stay_date: n.stay_date,
       res_id: n.res_id,
+      room_key: n.room_key,
       obk_id: n.obk_id,
       room_type_name: n.obk_id ? nameByObk.get(n.obk_id) ?? null : null,
       obj_id: n.obj_id,
@@ -500,7 +501,7 @@ serve(async (req) => {
     for (let i = 0; i < nightPayload.length; i += 500) {
       const { error } = await service
         .from("revenue_booking_nights")
-        .upsert(nightPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,stay_date" });
+        .upsert(nightPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date" });
       if (error) errors.push(`booking nights upsert: ${error.message}`);
     }
   }
@@ -520,15 +521,24 @@ serve(async (req) => {
       organization_slug: orgSlug,
       stay_date: n.stay_date,
       res_id: n.res_id,
+      room_key: n.room_key,
       obk_id: n.obk_id,
+      obj_id: n.obj_id,
       room_type_name: n.obk_id ? nameByObk.get(n.obk_id) ?? null : null,
       nightly_price_eur: n.nightly_price_eur,
       cancelled_at: n.cancelled_at,
+      status_id: n.status_id,
+      created_at_pms: n.created_at_pms,
+      guests: n.guests,
+      total_price_eur: n.total_price_eur,
+      stay_from: n.stay_from,
+      stay_to: n.stay_to,
+      source_name: n.source_name,
     }));
     for (let i = 0; i < cancelPayload.length; i += 500) {
       const { error } = await service
         .from("revenue_cancelled_nights")
-        .upsert(cancelPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,obk_id,stay_date" });
+        .upsert(cancelPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date" });
       if (error) errors.push(`cancelled nights upsert: ${error.message}`);
     }
   }
