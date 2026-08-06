@@ -637,8 +637,15 @@ export async function runPmsRefresh(
           !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
         );
         updateData.pms_metadata.occupiedToday = classification.isDailyRoom;
+        // Arrival that has not checked in yet — shown as "Not checked in" in
+        // the Arrivals bucket. Never treated as a no-show on its own.
+        updateData.pms_metadata.notArrived = !effectiveCheckoutFlag
+          && !updateData.pms_metadata.isNoShow
+          && classification.isNotArrived;
+        updateData.pms_metadata.stayThroughToday = classification.isStayThrough;
         updateData.pms_metadata.noteOta = row.NoteOta ?? null;
         updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+
 
         if (!inferredBed) {
           delete updateData.pms_metadata.inferredBedConfig;
