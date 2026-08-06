@@ -78,8 +78,15 @@ interface DayForecast {
   historical_pace_same_weekday: number | null;
   pace_variance_pct: number | null;
   forecast_occupancy_pct: number;
+  /** Low/high band around the forecast, widened when confidence is low. */
+  forecast_occupancy_low_pct: number;
+  forecast_occupancy_high_pct: number;
+  forecast_rooms_sold: number;
   forecast_adr_eur: number | null;
+  forecast_revpar_eur: number | null;
   forecast_room_revenue_eur: number | null;
+  /** Probability-style read on whether the date closes out. */
+  sellout_risk: string;
   demand_score: number;
   demand_class: string;
   confidence: number;
@@ -87,6 +94,7 @@ interface DayForecast {
   recommended_adr_max: number | null;
   drivers: string[];
 }
+
 
 const DEMAND_WEIGHTS = { pickup: 0.30, pressure: 0.30, pace: 0.25, leadtime: 0.15 };
 
