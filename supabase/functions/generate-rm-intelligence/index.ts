@@ -213,6 +213,10 @@ function buildForecasts(
     if (paceVar !== null) drivers.push(`pace ${paceVar >= 0 ? "+" : ""}${round(paceVar, 0)}% vs comparable ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow(date)]}s`);
     if (selloutRisk === "high") drivers.push("forecast to close out — protect the last rooms");
     if (score < 20 && lead <= 21) drivers.push("weak demand inside the booking window");
+    for (const e of dayEvents) {
+      drivers.push(`${e.source === "hotel" ? "Property event" : "City event"}: ${e.title}${e.impact ? ` (${e.impact} impact)` : ""}`);
+    }
+
 
     out.push({
       stay_date: date,
