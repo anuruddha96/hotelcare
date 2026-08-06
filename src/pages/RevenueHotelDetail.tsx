@@ -551,15 +551,26 @@ export default function RevenueHotelDetail() {
         </TabsList>
 
         <TabsContent value="grid" className="space-y-3">
+          <RevenuePulsePanel
+            today={live.today}
+            metrics={live.metrics}
+            roomsAvailable={live.roomsAvailable}
+            thresholds={live.thresholds}
+          />
           <RateStrategyGrid
             loading={live.loading}
             today={live.today}
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
             roomTypes={live.roomTypes}
             rates={live.rates}
             metrics={live.metrics}
+            thresholds={live.thresholds}
+            canEditRates={revAdmin}
             pickupWindowDays={pickupWindow}
             onPickupWindowChange={setPickupWindow}
           />
+
           <div className="grid gap-3 lg:grid-cols-2">
             <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
             <PickupRangeSummary nights={live.nights} />
