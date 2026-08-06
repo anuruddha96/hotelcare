@@ -548,6 +548,57 @@ export default function RateStrategyGrid({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={pushOpen} onOpenChange={(o) => !o && setPushOpen(false)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">Send price changes to Previo</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] overflow-y-auto -mx-2 px-2">
+            <table className="w-full text-xs">
+              <thead className="text-muted-foreground">
+                <tr className="border-b">
+                  <th className="text-left py-1.5">Date</th>
+                  <th className="text-left py-1.5">Room type</th>
+                  <th className="text-right py-1.5">Now</th>
+                  <th className="text-right py-1.5">New</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {pending.map((d) => (
+                  <tr key={d.id} className="border-b last:border-0">
+                    <td className="py-1.5 whitespace-nowrap">{d.stay_date}</td>
+                    <td className="py-1.5">{d.room_type_name} · {d.occupancy}g</td>
+                    <td className="py-1.5 text-right tabular-nums text-muted-foreground">{eur(d.old_price)}</td>
+                    <td className="py-1.5 text-right tabular-nums font-semibold">{eur(d.new_price)}</td>
+                    <td className="py-1.5 text-right">
+                      <Button
+                        size="icon" variant="ghost" className="h-7 w-7"
+                        aria-label="Discard this change"
+                        onClick={() => void discardDraft(d.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These prices are written to Previo immediately and become live for guests.
+            Anything that fails stays here with its error so you can retry.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
+            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
+              {pushing && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Push {pending.length} change{pending.length === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
