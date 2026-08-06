@@ -4535,6 +4535,170 @@ export type Database = {
         }
         Relationships: []
       }
+      rm_analysis_runs: {
+        Row: {
+          cached: boolean
+          completion_tokens: number
+          created_at: string
+          created_by: string | null
+          data_fingerprint: string | null
+          error: string | null
+          estimated_cost_usd: number
+          hotel_id: string
+          id: string
+          metrics: Json
+          mode: string
+          model: string | null
+          organization_slug: string | null
+          output: Json | null
+          period_end: string | null
+          period_start: string | null
+          prompt_tokens: number
+          prompt_version: string
+          status: string
+          total_tokens: number
+        }
+        Insert: {
+          cached?: boolean
+          completion_tokens?: number
+          created_at?: string
+          created_by?: string | null
+          data_fingerprint?: string | null
+          error?: string | null
+          estimated_cost_usd?: number
+          hotel_id: string
+          id?: string
+          metrics?: Json
+          mode?: string
+          model?: string | null
+          organization_slug?: string | null
+          output?: Json | null
+          period_end?: string | null
+          period_start?: string | null
+          prompt_tokens?: number
+          prompt_version?: string
+          status?: string
+          total_tokens?: number
+        }
+        Update: {
+          cached?: boolean
+          completion_tokens?: number
+          created_at?: string
+          created_by?: string | null
+          data_fingerprint?: string | null
+          error?: string | null
+          estimated_cost_usd?: number
+          hotel_id?: string
+          id?: string
+          metrics?: Json
+          mode?: string
+          model?: string | null
+          organization_slug?: string | null
+          output?: Json | null
+          period_end?: string | null
+          period_start?: string | null
+          prompt_tokens?: number
+          prompt_version?: string
+          status?: string
+          total_tokens?: number
+        }
+        Relationships: []
+      }
+      rm_recommendations: {
+        Row: {
+          acted_at: string | null
+          acted_by: string | null
+          action: string
+          arrival_date: string | null
+          category: string
+          confidence: number
+          created_at: string
+          evidence: Json
+          expected_impact: Json
+          expires_at: string | null
+          feedback: string | null
+          feedback_note: string | null
+          headline: string
+          hotel_id: string
+          id: string
+          organization_slug: string | null
+          outcome: Json | null
+          priority: number
+          reason: string | null
+          recommended_cta: string | null
+          risk: string | null
+          room_type: string | null
+          run_id: string
+          status: string
+          updated_at: string
+          urgency: string
+        }
+        Insert: {
+          acted_at?: string | null
+          acted_by?: string | null
+          action: string
+          arrival_date?: string | null
+          category?: string
+          confidence?: number
+          created_at?: string
+          evidence?: Json
+          expected_impact?: Json
+          expires_at?: string | null
+          feedback?: string | null
+          feedback_note?: string | null
+          headline: string
+          hotel_id: string
+          id?: string
+          organization_slug?: string | null
+          outcome?: Json | null
+          priority?: number
+          reason?: string | null
+          recommended_cta?: string | null
+          risk?: string | null
+          room_type?: string | null
+          run_id: string
+          status?: string
+          updated_at?: string
+          urgency?: string
+        }
+        Update: {
+          acted_at?: string | null
+          acted_by?: string | null
+          action?: string
+          arrival_date?: string | null
+          category?: string
+          confidence?: number
+          created_at?: string
+          evidence?: Json
+          expected_impact?: Json
+          expires_at?: string | null
+          feedback?: string | null
+          feedback_note?: string | null
+          headline?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string | null
+          outcome?: Json | null
+          priority?: number
+          reason?: string | null
+          recommended_cta?: string | null
+          risk?: string | null
+          room_type?: string | null
+          run_id?: string
+          status?: string
+          updated_at?: string
+          urgency?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rm_recommendations_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "rm_analysis_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       room_assignments: {
         Row: {
           assigned_by: string
