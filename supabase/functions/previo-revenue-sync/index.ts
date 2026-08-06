@@ -162,6 +162,8 @@ interface Night {
   stay_date: string;
   cancelled_at?: string | null;
   res_id: string;
+  /** Distinguishes each room of a multi-room reservation. */
+  room_key: string;
   obk_id: string | null;
   obj_id: string | null;
   status_id: number;
@@ -177,6 +179,8 @@ interface Night {
 
 function parseReservationNights(xml: string, from: string, to: string): Night[] {
   const out: Night[] = [];
+  /** How many room items each reservation already produced in this document. */
+  const seenRooms = new Map<string, number>();
   for (const r of blocks(xml, "reservation")) {
     const resId = grab(r, "resId");
     if (!resId) continue;
@@ -209,12 +213,22 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
         )
       : null;
 
+    // A multi-room booking arrives as several reservation items sharing one
+    // resId. Give each room item its own key (object / room type plus an
+    // occurrence counter for identical rooms) so no room overwrites another —
+    // otherwise rooms sold, and therefore occupancy, is undercounted.
+    const baseKey = objId ?? obkId ?? "room";
+    const seen = seenRooms.get(`${resId}|${baseKey}`) ?? 0;
+    seenRooms.set(`${resId}|${baseKey}`, seen + 1);
+    const roomKey = seen === 0 ? baseKey : `${baseKey}#${seen}`;
+
     for (let i = 0; i < nights; i++) {
       const stayDate = addDays(stayFrom, i);
       if (stayDate < from || stayDate > to) continue;
       out.push({
         stay_date: stayDate,
         res_id: resId,
+        room_key: roomKey,
         obk_id: obkId,
         obj_id: objId,
         status_id: statusId,
@@ -447,7 +461,8 @@ serve(async (req) => {
   const nightMap = new Map<string, Night>();
   for (const xml of resCall.xml) {
     for (const n of parseReservationNights(xml, from, to)) {
-      nightMap.set(`${n.res_id}|${n.stay_date}`, n);
+      // Keyed per room item, so a two-room booking keeps both rooms.
+      nightMap.set(`${n.res_id}|${n.room_key}|${n.stay_date}`, n);
     }
   }
   const allNights = Array.from(nightMap.values());
@@ -469,6 +484,7 @@ serve(async (req) => {
       organization_slug: orgSlug,
       stay_date: n.stay_date,
       res_id: n.res_id,
+      room_key: n.room_key,
       obk_id: n.obk_id,
       room_type_name: n.obk_id ? nameByObk.get(n.obk_id) ?? null : null,
       obj_id: n.obj_id,
@@ -485,7 +501,7 @@ serve(async (req) => {
     for (let i = 0; i < nightPayload.length; i += 500) {
       const { error } = await service
         .from("revenue_booking_nights")
-        .upsert(nightPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,stay_date" });
+        .upsert(nightPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date" });
       if (error) errors.push(`booking nights upsert: ${error.message}`);
     }
   }
@@ -505,15 +521,24 @@ serve(async (req) => {
       organization_slug: orgSlug,
       stay_date: n.stay_date,
       res_id: n.res_id,
+      room_key: n.room_key,
       obk_id: n.obk_id,
+      obj_id: n.obj_id,
       room_type_name: n.obk_id ? nameByObk.get(n.obk_id) ?? null : null,
       nightly_price_eur: n.nightly_price_eur,
       cancelled_at: n.cancelled_at,
+      status_id: n.status_id,
+      created_at_pms: n.created_at_pms,
+      guests: n.guests,
+      total_price_eur: n.total_price_eur,
+      stay_from: n.stay_from,
+      stay_to: n.stay_to,
+      source_name: n.source_name,
     }));
     for (let i = 0; i < cancelPayload.length; i += 500) {
       const { error } = await service
         .from("revenue_cancelled_nights")
-        .upsert(cancelPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,obk_id,stay_date" });
+        .upsert(cancelPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date" });
       if (error) errors.push(`cancelled nights upsert: ${error.message}`);
     }
   }

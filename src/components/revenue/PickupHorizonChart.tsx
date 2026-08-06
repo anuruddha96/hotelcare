@@ -47,6 +47,10 @@ function windowForPeriod(key: PeriodKey, customDays: number): number {
   }
 }
 
+/** Legend swatch for pickup — matches the typical positive-pickup bar. */
+const PICKUP_LEGEND_COLOR = "hsl(28 96% 60%)";
+const ADR_COLOR = "hsl(160 84% 39%)";
+
 function barColor(pickup: number): string {
   if (pickup < 0) return "hsl(199 89% 60%)";
   if (pickup === 0) return "hsl(var(--muted-foreground) / 0.25)";
@@ -172,7 +176,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   even when ADR runs in the hundreds. */}
               <YAxis yAxisId="pickup" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={24}
                 allowDecimals={false} domain={[(min: number) => Math.min(0, min) - 1, (max: number) => Math.max(2, max) + 1]} />
-              <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={30} />
+              <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={30}
+                hide={!showOcc} />
               {/* ADR gets its own hidden scale — shown in the tooltip and legend. */}
               <YAxis yAxisId="adr" orientation="right" hide domain={["dataMin - 20", "dataMax + 20"]} />
               {monthMarks.map((m) => (
@@ -184,35 +189,51 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               ))}
               <ReferenceLine yAxisId="pickup" y={0} stroke="hsl(var(--muted-foreground) / 0.4)" />
               <RTooltip
+                cursor={{ fill: "hsl(var(--muted) / 0.4)" }}
                 contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                 formatter={(value: unknown, name: string) => {
                   if (name === "Occupancy") return [`${value}%`, name];
                   if (name === "ADR") return [`€${value}`, name];
-                  return [value as number, name];
+                  const n = value as number;
+                  return [`${n > 0 ? "+" : ""}${n} room${Math.abs(n) === 1 ? "" : "s"}`, name];
                 }}
               />
-              <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}>
+              {/* Clicking a legend entry hides or shows that series, so the
+                  reader can isolate pickup when the three overlap. */}
+              <Legend
+                wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
+                onClick={(entry: { value?: string }) => {
+                  if (entry?.value === "Occupancy") setShowOcc((v) => !v);
+                  if (entry?.value === "ADR") setShowAdr((v) => !v);
+                }}
+                payload={[
+                  { value: "Pickup", type: "square", color: PICKUP_LEGEND_COLOR, id: "pickup" },
+                  { value: "Occupancy", type: "line", color: showOcc ? "hsl(var(--primary))" : "hsl(var(--muted-foreground) / 0.4)", id: "occ" },
+                  { value: "ADR", type: "line", color: showAdr ? ADR_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "adr" },
+                ]}
+              />
+              <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}
+                fill={PICKUP_LEGEND_COLOR}>
                 {data.map((d) => <Cell key={d.date} fill={barColor(d.pickup)} />)}
               </Bar>
               {showOcc && (
-                <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} opacity={0.85} />
               )}
               {showAdr && (
-                <Line yAxisId="adr" type="monotone" dataKey="adr" name="ADR" stroke="hsl(160 84% 39%)" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />
+                <Line yAxisId="adr" type="monotone" dataKey="adr" name="ADR" stroke={ADR_COLOR} strokeWidth={1.75} strokeDasharray="4 2" dot={false} connectNulls opacity={0.8} />
               )}
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-
             </ComposedChart>
           </ResponsiveContainer>
         </div>
         <p className="px-3 pt-2 text-[11px] text-muted-foreground">
           Bars show net pickup (new bookings minus cancellations) for each arrival date within the
-          measurement window, on the left axis. Occupancy reads on the right axis; ADR has its own
-          scale and is shown in the tooltip. Dashed lines mark the start of each month.
-          Source: Previo reservations, refreshed at each sync.
+          measurement window, on the left axis — orange to red as pickup grows, blue when it turns
+          negative. Tap a legend entry to hide or show occupancy and ADR. Dashed lines mark the
+          start of each month. Source: Previo reservations, refreshed at each sync.
         </p>
 
       </CardContent>
+
     </Card>
   );
 }

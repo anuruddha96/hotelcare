@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TrendingUp } from "lucide-react";
+import { ChevronRight, TrendingUp } from "lucide-react";
 import {
   addDays, budapestDayOf, budapestToday, eur, type BookingNight,
 } from "@/lib/revenueAnalytics";
@@ -21,6 +21,9 @@ export default function PickupRangeSummary({ nights }: { nights: BookingNight[] 
   const [bookedFrom, setBookedFrom] = useState(addDays(today, -7));
   const [bookedTo, setBookedTo] = useState(today);
 
+  /** Which stay date is expanded to show its individual bookings. */
+  const [openDate, setOpenDate] = useState<string | null>(null);
+
   const result = useMemo(() => {
     const rows = nights.filter((n) => {
       if (n.stay_date < stayFrom || n.stay_date > stayTo) return false;
@@ -29,24 +32,31 @@ export default function PickupRangeSummary({ nights }: { nights: BookingNight[] 
       return created >= bookedFrom && created <= bookedTo;
     });
     const revenue = rows.reduce((s, n) => s + (n.nightly_price_eur ?? 0), 0);
-    const byDate = new Map<string, { nights: number; revenue: number }>();
+    const byDate = new Map<string, { nights: number; revenue: number; res: Set<string>; items: BookingNight[] }>();
     for (const n of rows) {
-      const cur = byDate.get(n.stay_date) ?? { nights: 0, revenue: 0 };
+      const cur = byDate.get(n.stay_date) ?? { nights: 0, revenue: 0, res: new Set<string>(), items: [] };
       cur.nights += 1;
       cur.revenue += n.nightly_price_eur ?? 0;
+      cur.res.add(n.res_id);
+      cur.items.push(n);
       byDate.set(n.stay_date, cur);
     }
     const reservations = new Set(rows.map((n) => n.res_id)).size;
-    const top = Array.from(byDate.entries())
-      .map(([date, v]) => ({ date, ...v }))
-      .sort((a, b) => b.nights - a.nights || a.date.localeCompare(b.date))
-      .slice(0, 8);
+    const perDate = Array.from(byDate.entries())
+      .map(([date, v]) => ({
+        date,
+        nights: v.nights,
+        revenue: v.revenue,
+        reservations: v.res.size,
+        items: v.items.sort((a, b) => (b.created_at_pms ?? "").localeCompare(a.created_at_pms ?? "")),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
     return {
       roomNights: rows.length,
       reservations,
       revenue,
       adr: rows.length ? revenue / rows.length : null,
-      top,
+      perDate,
     };
   }, [nights, stayFrom, stayTo, bookedFrom, bookedTo]);
 
@@ -86,18 +96,43 @@ export default function PickupRangeSummary({ nights }: { nights: BookingNight[] 
           <Stat label="ADR" value={eur(result.adr)} />
         </div>
 
-        {result.top.length > 0 && (
-          <div className="rounded border divide-y">
-            <div className="px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground bg-muted/40">
-              Strongest stay dates in this pickup
+        {result.perDate.length > 0 && (
+          <div className="rounded border divide-y max-h-80 overflow-y-auto">
+            <div className="sticky top-0 z-10 px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground bg-muted">
+              Stay dates picked up — tap a day to see each booking
             </div>
-            {result.top.map((r) => (
-              <div key={r.date} className="flex items-center justify-between px-2 py-1 text-sm">
-                <span>{new Date(`${r.date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" })}</span>
-                <span className="flex items-center gap-3">
-                  <span className="text-muted-foreground">{eur(r.revenue)}</span>
-                  <Badge variant={r.nights >= 3 ? "destructive" : "secondary"}>+{r.nights}</Badge>
-                </span>
+            {result.perDate.map((r) => (
+              <div key={r.date}>
+                <button
+                  type="button"
+                  onClick={() => setOpenDate((d) => (d === r.date ? null : r.date))}
+                  className="w-full flex items-center justify-between px-2 py-1.5 text-sm hover:bg-muted/50 text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <ChevronRight className={`h-3.5 w-3.5 transition-transform ${openDate === r.date ? "rotate-90" : ""}`} />
+                    {new Date(`${r.date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" })}
+                  </span>
+                  <span className="flex items-center gap-2 sm:gap-3">
+                    <span className="text-muted-foreground text-xs hidden sm:inline">{r.reservations} res.</span>
+                    <span className="text-muted-foreground text-xs">{eur(r.revenue)}</span>
+                    <Badge variant={r.nights >= 3 ? "destructive" : "secondary"}>+{r.nights}</Badge>
+                  </span>
+                </button>
+                {openDate === r.date && (
+                  <div className="bg-muted/30 px-2 py-1 space-y-1">
+                    {r.items.map((n, i) => (
+                      <div key={`${n.res_id}-${i}`} className="flex flex-wrap items-center justify-between gap-x-3 text-[11px]">
+                        <span className="text-muted-foreground">
+                          booked {n.created_at_pms
+                            ? new Date(n.created_at_pms).toLocaleString(undefined, { timeZone: "Europe/Budapest", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                            : "—"}
+                        </span>
+                        <span className="truncate max-w-[45%]">{n.room_type_name ?? "—"}</span>
+                        <span className="font-medium">{eur(n.nightly_price_eur)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -105,6 +140,11 @@ export default function PickupRangeSummary({ nights }: { nights: BookingNight[] 
         {result.roomNights === 0 && (
           <p className="text-sm text-muted-foreground">No bookings were created in that window for those stay dates.</p>
         )}
+        <p className="text-[11px] text-muted-foreground">
+          Days with strong pickup are candidates for a rate increase; open a day to see when each
+          booking came in, which room type sold and at what nightly rate.
+        </p>
+
       </CardContent>
     </Card>
   );
