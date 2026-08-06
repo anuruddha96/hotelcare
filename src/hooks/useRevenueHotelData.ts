@@ -59,6 +59,8 @@ export interface RevenueHotelData {
   cancellations: CancelledNight[];
   metrics: DayMetrics[];
   lastSyncAt: string | null;
+  /** Who triggered the last revenue sync (null = automatic / unknown). */
+  lastSyncBy: string | null;
   thresholds: RevenueThresholds;
   reload: () => Promise<void>;
 }
@@ -82,6 +84,7 @@ export function useRevenueHotelData(
   const [sellableOverride, setSellableOverride] = useState<number | null>(null);
   const [thresholds, setThresholds] = useState<RevenueThresholds>(DEFAULT_THRESHOLDS);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [lastSyncBy, setLastSyncBy] = useState<string | null>(null);
 
   const today = budapestToday();
   const horizonEnd = addDays(today, horizonDays);
@@ -123,7 +126,7 @@ export function useRevenueHotelData(
           .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold")
           .eq("hotel_id", hotelId).maybeSingle(),
         supabase.from("pms_sync_history")
-          .select("created_at").eq("hotel_id", hotelId).eq("sync_type", "revenue_sync")
+          .select("created_at, synced_by_name").eq("hotel_id", hotelId).eq("sync_type", "revenue_sync")
           .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
 
@@ -146,7 +149,9 @@ export function useRevenueHotelData(
         occupancyHighPct: Number(s?.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
         pickupStrongThreshold: Number(s?.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
       });
-      setLastSyncAt((sync.data as { created_at?: string } | null)?.created_at ?? null);
+      const syncRow = sync.data as { created_at?: string; synced_by_name?: string | null } | null;
+      setLastSyncAt(syncRow?.created_at ?? null);
+      setLastSyncBy(syncRow?.synced_by_name ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -181,6 +186,6 @@ export function useRevenueHotelData(
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, cancellations, metrics, lastSyncAt, thresholds, reload,
+    nights, snapshots, rates, cancellations, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
   };
 }

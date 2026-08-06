@@ -10,6 +10,7 @@ import { Loader2, CalendarRange, Info, AlertTriangle, Send, Trash2 } from "lucid
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type DayMetrics, type RoomTypeRate,
@@ -55,9 +56,26 @@ const PICKUP_WINDOWS = [
 
 /** Row geometry — the two panes must agree pixel for pixel. */
 const ROW_H = 32;
-const HEAD_H = 46;
+/** Room-type group rows wrap onto two lines, so they are taller. */
+const GROUP_H = 40;
+const MONTH_H = 22;
+const DAY_H = 46;
+const HEAD_H = MONTH_H + DAY_H;
 const CELL_W = 60;
-const LEFT_W = 132;
+
+const rowH = (kind: string) => (kind === "group" ? GROUP_H : ROW_H);
+
+/** Contiguous month bands for the sticky header above the date row. */
+function monthBands(dates: string[]) {
+  const out: Array<{ key: string; label: string; span: number }> = [];
+  for (const d of dates) {
+    const key = d.slice(0, 7);
+    const last = out[out.length - 1];
+    if (last && last.key === key) last.span += 1;
+    else out.push({ key, label: formatMonth(d), span: 1 });
+  }
+  return out;
+}
 
 /** Small info bubble that works on hover and on touch. */
 function MetricInfo({ title, body }: { title: string; body: string }) {
@@ -115,9 +133,16 @@ export default function RateStrategyGrid({
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
 }: Props) {
   const { language } = useTranslation();
+  const isMobile = useIsMobile();
+  const LEFT_W = isMobile ? 124 : 200;
   const [days, setDays] = useState(30);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
+  /** Bulk options in the price editor. */
+  const [applyDays, setApplyDays] = useState(1);
+  const [applyWeekdays, setApplyWeekdays] = useState<"all" | "weekend" | "weekday">("all");
+  const [applyAllOcc, setApplyAllOcc] = useState(false);
+  const [editMode, setEditMode] = useState<"set" | "percent">("set");
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
@@ -238,28 +263,60 @@ export default function RateStrategyGrid({
     }
   }
 
+  /**
+   * Save one or many drafts. The editor can set a fixed price or apply a
+   * percentage change across a date range, optionally for every occupancy
+   * level of the same room type. Nothing is sent to Previo here.
+   */
   async function saveDraft() {
     if (!edit || !hotelId) return;
-    const price = Number(edit.value);
-    if (!Number.isFinite(price) || price <= 0) { toast.error("Enter a valid price"); return; }
+    const input = Number(edit.value);
+    if (!Number.isFinite(input) || (editMode === "set" && input <= 0)) {
+      toast.error("Enter a valid number"); return;
+    }
     setSaving(true);
     try {
       const { data: auth } = await supabase.auth.getUser();
-      const { error } = await supabase.from("revenue_rate_drafts").upsert({
-        hotel_id: hotelId,
-        organization_slug: organizationSlug ?? null,
-        stay_date: edit.stay_date,
-        obk_id: edit.obk_id,
-        room_type_name: edit.room_type_name,
-        occupancy: edit.occupancy,
-        old_price: edit.old_price,
-        new_price: price,
-        status: "draft",
-        created_by: auth.user?.id ?? null,
-      }, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" });
+      const start = dates.indexOf(edit.stay_date);
+      const targetDates = (start >= 0 ? dates.slice(start, start + applyDays) : [edit.stay_date])
+        .filter((d) =>
+          applyWeekdays === "all" ? true :
+          applyWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
+
+      const occs = applyAllOcc && edit.obk_id
+        ? Array.from(priceMap.get(edit.obk_id)?.keys() ?? [edit.occupancy])
+        : [edit.occupancy];
+
+      const rowsToSave: any[] = [];
+      for (const d of targetDates) {
+        for (const occ of occs) {
+          const current = edit.obk_id ? priceMap.get(edit.obk_id)?.get(occ)?.get(d) ?? null : null;
+          const next = editMode === "set"
+            ? input
+            : current === null ? null : Math.round(current * (1 + input / 100));
+          if (next === null || !Number.isFinite(next) || next <= 0) continue;
+          rowsToSave.push({
+            hotel_id: hotelId,
+            organization_slug: organizationSlug ?? null,
+            stay_date: d,
+            obk_id: edit.obk_id,
+            room_type_name: edit.room_type_name,
+            occupancy: occ,
+            old_price: current,
+            new_price: next,
+            status: "draft",
+            created_by: auth.user?.id ?? null,
+          });
+        }
+      }
+      if (rowsToSave.length === 0) { toast.error("Nothing to change with these options"); return; }
+
+      const { error } = await supabase.from("revenue_rate_drafts").upsert(rowsToSave, {
+        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
+      });
       if (error) throw error;
       await refreshDrafts();
-      toast.success("Saved as draft — not sent to Previo yet");
+      toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
       setEdit(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the draft");
@@ -330,6 +387,11 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
         </div>
+        <p className="text-[11px] text-muted-foreground">
+          Prices come straight from the Previo pricelist (one row per room type and guest count).
+          Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care.
+          {canEditRates ? " Tap any price to draft a change — nothing reaches Previo until you push it." : ""}
+        </p>
         {canEditRates && pending.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs">
@@ -364,26 +426,34 @@ export default function RateStrategyGrid({
                 Pickup
                 <MetricInfo
                   title="Net pickup"
-                  body="New room-nights booked in the selected window minus room-nights cancelled in the same window. Negative means the date lost rooms."
+                  body="New room-nights booked in the selected window minus room-nights cancelled in the same window. Negative means the date lost rooms. Source: Previo reservations."
                 />
               </div>
               <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
                 Occupancy
+                <MetricInfo
+                  title="Occupancy"
+                  body="Rooms sold ÷ sellable rooms for that night. Rooms sold come from Previo; the sellable-room count comes from your room types (non-sellable products excluded)."
+                />
               </div>
               {rows.map((r) => (
                 <div
                   key={r.key}
                   className={`flex items-center px-2 border-b ${r.kind === "group" ? "bg-muted/50 font-semibold" : r.kind === "rate" ? "text-muted-foreground" : "bg-muted/30 font-medium"}`}
-                  style={{ height: ROW_H }}
+                  style={{ height: rowH(r.kind) }}
                 >
-                  <span className="truncate" title={r.label}>{r.label}</span>
-                  {r.kind === "group" && (
-                    <span className="ml-1 text-[10px] font-normal text-muted-foreground shrink-0">{r.note}</span>
+                  {r.kind === "group" ? (
+                    <span className="leading-tight line-clamp-2 break-words" title={r.label}>
+                      {r.label}
+                      <span className="ml-1 text-[10px] font-normal text-muted-foreground">{r.note}</span>
+                    </span>
+                  ) : (
+                    <span className="truncate" title={r.label}>{r.label}</span>
                   )}
                   {r.kind === "adr" && (
                     <MetricInfo
                       title="ADR = Average Daily Rate"
-                      body="Room revenue ÷ rooms sold. The average price of the rooms you actually sold that night."
+                      body="Room revenue ÷ rooms sold. The average price of the rooms you actually sold that night. Calculated in Hotel Care from Previo booking data."
                     />
                   )}
                   {r.kind === "revpar" && (
@@ -404,8 +474,20 @@ export default function RateStrategyGrid({
               style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
             >
               <div style={{ width: dates.length * CELL_W }}>
+                {/* Month band — always tells you which month you are scrolled into */}
+                <div className="flex bg-muted/60" style={{ height: MONTH_H }}>
+                  {monthBands(dates).map((b) => (
+                    <div
+                      key={b.key}
+                      className="shrink-0 flex items-center border-l-2 border-l-foreground/30 px-2 text-[11px] font-semibold"
+                      style={{ width: b.span * CELL_W }}
+                    >
+                      <span className="sticky left-1 truncate">{b.label}</span>
+                    </div>
+                  ))}
+                </div>
                 {/* Date header */}
-                <div className="flex border-b bg-card" style={{ height: HEAD_H }}>
+                <div className="flex border-b bg-card" style={{ height: DAY_H }}>
                   {dates.map((d) => (
                     <div
                       key={d}
@@ -417,6 +499,7 @@ export default function RateStrategyGrid({
                     </div>
                   ))}
                 </div>
+
 
                 {/* Pickup */}
                 <div className="flex border-b" style={{ height: ROW_H }}>
@@ -463,7 +546,7 @@ export default function RateStrategyGrid({
                   <div
                     key={row.key}
                     className={`flex border-b ${row.kind === "group" ? "bg-muted/50" : row.kind === "rate" ? "" : "bg-muted/30"}`}
-                    style={{ height: ROW_H }}
+                    style={{ height: rowH(row.kind) }}
                   >
                     {dates.map((d) => {
                       if (row.kind === "group") {
@@ -489,14 +572,14 @@ export default function RateStrategyGrid({
                           key={d}
                           type="button"
                           disabled={!canEditRates}
-                          onClick={() => canEditRates && setEdit({
+                          onClick={() => canEditRates && (setApplyDays(1), setApplyWeekdays("all"), setApplyAllOcc(false), setEditMode("set"), setEdit({
                             stay_date: d,
                             obk_id: row.obk,
                             room_type_name: row.roomTypeName,
                             occupancy: row.occ,
                             old_price: published ?? null,
                             value: String(shown ?? ""),
-                          })}
+                          }))}
                           title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${tone.label}`}
                           className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className} ${isWeekend(d) ? "bg-muted/40" : ""} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""}`}
                           style={{ width: CELL_W }}
@@ -523,6 +606,18 @@ export default function RateStrategyGrid({
               <p className="text-muted-foreground">
                 {edit.room_type_name} · {edit.occupancy} guests · {edit.stay_date}
               </p>
+
+              <div className="flex rounded-md border overflow-hidden w-fit">
+                <Button
+                  size="sm" variant={editMode === "set" ? "default" : "ghost"}
+                  className="h-8 rounded-none px-3 text-xs" onClick={() => setEditMode("set")}
+                >Set price</Button>
+                <Button
+                  size="sm" variant={editMode === "percent" ? "default" : "ghost"}
+                  className="h-8 rounded-none px-3 text-xs" onClick={() => setEditMode("percent")}
+                >Change %</Button>
+              </div>
+
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Current</span>
                 <span className="font-medium tabular-nums">{eur(edit.old_price)}</span>
@@ -534,12 +629,48 @@ export default function RateStrategyGrid({
                   value={edit.value}
                   onChange={(e) => setEdit({ ...edit, value: e.target.value })}
                 />
+                <span className="text-muted-foreground">{editMode === "set" ? "EUR" : "%"}</span>
               </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">Apply to</label>
+                <Select value={String(applyDays)} onValueChange={(v) => setApplyDays(Number(v))}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">This date only</SelectItem>
+                    <SelectItem value="7">Next 7 days</SelectItem>
+                    <SelectItem value="14">Next 14 days</SelectItem>
+                    <SelectItem value="30">Next 30 days</SelectItem>
+                    <SelectItem value="90">Next 90 days</SelectItem>
+                  </SelectContent>
+                </Select>
+                {applyDays > 1 && (
+                  <Select value={applyWeekdays} onValueChange={(v) => setApplyWeekdays(v as any)}>
+                    <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Every day</SelectItem>
+                      <SelectItem value="weekend">Weekends only (Fri–Sun)</SelectItem>
+                      <SelectItem value="weekday">Weekdays only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={applyAllOcc}
+                    onChange={(e) => setApplyAllOcc(e.target.checked)}
+                  />
+                  Apply to every guest count of this room type
+                </label>
+              </div>
+
               <p className="text-xs text-muted-foreground">
                 Saved as a draft only. Nothing is sent to Previo until a push is confirmed.
               </p>
             </div>
           )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setEdit(null)}>Cancel</Button>
             <Button onClick={() => void saveDraft()} disabled={saving}>
@@ -586,10 +717,16 @@ export default function RateStrategyGrid({
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-muted-foreground">
-            These prices are written to Previo immediately and become live for guests.
-            Anything that fails stays here with its error so you can retry.
-          </p>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              These prices are written to Previo immediately and become live for guests.
+              Anything that fails stays here with its error so you can retry.
+            </p>
+            <p className="text-xs rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
+              Writing prices back requires Previo to enable rate-write access for this property.
+              Until they confirm the endpoint, pushes will fail with a Previo error and your drafts stay safe here.
+            </p>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
             <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>

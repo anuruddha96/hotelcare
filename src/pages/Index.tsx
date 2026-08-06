@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { Dashboard } from '@/components/dashboard/Dashboard';
@@ -33,6 +33,11 @@ const readHotelSelectedForToday = (userId?: string) => {
 const Index = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const [searchParams] = useSearchParams();
+  // Dashboard strips ?tab= once it applies it, so latch the intent on mount —
+  // otherwise executives would be bounced back to Revenue a tick later.
+  const hasExplicitTab = useRef(!!new URLSearchParams(window.location.search).get('tab'));
+  if (searchParams.get('tab')) hasExplicitTab.current = true;
   const [hotelSelected, setHotelSelected] = useState(() => readHotelSelectedForToday());
 
   // Re-check with the real user id once auth resolves, and silently carry a
@@ -71,7 +76,10 @@ const Index = () => {
   }
 
   // Top management land on Revenue Management → Rate Grid, freshly synced.
-  if (profile && isExecutiveRole(profile.role)) {
+  // Only on a bare landing though: once they explicitly ask for a dashboard
+  // tab (?tab=housekeeping …) we must NOT bounce them back to Revenue,
+  // otherwise the legacy tabs are unreachable for executives.
+  if (profile && isExecutiveRole(profile.role) && !hasExplicitTab.current) {
     return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
   }
 

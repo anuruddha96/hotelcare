@@ -56,6 +56,9 @@ interface Row {
 }
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
+
+/** Data younger than this is considered fresh — no automatic re-sync. */
+const FRESH_SYNC_MS = 15 * 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
@@ -150,15 +153,33 @@ export default function RevenueHotelDetail() {
     void load();
   }, [loading, profile?.role, hotelId]);
 
-  // Executives (and ?autosync=1) land straight on a freshly synced Rate Grid.
+  // Executives (and ?autosync=1) land straight on the Rate Grid. The sync
+  // itself is throttled: if Previo data is younger than 15 minutes we simply
+  // use it. A manual "Sync now" always runs.
   useEffect(() => {
     if (loading || !profile || !hotelId) return;
     if (autoSyncedRef.current) return;
-    const wants = searchParams.get("autosync") === "1" || !isRevenueAdmin(profile.role);
+    const forced = searchParams.get("autosync") === "1";
+    const wants = forced || !isRevenueAdmin(profile.role);
     if (!wants) return;
     autoSyncedRef.current = true;
     setTab("grid");
-    void runSync();
+    void (async () => {
+      if (!forced) {
+        const { data } = await supabase
+          .from("pms_sync_history")
+          .select("created_at")
+          .eq("hotel_id", hotelId)
+          .eq("sync_type", "revenue_sync")
+          .in("sync_status", ["success", "partial"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const at = (data as { created_at?: string } | null)?.created_at;
+        if (at && Date.now() - new Date(at).getTime() < FRESH_SYNC_MS) return; // still fresh
+      }
+      await runSync();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId]);
 
@@ -478,12 +499,16 @@ export default function RevenueHotelDetail() {
         <div className="flex-1 min-w-0">
           <h1 className="text-lg sm:text-xl font-semibold truncate">{hotelName}</h1>
           <p className="text-[11px] text-muted-foreground truncate">
-            Revenue management{live.lastSyncAt ? ` · synced ${formatDistance(new Date(live.lastSyncAt), new Date())} ago` : ""}
+            Revenue management
+            {live.lastSyncAt
+              ? ` · last synced ${formatDistance(new Date(live.lastSyncAt), new Date())} ago by ${live.lastSyncBy || "automatic sync"}`
+              : " · never synced"}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void runSync()} disabled={syncing}>
+        <Button variant="outline" size="sm" onClick={() => void runSync()} disabled={syncing}
+          title="Pull fresh prices, reservations and occupancy from Previo now">
           {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-          Sync
+          Sync now
         </Button>
         {revAdmin && (
           <>

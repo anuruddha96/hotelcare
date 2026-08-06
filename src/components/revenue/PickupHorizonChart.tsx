@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Bar, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
+import { Bar, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import { Activity } from "lucide-react";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 import { budapestToday, daysBetween } from "@/lib/revenueAnalytics";
@@ -65,7 +65,10 @@ interface Props {
 
 /** Pickup + occupancy over an adjustable horizon, peaks in red. */
 export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickupWindowChange }: Props) {
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(60);
+  /** Optional series the user can layer on top of pickup. */
+  const [showOcc, setShowOcc] = useState(true);
+  const [showAdr, setShowAdr] = useState(true);
   const [period, setPeriod] = useState<PeriodKey>("today");
   const [customDays, setCustomDays] = useState(7);
 
@@ -74,8 +77,13 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     label: new Date(`${m.stay_date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", day: "numeric", month: "short" }),
     pickup: m.netPickup ?? 0,
     occ: Math.round(m.occupancyPct),
-    adr: m.adrEur,
+    adr: m.adrEur ? Math.round(m.adrEur) : null,
+    monthStart: m.stay_date.endsWith("-01"),
+    month: new Date(`${m.stay_date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", month: "short", year: "2-digit" }),
   })), [metrics, days]);
+
+  /** Labels for the month dividers drawn across the plot. */
+  const monthMarks = useMemo(() => data.filter((d) => d.monthStart), [data]);
 
   const totalPickup = useMemo(() => data.reduce((s, d) => s + (d.pickup || 0), 0), [data]);
   const peak = useMemo(() => data.reduce((best, d) => (d.pickup > (best?.pickup ?? -99) ? d : best), data[0]), [data]);
@@ -145,16 +153,30 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               </Button>
             ))}
           </div>
+          <div className="flex rounded-md border overflow-hidden">
+            <Button size="sm" variant={showOcc ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
+              onClick={() => setShowOcc((v) => !v)}>Occupancy</Button>
+            <Button size="sm" variant={showAdr ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
+              onClick={() => setShowAdr((v) => !v)}>ADR</Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="px-1 sm:px-4">
-        <div className="h-56">
+        <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <ComposedChart data={data} margin={{ top: 16, right: 4, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
               <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false}
                 interval={Math.max(0, Math.floor(data.length / 8))} />
               <YAxis yAxisId="left" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={24} />
               <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={30} />
+              {monthMarks.map((m) => (
+                <ReferenceLine
+                  key={m.date} yAxisId="left" x={m.label} stroke="hsl(var(--foreground) / 0.35)"
+                  strokeDasharray="2 2"
+                  label={{ value: m.month, position: "top", fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                />
+              ))}
               <RTooltip
                 contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                 formatter={(value: unknown, name: string) => {
@@ -166,10 +188,21 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               <Bar yAxisId="left" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18}>
                 {data.map((d) => <Cell key={d.date} fill={barColor(d.pickup)} />)}
               </Bar>
-              <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+              {showOcc && (
+                <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+              )}
+              {showAdr && (
+                <Line yAxisId="left" type="monotone" dataKey="adr" name="ADR" stroke="hsl(160 84% 39%)" strokeWidth={2} strokeDasharray="4 2" dot={false} connectNulls />
+              )}
+              <Legend wrapperStyle={{ fontSize: 11 }} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        <p className="px-3 pt-2 text-[11px] text-muted-foreground">
+          Bars show net pickup (new bookings minus cancellations) for each arrival date within the
+          measurement window. The occupancy line reads on the right axis, ADR on the left. Dashed
+          lines mark the start of each month. Source: Previo reservations, refreshed at each sync.
+        </p>
       </CardContent>
     </Card>
   );
