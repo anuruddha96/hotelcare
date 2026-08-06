@@ -118,6 +118,7 @@ const DEMAND_WEIGHTS = { pickup: 0.30, pressure: 0.30, pace: 0.25, leadtime: 0.1
 function buildForecasts(
   nights: NightRow[], today: string, roomsAvailable: number,
   eventsByDate: Map<string, DayForecast["events"]> = new Map(),
+  overridesByDate: Map<string, { score: number; note: string | null }> = new Map(),
 ): DayForecast[] {
 
   const byDate = new Map<string, NightRow[]>();
