@@ -184,7 +184,7 @@ export default function RateStrategyGrid({
     const out: Row[] = [];
     for (const rt of pricedTypes) {
       const label = localizedRoomTypeName(rt.name, rt.name_translations, language);
-      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}` });
+      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label });
       const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
       const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [2];
       for (const occ of occs) {
