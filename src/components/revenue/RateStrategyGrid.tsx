@@ -80,7 +80,36 @@ function monthBands(dates: string[]) {
     const last = out[out.length - 1];
     if (last && last.key === key) last.span += 1;
     else out.push({ key, label: formatMonth(d), span: 1 });
+}
+
+/** Colour coding for the internal demand grade. */
+function demandTone(band: DemandBand): string {
+  switch (band) {
+    case "very_strong": return "bg-red-500 text-white";
+    case "strong": return "bg-orange-300 text-orange-950 dark:bg-orange-700 dark:text-orange-50";
+    case "normal": return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
+    case "soft": return "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100";
+    default: return "bg-muted text-muted-foreground";
   }
+}
+
+/** Short label so the cell stays readable at 60px. */
+const DEMAND_SHORT: Record<DemandBand, string> = {
+  very_strong: "V.High",
+  strong: "High",
+  normal: "Med",
+  soft: "Low",
+  weak: "Low",
+};
+
+/** How much inventory is left, colour-graded from plenty to sold out. */
+function leftTone(left: number, units: number): string {
+  if (units <= 0) return "text-muted-foreground";
+  if (left <= 0) return "bg-destructive/20 text-destructive font-semibold";
+  const pct = left / units;
+  if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
+  return "text-muted-foreground";
+}
   return out;
 }
 
