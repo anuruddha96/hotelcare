@@ -277,10 +277,42 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     [runPms, runRevenue, runCheckouts],
   );
 
-  // PMS sync is MANUAL only: never auto-run on login / focus. The Team View
-  // "PMS Refresh" button is the single entry point for a manager-initiated
-  // refresh. Revenue + checkout polling remain automatic because they are
-  // read-only pulls that never mutate housekeeping state.
+  // Morning full PMS sync: the first time an eligible user opens the app on a
+  // given day we run a complete Previo refresh once and keep them informed
+  // with a live toast (syncing → result). Later logins that day are skipped.
+  useEffect(() => {
+    if (!enabled || !hotelId || !user?.id) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const key = `liveSync.morningPms.${user.id}.${hotelId}.${today}`;
+    if (localStorage.getItem(key) === "1") return;
+    localStorage.setItem(key, "1");
+    let cancelled = false;
+    (async () => {
+      const { toast } = await import("sonner");
+      const toastId = toast.loading("Good morning — syncing today's PMS data from Previo…", {
+        description: "Checkouts, daily stays and room notes are being refreshed.",
+      });
+      const r = await runPms(true);
+      if (cancelled) return;
+      if (r.status === "error") {
+        localStorage.removeItem(key); // allow a retry later today
+        toast.error("Morning PMS sync failed", { id: toastId, description: r.message });
+      } else if (r.status === "partial") {
+        toast.warning("PMS data incomplete", { id: toastId, description: r.message });
+      } else {
+        const meta = (r.meta || {}) as any;
+        toast.success("Today's PMS data is up to date", {
+          id: toastId,
+          description: `${meta.updated ?? 0} rooms updated · ${meta.checkouts ?? 0} checkout rooms`,
+        });
+      }
+      void runCheckouts(true);
+    })();
+    return () => { cancelled = true; };
+  }, [enabled, hotelId, user?.id, runPms, runCheckouts]);
+
+  // Revenue + checkout polling remain automatic because they are read-only
+  // pulls that never mutate housekeeping state.
   useEffect(() => {
     if (!enabled) return;
     void runRevenue();
@@ -305,6 +337,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       if (timer) clearTimeout(timer);
     };
   }, [enabled, runRevenue, runCheckouts]);
+
 
 
   // ---- PMS change events: realtime + count ---------------------------------
