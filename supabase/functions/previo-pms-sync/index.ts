@@ -166,18 +166,34 @@ serve(async (req) => {
     }
 
     // Authorization: admin/top_management OR manager assigned to the hotel.
+    // `profiles.assigned_hotel` may store the display name ("Hotel Ottofiori")
+    // while the request targets the slug ("ottofiori") — accept either alias.
     const { data: profile } = await service
       .from("profiles")
       .select("role, assigned_hotel")
       .eq("id", userRes.user.id)
       .maybeSingle();
     const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
-    if (!isAdmin && profile?.assigned_hotel !== targetHotel) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!isAdmin) {
+      const { data: aliasCfg } = await service
+        .from("hotel_configurations")
+        .select("hotel_id, hotel_name")
+        .or(`hotel_id.eq.${targetHotel},hotel_name.eq.${targetHotel}`)
+        .maybeSingle();
+      const aliases = new Set(
+        [targetHotel, (aliasCfg as any)?.hotel_id, (aliasCfg as any)?.hotel_name]
+          .filter(Boolean)
+          .map((v: string) => String(v).trim().toLowerCase()),
+      );
+      const assigned = String(profile?.assigned_hotel ?? "").trim().toLowerCase();
+      if (!assigned || !aliases.has(assigned)) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
+
 
     const { data: cfg } = await service
       .from("pms_configurations")
