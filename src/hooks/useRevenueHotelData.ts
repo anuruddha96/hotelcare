@@ -127,7 +127,7 @@ export function useRevenueHotelData(
           .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
 
-      setRoomTypes((rt.data ?? []) as RevenueRoomType[]);
+      
       setRoomTypes(((rt.data ?? []) as any[]).map((r) => ({
         ...r,
         name_translations: (r.name_translations ?? {}) as Record<string, string>,
