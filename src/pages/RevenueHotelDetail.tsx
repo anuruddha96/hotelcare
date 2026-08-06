@@ -592,11 +592,12 @@ export default function RevenueHotelDetail() {
         </TabsList>
 
         <TabsContent value="grid" className="space-y-3">
-          <RevenuePulsePanel
+          {/* Decisions first: month performance + pickup window */}
+          <MonthPerformanceHeader
             today={live.today}
             metrics={live.metrics}
-            roomsAvailable={live.roomsAvailable}
-            thresholds={live.thresholds}
+            pickupWindowDays={pickupWindow}
+            onPickupWindowChange={setPickupWindow}
           />
           <RateStrategyGrid
             loading={live.loading}
@@ -610,15 +611,23 @@ export default function RevenueHotelDetail() {
             canEditRates={revAdmin}
             pickupWindowDays={pickupWindow}
             onPickupWindowChange={setPickupWindow}
+            demandByDate={demandByDate}
+            leftByTypeDate={leftByTypeDate}
           />
-
           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
-          <RevenueIntelligencePanel hotelId={hotelId ?? null} />
           <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
-
+          <RevenueIntelligencePanel hotelId={hotelId ?? null} />
+          {/* Technical detail last */}
+          <RevenuePulsePanel
+            today={live.today}
+            metrics={live.metrics}
+            roomsAvailable={live.roomsAvailable}
+            thresholds={live.thresholds}
+          />
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>
+
 
         <TabsContent value="prices">
 
