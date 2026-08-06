@@ -78,8 +78,15 @@ interface DayForecast {
   historical_pace_same_weekday: number | null;
   pace_variance_pct: number | null;
   forecast_occupancy_pct: number;
+  /** Low/high band around the forecast, widened when confidence is low. */
+  forecast_occupancy_low_pct: number;
+  forecast_occupancy_high_pct: number;
+  forecast_rooms_sold: number;
   forecast_adr_eur: number | null;
+  forecast_revpar_eur: number | null;
   forecast_room_revenue_eur: number | null;
+  /** Probability-style read on whether the date closes out. */
+  sellout_risk: string;
   demand_score: number;
   demand_class: string;
   confidence: number;
@@ -87,6 +94,7 @@ interface DayForecast {
   recommended_adr_max: number | null;
   drivers: string[];
 }
+
 
 const DEMAND_WEIGHTS = { pickup: 0.30, pressure: 0.30, pace: 0.25, leadtime: 0.15 };
 
@@ -147,6 +155,11 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       35 + Math.min(30, sold * 2) + Math.min(20, p7 * 4) + (lead <= 30 ? 10 : lead <= 60 ? 5 : 0),
     )));
 
+    // Uncertainty band: the less confident the forecast, the wider the cone.
+    const spread = ((100 - confidence) / 100) * Math.max(4, fcOcc - occ + 6);
+    const fcLow = Math.max(occ, fcOcc - spread);
+    const fcHigh = Math.min(100, fcOcc + spread);
+
     // Recommended ADR band derived from the day's own realised ADR and demand.
     let recMin: number | null = null, recMax: number | null = null;
     if (adr !== null) {
@@ -155,11 +168,27 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       recMax = round(adr * (1 + uplift[1]));
     }
 
+    // Forecast ADR blends the realised ADR with the recommended band mid-point,
+    // weighted by the share of the night still to be sold.
+    let fcAdr: number | null = null;
+    if (adr !== null) {
+      const remainingShare = fcSold > 0 ? Math.max(0, fcSold - sold) / fcSold : 0;
+      const bandMid = recMin !== null && recMax !== null ? (recMin + recMax) / 2 : adr;
+      fcAdr = round(adr * (1 - remainingShare) + bandMid * remainingShare);
+    }
+
+    const selloutRisk = remaining === 0 ? "sold_out"
+      : fcHigh >= 97 || remaining <= 2 ? "high"
+      : fcOcc >= 85 ? "medium"
+      : fcOcc >= 60 ? "low" : "very_low";
+
     const drivers: string[] = [];
     if (p1 > 0) drivers.push(`${p1} room-night(s) picked up in the last 24h`);
     if (p7 > 0) drivers.push(`${p7} room-night(s) picked up in the last 7 days`);
     if (remaining <= 3 && sold > 0) drivers.push(`only ${remaining} room(s) remaining`);
     if (paceVar !== null) drivers.push(`pace ${paceVar >= 0 ? "+" : ""}${round(paceVar, 0)}% vs comparable ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow(date)]}s`);
+    if (selloutRisk === "high") drivers.push("forecast to close out — protect the last rooms");
+    if (score < 20 && lead <= 21) drivers.push("weak demand inside the booking window");
 
     out.push({
       stay_date: date,
@@ -176,8 +205,13 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       historical_pace_same_weekday: baseline === null ? null : round(baseline, 1),
       pace_variance_pct: paceVar === null ? null : round(paceVar, 1),
       forecast_occupancy_pct: round(fcOcc, 1),
-      forecast_adr_eur: adr === null ? null : round(adr),
-      forecast_room_revenue_eur: adr === null ? null : round(fcSold * adr),
+      forecast_occupancy_low_pct: round(fcLow, 1),
+      forecast_occupancy_high_pct: round(fcHigh, 1),
+      forecast_rooms_sold: round(fcSold, 1),
+      forecast_adr_eur: fcAdr,
+      forecast_revpar_eur: fcAdr === null || roomsAvailable <= 0 ? null : round((fcSold * fcAdr) / roomsAvailable),
+      forecast_room_revenue_eur: fcAdr === null ? null : round(fcSold * fcAdr),
+      sellout_risk: selloutRisk,
       demand_score: score,
       demand_class: cls,
       confidence,
@@ -185,6 +219,7 @@ function buildForecasts(nights: NightRow[], today: string, roomsAvailable: numbe
       recommended_adr_max: recMax,
       drivers,
     });
+
   }
   return out;
 }
@@ -472,7 +507,17 @@ Deno.serve(async (req) => {
         const n = losByRes.get(r.res_id) ?? 1;
         return n === 1 ? "1 night" : n <= 3 ? "2-3 nights" : n <= 6 ? "4-6 nights" : "7+ nights";
       }),
-      forecasts: forecasts.slice(0, mode === "deep" ? HORIZON_DAYS : 45),
+      // Full horizon is kept for the UI outlook chart; the AI payload is sliced below.
+      forecasts,
+      forecast_horizon: {
+        room_nights: round(forecasts.reduce((s, f) => s + f.forecast_rooms_sold, 0), 1),
+        occupancy_pct: round(
+          (forecasts.reduce((s, f) => s + f.forecast_rooms_sold, 0) / (roomsAvailable * forecasts.length)) * 100, 1),
+        room_revenue_eur: round(forecasts.reduce((s, f) => s + (f.forecast_room_revenue_eur ?? 0), 0)),
+        sellout_dates: forecasts.filter((f) => f.sellout_risk === "high" || f.sellout_risk === "sold_out")
+          .map((f) => f.stay_date),
+      },
+
       top_demand_dates: [...forecasts].sort((a, b) => b.demand_score - a.demand_score).slice(0, 10),
       weak_demand_dates: [...forecasts].filter((f) => f.lead_time_days <= 30)
         .sort((a, b) => a.demand_score - b.demand_score).slice(0, 8),
@@ -543,7 +588,7 @@ Deno.serve(async (req) => {
           instructions: SYSTEM_PROMPT,
           input: [{
             role: "user",
-            content: [{ type: "input_text", text: `${instruction}\n\nVERIFIED DATA (json):\n${JSON.stringify(metrics)}` }],
+            content: [{ type: "input_text", text: `${instruction}\n\nVERIFIED DATA (json):\n${JSON.stringify({ ...metrics, forecasts: forecasts.slice(0, mode === "deep" ? HORIZON_DAYS : 45) })}` }],
           }],
           text: { format: { type: "json_schema", name: "rm_intelligence", strict: true, schema: SCHEMA } },
           max_output_tokens: mode === "deep" ? 6000 : 3000,
