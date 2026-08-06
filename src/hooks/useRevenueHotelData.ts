@@ -10,6 +10,7 @@ import {
   type DayMetrics,
   type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
+import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
 
 export interface RevenueRoomType {
   id: string;
@@ -24,6 +25,8 @@ export interface RevenueRoomType {
   is_sellable: boolean;
   /** False for duplicated PMS groupings that would double-count inventory. */
   counts_toward_inventory: boolean;
+  /** { en: "Economy double room", hu: "…" } produced by the translate job. */
+  name_translations: Record<string, string>;
 }
 
 /** Supabase caps a single select at 1000 rows — page through everything. */
