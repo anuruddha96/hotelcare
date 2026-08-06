@@ -502,6 +502,20 @@ export default function RateStrategyGrid({
                   body="Rooms sold ÷ sellable rooms for that night. Rooms sold come from Previo; the sellable-room count comes from your room types (non-sellable products excluded)."
                 />
               </div>
+              <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
+                Left to sell
+                <MetricInfo
+                  title="Rooms left to sell"
+                  body="Sellable rooms minus rooms sold for that night, for the whole house. The room-type rows show the same figure per room type."
+                />
+              </div>
+              <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
+                Demand
+                <MetricInfo
+                  title="Demand grade"
+                  body="Hotel Care's own 0–100 demand grade for that date, built from booking pace against comparable weekdays, recent pickup, how much inventory is left this close to arrival, recorded events and any manual manager override. Low / Med / High / V.High."
+                />
+              </div>
               {rows.map((r) => (
                 <div
                   key={r.key}
