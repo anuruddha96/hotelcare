@@ -812,6 +812,8 @@ serve(async (req) => {
         CheckedOut: isCheckedOut,
         IsCheckoutRoom: !isNoShow && isCheckoutRoom,
         IsNoShow: isNoShow,
+        NotArrived: isNotArrived,
+
 
         // Keep the legacy field safe for stale browser bundles that used to
         // treat statusId=5 as checked-out. Raw value remains available below
