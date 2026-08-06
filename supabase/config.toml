@@ -163,3 +163,5 @@ verify_jwt = false
 verify_jwt = true
 
 
+[functions.generate-rm-intelligence]
+verify_jwt = true

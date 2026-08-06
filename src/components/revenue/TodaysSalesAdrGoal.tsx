@@ -704,9 +704,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </Section>
 
             {/* --------------------------------------- recommendations */}
-            <Section title="Recommended actions" defaultOpen icon={<Lightbulb className="h-4 w-4 text-primary" />}>
+            <Section title="Quick signals from today’s sales" defaultOpen icon={<Lightbulb className="h-4 w-4 text-primary" />}>
               {recommendations.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Recommendations appear once bookings are created today.</p>
+                <p className="text-sm text-muted-foreground">Signals appear once bookings are created today.</p>
               ) : (
                 <ul className="space-y-2">
                   {recommendations.map((r) => (
@@ -719,7 +719,12 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                   ))}
                 </ul>
               )}
+              <p className="text-[11px] text-muted-foreground pt-2">
+                Prioritised, evidence-backed actions for the next 90 arrival dates are in the
+                Revenue Intelligence section above.
+              </p>
             </Section>
+
 
             {/* ------------------------------------------ booking list */}
             <Section title={`Bookings created ${preset === "today" ? "today" : "in this period"}`} defaultOpen>
