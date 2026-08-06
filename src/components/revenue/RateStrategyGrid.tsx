@@ -10,6 +10,7 @@ import { Loader2, CalendarRange, Info, AlertTriangle, Send, Trash2 } from "lucid
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type DayMetrics, type RoomTypeRate,
@@ -55,9 +56,26 @@ const PICKUP_WINDOWS = [
 
 /** Row geometry — the two panes must agree pixel for pixel. */
 const ROW_H = 32;
-const HEAD_H = 46;
+/** Room-type group rows wrap onto two lines, so they are taller. */
+const GROUP_H = 40;
+const MONTH_H = 22;
+const DAY_H = 46;
+const HEAD_H = MONTH_H + DAY_H;
 const CELL_W = 60;
-const LEFT_W = 132;
+
+const rowH = (kind: string) => (kind === "group" ? GROUP_H : ROW_H);
+
+/** Contiguous month bands for the sticky header above the date row. */
+function monthBands(dates: string[]) {
+  const out: Array<{ key: string; label: string; span: number }> = [];
+  for (const d of dates) {
+    const key = d.slice(0, 7);
+    const last = out[out.length - 1];
+    if (last && last.key === key) last.span += 1;
+    else out.push({ key, label: formatMonth(d), span: 1 });
+  }
+  return out;
+}
 
 /** Small info bubble that works on hover and on touch. */
 function MetricInfo({ title, body }: { title: string; body: string }) {
@@ -115,6 +133,8 @@ export default function RateStrategyGrid({
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
 }: Props) {
   const { language } = useTranslation();
+  const isMobile = useIsMobile();
+  const LEFT_W = isMobile ? 124 : 200;
   const [days, setDays] = useState(30);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
