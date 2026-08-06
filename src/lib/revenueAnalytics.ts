@@ -188,6 +188,20 @@ export function buildDayMetrics(params: {
     const rev = Math.round((revenue.get(d) ?? 0) * 100) / 100;
     const avail = roomsAvailable || 0;
     const base = baseline.get(d);
+    const createdN = created.get(d) ?? 0;
+    const cancelledN = cancelled.get(d) ?? 0;
+    const bookingDelta = createdN - cancelledN;
+    // Snapshot delta = rooms sold now vs rooms sold when the window opened.
+    // It is the only source that sees cancellations we never received a
+    // cancellation timestamp for, so a date that LOST rooms shows negative
+    // even when `revenue_cancelled_nights` is empty.
+    const snapDelta = base === undefined ? null : rs - base;
+    let net: number | null;
+    if (!hasBookings) net = null;
+    else if (!hasCreationData) net = snapDelta;
+    else if (snapDelta !== null && snapDelta < bookingDelta) net = snapDelta;
+    else net = bookingDelta;
+
     return {
       stay_date: d,
       roomsSold: rs,
@@ -196,13 +210,10 @@ export function buildDayMetrics(params: {
       revenueEur: rev,
       adrEur: rs ? Math.round((rev / rs) * 100) / 100 : null,
       revparEur: avail ? Math.round((rev / avail) * 100) / 100 : null,
-      newBookings: created.get(d) ?? 0,
-      cancelledBookings: cancelled.get(d) ?? 0,
-      netPickup: !hasBookings
-        ? null
-        : hasCreationData
-          ? (created.get(d) ?? 0) - (cancelled.get(d) ?? 0)
-          : base === undefined ? null : rs - base,
+      roomsLeft: Math.max(0, avail - rs),
+      newBookings: createdN,
+      cancelledBookings: cancelledN < 0 ? 0 : cancelledN,
+      netPickup: net,
     };
   });
 }
