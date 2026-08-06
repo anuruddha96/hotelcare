@@ -119,6 +119,11 @@ export default function RevenueHotelDetail() {
       setSyncPct(65);
       setSyncStep("Refreshing occupancy for the next 90 days…");
       await supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } });
+      setSyncPct(80);
+      setSyncStep("Translating room-type names…");
+      // Previo publishes names in the property's own language; translate once
+      // so the grid reads correctly in every app language.
+      await supabase.functions.invoke("translate-room-types", { body: { hotelId } });
       setSyncPct(88);
       setSyncStep("Recalculating pickup, ADR and RevPAR…");
       await Promise.all([load(), live.reload()]);
