@@ -171,6 +171,24 @@ const extractRoomNumber = (raw: string): string => {
 };
 
 /**
+ * The PMS edge functions require a valid user JWT. If the tab has been
+ * backgrounded the access token can be expired, which made Previo sync fail
+ * with an opaque "Edge Function returned a non-2xx status code" error.
+ * Refresh (or fail loudly with a human message) before invoking anything.
+ */
+export async function ensureFreshSupabaseSession(): Promise<void> {
+  const expired = new Error("Your session expired. Please sign in again, then retry the PMS sync.");
+  const { data } = await supabase.auth.getSession();
+  let session = data.session;
+  const nearExpiry = !!session && (session.expires_at ?? 0) * 1000 - Date.now() < 60_000;
+  if (!session || nearExpiry) {
+    const { data: refreshed } = await supabase.auth.refreshSession();
+    session = refreshed.session ?? session ?? null;
+  }
+  if (!session?.access_token) throw expired;
+}
+
+/**
  * Fetch the PMS snapshot and (optionally) apply it to the `rooms` table.
  * When `dryRun` is true, no writes are performed and `proposedChanges` is
  * returned so the UI can render a preview.
@@ -179,7 +197,9 @@ export async function runPmsRefresh(
   hotelId: string,
   options: { dryRun?: boolean; trigger?: "manual" | "auto" } = {},
 ): Promise<PmsSyncResult> {
+  await ensureFreshSupabaseSession();
   const dryRun = options.dryRun === true;
+
   const trigger = options.trigger ?? "manual";
 
   // Step 1 — sync rooms catalog + mapping. Safe in dry-run because
