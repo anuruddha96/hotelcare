@@ -508,11 +508,19 @@ export async function runPmsRefresh(
       const pmsNeedsCleaning = reservationDataAuthoritative && (
         shouldBeCheckoutRoom || classification.isDailyRoom || row.IsNoShow === true
       );
+      // A room that was already cleaned and approved TODAY must never be
+      // pushed back to "dirty" by a later sync — the PMS row still says the
+      // room is a checkout/daily room for today, which is exactly the state a
+      // finished clean is supposed to satisfy. Without this guard every
+      // refresh after the clean re-dirtied the room (root cause of room 104
+      // showing dirty hours after it was cleaned and approved).
+      const cleanedToday =
+        getDateOnly((room as any).last_cleaned_at) === today && room.status === "clean";
       const effectiveStatus = pmsNeedsCleaning
         ? row.IsNoShow === true
           ? "clean"
-          : "dirty"
-        : mappedStatus;
+          : cleanedToday ? "clean" : "dirty"
+        : cleanedToday && mappedStatus === "dirty" ? "clean" : mappedStatus;
 
       const nextGuestCount = Number(row.People ?? 0);
 
