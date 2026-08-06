@@ -441,7 +441,7 @@ export async function runPmsRefresh(
       })[0];
       matchedRoomIds.add(room.id);
 
-      const classification = classifyPmsHousekeepingRow(row);
+      const classification = classifyPmsHousekeepingRow(row, today);
       const departureParsed = classification.departureTime;
       const isScheduledDeparture = classification.isScheduledDeparture;
       const isDepartureTomorrow = classification.isDepartureTomorrow;
@@ -517,12 +517,18 @@ export async function runPmsRefresh(
         || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
       const manualNoShowOverride = existingMetadata?.manual_no_show === true;
       const hasProtectedCheckoutAssignment = protectedCheckoutAssignmentRoomIds.has(room.id);
+      // When PMS positively reports a stay-through guest (future departure
+      // date, no checkout today) nothing may keep the checkout flag alive —
+      // not even an in-progress checkout cleaning that was generated from
+      // yesterday's stale flag. Only an explicit manager checkout mark wins.
+      const pmsSaysStaying = classification.isStayThrough;
       const preserveExistingCheckout = !manualDailyOverride && currentCheckoutFlag && !shouldBeCheckoutRoom && (
-        !reservationDataAuthoritative || manualOverride || hasProtectedCheckoutAssignment
+        manualOverride || (!pmsSaysStaying && (!reservationDataAuthoritative || hasProtectedCheckoutAssignment))
       );
       const effectiveCheckoutFlag = manualDailyOverride
         ? false
         : preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+
 
       if (reservationDataAuthoritative && effectiveCheckoutFlag !== currentCheckoutFlag) {
         const label = isCheckedOut
