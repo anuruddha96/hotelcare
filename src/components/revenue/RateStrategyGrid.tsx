@@ -95,6 +95,15 @@ interface DraftEdit {
   value: string;
 }
 
+interface PendingDraft {
+  id: string;
+  stay_date: string;
+  room_type_name: string;
+  occupancy: number;
+  old_price: number | null;
+  new_price: number;
+}
+
 /**
  * Previo-style pricelist: room types down a FROZEN left column with one
  * sub-row per guest count, dates in a horizontally scrolling pane. Mobile
