@@ -33,6 +33,8 @@ const readHotelSelectedForToday = (userId?: string) => {
 const Index = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const [searchParams] = useSearchParams();
+  const hasExplicitTab = !!searchParams.get('tab');
   const [hotelSelected, setHotelSelected] = useState(() => readHotelSelectedForToday());
 
   // Re-check with the real user id once auth resolves, and silently carry a
