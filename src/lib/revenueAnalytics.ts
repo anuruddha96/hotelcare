@@ -88,6 +88,13 @@ export interface DailySnapshot {
   new_bookings: number;
 }
 
+export interface CancelledNight {
+  stay_date: string;
+  res_id: string;
+  obk_id: string | null;
+  cancelled_at: string | null;
+}
+
 export interface RoomTypeRate {
   stay_date: string;
   obk_id: string;
@@ -107,7 +114,13 @@ export interface DayMetrics {
   revparEur: number | null;
   /** Bookings created inside the pickup window (never negative). */
   newBookings: number;
-  /** Net movement vs. the comparison snapshot — negative means cancellations. */
+  /** Room-nights cancelled inside the pickup window (never negative). */
+  cancelledBookings: number;
+  /**
+   * Net movement inside the pickup window: new bookings minus cancellations.
+   * Negative means the date lost more rooms than it gained. Null only when we
+   * have no way to tell (no creation timestamps and no baseline snapshot).
+   */
   netPickup: number | null;
 }
 
@@ -125,10 +138,12 @@ export function buildDayMetrics(params: {
   to: string;
   nights: BookingNight[];
   snapshots: DailySnapshot[];
+  cancellations?: CancelledNight[];
   roomsAvailable: number;
   windowDays: number;
 }): DayMetrics[] {
   const { from, to, nights, snapshots, roomsAvailable, windowDays } = params;
+  const cancellations = params.cancellations ?? [];
   const today = budapestToday();
   const windowStart = addDays(today, -Math.max(0, windowDays - 1));
 
@@ -142,6 +157,16 @@ export function buildDayMetrics(params: {
       const createdDay = budapestDayOf(n.created_at_pms);
       if (createdDay >= windowStart) created.set(n.stay_date, (created.get(n.stay_date) ?? 0) + 1);
     }
+  }
+
+  // Cancellations that happened inside the same window pull pickup negative.
+  const cancelled = new Map<string, number>();
+  let hasCreationData = false;
+  for (const n of nights) if (n.created_at_pms) { hasCreationData = true; break; }
+  for (const c of cancellations) {
+    if (!c.cancelled_at) continue;
+    if (budapestDayOf(c.cancelled_at) < windowStart) continue;
+    cancelled.set(c.stay_date, (cancelled.get(c.stay_date) ?? 0) + 1);
   }
 
   // Latest snapshot at or before the comparison date, per stay_date.
@@ -167,7 +192,10 @@ export function buildDayMetrics(params: {
       adrEur: rs ? Math.round((rev / rs) * 100) / 100 : null,
       revparEur: avail ? Math.round((rev / avail) * 100) / 100 : null,
       newBookings: created.get(d) ?? 0,
-      netPickup: base === undefined ? null : rs - base,
+      cancelledBookings: cancelled.get(d) ?? 0,
+      netPickup: hasCreationData
+        ? (created.get(d) ?? 0) - (cancelled.get(d) ?? 0)
+        : base === undefined ? null : rs - base,
     };
   });
 }
