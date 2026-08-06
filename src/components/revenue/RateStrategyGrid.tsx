@@ -80,6 +80,8 @@ function monthBands(dates: string[]) {
     const last = out[out.length - 1];
     if (last && last.key === key) last.span += 1;
     else out.push({ key, label: formatMonth(d), span: 1 });
+  }
+  return out;
 }
 
 /** Colour coding for the internal demand grade. */
@@ -109,8 +111,6 @@ function leftTone(left: number, units: number): string {
   const pct = left / units;
   if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
   return "text-muted-foreground";
-}
-  return out;
 }
 
 /** Small info bubble that works on hover and on touch. */
