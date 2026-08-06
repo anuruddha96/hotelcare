@@ -47,11 +47,13 @@ const RANGE_OPTIONS = [
 
 const PICKUP_WINDOWS = [
   { value: 1, label: "Today" },
-  { value: 2, label: "Last 2 days" },
+  { value: 2, label: "Yesterday + today" },
   { value: 3, label: "Last 3 days" },
   { value: 7, label: "Last 7 days" },
   { value: 14, label: "Last 14 days" },
   { value: 30, label: "Last 30 days" },
+  { value: 60, label: "Last 60 days" },
+  { value: 90, label: "Last 90 days" },
 ];
 
 /** Row geometry — the two panes must agree pixel for pixel. */

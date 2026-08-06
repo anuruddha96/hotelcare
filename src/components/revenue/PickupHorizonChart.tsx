@@ -22,7 +22,7 @@ type PeriodKey = "today" | "yesterday" | "week" | "month" | "custom";
 
 const PERIODS: Array<{ key: PeriodKey; label: string }> = [
   { key: "today", label: "Today" },
-  { key: "yesterday", label: "Yesterday" },
+  { key: "yesterday", label: "Yesterday + today" },
   { key: "week", label: "This week (Mon–Sun)" },
   { key: "month", label: "This month" },
   { key: "custom", label: "Custom…" },
