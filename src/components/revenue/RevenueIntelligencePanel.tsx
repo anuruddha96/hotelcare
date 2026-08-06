@@ -496,6 +496,13 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
           )}
         </CardContent>
       </Card>
+
+      {/* Phase 3 — external demand signals feeding the analysis */}
+      <MarketSignalsPanel hotelId={hotelId} />
+
+      {/* Phase 4 — measured outcomes of applied recommendations */}
+      <RecommendationOutcomesPanel hotelId={hotelId} />
+      </div>
     </TooltipProvider>
   );
 }
