@@ -161,15 +161,18 @@ function buildForecasts(
     const fcOcc = roomsAvailable > 0 ? (fcSold / roomsAvailable) * 100 : 0;
 
     // Demand score (0-100), transparent components.
+    const dayEvents = eventsByDate.get(date) ?? [];
+    const evBoost = eventBoost(dayEvents);
     const pickupComp = Math.min(100, dailyPickup * 25);
     const pressureComp = Math.min(100, occ + (remaining <= 3 ? 20 : 0));
     const paceComp = paceVar === null ? 50 : Math.max(0, Math.min(100, 50 + paceVar));
     const leadComp = Math.max(0, Math.min(100, 100 - Math.abs(lead - 21) * 2));
-    const score = Math.round(
+    const score = Math.max(0, Math.min(100, Math.round(
       pickupComp * DEMAND_WEIGHTS.pickup + pressureComp * DEMAND_WEIGHTS.pressure +
-      paceComp * DEMAND_WEIGHTS.pace + leadComp * DEMAND_WEIGHTS.leadtime,
-    );
+      paceComp * DEMAND_WEIGHTS.pace + leadComp * DEMAND_WEIGHTS.leadtime + evBoost,
+    )));
     const cls = score >= 80 ? "very_high" : score >= 62 ? "high" : score >= 38 ? "normal" : score >= 20 ? "low" : "very_low";
+
 
     // Confidence: more history/pickup + closer horizon = higher.
     const confidence = Math.max(20, Math.min(95, Math.round(
