@@ -71,7 +71,10 @@ const Index = () => {
   }
 
   // Top management land on Revenue Management → Rate Grid, freshly synced.
-  if (profile && isExecutiveRole(profile.role)) {
+  // Only on a bare landing though: once they explicitly ask for a dashboard
+  // tab (?tab=housekeeping …) we must NOT bounce them back to Revenue,
+  // otherwise the legacy tabs are unreachable for executives.
+  if (profile && isExecutiveRole(profile.role) && !hasExplicitTab) {
     return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
   }
 
