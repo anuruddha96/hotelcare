@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertTriangle, BrainCircuit, CheckCircle2, ChevronDown, Clock, HelpCircle,
-  Info, Loader2, RefreshCw, Sparkles, TrendingUp, XCircle,
+  Info, Loader2, Sparkles, TrendingUp, XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -216,13 +216,11 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="outline" className="h-9" disabled={loading || !hotelId}
-                onClick={() => run("standard", true)}>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                <span className="ml-2">Refresh</span>
-              </Button>
               <Button size="sm" className="h-9" disabled={loading || !hotelId} onClick={() => run("deep", true)}>
-                <Sparkles className="h-4 w-4 mr-2" /> Deep analysis
+                {loading
+                  ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  : <Sparkles className="h-4 w-4 mr-2" />}
+                Analyse with AI
               </Button>
             </div>
           </div>

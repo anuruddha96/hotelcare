@@ -118,6 +118,7 @@ const DEMAND_WEIGHTS = { pickup: 0.30, pressure: 0.30, pace: 0.25, leadtime: 0.1
 function buildForecasts(
   nights: NightRow[], today: string, roomsAvailable: number,
   eventsByDate: Map<string, DayForecast["events"]> = new Map(),
+  overridesByDate: Map<string, { score: number; note: string | null }> = new Map(),
 ): DayForecast[] {
 
   const byDate = new Map<string, NightRow[]>();
@@ -167,10 +168,13 @@ function buildForecasts(
     const pressureComp = Math.min(100, occ + (remaining <= 3 ? 20 : 0));
     const paceComp = paceVar === null ? 50 : Math.max(0, Math.min(100, 50 + paceVar));
     const leadComp = Math.max(0, Math.min(100, 100 - Math.abs(lead - 21) * 2));
-    const score = Math.max(0, Math.min(100, Math.round(
+    const computed = Math.max(0, Math.min(100, Math.round(
       pickupComp * DEMAND_WEIGHTS.pickup + pressureComp * DEMAND_WEIGHTS.pressure +
       paceComp * DEMAND_WEIGHTS.pace + leadComp * DEMAND_WEIGHTS.leadtime + evBoost,
     )));
+    // A manager's manual grade always wins over the computed index (old-school demand book).
+    const manual = overridesByDate.get(date) ?? null;
+    const score = manual ? Math.max(0, Math.min(100, manual.score)) : computed;
     const cls = score >= 80 ? "very_high" : score >= 62 ? "high" : score >= 38 ? "normal" : score >= 20 ? "low" : "very_low";
 
 
@@ -207,6 +211,9 @@ function buildForecasts(
       : fcOcc >= 60 ? "low" : "very_low";
 
     const drivers: string[] = [];
+    if (manual) {
+      drivers.push(`Manager demand grade ${manual.score}/100 (computed index was ${computed})${manual.note ? `: ${manual.note}` : ""}`);
+    }
     if (p1 > 0) drivers.push(`${p1} room-night(s) picked up in the last 24h`);
     if (p7 > 0) drivers.push(`${p7} room-night(s) picked up in the last 7 days`);
     if (remaining <= 3 && sold > 0) drivers.push(`only ${remaining} room(s) remaining`);
@@ -443,12 +450,20 @@ Deno.serve(async (req) => {
     if (!hotelId) throw new Error("hotel_id required");
 
     // Property isolation: the hotel must belong to the caller's organization.
-    const { data: hotelCfg } = await admin
+    // hotel_configurations stores organization_id — the slug lives on organizations.
+    const { data: hotelCfg, error: hotelErr } = await admin
       .from("hotel_configurations")
-      .select("hotel_id, hotel_name, organization_slug")
+      .select("hotel_id, hotel_name, organization_id")
       .eq("hotel_id", hotelId).maybeSingle();
-    if (!hotelCfg) throw new Error("Unknown hotel");
-    if (profile.role !== "admin" && orgSlug && hotelCfg.organization_slug && hotelCfg.organization_slug !== orgSlug) {
+    if (hotelErr) throw new Error(`Could not load the property: ${hotelErr.message}`);
+    if (!hotelCfg) throw new Error(`Unknown hotel: ${hotelId}`);
+    let hotelSlug: string | null = null;
+    if (hotelCfg.organization_id) {
+      const { data: org } = await admin.from("organizations")
+        .select("slug").eq("id", hotelCfg.organization_id).maybeSingle();
+      hotelSlug = org?.slug ?? null;
+    }
+    if (profile.role !== "admin" && orgSlug && hotelSlug && hotelSlug !== orgSlug) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -513,7 +528,16 @@ Deno.serve(async (req) => {
 
     if (!roomsAvailable) throw new Error("No sellable room inventory configured for this hotel");
 
-    const forecasts = buildForecasts(nights, today, roomsAvailable, eventsByDate);
+    // Manual demand grades set by the revenue manager (they win over the computed index).
+    const { data: overrideRows } = await admin.from("demand_overrides")
+      .select("stay_date, score, note")
+      .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd);
+    const overridesByDate = new Map<string, { score: number; note: string | null }>();
+    for (const o of (overrideRows ?? []) as { stay_date: string; score: number; note: string | null }[]) {
+      overridesByDate.set(o.stay_date, { score: Number(o.score), note: o.note ?? null });
+    }
+
+    const forecasts = buildForecasts(nights, today, roomsAvailable, eventsByDate, overridesByDate);
 
     /* ----------------------------- Phase 4: learn from measured outcomes */
     const { data: pastRecs } = await admin.from("rm_recommendations")
@@ -726,7 +750,7 @@ Deno.serve(async (req) => {
     const cost = (inTok / 1e6) * inCost + (outTok / 1e6) * outCost;
 
     const { data: run, error: runErr } = await admin.from("rm_analysis_runs").insert({
-      hotel_id: hotelId, organization_slug: hotelCfg.organization_slug ?? orgSlug, mode, model,
+      hotel_id: hotelId, organization_slug: hotelSlug ?? orgSlug, mode, model,
       data_fingerprint: fingerprint, period_start: today, period_end: horizonEnd,
       metrics, output: parsed, status: "ok",
       prompt_tokens: inTok, completion_tokens: outTok, total_tokens: inTok + outTok,
@@ -737,7 +761,7 @@ Deno.serve(async (req) => {
     const recs = (parsed.priority_recommendations ?? []) as Record<string, unknown>[];
     if (recs.length) {
       await admin.from("rm_recommendations").insert(recs.map((r, i) => ({
-        run_id: run.id, hotel_id: hotelId, organization_slug: hotelCfg.organization_slug ?? orgSlug,
+        run_id: run.id, hotel_id: hotelId, organization_slug: hotelSlug ?? orgSlug,
         priority: Number(r.priority ?? i + 1),
         category: String(r.category ?? "monitoring"),
         arrival_date: (r.arrival_date as string) || null,

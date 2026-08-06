@@ -783,6 +783,42 @@ export type Database = {
         }
         Relationships: []
       }
+      demand_overrides: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          id: string
+          note: string | null
+          organization_slug: string | null
+          score: number
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          id?: string
+          note?: string | null
+          organization_slug?: string | null
+          score: number
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          id?: string
+          note?: string | null
+          organization_slug?: string | null
+          score?: number
+          stay_date?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       department_access_config: {
         Row: {
           access_scope: string
