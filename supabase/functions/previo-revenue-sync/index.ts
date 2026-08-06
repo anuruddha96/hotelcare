@@ -541,8 +541,8 @@ serve(async (req) => {
     for (let i = 0; i < cancelPayload.length; i += 500) {
       const { error } = await service
         .from("revenue_cancelled_nights")
-        .upsert(cancelPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date" });
-      if (error) errors.push(`cancelled nights upsert: ${error.message}`);
+        .insert(cancelPayload.slice(i, i + 500));
+      if (error) errors.push(`cancelled nights insert: ${error.message}`);
     }
   }
 
