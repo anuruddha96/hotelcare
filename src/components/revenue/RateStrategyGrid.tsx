@@ -258,7 +258,7 @@ export default function RateStrategyGrid({
         created_by: auth.user?.id ?? null,
       }, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" });
       if (error) throw error;
-      setDrafts((m) => new Map(m).set(`${edit.stay_date}|${edit.room_type_name}|${edit.occupancy}`, price));
+      await refreshDrafts();
       toast.success("Saved as draft — not sent to Previo yet");
       setEdit(null);
     } catch (e) {
