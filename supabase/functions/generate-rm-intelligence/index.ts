@@ -211,6 +211,9 @@ function buildForecasts(
       : fcOcc >= 60 ? "low" : "very_low";
 
     const drivers: string[] = [];
+    if (manual) {
+      drivers.push(`Manager demand grade ${manual.score}/100 (computed index was ${computed})${manual.note ? `: ${manual.note}` : ""}`);
+    }
     if (p1 > 0) drivers.push(`${p1} room-night(s) picked up in the last 24h`);
     if (p7 > 0) drivers.push(`${p7} room-night(s) picked up in the last 7 days`);
     if (remaining <= 3 && sold > 0) drivers.push(`only ${remaining} room(s) remaining`);
