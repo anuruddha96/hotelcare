@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { eur } from "@/lib/revenueAnalytics";
 import DemandRateOutlookChart, { type OutlookDay } from "./DemandRateOutlookChart";
+import MarketSignalsPanel from "./MarketSignalsPanel";
+import RecommendationOutcomesPanel from "./RecommendationOutcomesPanel";
 
 
 /* ---------------------------------------------------------------- types */
