@@ -95,6 +95,36 @@ export default function RevenueHotelDetail() {
   const [tab, setTab] = useState("grid");
   const [pickupWindow, setPickupWindow] = useState(1);
   const live = useRevenueHotelData(hotelId ?? null, 190, pickupWindow);
+
+  // Internal demand grade per date (booking pace, pickup, pressure, lead time).
+  const demandByDate = useMemo(() => {
+    const board = buildDemandBoard({
+      nights: live.nights.map((n) => ({ stay_date: n.stay_date, created_at_pms: n.created_at_pms })),
+      today: live.today,
+      days: 190,
+      roomsAvailable: live.roomsAvailable,
+    });
+    return new Map(board.map((d) => [d.date, { score: d.score, band: d.band, drivers: d.drivers }]));
+  }, [live.nights, live.today, live.roomsAvailable]);
+
+  // Rooms still sellable per room type and date.
+  const leftByTypeDate = useMemo(() => {
+    const soldBy = new Map<string, number>();
+    for (const n of live.nights) {
+      if (!n.room_type_name) continue;
+      const k = `${n.room_type_name}|${n.stay_date}`;
+      soldBy.set(k, (soldBy.get(k) ?? 0) + 1);
+    }
+    const out = new Map<string, number>();
+    for (const rt of live.roomTypes) {
+      if (rt.is_sellable === false) continue;
+      for (const m of live.metrics) {
+        const k = `${rt.name}|${m.stay_date}`;
+        out.set(k, Math.max(0, (rt.num_rooms || 0) - (soldBy.get(k) ?? 0)));
+      }
+    }
+    return out;
+  }, [live.nights, live.roomTypes, live.metrics]);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
