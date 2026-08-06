@@ -777,16 +777,18 @@ serve(async (req) => {
       const departureTomorrowConfirmed =
         isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
 
-      // No-show is a RESERVATION state, not "the room has no reservation".
-      // Previo marks such reservations with statusId 8. The reservation may
-      // have arrived today OR earlier (a multi-night booking the guest never
-      // showed up for), so check any reservation that spans today rather than
-      // only today's arrivals. A room with no reservation is simply vacant.
-      const noteLower = (res?.note ?? "").toLowerCase();
+      // No-show is a RESERVATION state, not "the room has no reservation" and
+      // not a phrase found somewhere in the note text. Previo marks a no-show
+      // with statusId 8. Free-text matching used to flag in-house guests whose
+      // OTA blob happened to contain the words "no show".
       const spansToday = !!res && res.arrivalDate <= today && res.departureDate >= today;
-      const isNoShow = !!res
-        && spansToday
-        && (isNoShowStatus(res.statusId) || noteLower.includes("no show") || noteLower.includes("no-show"));
+      const isNoShow = !!res && spansToday && isNoShowStatus(res.statusId);
+
+      // Arrival that has not checked in yet (Previo status still "reserved").
+      // This is NOT a no-show — it only becomes one when Previo says so.
+      const isNotArrived = !!res && isArrival && !isNoShow && !isCheckedOut
+        && !isInHouseStatus(res.statusId);
+
 
       return {
         Room: r.name,
