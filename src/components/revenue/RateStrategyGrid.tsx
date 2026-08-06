@@ -163,24 +163,55 @@ export default function RateStrategyGrid({
   }, [pricedTypes, priceMap, language]);
 
   /** Load pending drafts so edited cells show their new price immediately. */
-  useEffect(() => {
+  const refreshDrafts = useCallback(async () => {
     if (!hotelId) return;
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase
-        .from("revenue_rate_drafts")
-        .select("stay_date, room_type_name, occupancy, new_price")
-        .eq("hotel_id", hotelId)
-        .eq("status", "draft");
-      if (cancelled) return;
-      const m = new Map<string, number>();
-      for (const d of (data ?? []) as any[]) {
-        m.set(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, Number(d.new_price));
-      }
-      setDrafts(m);
-    })();
-    return () => { cancelled = true; };
+    const { data } = await supabase
+      .from("revenue_rate_drafts")
+      .select("id, stay_date, room_type_name, occupancy, old_price, new_price")
+      .eq("hotel_id", hotelId)
+      .eq("status", "draft")
+      .order("stay_date");
+    const rows = (data ?? []) as PendingDraft[];
+    setPending(rows);
+    const m = new Map<string, number>();
+    for (const d of rows) {
+      m.set(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, Number(d.new_price));
+    }
+    setDrafts(m);
   }, [hotelId]);
+
+  useEffect(() => { void refreshDrafts(); }, [refreshDrafts]);
+
+  /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
+  async function pushDrafts() {
+    if (!hotelId || pending.length === 0) return;
+    setPushing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("revenue-push-drafts", {
+        body: { hotelId, draftIds: pending.map((d) => d.id) },
+      });
+      if (error) throw error;
+      const res = data as { pushed?: number; failed?: number; error?: string };
+      if (res?.error) throw new Error(res.error);
+      if (res?.failed) {
+        toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — check Sync history`);
+      } else {
+        toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
+      }
+      setPushOpen(false);
+      await refreshDrafts();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not push the prices to Previo");
+    } finally {
+      setPushing(false);
+    }
+  }
+
+  async function discardDraft(id: string) {
+    const { error } = await supabase.from("revenue_rate_drafts").delete().eq("id", id);
+    if (error) { toast.error("Could not discard the draft"); return; }
+    await refreshDrafts();
+  }
 
   /** Sticky month label + auto-extend the horizon when the user scrolls right. */
   function onScroll() {
