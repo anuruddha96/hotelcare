@@ -498,11 +498,14 @@ serve(async (req) => {
       stay_to: n.stay_to,
       captured_at: new Date().toISOString(),
     }));
+    // The horizon was just deleted and the payload is already de-duplicated
+    // per room-night, so a plain insert is both correct and immune to
+    // ON CONFLICT inference problems.
     for (let i = 0; i < nightPayload.length; i += 500) {
       const { error } = await service
         .from("revenue_booking_nights")
-        .upsert(nightPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date" });
-      if (error) errors.push(`booking nights upsert: ${error.message}`);
+        .insert(nightPayload.slice(i, i + 500));
+      if (error) errors.push(`booking nights insert: ${error.message}`);
     }
   }
 
