@@ -30,8 +30,8 @@ import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
-import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
-import TodaysBookingsPanel from "@/components/revenue/TodaysBookingsPanel";
+import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
+
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
@@ -608,11 +608,9 @@ export default function RevenueHotelDetail() {
             onPickupWindowChange={setPickupWindow}
           />
 
-          <div className="grid gap-3 lg:grid-cols-2">
-            <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
-            <PickupRangeSummary nights={live.nights} />
-          </div>
-          <TodaysBookingsPanel hotelId={hotelId ?? null} today={live.today} />
+          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
+          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
+
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>
 
