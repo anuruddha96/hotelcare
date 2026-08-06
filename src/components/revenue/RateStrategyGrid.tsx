@@ -20,6 +20,7 @@ import {
   DEFAULT_THRESHOLDS, type RevenueThresholds,
 } from "@/lib/revenueThresholds";
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
+import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 
 interface Props {
   loading: boolean;
