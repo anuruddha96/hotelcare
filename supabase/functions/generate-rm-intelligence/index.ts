@@ -92,13 +92,32 @@ interface DayForecast {
   confidence: number;
   recommended_adr_min: number | null;
   recommended_adr_max: number | null;
-  drivers: string[];
+  /** External signals (hotel or city events) overlapping this stay date. */
+  events: { title: string; category: string | null; impact: string | null; source: string }[];
 }
 
+export interface EventSignal {
+  title: string; category: string | null; impact: string | null; source: string;
+  start: string; end: string;
+}
+
+/** Impact strings map to a bounded demand-score boost (never a rate decision on their own). */
+function eventBoost(evts: DayForecast["events"]): number {
+  let b = 0;
+  for (const e of evts) {
+    const i = (e.impact ?? "").toLowerCase();
+    b += i.includes("very") || i.includes("high") ? 10 : i.includes("medium") ? 6 : i.includes("negative") || i.includes("low") ? -4 : 3;
+  }
+  return Math.max(-10, Math.min(15, b));
+}
 
 const DEMAND_WEIGHTS = { pickup: 0.30, pressure: 0.30, pace: 0.25, leadtime: 0.15 };
 
-function buildForecasts(nights: NightRow[], today: string, roomsAvailable: number): DayForecast[] {
+function buildForecasts(
+  nights: NightRow[], today: string, roomsAvailable: number,
+  eventsByDate: Map<string, DayForecast["events"]> = new Map(),
+): DayForecast[] {
+
   const byDate = new Map<string, NightRow[]>();
   for (const n of nights) {
     if (!byDate.has(n.stay_date)) byDate.set(n.stay_date, []);
