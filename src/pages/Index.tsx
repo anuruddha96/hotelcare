@@ -34,7 +34,10 @@ const Index = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const [searchParams] = useSearchParams();
-  const hasExplicitTab = !!searchParams.get('tab');
+  // Dashboard strips ?tab= once it applies it, so latch the intent on mount —
+  // otherwise executives would be bounced back to Revenue a tick later.
+  const hasExplicitTab = useRef(!!new URLSearchParams(window.location.search).get('tab'));
+  if (searchParams.get('tab')) hasExplicitTab.current = true;
   const [hotelSelected, setHotelSelected] = useState(() => readHotelSelectedForToday());
 
   // Re-check with the real user id once auth resolves, and silently carry a
