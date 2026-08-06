@@ -28,6 +28,7 @@ import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
+import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
 import PickupRangeSummary from "@/components/revenue/PickupRangeSummary";
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
