@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertTriangle, BrainCircuit, CheckCircle2, ChevronDown, Clock, HelpCircle,
-  Info, Loader2, RefreshCw, Sparkles, TrendingUp, XCircle,
+  Info, Loader2, Sparkles, TrendingUp, XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
