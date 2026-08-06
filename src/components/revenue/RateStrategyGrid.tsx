@@ -621,6 +621,52 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
+                {/* Left to sell — house level */}
+                <div className="flex border-b" style={{ height: ROW_H }}>
+                  {dates.map((d) => {
+                    const m = metricByDate.get(d);
+                    const units = m?.roomsAvailable ?? 0;
+                    const left = m?.roomsLeft ?? 0;
+                    return (
+                      <div
+                        key={d}
+                        title={`${left} of ${units} rooms left to sell on ${d}`}
+                        className={`flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                        style={{ width: CELL_W }}
+                      >
+                        <span className="leading-none">{units ? (left === 0 ? "Sold out" : left) : "—"}</span>
+                        {units > 0 && (
+                          <span className="mt-0.5 h-1 w-8 rounded-full bg-muted overflow-hidden">
+                            <span
+                              className="block h-full bg-primary/60"
+                              style={{ width: `${Math.round((left / units) * 100)}%` }}
+                            />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Demand grade */}
+                <div className="flex border-b" style={{ height: ROW_H }}>
+                  {dates.map((d) => {
+                    const dem = demandByDate?.get(d);
+                    return (
+                      <div
+                        key={d}
+                        title={dem
+                          ? `${d} · demand ${BAND_LABEL[dem.band]} (${dem.score}/100)\n${dem.drivers.slice(0, 4).join("\n")}`
+                          : `${d} · demand not available yet`}
+                        className={`flex items-center justify-center shrink-0 text-[10px] font-semibold ${dem ? demandTone(dem.band) : "text-muted-foreground"} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                        style={{ width: CELL_W }}
+                      >
+                        {dem ? DEMAND_SHORT[dem.band] : "·"}
+                      </div>
+                    );
+                  })}
+                </div>
+
                 {/* Room-type / metric rows */}
                 {rows.map((row) => (
                   <div
@@ -630,7 +676,20 @@ export default function RateStrategyGrid({
                   >
                     {dates.map((d) => {
                       if (row.kind === "group") {
-                        return <div key={d} className="shrink-0" style={{ width: CELL_W }} />;
+                        const units = row.units;
+                        const left = leftByTypeDate?.get(`${row.typeName}|${d}`);
+                        return (
+                          <div
+                            key={d}
+                            title={left === undefined
+                              ? `${row.typeName} · availability not synced for ${d}`
+                              : `${row.typeName} · ${left} of ${units} left on ${d}`}
+                            className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                            style={{ width: CELL_W }}
+                          >
+                            {left === undefined ? "" : left === 0 ? "Sold out" : `${left} left`}
+                          </div>
+                        );
                       }
                       if (row.kind !== "rate") {
                         return (
