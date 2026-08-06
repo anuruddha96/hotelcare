@@ -120,6 +120,9 @@ export default function RateStrategyGrid({
   const [edit, setEdit] = useState<DraftEdit | null>(null);
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
+  const [pending, setPending] = useState<PendingDraft[]>([]);
+  const [pushOpen, setPushOpen] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
