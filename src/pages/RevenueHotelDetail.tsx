@@ -125,6 +125,11 @@ export default function RevenueHotelDetail() {
       // so the grid reads correctly in every app language.
       await supabase.functions.invoke("translate-room-types", { body: { hotelId } });
       setSyncPct(88);
+      setSyncStep("Checking prices against the safety net…");
+      // Fresh prices are screened for human error (2 EUR, 9000 EUR …) and
+      // admins + top management are emailed about anything suspicious.
+      await supabase.functions.invoke("revenue-rate-alerts", { body: { hotelId } });
+      setSyncPct(94);
       setSyncStep("Recalculating pickup, ADR and RevPAR…");
       await Promise.all([load(), live.reload()]);
       setSyncPct(100);

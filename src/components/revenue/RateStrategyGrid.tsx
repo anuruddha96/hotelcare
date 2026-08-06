@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, CalendarRange, Info, AlertTriangle } from "lucide-react";
+import { Loader2, CalendarRange, Info, AlertTriangle, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -95,6 +95,15 @@ interface DraftEdit {
   value: string;
 }
 
+interface PendingDraft {
+  id: string;
+  stay_date: string;
+  room_type_name: string;
+  occupancy: number;
+  old_price: number | null;
+  new_price: number;
+}
+
 /**
  * Previo-style pricelist: room types down a FROZEN left column with one
  * sub-row per guest count, dates in a horizontally scrolling pane. Mobile
@@ -111,6 +120,9 @@ export default function RateStrategyGrid({
   const [edit, setEdit] = useState<DraftEdit | null>(null);
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
+  const [pending, setPending] = useState<PendingDraft[]>([]);
+  const [pushOpen, setPushOpen] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
@@ -163,24 +175,55 @@ export default function RateStrategyGrid({
   }, [pricedTypes, priceMap, language]);
 
   /** Load pending drafts so edited cells show their new price immediately. */
-  useEffect(() => {
+  const refreshDrafts = useCallback(async () => {
     if (!hotelId) return;
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase
-        .from("revenue_rate_drafts")
-        .select("stay_date, room_type_name, occupancy, new_price")
-        .eq("hotel_id", hotelId)
-        .eq("status", "draft");
-      if (cancelled) return;
-      const m = new Map<string, number>();
-      for (const d of (data ?? []) as any[]) {
-        m.set(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, Number(d.new_price));
-      }
-      setDrafts(m);
-    })();
-    return () => { cancelled = true; };
+    const { data } = await supabase
+      .from("revenue_rate_drafts")
+      .select("id, stay_date, room_type_name, occupancy, old_price, new_price")
+      .eq("hotel_id", hotelId)
+      .eq("status", "draft")
+      .order("stay_date");
+    const rows = (data ?? []) as PendingDraft[];
+    setPending(rows);
+    const m = new Map<string, number>();
+    for (const d of rows) {
+      m.set(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, Number(d.new_price));
+    }
+    setDrafts(m);
   }, [hotelId]);
+
+  useEffect(() => { void refreshDrafts(); }, [refreshDrafts]);
+
+  /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
+  async function pushDrafts() {
+    if (!hotelId || pending.length === 0) return;
+    setPushing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("revenue-push-drafts", {
+        body: { hotelId, draftIds: pending.map((d) => d.id) },
+      });
+      if (error) throw error;
+      const res = data as { pushed?: number; failed?: number; error?: string };
+      if (res?.error) throw new Error(res.error);
+      if (res?.failed) {
+        toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — check Sync history`);
+      } else {
+        toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
+      }
+      setPushOpen(false);
+      await refreshDrafts();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not push the prices to Previo");
+    } finally {
+      setPushing(false);
+    }
+  }
+
+  async function discardDraft(id: string) {
+    const { error } = await supabase.from("revenue_rate_drafts").delete().eq("id", id);
+    if (error) { toast.error("Could not discard the draft"); return; }
+    await refreshDrafts();
+  }
 
   /** Sticky month label + auto-extend the horizon when the user scrolls right. */
   function onScroll() {
@@ -215,7 +258,7 @@ export default function RateStrategyGrid({
         created_by: auth.user?.id ?? null,
       }, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" });
       if (error) throw error;
-      setDrafts((m) => new Map(m).set(`${edit.stay_date}|${edit.room_type_name}|${edit.occupancy}`, price));
+      await refreshDrafts();
       toast.success("Saved as draft — not sent to Previo yet");
       setEdit(null);
     } catch (e) {
@@ -287,6 +330,16 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
         </div>
+        {canEditRates && pending.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+            <span className="text-xs">
+              <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} saved as draft — not in Previo yet.
+            </span>
+            <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
+              <Send className="h-3.5 w-3.5 mr-1" />Review &amp; push
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
@@ -491,6 +544,57 @@ export default function RateStrategyGrid({
             <Button variant="outline" onClick={() => setEdit(null)}>Cancel</Button>
             <Button onClick={() => void saveDraft()} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}Save draft
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pushOpen} onOpenChange={(o) => !o && setPushOpen(false)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">Send price changes to Previo</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] overflow-y-auto -mx-2 px-2">
+            <table className="w-full text-xs">
+              <thead className="text-muted-foreground">
+                <tr className="border-b">
+                  <th className="text-left py-1.5">Date</th>
+                  <th className="text-left py-1.5">Room type</th>
+                  <th className="text-right py-1.5">Now</th>
+                  <th className="text-right py-1.5">New</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {pending.map((d) => (
+                  <tr key={d.id} className="border-b last:border-0">
+                    <td className="py-1.5 whitespace-nowrap">{d.stay_date}</td>
+                    <td className="py-1.5">{d.room_type_name} · {d.occupancy}g</td>
+                    <td className="py-1.5 text-right tabular-nums text-muted-foreground">{eur(d.old_price)}</td>
+                    <td className="py-1.5 text-right tabular-nums font-semibold">{eur(d.new_price)}</td>
+                    <td className="py-1.5 text-right">
+                      <Button
+                        size="icon" variant="ghost" className="h-7 w-7"
+                        aria-label="Discard this change"
+                        onClick={() => void discardDraft(d.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These prices are written to Previo immediately and become live for guests.
+            Anything that fails stays here with its error so you can retry.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
+            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
+              {pushing && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Push {pending.length} change{pending.length === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
         </DialogContent>
