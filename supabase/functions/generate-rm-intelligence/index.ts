@@ -393,6 +393,8 @@ Clearly distinguish: observed fact, calculated metric, forecast, assumption, rec
 Do not recommend a price increase solely because pickup exists. Consider current occupancy, remaining inventory, lead time, historical pace, demand confidence, price position, room-type availability, cancellation risk, length-of-stay effect, channel commission, event signals and market comparisons.
 Do not recommend advertising simply because ADR is below target. Recommend additional marketing spend only when there is evidence of profitable incremental demand, adequate net ADR, available inventory, suitable lead time and a measurable campaign opportunity.
 Avoid generic advice. Every recommendation must cite the exact metrics supporting it. Where evidence is weak, say so. Where no action is warranted, recommend monitoring rather than making a change.
+Use market_signals (manually maintained property and city events) as supporting context only: cite an event by name when it strengthens a date-level case, never treat it as a verified demand forecast, and never invent events that are not listed.
+Use outcome_feedback (adoption rate and measured revenue delta of your previous recommendations for this property) to calibrate: repeat categories that measurably worked, stop repeating categories that were consistently rejected or measured negative, and say when you are adjusting because of past outcomes.
 Return only the required structured JSON.`;
 
 // Rough USD per 1M tokens for cost estimation only (input/output).
