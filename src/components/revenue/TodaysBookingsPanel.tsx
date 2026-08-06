@@ -1,0 +1,241 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2, ListChecks, RefreshCw } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { addDays, daysBetween, eur } from "@/lib/revenueAnalytics";
+
+interface Props {
+  hotelId: string | null;
+  /** Budapest "today" from the revenue data hook. */
+  today: string;
+}
+
+interface NightRow {
+  res_id: string;
+  stay_date: string;
+  room_type_name: string | null;
+  guests: number | null;
+  nightly_price_eur: number | null;
+  total_price_eur: number | null;
+  stay_from: string | null;
+  stay_to: string | null;
+  source_name: string | null;
+  created_at_pms: string | null;
+}
+
+interface Booking {
+  res_id: string;
+  created: string | null;
+  from: string;
+  to: string;
+  nights: number;
+  roomType: string;
+  guests: number;
+  total: number | null;
+  source: string | null;
+}
+
+type RangeKey = "today" | "yesterday" | "last7" | "custom";
+
+const SORTS = [
+  { value: "created", label: "Newest first" },
+  { value: "arrival", label: "Arrival date" },
+  { value: "price", label: "Highest value" },
+  { value: "nights", label: "Longest stay" },
+] as const;
+
+function fmtTime(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(undefined, {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+/**
+ * Live feed of reservations created in a chosen period, so revenue users can
+ * see how today's booking flow is shaping up (value, length of stay, pax).
+ */
+export default function TodaysBookingsPanel({ hotelId, today }: Props) {
+  const [range, setRange] = useState<RangeKey>("today");
+  const [customFrom, setCustomFrom] = useState(today);
+  const [customTo, setCustomTo] = useState(today);
+  const [sort, setSort] = useState<(typeof SORTS)[number]["value"]>("created");
+  const [rows, setRows] = useState<NightRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [from, to] = useMemo<[string, string]>(() => {
+    switch (range) {
+      case "yesterday": return [addDays(today, -1), addDays(today, -1)];
+      case "last7": return [addDays(today, -6), today];
+      case "custom": return [customFrom, customTo];
+      default: return [today, today];
+    }
+  }, [range, today, customFrom, customTo]);
+
+  const load = useCallback(async () => {
+    if (!hotelId) { setLoading(false); return; }
+    setLoading(true);
+    const { data } = await supabase
+      .from("revenue_booking_nights")
+      .select("res_id, stay_date, room_type_name, guests, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms")
+      .eq("hotel_id", hotelId)
+      .gte("created_at_pms", `${from}T00:00:00`)
+      .lte("created_at_pms", `${to}T23:59:59`)
+      .order("created_at_pms", { ascending: false })
+      .limit(2000);
+    setRows((data ?? []) as NightRow[]);
+    setLoading(false);
+  }, [hotelId, from, to]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  /** One row per reservation, rebuilt from its stored room-nights. */
+  const bookings = useMemo<Booking[]>(() => {
+    const byRes = new Map<string, NightRow[]>();
+    for (const r of rows) {
+      const list = byRes.get(r.res_id);
+      if (list) list.push(r); else byRes.set(r.res_id, [r]);
+    }
+    const out: Booking[] = [];
+    for (const [res_id, list] of byRes) {
+      const first = list[0];
+      const dates = list.map((n) => n.stay_date).sort();
+      const stayFrom = first.stay_from ?? dates[0];
+      const stayTo = first.stay_to ?? addDays(dates[dates.length - 1], 1);
+      const nights = Math.max(1, daysBetween(stayFrom, stayTo));
+      const total = first.total_price_eur !== null && first.total_price_eur !== undefined
+        ? Number(first.total_price_eur)
+        : list.reduce((s, n) => s + (Number(n.nightly_price_eur) || 0), 0) || null;
+      out.push({
+        res_id,
+        created: first.created_at_pms,
+        from: stayFrom,
+        to: stayTo,
+        nights,
+        roomType: first.room_type_name ?? "—",
+        guests: first.guests ?? 1,
+        total,
+        source: first.source_name,
+      });
+    }
+    const sorted = [...out];
+    sorted.sort((a, b) => {
+      if (sort === "arrival") return a.from.localeCompare(b.from);
+      if (sort === "price") return (b.total ?? 0) - (a.total ?? 0);
+      if (sort === "nights") return b.nights - a.nights;
+      return (b.created ?? "").localeCompare(a.created ?? "");
+    });
+    return sorted;
+  }, [rows, sort]);
+
+  const totals = useMemo(() => {
+    const roomNights = bookings.reduce((s, b) => s + b.nights, 0);
+    const revenue = bookings.reduce((s, b) => s + (b.total ?? 0), 0);
+    return {
+      count: bookings.length,
+      roomNights,
+      revenue,
+      los: bookings.length ? roomNights / bookings.length : 0,
+      adr: roomNights ? revenue / roomNights : 0,
+    };
+  }, [bookings]);
+
+  const hasSource = bookings.some((b) => b.source);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3 gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+            <ListChecks className="h-4 w-4 text-primary" />
+            Bookings created
+          </CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="yesterday">Yesterday</SelectItem>
+                <SelectItem value="last7">Last 7 days</SelectItem>
+                <SelectItem value="custom">Custom range…</SelectItem>
+              </SelectContent>
+            </Select>
+            {range === "custom" && (
+              <div className="flex items-center gap-1">
+                <Input type="date" value={customFrom} className="h-8 w-[140px] text-xs"
+                  onChange={(e) => setCustomFrom(e.target.value)} />
+                <span className="text-xs text-muted-foreground">→</span>
+                <Input type="date" value={customTo} className="h-8 w-[140px] text-xs"
+                  onChange={(e) => setCustomTo(e.target.value)} />
+              </div>
+            )}
+            <Select value={sort} onValueChange={(v) => setSort(v as typeof sort)}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {SORTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="outline" className="h-8 px-2" onClick={() => void load()} aria-label="Refresh list">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 text-[11px]">
+          <Badge variant="secondary" className="font-normal">{totals.count} bookings</Badge>
+          <Badge variant="secondary" className="font-normal">{totals.roomNights} room-nights</Badge>
+          <Badge variant="secondary" className="font-normal">{eur(Math.round(totals.revenue))} value</Badge>
+          <Badge variant="secondary" className="font-normal">{totals.los.toFixed(1)} avg nights</Badge>
+          <Badge variant="secondary" className="font-normal">{eur(Math.round(totals.adr))} avg / night</Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Every reservation Previo recorded as created in this period, with its stay dates, length,
+          guests and value. Source: Previo reservations, refreshed at each revenue sync.
+        </p>
+      </CardHeader>
+      <CardContent className="p-0">
+        {loading ? (
+          <div className="p-6 flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading bookings…
+          </div>
+        ) : bookings.length === 0 ? (
+          <div className="p-6 text-sm text-muted-foreground">
+            No reservations were created in this period.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-muted-foreground bg-muted/40">
+                <tr>
+                  <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Created</th>
+                  <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Stay</th>
+                  <th className="text-right font-medium px-3 py-2">Nights</th>
+                  <th className="text-left font-medium px-3 py-2">Room type</th>
+                  <th className="text-right font-medium px-3 py-2">Pax</th>
+                  <th className="text-right font-medium px-3 py-2">Value</th>
+                  {hasSource && <th className="text-left font-medium px-3 py-2">Source</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {bookings.map((b) => (
+                  <tr key={b.res_id} className="border-t">
+                    <td className="px-3 py-2 whitespace-nowrap">{fmtTime(b.created)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{b.from} → {b.to}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{b.nights}</td>
+                    <td className="px-3 py-2">{b.roomType}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{b.guests}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium">{eur(b.total)}</td>
+                    {hasSource && <td className="px-3 py-2">{b.source ?? "—"}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
