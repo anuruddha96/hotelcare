@@ -802,12 +802,19 @@ export async function runPmsRefresh(
         const desiredRtc = effectiveCheckoutFlag
           ? (pmsConfirmedDeparted || manuallyReleasedToday)
           : true;
+        // A phantom checkout task generated from yesterday's stale flag must be
+        // corrected even when a housekeeper already started it, otherwise the
+        // in-progress clean keeps the wrong flag alive forever.
+        const statusesToCorrect = (pmsSaysStaying && !effectiveCheckoutFlag)
+          ? ["assigned", "dnd_pending_retry", "in_progress"]
+          : ["assigned", "dnd_pending_retry"];
         const { data: staleAsg } = await supabase
           .from("room_assignments")
           .select("id, assignment_type, ready_to_clean")
           .eq("room_id", room.id)
           .eq("assignment_date", today)
-          .in("status", ["assigned", "dnd_pending_retry"] as any);
+          .in("status", statusesToCorrect as any);
+
         const mismatched = (staleAsg ?? []).filter((a: any) => a.assignment_type !== desiredType);
         const wrongRtc = (staleAsg ?? []).filter((a: any) => !!a.ready_to_clean !== desiredRtc);
         const idsToPatch = Array.from(new Set([...mismatched, ...wrongRtc].map((a: any) => a.id)));
