@@ -138,6 +138,11 @@ export default function RateStrategyGrid({
   const [days, setDays] = useState(30);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
+  /** Bulk options in the price editor. */
+  const [applyDays, setApplyDays] = useState(1);
+  const [applyWeekdays, setApplyWeekdays] = useState<"all" | "weekend" | "weekday">("all");
+  const [applyAllOcc, setApplyAllOcc] = useState(false);
+  const [editMode, setEditMode] = useState<"set" | "percent">("set");
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
@@ -258,28 +263,60 @@ export default function RateStrategyGrid({
     }
   }
 
+  /**
+   * Save one or many drafts. The editor can set a fixed price or apply a
+   * percentage change across a date range, optionally for every occupancy
+   * level of the same room type. Nothing is sent to Previo here.
+   */
   async function saveDraft() {
     if (!edit || !hotelId) return;
-    const price = Number(edit.value);
-    if (!Number.isFinite(price) || price <= 0) { toast.error("Enter a valid price"); return; }
+    const input = Number(edit.value);
+    if (!Number.isFinite(input) || (editMode === "set" && input <= 0)) {
+      toast.error("Enter a valid number"); return;
+    }
     setSaving(true);
     try {
       const { data: auth } = await supabase.auth.getUser();
-      const { error } = await supabase.from("revenue_rate_drafts").upsert({
-        hotel_id: hotelId,
-        organization_slug: organizationSlug ?? null,
-        stay_date: edit.stay_date,
-        obk_id: edit.obk_id,
-        room_type_name: edit.room_type_name,
-        occupancy: edit.occupancy,
-        old_price: edit.old_price,
-        new_price: price,
-        status: "draft",
-        created_by: auth.user?.id ?? null,
-      }, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" });
+      const start = dates.indexOf(edit.stay_date);
+      const targetDates = (start >= 0 ? dates.slice(start, start + applyDays) : [edit.stay_date])
+        .filter((d) =>
+          applyWeekdays === "all" ? true :
+          applyWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
+
+      const occs = applyAllOcc && edit.obk_id
+        ? Array.from(priceMap.get(edit.obk_id)?.keys() ?? [edit.occupancy])
+        : [edit.occupancy];
+
+      const rowsToSave: any[] = [];
+      for (const d of targetDates) {
+        for (const occ of occs) {
+          const current = edit.obk_id ? priceMap.get(edit.obk_id)?.get(occ)?.get(d) ?? null : null;
+          const next = editMode === "set"
+            ? input
+            : current === null ? null : Math.round(current * (1 + input / 100));
+          if (next === null || !Number.isFinite(next) || next <= 0) continue;
+          rowsToSave.push({
+            hotel_id: hotelId,
+            organization_slug: organizationSlug ?? null,
+            stay_date: d,
+            obk_id: edit.obk_id,
+            room_type_name: edit.room_type_name,
+            occupancy: occ,
+            old_price: current,
+            new_price: next,
+            status: "draft",
+            created_by: auth.user?.id ?? null,
+          });
+        }
+      }
+      if (rowsToSave.length === 0) { toast.error("Nothing to change with these options"); return; }
+
+      const { error } = await supabase.from("revenue_rate_drafts").upsert(rowsToSave, {
+        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
+      });
       if (error) throw error;
       await refreshDrafts();
-      toast.success("Saved as draft — not sent to Previo yet");
+      toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
       setEdit(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the draft");
@@ -530,14 +567,14 @@ export default function RateStrategyGrid({
                           key={d}
                           type="button"
                           disabled={!canEditRates}
-                          onClick={() => canEditRates && setEdit({
+                          onClick={() => canEditRates && (setApplyDays(1), setApplyWeekdays("all"), setApplyAllOcc(false), setEditMode("set"), setEdit({
                             stay_date: d,
                             obk_id: row.obk,
                             room_type_name: row.roomTypeName,
                             occupancy: row.occ,
                             old_price: published ?? null,
                             value: String(shown ?? ""),
-                          })}
+                          }))}
                           title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${tone.label}`}
                           className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className} ${isWeekend(d) ? "bg-muted/40" : ""} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""}`}
                           style={{ width: CELL_W }}
