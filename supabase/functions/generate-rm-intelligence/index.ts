@@ -588,7 +588,7 @@ Deno.serve(async (req) => {
           instructions: SYSTEM_PROMPT,
           input: [{
             role: "user",
-            content: [{ type: "input_text", text: `${instruction}\n\nVERIFIED DATA (json):\n${JSON.stringify(metrics)}` }],
+            content: [{ type: "input_text", text: `${instruction}\n\nVERIFIED DATA (json):\n${JSON.stringify({ ...metrics, forecasts: forecasts.slice(0, mode === "deep" ? HORIZON_DAYS : 45) })}` }],
           }],
           text: { format: { type: "json_schema", name: "rm_intelligence", strict: true, schema: SCHEMA } },
           max_output_tokens: mode === "deep" ? 6000 : 3000,
