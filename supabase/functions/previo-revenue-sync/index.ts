@@ -461,7 +461,8 @@ serve(async (req) => {
   const nightMap = new Map<string, Night>();
   for (const xml of resCall.xml) {
     for (const n of parseReservationNights(xml, from, to)) {
-      nightMap.set(`${n.res_id}|${n.stay_date}`, n);
+      // Keyed per room item, so a two-room booking keeps both rooms.
+      nightMap.set(`${n.res_id}|${n.room_key}|${n.stay_date}`, n);
     }
   }
   const allNights = Array.from(nightMap.values());
