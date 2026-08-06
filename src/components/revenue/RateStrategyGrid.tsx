@@ -601,6 +601,18 @@ export default function RateStrategyGrid({
               <p className="text-muted-foreground">
                 {edit.room_type_name} · {edit.occupancy} guests · {edit.stay_date}
               </p>
+
+              <div className="flex rounded-md border overflow-hidden w-fit">
+                <Button
+                  size="sm" variant={editMode === "set" ? "default" : "ghost"}
+                  className="h-8 rounded-none px-3 text-xs" onClick={() => setEditMode("set")}
+                >Set price</Button>
+                <Button
+                  size="sm" variant={editMode === "percent" ? "default" : "ghost"}
+                  className="h-8 rounded-none px-3 text-xs" onClick={() => setEditMode("percent")}
+                >Change %</Button>
+              </div>
+
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Current</span>
                 <span className="font-medium tabular-nums">{eur(edit.old_price)}</span>
@@ -612,12 +624,48 @@ export default function RateStrategyGrid({
                   value={edit.value}
                   onChange={(e) => setEdit({ ...edit, value: e.target.value })}
                 />
+                <span className="text-muted-foreground">{editMode === "set" ? "EUR" : "%"}</span>
               </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">Apply to</label>
+                <Select value={String(applyDays)} onValueChange={(v) => setApplyDays(Number(v))}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">This date only</SelectItem>
+                    <SelectItem value="7">Next 7 days</SelectItem>
+                    <SelectItem value="14">Next 14 days</SelectItem>
+                    <SelectItem value="30">Next 30 days</SelectItem>
+                    <SelectItem value="90">Next 90 days</SelectItem>
+                  </SelectContent>
+                </Select>
+                {applyDays > 1 && (
+                  <Select value={applyWeekdays} onValueChange={(v) => setApplyWeekdays(v as any)}>
+                    <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Every day</SelectItem>
+                      <SelectItem value="weekend">Weekends only (Fri–Sun)</SelectItem>
+                      <SelectItem value="weekday">Weekdays only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={applyAllOcc}
+                    onChange={(e) => setApplyAllOcc(e.target.checked)}
+                  />
+                  Apply to every guest count of this room type
+                </label>
+              </div>
+
               <p className="text-xs text-muted-foreground">
                 Saved as a draft only. Nothing is sent to Previo until a push is confirmed.
               </p>
             </div>
           )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setEdit(null)}>Cancel</Button>
             <Button onClick={() => void saveDraft()} disabled={saving}>
