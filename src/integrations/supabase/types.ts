@@ -4163,8 +4163,12 @@ export type Database = {
           organization_slug: string
           res_id: string
           room_type_name: string | null
+          source_name: string | null
           status_id: number
           stay_date: string
+          stay_from: string | null
+          stay_to: string | null
+          total_price_eur: number | null
         }
         Insert: {
           captured_at?: string
@@ -4179,8 +4183,12 @@ export type Database = {
           organization_slug: string
           res_id: string
           room_type_name?: string | null
+          source_name?: string | null
           status_id?: number
           stay_date: string
+          stay_from?: string | null
+          stay_to?: string | null
+          total_price_eur?: number | null
         }
         Update: {
           captured_at?: string
@@ -4195,8 +4203,12 @@ export type Database = {
           organization_slug?: string
           res_id?: string
           room_type_name?: string | null
+          source_name?: string | null
           status_id?: number
           stay_date?: string
+          stay_from?: string | null
+          stay_to?: string | null
+          total_price_eur?: number | null
         }
         Relationships: []
       }
