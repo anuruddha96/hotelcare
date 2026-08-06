@@ -8,6 +8,8 @@ import PMSConfigurationManagement from './PMSConfigurationManagement';
 import { BreakfastCodeManagement } from './BreakfastCodeManagement';
 import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap } from 'lucide-react';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
+import AiProviderStatus from './AiProviderStatus';
+
 
 export const AdminTabs = () => {
   return (
@@ -79,8 +81,10 @@ export const AdminTabs = () => {
                 Manage system resources and storage
               </p>
             </div>
+            <AiProviderStatus />
             <PhotoCleanupManager />
           </div>
+
         </TabsContent>
       </Tabs>
     </div>
