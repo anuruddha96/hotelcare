@@ -246,6 +246,8 @@ function buildForecasts(
       recommended_adr_min: recMin,
       recommended_adr_max: recMax,
       drivers,
+      events: dayEvents,
+
     });
 
   }
