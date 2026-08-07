@@ -6,12 +6,18 @@ import { TranslationManagement } from './TranslationManagement';
 import { PhotoCleanupManager } from '@/components/dashboard/PhotoCleanupManager';
 import PMSConfigurationManagement from './PMSConfigurationManagement';
 import { BreakfastCodeManagement } from './BreakfastCodeManagement';
-import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap } from 'lucide-react';
+import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin } from 'lucide-react';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import VenueManagement from '@/components/slnt/VenueManagement';
+import StaffVenueAccess from '@/components/slnt/StaffVenueAccess';
+import PmsAccountsPanel from '@/components/slnt/PmsAccountsPanel';
 
 
 export const AdminTabs = () => {
+  const { venuesEnabled, multiPmsAccounts } = useTenantFeatures();
+
   return (
     <div className="p-4 sm:p-6">
       <Tabs defaultValue="organizations" className="space-y-6">
