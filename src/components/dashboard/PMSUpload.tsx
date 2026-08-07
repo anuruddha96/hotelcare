@@ -1124,6 +1124,105 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     );
   };
 
+  // Multi-account Previo API sync (SLNT: two Previo hotel IDs under one
+  // portfolio). Runs each account through the same previo-pms-sync function
+  // Ottofiori uses, then feeds the rows into the existing non-destructive
+  // processFile path. Other tenants never reach this code — it is gated on
+  // the SLNT-only dualPmsUpload flag and on rows existing in pms_accounts.
+  const runApiSync = async () => {
+    if (!selectedHotel) return;
+    setIsApiSyncing(true);
+    setApiSyncStatus([]);
+    setResults(null);
+    setCheckoutRooms([]);
+    setDailyCleaningRooms([]);
+
+    try {
+      const { data: accounts, error: accErr } = await supabase
+        .from('pms_accounts')
+        .select('id, label, pms_hotel_id, is_active, sync_paused')
+        .eq('hotel_id', selectedHotel)
+        .order('pms_hotel_id');
+      if (accErr) throw accErr;
+
+      const active = (accounts ?? []).filter((a: any) => a.is_active !== false && a.sync_paused !== true);
+      if (active.length === 0) {
+        toast.error('No active Previo accounts configured for this portfolio');
+        return;
+      }
+
+      let done = 0;
+      const statuses: { label: string; ok: boolean; message: string }[] = [];
+
+      for (const account of active as any[]) {
+        setApiSyncStatus([...statuses, { label: account.label, ok: true, message: 'Contacting Previo…' }]);
+        try {
+          const { data, error } = await supabase.functions.invoke('previo-pms-sync', {
+            body: { pmsAccountId: account.id, hotelId: selectedHotel },
+          });
+          const payload = data as any;
+          if (error || payload?.ok === false || payload?.error) {
+            throw new Error(payload?.error || error?.message || 'Previo sync failed');
+          }
+          const rows: Record<string, any>[] = payload?.rows ?? [];
+          if (rows.length === 0) {
+            statuses.push({ label: account.label, ok: false, message: 'Previo returned no units for this account' });
+          } else {
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+            const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const file = new File([buf], `previo-${account.pms_hotel_id}.xlsx`, {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+            if (done === 0) markUploadToday();
+            await processFile(file, { append: done > 0, silent: true });
+            done++;
+            statuses.push({ label: account.label, ok: true, message: `${rows.length} units synced` });
+          }
+          await supabase
+            .from('pms_accounts')
+            .update({
+              last_sync_at: new Date().toISOString(),
+              last_sync_success_at: new Date().toISOString(),
+              last_sync_status: 'ok',
+              last_sync_error: null,
+              consecutive_failures: 0,
+            } as never)
+            .eq('id', account.id);
+        } catch (e: any) {
+          const message = e?.message || String(e);
+          statuses.push({ label: account.label, ok: false, message });
+          await supabase
+            .from('pms_accounts')
+            .update({
+              last_sync_at: new Date().toISOString(),
+              last_sync_status: 'failed',
+              last_sync_error: message,
+              consecutive_failures: (account.consecutive_failures ?? 0) + 1,
+            } as never)
+            .eq('id', account.id);
+        }
+        setApiSyncStatus([...statuses]);
+      }
+
+      const failed = statuses.filter((s) => !s.ok);
+      if (done > 0 && failed.length === 0) {
+        toast.success(`Previo sync complete — ${done} account${done > 1 ? 's' : ''} updated, assignments kept`);
+      } else if (done > 0) {
+        toast.warning(`Synced ${done} account(s); ${failed.length} failed — see details below`);
+      } else {
+        toast.error(failed[0]?.message || 'Previo sync failed');
+      }
+    } catch (e: any) {
+      toast.error(`Previo sync failed: ${e?.message || e}`);
+    } finally {
+      setIsApiSyncing(false);
+    }
+  };
+
+
+
 
   // Handle confirmation from warning dialog
   const handleWarningConfirm = async () => {
