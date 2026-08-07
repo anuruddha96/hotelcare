@@ -162,7 +162,26 @@ serve(async (req) => {
     const service = createClient(SUPABASE_URL, SERVICE);
 
     const body = await req.json().catch(() => ({} as any));
-    const targetHotel: string = body.hotelId;
+    // Optional: sync one specific PMS account (portfolios such as SLNT carry
+    // several Previo hotel IDs under a single HotelCare hotel). When absent,
+    // behaviour is exactly as before via pms_configurations.
+    const pmsAccountId: string | null = body.pmsAccountId ?? null;
+    let accountRow: any = null;
+    if (pmsAccountId) {
+      const { data: acc } = await createClient(SUPABASE_URL, SERVICE)
+        .from("pms_accounts")
+        .select("id, hotel_id, label, pms_hotel_id, credentials_secret_name, is_active")
+        .eq("id", pmsAccountId)
+        .maybeSingle();
+      if (!acc) {
+        return new Response(JSON.stringify({ error: `PMS account ${pmsAccountId} not found` }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      accountRow = acc;
+    }
+    const targetHotel: string = body.hotelId ?? accountRow?.hotel_id;
     const dryRun: boolean = body.dryRun === true;
     if (!targetHotel) {
       return new Response(JSON.stringify({ error: "hotelId required" }), {
@@ -170,6 +189,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     // Authorization: admin/top_management OR manager assigned to the hotel.
     // `profiles.assigned_hotel` may store the display name ("Hotel Ottofiori")
