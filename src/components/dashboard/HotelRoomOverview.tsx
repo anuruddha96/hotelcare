@@ -932,7 +932,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         </div>
         {/* Bed config & staff name indicators below chip */}
         <div className="flex flex-col items-center gap-0">
-          {(room as any).bed_configuration && (
+          {!compactChips && (room as any).bed_configuration && (
             <span className="text-[8px] text-purple-600 dark:text-purple-400 font-semibold truncate max-w-[48px]">
               {(() => {
                 const bc = (room as any).bed_configuration;
