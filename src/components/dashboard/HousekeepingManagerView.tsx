@@ -159,6 +159,16 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     fetchManagerHotelName();
   }, [selectedDate]);
 
+  // Keep the cards in sync when the unit board unassigns something.
+  useEffect(() => {
+    const onChanged = () => {
+      fetchTeamAssignments();
+      fetchRoomAssignments();
+    };
+    window.addEventListener('hk-assignments-changed', onChanged);
+    return () => window.removeEventListener('hk-assignments-changed', onChanged);
+  }, [selectedDate]);
+
   // Real-time subscriptions for live updates
   useEffect(() => {
     // Subscribe to profile changes (new housekeeping staff)
