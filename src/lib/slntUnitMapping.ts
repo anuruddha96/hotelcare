@@ -50,6 +50,88 @@ export function isTechnicalRow(raw: string): boolean {
   return TECHNICAL_ROW_NAMES.includes(normalizeUnitName(raw));
 }
 
+/**
+ * Marketing-suffix-free key for a Previo unit name.
+ * Previo REST returns long listing names ("CityNest - City center apartment",
+ * "Giselle Apartment with Private Parking by Staymood Holidays") while the app
+ * stores the short canonical unit name. Cutting at the first separator /
+ * "with" / "by" gives a stable join key for both sides.
+ */
+export function coreUnitKey(raw: string): string {
+  const n = String(raw ?? '').trim();
+  const cut = n.split(/\s+[-–—·|]\s+|\s+by\s+|\s+with\s+|\s*\(/i)[0];
+  return normalizeUnitName(cut || n);
+}
+
+export type UnitResolver = {
+  resolve: (rawName: string, externalRoomId?: string | null) => string | null;
+  size: number;
+};
+
+/**
+ * Build a tolerant Previo-name → local room id resolver.
+ * Lookup order: external room id → exact normalized name → marketing-suffix
+ * stripped core key → unique prefix match. Ambiguous keys are dropped so a
+ * name can never be matched to the wrong unit.
+ */
+export function buildUnitResolver(
+  entries: Array<{ roomId: string; names: Array<string | null | undefined>; externalIds?: Array<string | null | undefined> }>,
+): UnitResolver {
+  const byExternal = new Map<string, string>();
+  const byExact = new Map<string, string>();
+  const byCore = new Map<string, string | null>(); // null => ambiguous
+
+  for (const entry of entries) {
+    for (const ext of entry.externalIds ?? []) {
+      if (ext) byExternal.set(String(ext), entry.roomId);
+    }
+    for (const name of entry.names) {
+      if (!name) continue;
+      const exact = normalizeUnitName(String(name));
+      if (exact && !byExact.has(exact)) byExact.set(exact, entry.roomId);
+      const core = coreUnitKey(String(name));
+      if (!core) continue;
+      const existing = byCore.get(core);
+      if (existing === undefined) byCore.set(core, entry.roomId);
+      else if (existing !== entry.roomId) byCore.set(core, null);
+    }
+  }
+
+  const resolve = (rawName: string, externalRoomId?: string | null): string | null => {
+    if (externalRoomId) {
+      const hit = byExternal.get(String(externalRoomId));
+      if (hit) return hit;
+    }
+    const exact = normalizeUnitName(rawName);
+    if (exact && byExact.has(exact)) return byExact.get(exact)!;
+    const core = coreUnitKey(rawName);
+    if (core) {
+      const hit = byCore.get(core);
+      if (hit) return hit;
+      const exactAsCore = byExact.get(core);
+      if (exactAsCore) return exactAsCore;
+    }
+    // Unique prefix match: local unit name is a prefix of the Previo listing
+    // name (e.g. "Dandelion Apartment" ⊂ "Dandelion Apartment with free parking").
+    if (exact.length >= 5) {
+      let found: string | null = null;
+      for (const [key, roomId] of byExact) {
+        if (key.length < 5) continue;
+        if (exact === key || exact.startsWith(`${key} `) || key.startsWith(`${exact} `)) {
+          if (found && found !== roomId) return null;
+          found = roomId;
+        }
+      }
+      if (found) return found;
+    }
+    return null;
+  };
+
+  return { resolve, size: byExact.size + byExternal.size };
+}
+
+
+
 /** Suggested canonical unit name + venue cluster for a raw Previo name. */
 export function deriveSuggestion(name: string): {
   unit: string;
