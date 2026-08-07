@@ -1318,10 +1318,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     setDragOverSection(null);
     justDraggedRef.current = Date.now();
     setHoveredRoomId(null);
-    const roomId = e.dataTransfer.getData('roomId');
-    const roomNumber = e.dataTransfer.getData('roomNumber');
-    const sourceType = e.dataTransfer.getData('sourceType');
-    if (!roomId || sourceType === targetType) return;
+    const payload = readRoomDragPayload(e);
+    if (!payload) return;
+    const { roomId, roomNumber, sourceType } = payload;
+
+    // A chip dragged out of a housekeeper card and dropped back on the board
+    // means "take this off them" — ask first, never retype the unit.
+    if (payload.origin === 'housekeeper') {
+      setPendingUnassign({ roomId, roomNumber, staffName: payload.assignedToName || null });
+      return;
+    }
+
+    if (sourceType === targetType) return;
+
     // Dropping onto "no-show" behaves like moving back to daily (managers
     // typically drag a no-show back to daily to reassign / clean it).
     const effectiveTarget: 'checkout' | 'daily' = targetType === 'checkout' ? 'checkout' : 'daily';
