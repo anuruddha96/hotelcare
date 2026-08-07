@@ -1332,6 +1332,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     }
 
     if (sourceType === targetType) return;
+    // Retyping a unit between checkout/daily stays a manager-only action.
+    if (!isManagerOrAdmin) return;
+
 
     // Dropping onto "no-show" behaves like moving back to daily (managers
     // typically drag a no-show back to daily to reassign / clean it).
