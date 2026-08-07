@@ -315,10 +315,13 @@ export async function runPmsRefresh(
   // XLSX upload does. Other tenants have no rows here, so nothing changes.
   const aliasToRoomId = new Map<string, string>();
   const externalIdToRoomId = new Map<string, string>();
+  const resolverEntries: Array<{ roomId: string; names: Array<string | null | undefined>; externalIds?: Array<string | null | undefined> }> = [];
+  const mappingIdByRoomId = new Map<string, string>();
+  let portfolioMode = false;
   try {
     const { data: unitMaps } = await supabase
       .from("pms_unit_mappings")
-      .select("normalized_name, source_name, canonical_room_name, external_room_id, room_id")
+      .select("id, normalized_name, source_name, canonical_room_name, external_room_id, room_id")
       .in("hotel_id", hotelKeys)
       .not("room_id", "is", null);
     for (const m of (unitMaps ?? []) as any[]) {
@@ -327,10 +330,33 @@ export async function runPmsRefresh(
         if (name) aliasToRoomId.set(normalizeUnitName(String(name)), roomId);
       }
       if (m.external_room_id) externalIdToRoomId.set(String(m.external_room_id), roomId);
+      if (m.id && !mappingIdByRoomId.has(roomId)) mappingIdByRoomId.set(roomId, m.id as string);
+      resolverEntries.push({
+        roomId,
+        names: [m.normalized_name, m.source_name, m.canonical_room_name],
+        externalIds: [m.external_room_id],
+      });
+    }
+    portfolioMode = resolverEntries.length > 0;
+    if (portfolioMode) {
+      // Also index the live room roster so units renamed in Previo (or added
+      // after the mapping was made) still resolve by their canonical name.
+      const { data: rosterRooms } = await supabase
+        .from("rooms")
+        .select("id, room_number")
+        .in("hotel", hotelKeys);
+      for (const r of (rosterRooms ?? []) as any[]) {
+        resolverEntries.push({ roomId: r.id as string, names: [r.room_number] });
+      }
     }
   } catch (e) {
     console.warn("[pmsRefresh] unit alias map unavailable:", e);
   }
+  const unitResolver = portfolioMode ? buildUnitResolver(resolverEntries) : null;
+  // Previo room ids learned during this run, persisted afterwards so the next
+  // sync matches by id instead of by name.
+  const learnedExternalIds = new Map<string, string>(); // roomId -> previoRoomId
+
 
 
 
