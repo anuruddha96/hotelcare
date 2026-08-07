@@ -505,7 +505,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           room_id,
           assigned_to,
           status,
-          rooms!inner(room_number, hotel)
+          rooms!inner(room_number, hotel, venue_id)
         `)
         .eq('assignment_date', selectedDate);
 
@@ -522,7 +522,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         status: item.status,
         room_number: item.rooms.room_number,
         hotel: item.rooms.hotel,
+        venue_id: item.rooms.venue_id ?? null,
       }));
+
 
       setRoomAssignments(assignments);
     } catch (error) {
