@@ -425,10 +425,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         console.log(`[PMS] Resolved hotel filter: ${selectedHotel} -> ${hotelNameForFilter} (keys: ${hotelKeys.join(', ')})`);
       }
 
-      // Reset ONLY the selected hotel's current day room assignments since PMS upload will reset room data
+      // Reset ONLY the selected hotel's current day room assignments since PMS upload will reset room data.
+      // Non-destructive tenants (SLNT) skip this entirely: existing assignments and
+      // per-unit flags stay untouched, only the units present in the file get new statuses.
       const today = new Date().toISOString().split('T')[0];
-      
-      if (hotelNameForFilter) {
+
+      if (nonDestructivePmsUpload) {
+        console.log('[PMS] Non-destructive mode: keeping today\'s assignments and per-unit flags');
+      } else if (hotelNameForFilter) {
         // First, get all room IDs for the selected hotel (use resolved name)
         const { data: selectedHotelRooms } = await supabase
           .from('rooms')
