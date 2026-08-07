@@ -1805,19 +1805,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             />
           ) : (
             <>
-               {renderSection(t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
+               {renderSection(terms.isProperty ? terms.checkoutSection : t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
                <div className="border-t border-border/50" />
-               {renderSection(t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {renderSection(terms.isProperty ? terms.dailySection : t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
                {arrivalRooms.length > 0 && (
                  <>
                    <div className="border-t border-border/50" />
-                   {renderSection(t('team.arrivalRooms'), arrivalRooms, <BedDouble className="h-3.5 w-3.5 text-emerald-600" />, 'arrival')}
+                   {renderSection(terms.isProperty ? `Arrival ${terms.unitPlural}` : t('team.arrivalRooms'), arrivalRooms, <BedDouble className="h-3.5 w-3.5 text-emerald-600" />, 'arrival')}
                  </>
                )}
                {noShowRooms.length > 0 && (
                  <>
                    <div className="border-t border-border/50" />
-                   {renderSection(t('team.noShowRooms'), noShowRooms, <BedDouble className="h-3.5 w-3.5 text-red-600" />, 'noshow')}
+                   {renderSection(terms.isProperty ? terms.noShowSection : t('team.noShowRooms'), noShowRooms, <BedDouble className="h-3.5 w-3.5 text-red-600" />, 'noshow')}
                  </>
                )}
 
