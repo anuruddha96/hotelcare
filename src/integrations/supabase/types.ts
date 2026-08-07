@@ -2689,6 +2689,63 @@ export type Database = {
           },
         ]
       }
+      pms_accounts: {
+        Row: {
+          api_base_url: string | null
+          created_at: string
+          credentials_secret_name: string | null
+          hotel_id: string
+          id: string
+          is_active: boolean
+          is_primary: boolean
+          label: string
+          last_sync_at: string | null
+          last_sync_error: string | null
+          last_sync_status: string | null
+          organization_slug: string
+          pms_hotel_id: string | null
+          pms_type: string
+          settings: Json
+          updated_at: string
+        }
+        Insert: {
+          api_base_url?: string | null
+          created_at?: string
+          credentials_secret_name?: string | null
+          hotel_id: string
+          id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          label: string
+          last_sync_at?: string | null
+          last_sync_error?: string | null
+          last_sync_status?: string | null
+          organization_slug: string
+          pms_hotel_id?: string | null
+          pms_type?: string
+          settings?: Json
+          updated_at?: string
+        }
+        Update: {
+          api_base_url?: string | null
+          created_at?: string
+          credentials_secret_name?: string | null
+          hotel_id?: string
+          id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          label?: string
+          last_sync_at?: string | null
+          last_sync_error?: string | null
+          last_sync_status?: string | null
+          organization_slug?: string
+          pms_hotel_id?: string | null
+          pms_type?: string
+          settings?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pms_change_events: {
         Row: {
           acknowledged_at: string | null
@@ -5042,6 +5099,7 @@ export type Database = {
           status: string | null
           towel_change_required: boolean | null
           updated_at: string
+          venue_id: string | null
           wing: string | null
         }
         Insert: {
@@ -5077,6 +5135,7 @@ export type Database = {
           status?: string | null
           towel_change_required?: boolean | null
           updated_at?: string
+          venue_id?: string | null
           wing?: string | null
         }
         Update: {
@@ -5112,6 +5171,7 @@ export type Database = {
           status?: string | null
           towel_change_required?: boolean | null
           updated_at?: string
+          venue_id?: string | null
           wing?: string | null
         }
         Relationships: [
@@ -5120,6 +5180,13 @@ export type Database = {
             columns: ["last_cleaned_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rooms_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]
@@ -5566,6 +5633,44 @@ export type Database = {
         }
         Relationships: []
       }
+      user_property_scopes: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          organization_slug: string
+          updated_at: string
+          user_id: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_slug: string
+          updated_at?: string
+          user_id: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          organization_slug?: string
+          updated_at?: string
+          user_id?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_property_scopes_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_tour_progress: {
         Row: {
           completed_at: string
@@ -5696,6 +5801,45 @@ export type Database = {
           seen_promos?: string[]
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      venues: {
+        Row: {
+          address: string | null
+          created_at: string
+          hotel_id: string
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          organization_slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          hotel_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          organization_slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          organization_slug?: string
+          sort_order?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -6021,6 +6165,10 @@ export type Database = {
         Args: { _user_id: string }
         Returns: boolean
       }
+      has_venue_access: {
+        Args: { _user_id: string; _venue_id: string }
+        Returns: boolean
+      }
       hotel_has_active_previo: { Args: { _hotel_id: string }; Returns: boolean }
       is_revenue_user: { Args: { _uid: string }; Returns: boolean }
       is_super_admin: { Args: { user_id: string }; Returns: boolean }
@@ -6082,6 +6230,7 @@ export type Database = {
         Returns: boolean
       }
       user_can_view_ticket: { Args: { ticket_id: string }; Returns: boolean }
+      user_has_venue_scopes: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       assignment_status:
@@ -6142,6 +6291,7 @@ export type Database = {
         | "top_management_manager"
         | "breakfast_staff"
         | "back_office"
+        | "supervisor"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -6333,6 +6483,7 @@ export const Constants = {
         "top_management_manager",
         "breakfast_staff",
         "back_office",
+        "supervisor",
       ],
     },
   },
