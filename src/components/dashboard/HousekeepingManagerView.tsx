@@ -789,10 +789,11 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           const movedAway = new Set(stagedMoves.filter(m => m.toStaffId !== staff.id).map(m => m.roomId));
           const savedChips = roomAssignments
             .filter(a => a.assigned_to === staff.id && !movedAway.has(a.room_id))
-            .map(a => ({ key: a.id, roomId: a.room_id, roomNumber: a.room_number, status: a.status, pending: false }));
+            .map(a => ({ key: a.id, roomId: a.room_id, roomNumber: a.room_number, status: a.status, pending: false, venueId: a.venue_id ?? null }));
           const stagedIn = stagedMoves
             .filter(m => m.toStaffId === staff.id)
-            .map(m => ({ key: `staged-${m.roomId}`, roomId: m.roomId, roomNumber: m.roomNumber, status: 'assigned', pending: true }));
+            .map(m => ({ key: `staged-${m.roomId}`, roomId: m.roomId, roomNumber: m.roomNumber, status: 'assigned', pending: true, venueId: roomAssignments.find(a => a.room_id === m.roomId)?.venue_id ?? null }));
+
           const myChips = [...savedChips, ...stagedIn];
           const isDropTarget = dropTargetStaffId === staff.id;
 
