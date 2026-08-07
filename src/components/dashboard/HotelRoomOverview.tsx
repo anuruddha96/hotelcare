@@ -201,6 +201,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const selectedUnitIds = new Set(selectedUnits.map((u) => u.roomId));
   const longPressRef = useRef<NodeJS.Timeout | null>(null);
   const longPressFiredRef = useRef(false);
+
+  // Auto-scroll the page while dragging near the top/bottom edge, so a chip at
+  // the top of a long board can still reach the housekeeper cards below.
+  useEffect(() => {
+    if (!canDragAssign) return;
+    const EDGE = 90;
+    const onDragOver = (e: DragEvent) => {
+      const y = e.clientY;
+      const h = window.innerHeight;
+      if (y < EDGE) window.scrollBy({ top: -Math.ceil((EDGE - y) / 4), behavior: 'auto' });
+      else if (y > h - EDGE) window.scrollBy({ top: Math.ceil((y - (h - EDGE)) / 4), behavior: 'auto' });
+    };
+    window.addEventListener('dragover', onDragOver);
+    return () => window.removeEventListener('dragover', onDragOver);
+  }, [canDragAssign]);
+
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
   const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
