@@ -1029,6 +1029,37 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     event.target.value = '';
   };
 
+  // Dual-slot runner (SLNT): run file 1, then file 2, into one combined summary.
+  const runSlotQueue = async () => {
+    const queue = slotFiles
+      .map((file, index) => ({ file, index }))
+      .filter((entry): entry is { file: File; index: number } => !!entry.file);
+    if (queue.length === 0) {
+      toast.error('Select at least one PMS file');
+      return;
+    }
+
+    setResults(null);
+    setCheckoutRooms([]);
+    setDailyCleaningRooms([]);
+    markUploadToday();
+
+    let done = 0;
+    for (const { file, index } of queue) {
+      setRunningSlot(index);
+      await processFile(file, { append: done > 0, silent: true });
+      done++;
+    }
+    setRunningSlot(null);
+    setSlotFiles([null, null]);
+    toast.success(
+      done > 1
+        ? `Both PMS files processed — statuses refreshed, assignments kept`
+        : `PMS file processed — statuses refreshed, assignments kept`,
+    );
+  };
+
+
   // Handle confirmation from warning dialog
   const handleWarningConfirm = async () => {
     if (pendingFile) {
