@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban, AlertTriangle } from 'lucide-react';
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
@@ -2276,6 +2277,44 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!pendingUnassign} onOpenChange={(o) => { if (!o) setPendingUnassign(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unassign {terms.unit.toLowerCase()}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingUnassign?.staffName
+                ? `${pendingUnassign.roomNumber} will be removed from ${pendingUnassign.staffName} and returned to the unassigned board.`
+                : `${pendingUnassign?.roomNumber ?? ''} will be returned to the unassigned board.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unassigning}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={unassigning}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!pendingUnassign) return;
+                setUnassigning(true);
+                try {
+                  await unassignRoom(pendingUnassign.roomId, selectedDate);
+                  toast.success(`${pendingUnassign.roomNumber} unassigned`);
+                  setPendingUnassign(null);
+                  await fetchData();
+                  window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+                } catch {
+                  toast.error('Failed to unassign');
+                } finally {
+                  setUnassigning(false);
+                }
+              }}
+            >
+              {unassigning ? 'Removing…' : 'Unassign'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+
   );
 }
