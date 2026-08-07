@@ -6,11 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
 import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, RefreshCw, Users, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
 import { PMSUploadHistoryDialog } from './PMSUploadHistoryDialog';
 import { PMSSyncHistoryDialog } from './PMSSyncHistoryDialog';
@@ -170,6 +172,7 @@ interface PMSUploadProps {
 export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   const { t } = useTranslation();
   const { user, profile } = useAuth();
+  const { nonDestructivePmsUpload, dualPmsUpload } = useTenantFeatures();
   const userRole = profile?.role;
   const selectedHotel = profile?.assigned_hotel; // Get selected hotel from profile
   const [uploading, setUploading] = useState(false);
@@ -192,6 +195,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   const [resolvedHotelName, setResolvedHotelName] = useState<string | undefined>(undefined);
   const [lastCheckoutSync, setLastCheckoutSync] = useState<Date | null>(null);
   const [isPollingCheckouts, setIsPollingCheckouts] = useState(false);
+  // Two labelled PMS file slots (SLNT: one per Previo account)
+  const [slotFiles, setSlotFiles] = useState<(File | null)[]>([null, null]);
+  const [runningSlot, setRunningSlot] = useState<number | null>(null);
 
   // Resolve hotel slug to full hotel name for filtering
   useEffect(() => {
@@ -339,7 +345,10 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     return fallbackMatch ? fallbackMatch[1] : originalName;
   };
 
-  const processFile = async (file: File) => {
+  const processFile = async (
+    file: File,
+    opts: { append?: boolean; silent?: boolean } = {},
+  ) => {
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
       toast.error('Please upload an Excel file (.xlsx or .xls)');
       return;
@@ -347,7 +356,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
     setUploading(true);
     setProgress(0);
-    setResults(null);
+    if (!opts.append) setResults(null);
 
     // Check if user might navigate away and enable background processing
     const handleBeforeUnload = () => {
@@ -417,10 +426,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         console.log(`[PMS] Resolved hotel filter: ${selectedHotel} -> ${hotelNameForFilter} (keys: ${hotelKeys.join(', ')})`);
       }
 
-      // Reset ONLY the selected hotel's current day room assignments since PMS upload will reset room data
+      // Reset ONLY the selected hotel's current day room assignments since PMS upload will reset room data.
+      // Non-destructive tenants (SLNT) skip this entirely: existing assignments and
+      // per-unit flags stay untouched, only the units present in the file get new statuses.
       const today = new Date().toISOString().split('T')[0];
-      
-      if (hotelNameForFilter) {
+
+      if (nonDestructivePmsUpload) {
+        console.log('[PMS] Non-destructive mode: keeping today\'s assignments and per-unit flags');
+      } else if (hotelNameForFilter) {
         // First, get all room IDs for the selected hotel (use resolved name)
         const { data: selectedHotelRooms } = await supabase
           .from('rooms')
@@ -793,9 +806,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             guest_nights_stayed: guestNightsStayed,
             towel_change_required: towelChangeRequired,
             linen_change_required: linenChangeRequired,
-            is_dnd: false,
-            dnd_marked_at: null,
-            dnd_marked_by: null,
+            // Non-destructive tenants keep a housekeeper-set DND until it is
+            // cleared in the app; a status refresh must not wipe it.
+            ...(nonDestructivePmsUpload
+              ? {}
+              : { is_dnd: false, dnd_marked_at: null, dnd_marked_by: null }),
             pms_metadata: {
               ...(room.pms_metadata && typeof room.pms_metadata === 'object' ? room.pms_metadata : {}),
               scheduledDepartureToday: isCheckout,
@@ -846,6 +861,20 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
           if (!updateError) {
             processed.updated++;
+            if (nonDestructivePmsUpload) {
+              // Keep the housekeeper's existing task, just retype it when PMS
+              // moved the unit between daily and checkout.
+              await supabase
+                .from('room_assignments')
+                .update({
+                  assignment_type: isCheckout ? 'checkout_cleaning' : 'daily_cleaning',
+                  updated_at: new Date().toISOString(),
+                } as any)
+                .eq('room_id', room.id)
+                .eq('assignment_date', today)
+                .in('status', ['assigned', 'in_progress'])
+                .neq('assignment_type', isCheckout ? 'checkout_cleaning' : 'daily_cleaning');
+            }
             if (pmsCheckedOut) {
               await supabase
                 .from('room_assignments')
@@ -863,6 +892,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             }
           }
 
+
           // Note: PMS upload only updates room statuses. Managers must manually assign rooms to housekeepers.
 
           processed.processed++;
@@ -873,9 +903,20 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       }
 
       setProgress(100);
-      setResults(processed);
-      setCheckoutRooms(checkoutRoomsList);
-      setDailyCleaningRooms(dailyCleaningRoomsList);
+      if (opts.append) {
+        setResults(prev => prev ? {
+          processed: prev.processed + processed.processed,
+          updated: prev.updated + processed.updated,
+          assigned: prev.assigned + processed.assigned,
+          errors: [...prev.errors, ...processed.errors],
+        } : processed);
+        setCheckoutRooms(prev => [...prev, ...checkoutRoomsList]);
+        setDailyCleaningRooms(prev => [...prev, ...dailyCleaningRoomsList]);
+      } else {
+        setResults(processed);
+        setCheckoutRooms(checkoutRoomsList);
+        setDailyCleaningRooms(dailyCleaningRoomsList);
+      }
       setBackgroundUpload(false);
       
       // Save summary for managers/admins to view later
@@ -927,9 +968,13 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       }
       
       // Show completion notification
-      const successMessage = `Upload completed! Processed ${processed.processed} rooms, updated ${processed.updated}, assigned ${processed.assigned} new tasks`;
-      
-      if (document.visibilityState === 'visible') {
+      const successMessage = nonDestructivePmsUpload
+        ? `Statuses refreshed for ${processed.updated} of ${processed.processed} units — assignments kept`
+        : `Upload completed! Processed ${processed.processed} rooms, updated ${processed.updated}, assigned ${processed.assigned} new tasks`;
+
+      if (opts.silent) {
+        // combined summary is shown by the caller
+      } else if (document.visibilityState === 'visible') {
         toast.success(successMessage);
       } else {
         // User is on another tab, show notification that will persist
@@ -943,6 +988,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           });
         }
       }
+      
       
     } catch (error) {
       console.error('Error processing file:', error);
@@ -998,6 +1044,37 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     // Reset file input
     event.target.value = '';
   };
+
+  // Dual-slot runner (SLNT): run file 1, then file 2, into one combined summary.
+  const runSlotQueue = async () => {
+    const queue = slotFiles
+      .map((file, index) => ({ file, index }))
+      .filter((entry): entry is { file: File; index: number } => !!entry.file);
+    if (queue.length === 0) {
+      toast.error('Select at least one PMS file');
+      return;
+    }
+
+    setResults(null);
+    setCheckoutRooms([]);
+    setDailyCleaningRooms([]);
+    markUploadToday();
+
+    let done = 0;
+    for (const { file, index } of queue) {
+      setRunningSlot(index);
+      await processFile(file, { append: done > 0, silent: true });
+      done++;
+    }
+    setRunningSlot(null);
+    setSlotFiles([null, null]);
+    toast.success(
+      done > 1
+        ? `Both PMS files processed — statuses refreshed, assignments kept`
+        : `PMS file processed — statuses refreshed, assignments kept`,
+    );
+  };
+
 
   // Handle confirmation from warning dialog
   const handleWarningConfirm = async () => {
@@ -1247,84 +1324,108 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           <PmsSyncStatus hotelId={selectedHotel} compact />
         )}
 
-        {/* Hotel Selection Warning */}
-        {selectedHotel && (
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5" />
-              <div>
-                <h4 className="font-semibold text-blue-800 mb-1">
-                  {t('pms.hotelFilterActive')}
-                </h4>
-                <p className="text-sm text-blue-700">
-                  {t('pms.currentlyOperating')} <strong>{selectedHotel}</strong>
-                  <br />
-                  {t('pms.onlyRoomsAffected')}
-                </p>
-              </div>
+        {/* Compact target / mode line */}
+        {selectedHotel ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">{t('pms.currentlyOperating')}</span>
+            <strong className="text-foreground">{resolvedHotelName || selectedHotel}</strong>
+            <Badge variant={nonDestructivePmsUpload ? 'secondary' : 'outline'} className="ml-auto">
+              {nonDestructivePmsUpload ? 'Status update only — assignments kept' : t('pms.dataResetWarning')}
+            </Badge>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
+            <div>
+              <p className="font-medium">{t('pms.noHotelSelected')}</p>
+              <p className="text-muted-foreground">{t('pms.selectHotelFirst')}</p>
             </div>
           </div>
         )}
-        
-        {!selectedHotel && (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
-              <div>
-                <h4 className="font-semibold text-amber-800 mb-1">
-                  {t('pms.noHotelSelected')}
-                </h4>
-                <p className="text-sm text-amber-700">
-                  {t('pms.selectHotelFirst')}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-        
+
         {!uploading && !results && selectedHotel && (
           <>
-            {/* Warning about data reset */}
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
-                <div>
-                  <h4 className="font-semibold text-amber-800 mb-1">
-                    {t('pms.dataResetWarning')}
-                  </h4>
-                  <p className="text-sm text-amber-700">
-                    {t('pms.uploadingWillReset')} {selectedHotel} {t('pms.forCurrentDay')}
-                  </p>
+            {dualPmsUpload ? (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[0, 1].map((slot) => (
+                    <div key={slot} className="rounded-lg border p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">PMS file {slot + 1}</p>
+                        {runningSlot === slot && (
+                          <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                        )}
+                      </div>
+                      {slotFiles[slot] ? (
+                        <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5">
+                          <FileSpreadsheet className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-sm">{slotFiles[slot]!.name}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto h-7 px-2"
+                            onClick={() =>
+                              setSlotFiles((prev) => prev.map((f, i) => (i === slot ? null : f)))
+                            }
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      ) : (
+                        <Input
+                          type="file"
+                          accept=".xlsx,.xls"
+                          onChange={(e) => {
+                            const picked = e.target.files?.[0] ?? null;
+                            setSlotFiles((prev) => prev.map((f, i) => (i === slot ? picked : f)));
+                            e.target.value = '';
+                          }}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
-              </div>
-            </div>
-            
-            {selectedHotel && selectedHotel !== 'previo-test' && (
-              <div 
-                {...getRootProps()} 
-                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                  isDragActive 
-                    ? 'border-primary bg-primary/5' 
-                    : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
-                }`}
-              >
-                <input {...getInputProps()} />
-                <Upload className={`h-12 w-12 mx-auto mb-4 transition-colors ${
-                  isDragActive ? 'text-primary' : 'text-muted-foreground'
-                }`} />
-                <div className="space-y-2">
-                <h3 className="font-medium">
-                  {isDragActive ? t('pms.dropHere') : t('pms.title')}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {isDragActive 
-                    ? t('pms.releaseToUpload')
-                    : t('pms.dragDrop')
-                  }
+                <div className="flex justify-center">
+                  <Button
+                    onClick={runSlotQueue}
+                    disabled={uploading || !slotFiles.some(Boolean)}
+                    className="w-full max-w-xs"
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    Run PMS update
+                  </Button>
+                </div>
+                <p className="text-center text-xs text-muted-foreground">
+                  Either file alone or both together — they run one after another and
+                  never remove existing housekeeping assignments.
                 </p>
               </div>
-            </div>
+            ) : (
+              selectedHotel !== 'previo-test' && (
+                <div
+                  {...getRootProps()}
+                  className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                    isDragActive
+                      ? 'border-primary bg-primary/5'
+                      : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
+                  }`}
+                >
+                  <input {...getInputProps()} />
+                  <Upload className={`h-10 w-10 mx-auto mb-3 transition-colors ${
+                    isDragActive ? 'text-primary' : 'text-muted-foreground'
+                  }`} />
+                  <div className="space-y-1">
+                    <h3 className="font-medium">
+                      {isDragActive ? t('pms.dropHere') : t('pms.title')}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {isDragActive ? t('pms.releaseToUpload') : t('pms.dragDrop')}
+                    </p>
+                  </div>
+                </div>
+              )
             )}
+
 
             {/* Upload Buttons */}
             <div className="flex justify-center gap-4 mt-4 flex-wrap">
@@ -1492,18 +1593,34 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                 {t('pms.warning.title')}
               </AlertDialogTitle>
               <AlertDialogDescription className="space-y-2">
-                <p className="font-semibold text-amber-600">
-                  {t('pms.warning.secondUpload')}
-                </p>
-                <p>
-                  {t('pms.warning.description')} <strong>{selectedHotel || 'selected hotel'}</strong>
-                </p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>{t('pms.warning.clearAssignments')}</li>
-                  <li>{t('pms.warning.clearMinibar')}</li>
-                  <li>{t('pms.warning.resetStatuses')}</li>
-                </ul>
+                {nonDestructivePmsUpload ? (
+                  <>
+                    <p>
+                      Re-running the PMS file for <strong>{resolvedHotelName || selectedHotel}</strong> only
+                      refreshes unit statuses.
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li>Existing housekeeping assignments are kept</li>
+                      <li>Daily / checkout and ready-to-clean statuses are updated</li>
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-semibold text-amber-600">
+                      {t('pms.warning.secondUpload')}
+                    </p>
+                    <p>
+                      {t('pms.warning.description')} <strong>{selectedHotel || 'selected hotel'}</strong>
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li>{t('pms.warning.clearAssignments')}</li>
+                      <li>{t('pms.warning.clearMinibar')}</li>
+                      <li>{t('pms.warning.resetStatuses')}</li>
+                    </ul>
+                  </>
+                )}
               </AlertDialogDescription>
+
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={handleWarningCancel}>

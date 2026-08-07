@@ -15,6 +15,10 @@ export type TenantFeatures = {
   multiPmsAccounts: boolean;
   /** Housekeeping-first tenant: revenue / breakfast modules are irrelevant. */
   housekeepingOnly: boolean;
+  /** PMS upload only refreshes statuses — never deletes today's assignments. */
+  nonDestructivePmsUpload: boolean;
+  /** Two labelled PMS file slots (one per Previo account) run in sequence. */
+  dualPmsUpload: boolean;
 };
 
 const DEFAULT_FEATURES: TenantFeatures = {
@@ -22,6 +26,8 @@ const DEFAULT_FEATURES: TenantFeatures = {
   scopedStaffEnabled: false,
   multiPmsAccounts: false,
   housekeepingOnly: false,
+  nonDestructivePmsUpload: false,
+  dualPmsUpload: false,
 };
 
 const SLNT_FEATURES: Partial<TenantFeatures> = {
@@ -29,6 +35,8 @@ const SLNT_FEATURES: Partial<TenantFeatures> = {
   scopedStaffEnabled: true,
   multiPmsAccounts: true,
   housekeepingOnly: true,
+  nonDestructivePmsUpload: true,
+  dualPmsUpload: true,
 };
 
 const ORG_FEATURES: Record<string, Partial<TenantFeatures>> = {
@@ -56,6 +64,8 @@ export function tenantFeaturesFor(
     scopedStaffEnabled: overrides.scopedStaffEnabled ?? base.scopedStaffEnabled,
     multiPmsAccounts: overrides.multiPmsAccounts ?? base.multiPmsAccounts,
     housekeepingOnly: overrides.housekeepingOnly ?? base.housekeepingOnly,
+    nonDestructivePmsUpload: overrides.nonDestructivePmsUpload ?? base.nonDestructivePmsUpload,
+    dualPmsUpload: overrides.dualPmsUpload ?? base.dualPmsUpload,
   };
 }
 
