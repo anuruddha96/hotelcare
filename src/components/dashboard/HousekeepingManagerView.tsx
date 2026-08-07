@@ -132,6 +132,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [bulkUnassignMode, setBulkUnassignMode] = useState(false);
   const [selectedAssignments, setSelectedAssignments] = useState<string[]>([]);
   const [roomAssignments, setRoomAssignments] = useState<RoomAssignment[]>([]);
+  // Drag-and-drop assignment (SLNT-style boards): pending confirmation + hover target.
+  const [dropTargetStaffId, setDropTargetStaffId] = useState<string | null>(null);
+  const [pendingAssign, setPendingAssign] = useState<
+    { roomId: string; roomNumber: string; staffId: string; staffName: string; sourceType: string; fromName: string | null } | null
+  >(null);
+  const [assigning, setAssigning] = useState(false);
   const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
   const [workingRoomDialogOpen, setWorkingRoomDialogOpen] = useState(false);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
