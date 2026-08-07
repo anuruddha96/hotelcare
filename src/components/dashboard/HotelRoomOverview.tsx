@@ -677,6 +677,28 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return Array.from(floorMap.entries()).sort((a, b) => a[0] - b[0]);
   };
 
+  // Portfolio tenants (SLNT) have every unit on "floor 0"; the meaningful
+  // grouping is the physical address, so group by venue instead.
+  const groupByVenue = (roomList: RoomData[]) => {
+    const map = new Map<string, RoomData[]>();
+    roomList.forEach(room => {
+      const key = room.venue_id ?? '__none__';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(room);
+    });
+    const nameOf = (key: string) =>
+      key === '__none__' ? 'Unassigned' : (venues.find(v => v.id === key)?.name ?? 'Unassigned');
+    return Array.from(map.entries())
+      .map(([key, list]) => ({
+        key,
+        name: nameOf(key),
+        rooms: [...list].sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true })),
+      }))
+      .sort((a, b) => (a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : a.name.localeCompare(b.name)));
+  };
+
+
+
   const getStaffName = (roomId: string): string | null => {
     const assignment = assignmentMap.get(roomId);
     if (!assignment) return null;
