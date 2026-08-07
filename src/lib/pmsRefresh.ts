@@ -308,6 +308,31 @@ export async function runPmsRefresh(
   const hotelKeys = keys.length ? keys : [hotelId];
   const canonicalHotelKey = hotelKeys.find((key) => key !== hotelId) ?? hotelId;
 
+  // Portfolio tenants (SLNT) receive long Previo marketing names ("CityNest -
+  // City center …") while `rooms.room_number` holds the canonical unit name.
+  // Resolve those through the confirmed unit mapping, exactly like the manual
+  // XLSX upload does. Other tenants have no rows here, so nothing changes.
+  const aliasToRoomId = new Map<string, string>();
+  const externalIdToRoomId = new Map<string, string>();
+  try {
+    const { data: unitMaps } = await supabase
+      .from("pms_unit_mappings")
+      .select("normalized_name, source_name, canonical_room_name, external_room_id, room_id")
+      .in("hotel_id", hotelKeys)
+      .not("room_id", "is", null);
+    for (const m of (unitMaps ?? []) as any[]) {
+      const roomId = m.room_id as string;
+      for (const name of [m.normalized_name, m.source_name, m.canonical_room_name]) {
+        if (name) aliasToRoomId.set(normalizeUnitName(String(name)), roomId);
+      }
+      if (m.external_room_id) externalIdToRoomId.set(String(m.external_room_id), roomId);
+    }
+  } catch (e) {
+    console.warn("[pmsRefresh] unit alias map unavailable:", e);
+  }
+
+
+
   let updated = 0;
   let notFound = 0;
   let checkouts = 0;
