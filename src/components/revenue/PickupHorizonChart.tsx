@@ -89,6 +89,10 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   /** Labels for the month dividers drawn across the plot. */
   const monthMarks = useMemo(() => data.filter((d) => d.monthStart), [data]);
 
+  /** Numbers over each bar stay readable only while the bars are wide enough. */
+  const showLabels = data.length <= 45;
+
+
   const totalPickup = useMemo(() => data.reduce((s, d) => s + (d.pickup || 0), 0), [data]);
   const peak = useMemo(() => data.reduce((best, d) => (d.pickup > (best?.pickup ?? -99) ? d : best), data[0]), [data]);
 
