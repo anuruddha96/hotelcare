@@ -20,6 +20,7 @@ import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, unassignRoom } from '@/lib/hkAssignmentDnd';
+import { useUnitSelection, toggleUnitSelection, toggleUnitGroupSelection, type SelectedUnit } from '@/lib/unitSelection';
 
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -193,6 +194,29 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   // Supervisors may move work around the board (RLS keeps them inside their
   // scoped venues) but keep every other manager-only mutation untouched.
   const canDragAssign = !!isManagerOrAdmin || isSupervisor;
+  // Tap-to-select assignment: works identically with a mouse and on touch,
+  // where native HTML5 drag never fires.
+  const selectedUnits = useUnitSelection();
+  const selectionEnabled = venuesEnabled && canDragAssign;
+  const selectedUnitIds = new Set(selectedUnits.map((u) => u.roomId));
+  const longPressRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressFiredRef = useRef(false);
+
+  // Auto-scroll the page while dragging near the top/bottom edge, so a chip at
+  // the top of a long board can still reach the housekeeper cards below.
+  useEffect(() => {
+    if (!canDragAssign) return;
+    const EDGE = 90;
+    const onDragOver = (e: DragEvent) => {
+      const y = e.clientY;
+      const h = window.innerHeight;
+      if (y < EDGE) window.scrollBy({ top: -Math.ceil((EDGE - y) / 4), behavior: 'auto' });
+      else if (y > h - EDGE) window.scrollBy({ top: Math.ceil((y - (h - EDGE)) / 4), behavior: 'auto' });
+    };
+    window.addEventListener('dragover', onDragOver);
+    return () => window.removeEventListener('dragover', onDragOver);
+  }, [canDragAssign]);
+
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
   const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
@@ -747,11 +771,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = isCheckoutBucket(room);
     const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
-    const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms;
+    const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms && !selectionEnabled;
+    const isSelected = selectedUnitIds.has(room.id);
+    const asSelectedUnit = (): SelectedUnit => ({
+      roomId: room.id,
+      roomNumber: room.room_number,
+      sourceType: isCheckout ? 'checkout' : 'daily',
+      assignedTo: assignment?.assigned_to ?? null,
+      assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
+    });
 
     const chipContent = (
       <div 
-        className="flex flex-col items-center gap-0.5"
+        className="flex flex-col items-center gap-0.5 select-none"
         draggable={canDragAssign ? true : undefined}
         onDragStart={canDragAssign ? (e) => {
           setRoomDragPayload(e, {
@@ -773,23 +805,55 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           justDraggedRef.current = Date.now();
           setHoveredRoomId(null);
         } : undefined}
-        onClick={() => handleRoomClick(room)}
+        // Selection mode: a plain tap/click picks the unit, a long press (or
+        // right click) still opens the unit detail dialog.
+        onTouchStart={selectionEnabled ? () => {
+          longPressFiredRef.current = false;
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+          longPressRef.current = setTimeout(() => {
+            longPressFiredRef.current = true;
+            openSettingsDialog(room);
+          }, 550);
+        } : undefined}
+        onTouchEnd={selectionEnabled ? () => {
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+        } : undefined}
+        onTouchMove={selectionEnabled ? () => {
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+        } : undefined}
+        onContextMenu={selectionEnabled ? (e) => { e.preventDefault(); openSettingsDialog(room); } : undefined}
+        onClick={() => {
+          if (selectionEnabled) {
+            if (longPressFiredRef.current) { longPressFiredRef.current = false; return; }
+            if (Date.now() - justDraggedRef.current < 600) return;
+            toggleUnitSelection(asSelectedUnit());
+            return;
+          }
+          handleRoomClick(room);
+        }}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
         onMouseLeave={handleHoverLeave}
-        style={{ cursor: isManagerOrAdmin ? 'grab' : canInteractWithRooms ? 'pointer' : 'default' }}
+        style={{ cursor: canDragAssign ? 'pointer' : canInteractWithRooms ? 'pointer' : 'default' }}
       >
         <div
           className={`
-            px-2 py-1 rounded text-xs font-bold border-2 transition-all min-w-[40px] text-center
+            relative px-2 py-1 rounded text-xs font-bold border-2 transition-all min-w-[40px] text-center
             ${colorClass}
             ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
             ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
             ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
             ${roomOverdue ? 'animate-pulse' : ''}
+            ${isSelected ? 'ring-2 ring-primary ring-offset-2 shadow-md scale-105' : ''}
             ${canInteractWithRooms ? 'hover:scale-110 hover:shadow-md' : ''}
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
         >
+          {isSelected && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
+              ✓
+            </span>
+          )}
+
 
           {room.room_number}
           {(room.pms_metadata as any)?.isNoShow === true && (
@@ -1575,13 +1639,31 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       })),
                     });
                   } : undefined}
-                  title={canDragAssign ? `Drag to assign all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name}` : undefined}
-                  style={{ cursor: canDragAssign ? 'grab' : 'default' }}
+                  title={canDragAssign ? `Tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name} (or drag)` : undefined}
+                  style={{ cursor: canDragAssign ? 'pointer' : 'default' }}
+                  onClick={selectionEnabled ? () => {
+                    toggleUnitGroupSelection(group.rooms.map(r => ({
+                      roomId: r.id,
+                      roomNumber: r.room_number,
+                      sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
+                      assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                      assignedToName: (() => {
+                        const a = assignmentMap.get(r.id);
+                        return a ? staffMap[a.assigned_to] ?? null : null;
+                      })(),
+                    })));
+                  } : undefined}
                 >
                   <span className="h-3 w-1.5 rounded-full shrink-0" style={color ? { backgroundColor: color } : undefined} />
                   <span className="text-[11px] font-semibold text-foreground">{group.name}</span>
                   <Badge variant="secondary" className="text-[9px] px-1 py-0">{group.rooms.length}</Badge>
+                  {selectionEnabled && (
+                    <span className="ml-auto text-[10px] text-primary font-medium">
+                      {group.rooms.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
+                    </span>
+                  )}
                 </div>
+
                 <div className="flex flex-wrap gap-1.5">
                   {group.rooms.map(room => (
                     <div key={room.id} className="animate-fade-in">
@@ -1694,6 +1776,25 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </span>
             )}
             {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">{t('roomOverview.dropHere')}</Badge>}
+            {selectionEnabled && roomList.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                onClick={() => toggleUnitGroupSelection(roomList.map(r => {
+                  const a = assignmentMap.get(r.id);
+                  return {
+                    roomId: r.id,
+                    roomNumber: r.room_number,
+                    sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
+                    assignedTo: a?.assigned_to ?? null,
+                    assignedToName: a ? staffMap[a.assigned_to] ?? null : null,
+                  };
+                }))}
+              >
+                {roomList.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
+              </Button>
+            )}
           </div>
           {dndCount > 0 && (
             <Badge variant="outline" className="text-purple-600 border-purple-300 text-xs">
