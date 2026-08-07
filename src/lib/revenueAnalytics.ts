@@ -118,6 +118,14 @@ export interface DayMetrics {
   newBookings: number;
   /** Room-nights cancelled inside the pickup window (never negative). */
   cancelledBookings: number;
+  /** Room revenue of the room-nights booked inside the window. */
+  newRevenueEur: number;
+  /** Best estimate of the revenue lost inside the window (ADR × rooms lost). */
+  lostRevenueEur: number;
+  /** Rooms lost inside the window, from cancellations or the snapshot delta. */
+  roomsLost: number;
+  /** True when a snapshot old enough to compare against exists for this date. */
+  baselineAvailable: boolean;
   /**
    * Net movement inside the pickup window: new bookings minus cancellations.
    * Negative means the date lost more rooms than it gained. Null only when we
@@ -130,10 +138,11 @@ export interface DayMetrics {
  * Build per-date metrics for [from, to].
  *
  * `newBookings` is exact and always available: it counts booked room-nights whose
- * booking was created inside the pickup window.
- * `netPickup` compares today's rooms-sold against the snapshot captured
- * `windowDays` ago, so it also reflects cancellations. It is null until at least
- * one older snapshot exists.
+ * booking was created inside the pickup window (Budapest calendar days).
+ * The snapshot delta compares today's rooms-sold against the newest snapshot
+ * captured BEFORE the window opened, so it also catches rooms lost without a
+ * cancellation timestamp. Whichever source is more pessimistic wins, so a loss
+ * is never hidden.
  */
 export function buildDayMetrics(params: {
   from: string;
@@ -152,12 +161,16 @@ export function buildDayMetrics(params: {
   const sold = new Map<string, number>();
   const revenue = new Map<string, number>();
   const created = new Map<string, number>();
+  const createdRevenue = new Map<string, number>();
   for (const n of nights) {
     sold.set(n.stay_date, (sold.get(n.stay_date) ?? 0) + 1);
     revenue.set(n.stay_date, (revenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
     if (n.created_at_pms) {
       const createdDay = budapestDayOf(n.created_at_pms);
-      if (createdDay >= windowStart) created.set(n.stay_date, (created.get(n.stay_date) ?? 0) + 1);
+      if (createdDay >= windowStart) {
+        created.set(n.stay_date, (created.get(n.stay_date) ?? 0) + 1);
+        createdRevenue.set(n.stay_date, (createdRevenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
+      }
     }
   }
 
@@ -171,13 +184,17 @@ export function buildDayMetrics(params: {
     cancelled.set(c.stay_date, (cancelled.get(c.stay_date) ?? 0) + 1);
   }
 
-  // Latest snapshot at or before the comparison date, per stay_date.
-  const compareDate = addDays(today, -windowDays);
-  const baseline = new Map<string, number>();
+  // Baseline = the NEWEST capture at or before the day the window opened.
+  // Picking the first row we happen to meet made the comparison point depend
+  // on query order, which is how real losses went missing.
+  const compareDate = addDays(windowStart, -1);
+  const baseline = new Map<string, { captured: string; sold: number }>();
   for (const s of snapshots) {
     if (s.captured_date > compareDate) continue;
-    const prev = baseline.get(`${s.stay_date}`);
-    if (prev === undefined) baseline.set(s.stay_date, s.rooms_sold);
+    const prev = baseline.get(s.stay_date);
+    if (!prev || s.captured_date > prev.captured) {
+      baseline.set(s.stay_date, { captured: s.captured_date, sold: s.rooms_sold });
+    }
   }
 
   // With no reservations loaded at all the horizon is simply not synced yet.
@@ -197,12 +214,18 @@ export function buildDayMetrics(params: {
     // It is the only source that sees cancellations we never received a
     // cancellation timestamp for, so a date that LOST rooms shows negative
     // even when `revenue_cancelled_nights` is empty.
-    const snapDelta = base === undefined ? null : rs - base;
+    const snapDelta = base === undefined ? null : rs - base.sold;
     let net: number | null;
     if (!hasBookings) net = null;
     else if (!hasCreationData) net = snapDelta;
     else if (snapDelta !== null && snapDelta < bookingDelta) net = snapDelta;
     else net = bookingDelta;
+
+    const adr = rs ? rev / rs : null;
+    // Rooms lost: explicit cancellations, or whatever the snapshot says went
+    // missing beyond the bookings we can see.
+    const impliedLost = snapDelta !== null ? Math.max(0, createdN - snapDelta) : 0;
+    const roomsLost = Math.max(cancelledN, impliedLost);
 
     return {
       stay_date: d,
@@ -215,10 +238,15 @@ export function buildDayMetrics(params: {
       roomsLeft: Math.max(0, avail - rs),
       newBookings: createdN,
       cancelledBookings: cancelledN < 0 ? 0 : cancelledN,
+      newRevenueEur: Math.round((createdRevenue.get(d) ?? 0) * 100) / 100,
+      lostRevenueEur: adr ? Math.round(roomsLost * adr * 100) / 100 : 0,
+      roomsLost,
+      baselineAvailable: base !== undefined,
       netPickup: net,
     };
   });
 }
+
 
 /** Budapest calendar day of an ISO timestamp. */
 export function budapestDayOf(isoTimestamp: string): string {
