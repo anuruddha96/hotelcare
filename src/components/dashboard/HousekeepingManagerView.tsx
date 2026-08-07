@@ -781,7 +781,15 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           const assignment = teamAssignments.find(a => a.staff_id === staff.id);
           const progressPercentage = assignment ? getProgressPercentage(assignment.completed, assignment.total_assigned) : 0;
           
-          const myChips = roomAssignments.filter(a => a.assigned_to === staff.id);
+          // Chips shown = saved assignments adjusted by staged (unsaved) moves.
+          const movedAway = new Set(stagedMoves.filter(m => m.toStaffId !== staff.id).map(m => m.roomId));
+          const savedChips = roomAssignments
+            .filter(a => a.assigned_to === staff.id && !movedAway.has(a.room_id))
+            .map(a => ({ key: a.id, roomId: a.room_id, roomNumber: a.room_number, status: a.status, pending: false }));
+          const stagedIn = stagedMoves
+            .filter(m => m.toStaffId === staff.id)
+            .map(m => ({ key: `staged-${m.roomId}`, roomId: m.roomId, roomNumber: m.roomNumber, status: 'assigned', pending: true }));
+          const myChips = [...savedChips, ...stagedIn];
           const isDropTarget = dropTargetStaffId === staff.id;
 
           return (
@@ -802,7 +810,20 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 const payload = readRoomDragPayload(e);
                 if (!payload) return;
                 if (payload.assignedTo === staff.id) return;
+                if (stagedEnabled) {
+                  stageMove({
+                    roomId: payload.roomId,
+                    roomNumber: payload.roomNumber,
+                    toStaffId: staff.id,
+                    toStaffName: staff.full_name,
+                    fromStaffId: payload.assignedTo ?? null,
+                    fromStaffName: payload.assignedToName ?? null,
+                    sourceType: payload.sourceType,
+                  });
+                  return;
+                }
                 setPendingAssign({
+
                   roomId: payload.roomId,
                   roomNumber: payload.roomNumber,
                   staffId: staff.id,
