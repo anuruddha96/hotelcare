@@ -948,6 +948,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         }
       }
 
+      if (skippedTechnical > 0) {
+        console.log(`[PMS] Skipped ${skippedTechnical} technical separator rows`);
+      }
       setProgress(100);
       if (opts.append) {
         setResults(prev => prev ? {
