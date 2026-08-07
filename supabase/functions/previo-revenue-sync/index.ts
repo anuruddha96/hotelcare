@@ -619,6 +619,7 @@ serve(async (req) => {
     snapshots: snapshots.length,
     durationMs: Date.now() - started,
     errors,
+    notes: softNotes,
   };
 
   await service.from("pms_sync_history").insert({
