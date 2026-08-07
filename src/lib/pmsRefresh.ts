@@ -1110,7 +1110,8 @@ export async function runPmsRefresh(
           trigger,
           updated,
           notFound,
-          total: rows.length,
+          total: portfolioMode ? consideredRows : rows.length,
+
           checkouts,
           dailyCount: dailyRoomNumbers.length,
           checkoutRooms: checkoutRoomNumbers,
