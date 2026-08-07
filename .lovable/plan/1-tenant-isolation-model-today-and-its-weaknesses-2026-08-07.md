@@ -1,4 +1,4 @@
-# SLNT Group onboarding — architecture assessment
+SLNT Group onboarding — architecture assessment
 
 Assessment only. No code or database changes are proposed for immediate execution; section 9 is the phased plan for later approval.
 
@@ -9,6 +9,7 @@ Assessment only. No code or database changes are proposed for immediate executio
 - The real per-record boundary is **two free-text columns**: `profiles.assigned_hotel` (text, nullable, no FK) and `rooms.hotel` / `tickets.hotel` etc. plus `organization_slug` stamped on rows.
 
 Weaknesses:
+
 - `rooms.hotel` mixes slugs and display names in live data (`previo-test`, `Hotel Memories Budapest`, `Hotel Ottofiori`, `hotelcare-test`, `788619`). `src/lib/hotelKeys.ts` (`resolveHotelKeys`) papers over this, but only ~half of ~35 hotel-filtering call sites use it; the rest do bare `.eq('hotel', profile.assigned_hotel)` (e.g. `SimpleRoomAssignment.tsx:57`, `RoomAssignmentDialog.tsx:98`, `SupervisorApprovalView.tsx:384`, `MinibarTrackingView.tsx:574`).
 - RLS uses *exact* equality while the client uses alias resolution — two different notions of "same hotel".
 - `rooms` policy `Users can view rooms based on role and assignment` ends with `OR profiles.role = 'housekeeping'` — **any housekeeper can read every room in their organization**. Acceptable at 21–71 rooms/one hotel; not acceptable for SLNT's ~60 units across many venues with per-supervisor scoping.
@@ -50,6 +51,7 @@ user_property_scopes       NEW: (user_id, venue_id) many-to-many
 ```
 
 Key choices:
+
 - Keep `hotel_configurations` as the PMS-account boundary (2 SLNT rows) so the existing per-hotel credential resolution keeps working untouched.
 - `venues` is the new grouping layer; `rooms.venue_id` is **nullable**, so RD Hotels rows stay `NULL` and every existing query behaves identically.
 - `user_property_scopes` is additive; scope checks must be written as "no scope rows ⇒ current behaviour", so RD users are unaffected.
@@ -91,6 +93,7 @@ New SLNT behaviour: top management sees all SLNT venues/units and no RD data; op
 
 ## Open items to confirm
 
-- Are SLNT's two Previo accounts split by venue group, or is one for short-term and one for long-term stock?
-- Should supervisors be scoped to venues only, or also to individual units?
-- Should `demo` and `slnt-group` become the two PMS-account rows, or should new ones be created?
+- Are SLNT's two Previo accounts split by venue group, or is one for short-term and one for long-term stock? No, they have two previo accounts and they want to move from the old one and merge everthing together. and the other thing is even though they have two previo accounts, they want everything in one view, so hotelcare should merge the accounts, and show one as one single account, there will be two API keys when the live api connection is set. 
+- Should supervisors be scoped to venues only, or also to individual units? supervisors and housekeepers can be allocated by the managers to multiple locations, but mostly the same housekeepers clean the room mostly the same housekeeper. then the approval comes to a supervisor who has access to this venue, other supervisors wont get this approval request unless they are assigned this venue. but the supervisors can also see the units and the unit data in the team view and can even assign to themselves and 
+- Should `demo` and `slnt-group` become the two PMS-account rows, or should new ones be created? SLNT group is the one i created to this same group. so these changes should be on the same org-slung. no need to create new ones. 
+- please dont make any changes or improvements to hotel ottofiori and RD hotels and other organizations, now im going to make the custom app extention for SLNT group so please don't touch RD hotels and test accounts. this new changes shows how its showing for SLNT group 
