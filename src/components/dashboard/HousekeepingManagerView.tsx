@@ -122,6 +122,8 @@ interface HousekeepingManagerViewProps {
 export function HousekeepingManagerView({ onActiveInnerTabChange }: HousekeepingManagerViewProps = {}) {
   const { user, profile } = useAuth();
   const { t } = useTranslation();
+  const terms = usePropertyTerms();
+  const { venuesEnabled } = useTenantFeatures();
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
