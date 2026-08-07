@@ -1207,6 +1207,13 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
     </Tabs>
 
+    {/* Keeps the last row reachable above the sticky bars. */}
+    {stagedEnabled && (selectedUnits.length > 0 || stagedMoves.length > 0) && (
+      <div className={selectedUnits.length > 0 ? 'h-40' : 'h-24'} aria-hidden />
+    )}
+
+
+
     {/* Success Animation Overlay */}
     <AssignmentSuccessAnimation
       show={successAnimation.show}
