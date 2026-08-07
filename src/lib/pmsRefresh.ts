@@ -1044,6 +1044,27 @@ export async function runPmsRefresh(
 
   const status: PmsSyncStatus = errors.length ? "partial" : "success";
 
+  // Self-healing: remember the Previo room id for every unit we matched by
+  // name, so subsequent syncs match by id even if Previo renames the listing.
+  if (!dryRun && portfolioMode && learnedExternalIds.size > 0) {
+    try {
+      for (const [roomId, previoRoomId] of learnedExternalIds) {
+        const mappingId = mappingIdByRoomId.get(roomId);
+        if (mappingId) {
+          await supabase
+            .from("pms_unit_mappings")
+            .update({ external_room_id: previoRoomId } as any)
+            .eq("id", mappingId)
+            .is("external_room_id", null);
+        }
+      }
+    } catch (e) {
+      console.warn("[pmsRefresh] could not persist learned Previo room ids:", e);
+    }
+  }
+
+
+
   if (!dryRun) {
     try {
       await supabase.functions.invoke("previo-poll-checkouts", { body: { hotelId } });
