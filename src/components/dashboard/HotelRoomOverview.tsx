@@ -28,6 +28,8 @@ import { HotelFloorMap } from './HotelFloorMap';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { useVenues } from '@/hooks/useVenues';
+import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 
 
 interface RoomData {
@@ -158,6 +160,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const { t } = useTranslation();
   const terms = usePropertyTerms();
   const { venuesEnabled } = useTenantFeatures();
+  const { venues } = useVenues();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
