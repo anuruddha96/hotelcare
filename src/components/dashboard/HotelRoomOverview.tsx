@@ -209,8 +209,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       fetchData(true);
       setTimeout(() => setSyncFlash(false), 2000);
     };
+    const onAssignmentsChanged = () => fetchData(true);
     window.addEventListener('pms-sync-completed', onSynced);
-    return () => window.removeEventListener('pms-sync-completed', onSynced);
+    window.addEventListener('hk-assignments-changed', onAssignmentsChanged);
+    return () => {
+      window.removeEventListener('pms-sync-completed', onSynced);
+      window.removeEventListener('hk-assignments-changed', onAssignmentsChanged);
+    };
   }, []);
 
   // Auto-refresh: realtime subscription on rooms/assignments + visibility-aware polling
