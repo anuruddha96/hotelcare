@@ -16,6 +16,8 @@ import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, A
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
+import { usePropertyTerms } from '@/lib/propertyTerminology';
+import { setRoomDragPayload, readRoomDragPayload, unassignRoom } from '@/lib/hkAssignmentDnd';
 
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -150,6 +152,7 @@ function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): 
 export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
   const { t } = useTranslation();
+  const terms = usePropertyTerms();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
