@@ -1562,14 +1562,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     setRoomDragPayload(e, {
                       roomId: first.id,
                       roomNumber: first.room_number,
-                      sourceType,
+                      sourceType: sectionType,
                       origin: 'overview',
                       assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
                       assignedToName: null,
                       bulk: group.rooms.map(r => ({
                         roomId: r.id,
                         roomNumber: r.room_number,
-                        sourceType,
+                        sourceType: sectionType,
                         assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
                         assignedToName: null,
                       })),
