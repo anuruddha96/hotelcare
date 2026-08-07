@@ -18,6 +18,11 @@ export interface RoomDragPayload {
   /** Housekeeper the unit is currently assigned to, when known. */
   assignedTo?: string | null;
   assignedToName?: string | null;
+  /**
+   * Optional bulk payload — set when a whole venue row is dragged. Always
+   * includes the primary roomId above so single-unit drop targets still work.
+   */
+  bulk?: Array<{ roomId: string; roomNumber: string; sourceType: string; assignedTo: string | null; assignedToName: string | null }>;
 }
 
 export function setRoomDragPayload(e: React.DragEvent, payload: RoomDragPayload) {
@@ -27,12 +32,20 @@ export function setRoomDragPayload(e: React.DragEvent, payload: RoomDragPayload)
   e.dataTransfer.setData('dragOrigin', payload.origin);
   e.dataTransfer.setData('assignedTo', payload.assignedTo ?? '');
   e.dataTransfer.setData('assignedToName', payload.assignedToName ?? '');
+  e.dataTransfer.setData('bulk', payload.bulk ? JSON.stringify(payload.bulk) : '');
   e.dataTransfer.effectAllowed = 'move';
 }
 
 export function readRoomDragPayload(e: React.DragEvent): RoomDragPayload | null {
   const roomId = e.dataTransfer.getData('roomId');
   if (!roomId) return null;
+  let bulk: RoomDragPayload['bulk'];
+  try {
+    const raw = e.dataTransfer.getData('bulk');
+    if (raw) bulk = JSON.parse(raw);
+  } catch {
+    bulk = undefined;
+  }
   return {
     roomId,
     roomNumber: e.dataTransfer.getData('roomNumber'),
@@ -40,8 +53,10 @@ export function readRoomDragPayload(e: React.DragEvent): RoomDragPayload | null 
     origin: (e.dataTransfer.getData('dragOrigin') as DragOrigin) || 'overview',
     assignedTo: e.dataTransfer.getData('assignedTo') || null,
     assignedToName: e.dataTransfer.getData('assignedToName') || null,
+    bulk,
   };
 }
+
 
 /**
  * Assign (or reassign) a unit to a housekeeper for a given date.

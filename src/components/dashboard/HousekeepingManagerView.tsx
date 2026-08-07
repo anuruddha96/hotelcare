@@ -29,6 +29,7 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
+import { venueEdgeStyle } from '@/lib/venueColors';
 import {
   initStagedScope,
   stageMove,
@@ -122,7 +123,9 @@ interface RoomAssignment {
   status: string;
   room_number: string;
   hotel: string;
+  venue_id?: string | null;
 }
+
 
 interface HousekeepingManagerViewProps {
   onActiveInnerTabChange?: (tab: string) => void;
@@ -503,7 +506,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           room_id,
           assigned_to,
           status,
-          rooms!inner(room_number, hotel)
+          rooms!inner(room_number, hotel, venue_id)
         `)
         .eq('assignment_date', selectedDate);
 
@@ -520,7 +523,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         status: item.status,
         room_number: item.rooms.room_number,
         hotel: item.rooms.hotel,
+        venue_id: item.rooms.venue_id ?? null,
       }));
+
 
       setRoomAssignments(assignments);
     } catch (error) {
@@ -785,10 +790,11 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           const movedAway = new Set(stagedMoves.filter(m => m.toStaffId !== staff.id).map(m => m.roomId));
           const savedChips = roomAssignments
             .filter(a => a.assigned_to === staff.id && !movedAway.has(a.room_id))
-            .map(a => ({ key: a.id, roomId: a.room_id, roomNumber: a.room_number, status: a.status, pending: false }));
+            .map(a => ({ key: a.id, roomId: a.room_id, roomNumber: a.room_number, status: a.status, pending: false, venueId: a.venue_id ?? null }));
           const stagedIn = stagedMoves
             .filter(m => m.toStaffId === staff.id)
-            .map(m => ({ key: `staged-${m.roomId}`, roomId: m.roomId, roomNumber: m.roomNumber, status: 'assigned', pending: true }));
+            .map(m => ({ key: `staged-${m.roomId}`, roomId: m.roomId, roomNumber: m.roomNumber, status: 'assigned', pending: true, venueId: roomAssignments.find(a => a.room_id === m.roomId)?.venue_id ?? null }));
+
           const myChips = [...savedChips, ...stagedIn];
           const isDropTarget = dropTargetStaffId === staff.id;
 
@@ -809,6 +815,25 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 setDropTargetStaffId(null);
                 const payload = readRoomDragPayload(e);
                 if (!payload) return;
+                // A whole venue row was dragged — stage every unit at once.
+                if (payload.bulk && payload.bulk.length > 0 && stagedEnabled) {
+                  let staged = 0;
+                  payload.bulk.forEach(item => {
+                    if (item.assignedTo === staff.id) return;
+                    stageMove({
+                      roomId: item.roomId,
+                      roomNumber: item.roomNumber,
+                      toStaffId: staff.id,
+                      toStaffName: staff.full_name,
+                      fromStaffId: item.assignedTo ?? null,
+                      fromStaffName: item.assignedToName ?? null,
+                      sourceType: item.sourceType,
+                    });
+                    staged += 1;
+                  });
+                  if (staged > 0) toast.success(`${staged} ${terms.unitPlural.toLowerCase()} staged for ${staff.full_name}`);
+                  return;
+                }
                 if (payload.assignedTo === staff.id) return;
                 if (stagedEnabled) {
                   stageMove({
@@ -832,6 +857,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   fromName: payload.assignedToName ?? null,
                 });
               } : undefined}
+
             >
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
@@ -897,8 +923,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                                 ? 'bg-blue-100 text-blue-800 border-blue-200'
                                 : 'bg-muted text-foreground border-border'
                         } ${canDragAssign ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        style={venuesEnabled ? venueEdgeStyle(a.venueId) : undefined}
                         title={a.pending ? `${a.roomNumber} — not saved yet` : a.roomNumber}
                       >
+
                         {a.roomNumber}
                         {a.pending && <span className="text-[9px] opacity-70">●</span>}
                       </span>

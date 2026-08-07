@@ -28,6 +28,8 @@ import { HotelFloorMap } from './HotelFloorMap';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { useVenues } from '@/hooks/useVenues';
+import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 
 
 interface RoomData {
@@ -35,6 +37,8 @@ interface RoomData {
   hotel: string | null;
   room_number: string;
   floor_number: number | null;
+  venue_id?: string | null;
+
   status: string | null;
   last_cleaned_at: string | null;
   is_checkout_room: boolean | null;
@@ -156,6 +160,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const { t } = useTranslation();
   const terms = usePropertyTerms();
   const { venuesEnabled } = useTenantFeatures();
+  const { venues } = useVenues();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
@@ -276,7 +281,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, hotel, room_number, floor_number, status, last_cleaned_at, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
+          .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
           .in('hotel', keys)
           .order('room_number'),
         supabase
@@ -675,6 +680,28 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return Array.from(floorMap.entries()).sort((a, b) => a[0] - b[0]);
   };
 
+  // Portfolio tenants (SLNT) have every unit on "floor 0"; the meaningful
+  // grouping is the physical address, so group by venue instead.
+  const groupByVenue = (roomList: RoomData[]) => {
+    const map = new Map<string, RoomData[]>();
+    roomList.forEach(room => {
+      const key = room.venue_id ?? '__none__';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(room);
+    });
+    const nameOf = (key: string) =>
+      key === '__none__' ? 'Unassigned' : (venues.find(v => v.id === key)?.name ?? 'Unassigned');
+    return Array.from(map.entries())
+      .map(([key, list]) => ({
+        key,
+        name: nameOf(key),
+        rooms: [...list].sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true })),
+      }))
+      .sort((a, b) => (a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : a.name.localeCompare(b.name)));
+  };
+
+
+
   const getStaffName = (roomId: string): string | null => {
     const assignment = assignmentMap.get(roomId);
     if (!assignment) return null;
@@ -761,7 +788,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             ${roomOverdue ? 'animate-pulse' : ''}
             ${canInteractWithRooms ? 'hover:scale-110 hover:shadow-md' : ''}
           `}
+          style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
         >
+
           {room.room_number}
           {(room.pms_metadata as any)?.isNoShow === true && (
             <span
@@ -1513,7 +1542,62 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const dndCount = roomList.filter(r => r.is_dnd).length;
     const isDragOver = dragOverSection === sectionType;
 
+    const renderTodayVenueRows = (roomsForColumn: RoomData[]) => {
+      const groups = groupByVenue(roomsForColumn);
+      if (groups.length === 0) {
+        return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
+      }
+      return (
+        <div className="space-y-2">
+          {groups.map(group => {
+            const color = venueColor(group.key === '__none__' ? null : group.key);
+            return (
+              <div key={group.key} className="rounded-md border border-border/50 bg-muted/20 p-1.5">
+                <div
+                  className="mb-1 flex items-center gap-1.5"
+                  draggable={canDragAssign ? true : undefined}
+                  onDragStart={canDragAssign ? (e) => {
+                    const first = group.rooms[0];
+                    if (!first) return;
+                    setRoomDragPayload(e, {
+                      roomId: first.id,
+                      roomNumber: first.room_number,
+                      sourceType: sectionType,
+                      origin: 'overview',
+                      assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
+                      assignedToName: null,
+                      bulk: group.rooms.map(r => ({
+                        roomId: r.id,
+                        roomNumber: r.room_number,
+                        sourceType: sectionType,
+                        assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                        assignedToName: null,
+                      })),
+                    });
+                  } : undefined}
+                  title={canDragAssign ? `Drag to assign all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name}` : undefined}
+                  style={{ cursor: canDragAssign ? 'grab' : 'default' }}
+                >
+                  <span className="h-3 w-1.5 rounded-full shrink-0" style={color ? { backgroundColor: color } : undefined} />
+                  <span className="text-[11px] font-semibold text-foreground">{group.name}</span>
+                  <Badge variant="secondary" className="text-[9px] px-1 py-0">{group.rooms.length}</Badge>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.rooms.map(room => (
+                    <div key={room.id} className="animate-fade-in">
+                      {renderRoomChip(room)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
     const renderTodayFloorRows = (roomsForColumn: RoomData[]) => {
+      if (venuesEnabled) return renderTodayVenueRows(roomsForColumn);
       const columnFloors = groupByFloor(roomsForColumn);
       if (columnFloors.length === 0) {
         return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
@@ -1537,6 +1621,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         </div>
       );
     };
+
 
     const renderPrevFloorRows = () => {
       if (previousEntries.length === 0) {
