@@ -788,7 +788,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             ${roomOverdue ? 'animate-pulse' : ''}
             ${canInteractWithRooms ? 'hover:scale-110 hover:shadow-md' : ''}
           `}
+          style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
         >
+
           {room.room_number}
           {(room.pms_metadata as any)?.isNoShow === true && (
             <span
