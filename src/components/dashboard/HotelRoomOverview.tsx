@@ -1331,11 +1331,24 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const { roomId, roomNumber, sourceType } = payload;
 
     // A chip dragged out of a housekeeper card and dropped back on the board
-    // means "take this off them" — ask first, never retype the unit.
+    // means "take this off them". On staged boards the move is queued for the
+    // blanket Apply; elsewhere we keep the per-move confirmation.
     if (payload.origin === 'housekeeper') {
+      if (venuesEnabled && canDragAssign) {
+        window.dispatchEvent(new CustomEvent('hk-stage-unassign', {
+          detail: {
+            roomId,
+            roomNumber,
+            fromStaffId: payload.assignedTo || null,
+            fromStaffName: payload.assignedToName || null,
+          },
+        }));
+        return;
+      }
       setPendingUnassign({ roomId, roomNumber, staffName: payload.assignedToName || null });
       return;
     }
+
 
     if (sourceType === targetType) return;
     // Retyping a unit between checkout/daily stays a manager-only action.
