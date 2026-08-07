@@ -7,6 +7,7 @@ import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
+import { normalizeUnitName, isTechnicalRow } from "@/lib/slntUnitMapping";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
 const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Syst[ée]m\s*-/i;
@@ -308,6 +309,31 @@ export async function runPmsRefresh(
   const hotelKeys = keys.length ? keys : [hotelId];
   const canonicalHotelKey = hotelKeys.find((key) => key !== hotelId) ?? hotelId;
 
+  // Portfolio tenants (SLNT) receive long Previo marketing names ("CityNest -
+  // City center …") while `rooms.room_number` holds the canonical unit name.
+  // Resolve those through the confirmed unit mapping, exactly like the manual
+  // XLSX upload does. Other tenants have no rows here, so nothing changes.
+  const aliasToRoomId = new Map<string, string>();
+  const externalIdToRoomId = new Map<string, string>();
+  try {
+    const { data: unitMaps } = await supabase
+      .from("pms_unit_mappings")
+      .select("normalized_name, source_name, canonical_room_name, external_room_id, room_id")
+      .in("hotel_id", hotelKeys)
+      .not("room_id", "is", null);
+    for (const m of (unitMaps ?? []) as any[]) {
+      const roomId = m.room_id as string;
+      for (const name of [m.normalized_name, m.source_name, m.canonical_room_name]) {
+        if (name) aliasToRoomId.set(normalizeUnitName(String(name)), roomId);
+      }
+      if (m.external_room_id) externalIdToRoomId.set(String(m.external_room_id), roomId);
+    }
+  } catch (e) {
+    console.warn("[pmsRefresh] unit alias map unavailable:", e);
+  }
+
+
+
   let updated = 0;
   let notFound = 0;
   let checkouts = 0;
@@ -457,6 +483,9 @@ export async function runPmsRefresh(
     try {
       const rawRoomName = String(row.Room ?? "").trim();
       if (!rawRoomName) continue;
+      // Previo exports contain "Technikai" separator rows for portfolio
+      // accounts — they are not units and must not count as unmatched.
+      if (aliasToRoomId.size > 0 && isTechnicalRow(rawRoomName)) continue;
       const roomNumber = extractRoomNumber(rawRoomName);
       const previoRoomId = row.RoomId != null ? String(row.RoomId) : "";
 
@@ -467,7 +496,19 @@ export async function runPmsRefresh(
         return await matcher(q);
       };
 
-      let { data: roomsFound } = await lookup((q) => q.eq("room_number", rawRoomName));
+      // Confirmed unit mapping wins when present (portfolio tenants only).
+      const mappedRoomId =
+        (previoRoomId && externalIdToRoomId.get(previoRoomId)) ||
+        aliasToRoomId.get(normalizeUnitName(rawRoomName)) ||
+        null;
+
+      let roomsFound: any[] | null = null;
+      if (mappedRoomId) {
+        ({ data: roomsFound } = await lookup((q) => q.eq("id", mappedRoomId)));
+      }
+      if (!roomsFound || roomsFound.length === 0) {
+        ({ data: roomsFound } = await lookup((q) => q.eq("room_number", rawRoomName)));
+      }
       if ((!roomsFound || roomsFound.length === 0) && rawRoomName !== roomNumber) {
         ({ data: roomsFound } = await lookup((q) => q.ilike("room_number", rawRoomName)));
       }
@@ -479,6 +520,7 @@ export async function runPmsRefresh(
           q.filter("pms_metadata->>roomId", "eq", previoRoomId),
         ));
       }
+
       if (!roomsFound || roomsFound.length === 0) {
         notFound++;
         if (unmatchedRoomNumbers.length < 200) unmatchedRoomNumbers.push(String(rawRoomName));
