@@ -861,6 +861,20 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
           if (!updateError) {
             processed.updated++;
+            if (nonDestructivePmsUpload) {
+              // Keep the housekeeper's existing task, just retype it when PMS
+              // moved the unit between daily and checkout.
+              await supabase
+                .from('room_assignments')
+                .update({
+                  assignment_type: isCheckout ? 'checkout_cleaning' : 'daily_cleaning',
+                  updated_at: new Date().toISOString(),
+                } as any)
+                .eq('room_id', room.id)
+                .eq('assignment_date', today)
+                .in('status', ['assigned', 'in_progress'])
+                .neq('assignment_type', isCheckout ? 'checkout_cleaning' : 'daily_cleaning');
+            }
             if (pmsCheckedOut) {
               await supabase
                 .from('room_assignments')
@@ -877,6 +891,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                 .in('status', ['assigned', 'in_progress']);
             }
           }
+
 
           // Note: PMS upload only updates room statuses. Managers must manually assign rooms to housekeepers.
 
