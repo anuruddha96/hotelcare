@@ -177,6 +177,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
   const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
   const [syncFlash, setSyncFlash] = useState(false);
+  const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
+  const [unassigning, setUnassigning] = useState(false);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
   const isSupervisor = profile?.role === 'supervisor';
@@ -1551,12 +1553,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         className={`space-y-2 rounded-lg transition-all duration-200 ${
           isDragOver ? 'ring-2 ring-primary/40 bg-primary/5 p-2 -m-2' : ''
         }`}
-        onDragOver={isManagerOrAdmin ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverSection(sectionType); } : undefined}
-        onDragEnter={isManagerOrAdmin ? (e) => { e.preventDefault(); setDragOverSection(sectionType); } : undefined}
-        onDragLeave={isManagerOrAdmin ? (e) => {
+        onDragOver={canDragAssign ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverSection(sectionType); } : undefined}
+        onDragEnter={canDragAssign ? (e) => { e.preventDefault(); setDragOverSection(sectionType); } : undefined}
+        onDragLeave={canDragAssign ? (e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverSection(null);
         } : undefined}
-        onDrop={isManagerOrAdmin ? (e) => handleDrop(e, sectionType) : undefined}
+        onDrop={canDragAssign ? (e) => handleDrop(e, sectionType) : undefined}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-wrap">
