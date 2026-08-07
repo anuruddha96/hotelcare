@@ -952,9 +952,13 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       }
       
       // Show completion notification
-      const successMessage = `Upload completed! Processed ${processed.processed} rooms, updated ${processed.updated}, assigned ${processed.assigned} new tasks`;
-      
-      if (document.visibilityState === 'visible') {
+      const successMessage = nonDestructivePmsUpload
+        ? `Statuses refreshed for ${processed.updated} of ${processed.processed} units — assignments kept`
+        : `Upload completed! Processed ${processed.processed} rooms, updated ${processed.updated}, assigned ${processed.assigned} new tasks`;
+
+      if (opts.silent) {
+        // combined summary is shown by the caller
+      } else if (document.visibilityState === 'visible') {
         toast.success(successMessage);
       } else {
         // User is on another tab, show notification that will persist
@@ -968,6 +972,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           });
         }
       }
+      
       
     } catch (error) {
       console.error('Error processing file:', error);
