@@ -874,12 +874,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     )}
                     {myChips.map((a) => (
                       <span
-                        key={a.id}
+                        key={a.key}
                         draggable={canDragAssign}
                         onDragStart={canDragAssign ? (e) => {
                           setRoomDragPayload(e, {
-                            roomId: a.room_id,
-                            roomNumber: a.room_number,
+                            roomId: a.roomId,
+                            roomNumber: a.roomNumber,
                             sourceType: 'assigned',
                             origin: 'housekeeper',
                             assignedTo: staff.id,
@@ -888,18 +888,22 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                           (e.currentTarget as HTMLElement).style.opacity = '0.5';
                         } : undefined}
                         onDragEnd={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border transition-transform duration-150 hover:scale-105 ${
-                          a.status === 'completed'
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                            : a.status === 'in_progress'
-                              ? 'bg-blue-100 text-blue-800 border-blue-200'
-                              : 'bg-muted text-foreground border-border'
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border animate-fade-in transition-transform duration-150 hover:scale-105 ${
+                          a.pending
+                            ? 'bg-primary/10 text-primary border-primary border-dashed'
+                            : a.status === 'completed'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                              : a.status === 'in_progress'
+                                ? 'bg-blue-100 text-blue-800 border-blue-200'
+                                : 'bg-muted text-foreground border-border'
                         } ${canDragAssign ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                        title={a.room_number}
+                        title={a.pending ? `${a.roomNumber} — not saved yet` : a.roomNumber}
                       >
-                        {a.room_number}
+                        {a.roomNumber}
+                        {a.pending && <span className="text-[9px] opacity-70">●</span>}
                       </span>
                     ))}
+
                   </div>
                 )}
                 {assignment ? (
