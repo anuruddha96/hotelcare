@@ -841,7 +841,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {roomFlags.cleanNotes && (
             <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
-          {staffName && (
+          {staffName && !terms.isProperty && (
             <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
               {staffName}
             </span>
