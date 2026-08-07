@@ -102,6 +102,10 @@ export default function RecommendationOutcomesPanel({ hotelId }: { hotelId: stri
     };
   }, [rows]);
 
+  // Nothing has been marked as applied yet, so there is nothing to grade.
+  // An empty "Did it work?" card only adds noise to the page.
+  if (!loading && rows.length === 0) return null;
+
   return (
     <TooltipProvider>
       <Card>
