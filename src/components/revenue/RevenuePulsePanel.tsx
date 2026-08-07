@@ -72,32 +72,13 @@ export default function RevenuePulsePanel({
           />
         </div>
 
-        <div>
-          <div className="text-[11px] font-medium text-muted-foreground mb-1">
-            Dates that moved in this pickup window
-          </div>
-          {moved.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No bookings or cancellations in the selected window.</p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {moved.slice(0, 40).map((m) => {
-                const up = (m.netPickup ?? 0) > 0;
-                return (
-                  <Badge
-                    key={m.stay_date}
-                    variant="outline"
-                    className={up
-                      ? "border-emerald-500/50 text-emerald-700 dark:text-emerald-300"
-                      : "border-sky-500/50 text-sky-700 dark:text-sky-300"}
-                    title={`${m.newBookings} new · ${m.cancelledBookings} cancelled`}
-                  >
-                    {m.stay_date.slice(5)} {up ? "+" : ""}{m.netPickup}
-                  </Badge>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {moved.length > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            {gained.length} date{gained.length === 1 ? "" : "s"} up · {lost.length} down — see the
+            movement board below for the detail.
+          </p>
+        )}
+
       </CardContent>
     </Card>
   );

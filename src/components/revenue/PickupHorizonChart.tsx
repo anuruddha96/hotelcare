@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Bar, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
+import { Bar, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import { Activity } from "lucide-react";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 import { budapestToday, daysBetween } from "@/lib/revenueAnalytics";
@@ -88,6 +88,10 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
 
   /** Labels for the month dividers drawn across the plot. */
   const monthMarks = useMemo(() => data.filter((d) => d.monthStart), [data]);
+
+  /** Numbers over each bar stay readable only while the bars are wide enough. */
+  const showLabels = data.length <= 45;
+
 
   const totalPickup = useMemo(() => data.reduce((s, d) => s + (d.pickup || 0), 0), [data]);
   const peak = useMemo(() => data.reduce((best, d) => (d.pickup > (best?.pickup ?? -99) ? d : best), data[0]), [data]);
@@ -213,9 +217,19 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 ]}
               />
               <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}
-                fill={PICKUP_LEGEND_COLOR}>
+                fill={PICKUP_LEGEND_COLOR} isAnimationActive={false}>
                 {data.map((d) => <Cell key={d.date} fill={barColor(d.pickup)} />)}
+                {showLabels && (
+                  <LabelList
+                    dataKey="pickup"
+                    position="top"
+                    fontSize={10}
+                    fill="hsl(var(--foreground))"
+                    formatter={(v: number) => (v === 0 ? "" : `${v > 0 ? "+" : ""}${v}`)}
+                  />
+                )}
               </Bar>
+
               {showOcc && (
                 <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} opacity={0.85} />
               )}

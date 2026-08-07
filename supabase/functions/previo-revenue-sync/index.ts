@@ -253,6 +253,8 @@ async function chunkedCall(
   from: string,
   to: string,
   chunkDays: number,
+  /** Extra filter XML appended after the term, e.g. a status restriction. */
+  extraFilter = "",
 ): Promise<{ xml: string[]; errors: string[] }> {
   const xml: string[] = [];
   const errors: string[] = [];
@@ -263,7 +265,7 @@ async function chunkedCall(
       method,
       creds: creds as never,
       pmsHotelId: hotId,
-      extraXml: `<term><from>${cursor}</from><to>${end}</to></term>`,
+      extraXml: `<term><from>${cursor}</from><to>${end}</to></term>${extraFilter}`,
     });
     if (res.ok) xml.push(res.text);
     else errors.push(`${method} ${cursor}..${end}: [${res.status}] ${res.errorMessage ?? "failed"}`);
@@ -271,6 +273,7 @@ async function chunkedCall(
   }
   return { xml, errors };
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -345,6 +348,8 @@ serve(async (req) => {
   }
 
   const errors: string[] = [];
+  /** Non-fatal notes: optional data the PMS did not expose this run. */
+  const softNotes: string[] = [];
 
   // ---------- 1. room types ----------
   let roomTypes: RoomTypeInfo[] = [];
@@ -465,6 +470,28 @@ serve(async (req) => {
       nightMap.set(`${n.res_id}|${n.room_key}|${n.stay_date}`, n);
     }
   }
+  // The default search returns only live bookings, so cancellations and
+  // no-shows never reach us and pickup can never go negative. Ask for those
+  // statuses explicitly. If the endpoint rejects the filter we simply keep the
+  // live-only picture rather than failing the whole sync.
+  for (const statusId of [CANCELLED_STATUS, NOSHOW_STATUS]) {
+    const cancCall = await chunkedCall(
+      "searchReservations", creds, hotId, from, to, 31,
+      `<statusId>${statusId}</statusId>`,
+    );
+    if (cancCall.errors.length) {
+      softNotes.push(`cancelled pass (status ${statusId}) unavailable: ${cancCall.errors[0]}`);
+      continue;
+    }
+    for (const xml of cancCall.xml) {
+      for (const n of parseReservationNights(xml, from, to)) {
+        const key = `${n.res_id}|${n.room_key}|${n.stay_date}`;
+        // A cancelled row always wins over a live row for the same room-night.
+        if (n.cancelled_at || !nightMap.has(key)) nightMap.set(key, n);
+      }
+    }
+  }
+
   const allNights = Array.from(nightMap.values());
   const nights = allNights.filter((n) => !n.cancelled_at);
   const cancelledNights = allNights.filter((n) => !!n.cancelled_at);
@@ -592,6 +619,7 @@ serve(async (req) => {
     snapshots: snapshots.length,
     durationMs: Date.now() - started,
     errors,
+    notes: softNotes,
   };
 
   await service.from("pms_sync_history").insert({
