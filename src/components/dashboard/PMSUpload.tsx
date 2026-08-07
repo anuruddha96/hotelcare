@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
 import { PMSUploadHistoryDialog } from './PMSUploadHistoryDialog';
 import { PMSSyncHistoryDialog } from './PMSSyncHistoryDialog';
