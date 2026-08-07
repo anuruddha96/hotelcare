@@ -526,6 +526,7 @@ export async function runPmsRefresh(
       const mappedRoomId =
         (previoRoomId && externalIdToRoomId.get(previoRoomId)) ||
         aliasToRoomId.get(normalizeUnitName(rawRoomName)) ||
+        (unitResolver ? unitResolver.resolve(rawRoomName, previoRoomId || null) : null) ||
         null;
 
       let roomsFound: any[] | null = null;
@@ -538,7 +539,9 @@ export async function runPmsRefresh(
       if ((!roomsFound || roomsFound.length === 0) && rawRoomName !== roomNumber) {
         ({ data: roomsFound } = await lookup((q) => q.ilike("room_number", rawRoomName)));
       }
-      if ((!roomsFound || roomsFound.length === 0) && roomNumber && roomNumber !== rawRoomName) {
+      // Digit-only fallback is meaningless for portfolio tenants whose unit
+      // names are listing names ("Silver Rooms 1" must never match room "1").
+      if ((!roomsFound || roomsFound.length === 0) && !portfolioMode && roomNumber && roomNumber !== rawRoomName) {
         ({ data: roomsFound } = await lookup((q) => q.eq("room_number", roomNumber)));
       }
       if ((!roomsFound || roomsFound.length === 0) && previoRoomId) {
@@ -546,6 +549,7 @@ export async function runPmsRefresh(
           q.filter("pms_metadata->>roomId", "eq", previoRoomId),
         ));
       }
+
 
       if (!roomsFound || roomsFound.length === 0) {
         notFound++;
