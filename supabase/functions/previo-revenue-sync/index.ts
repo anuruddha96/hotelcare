@@ -253,6 +253,8 @@ async function chunkedCall(
   from: string,
   to: string,
   chunkDays: number,
+  /** Extra filter XML appended after the term, e.g. a status restriction. */
+  extraFilter = "",
 ): Promise<{ xml: string[]; errors: string[] }> {
   const xml: string[] = [];
   const errors: string[] = [];
@@ -263,7 +265,7 @@ async function chunkedCall(
       method,
       creds: creds as never,
       pmsHotelId: hotId,
-      extraXml: `<term><from>${cursor}</from><to>${end}</to></term>`,
+      extraXml: `<term><from>${cursor}</from><to>${end}</to></term>${extraFilter}`,
     });
     if (res.ok) xml.push(res.text);
     else errors.push(`${method} ${cursor}..${end}: [${res.status}] ${res.errorMessage ?? "failed"}`);
@@ -271,6 +273,7 @@ async function chunkedCall(
   }
   return { xml, errors };
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
