@@ -1542,7 +1542,62 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const dndCount = roomList.filter(r => r.is_dnd).length;
     const isDragOver = dragOverSection === sectionType;
 
+    const renderTodayVenueRows = (roomsForColumn: RoomData[]) => {
+      const groups = groupByVenue(roomsForColumn);
+      if (groups.length === 0) {
+        return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
+      }
+      return (
+        <div className="space-y-2">
+          {groups.map(group => {
+            const color = venueColor(group.key === '__none__' ? null : group.key);
+            return (
+              <div key={group.key} className="rounded-md border border-border/50 bg-muted/20 p-1.5">
+                <div
+                  className="mb-1 flex items-center gap-1.5"
+                  draggable={canDragAssign ? true : undefined}
+                  onDragStart={canDragAssign ? (e) => {
+                    const first = group.rooms[0];
+                    if (!first) return;
+                    setRoomDragPayload(e, {
+                      roomId: first.id,
+                      roomNumber: first.room_number,
+                      sourceType,
+                      origin: 'overview',
+                      assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
+                      assignedToName: null,
+                      bulk: group.rooms.map(r => ({
+                        roomId: r.id,
+                        roomNumber: r.room_number,
+                        sourceType,
+                        assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                        assignedToName: null,
+                      })),
+                    });
+                  } : undefined}
+                  title={canDragAssign ? `Drag to assign all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name}` : undefined}
+                  style={{ cursor: canDragAssign ? 'grab' : 'default' }}
+                >
+                  <span className="h-3 w-1.5 rounded-full shrink-0" style={color ? { backgroundColor: color } : undefined} />
+                  <span className="text-[11px] font-semibold text-foreground">{group.name}</span>
+                  <Badge variant="secondary" className="text-[9px] px-1 py-0">{group.rooms.length}</Badge>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.rooms.map(room => (
+                    <div key={room.id} className="animate-fade-in">
+                      {renderRoomChip(room)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
     const renderTodayFloorRows = (roomsForColumn: RoomData[]) => {
+      if (venuesEnabled) return renderTodayVenueRows(roomsForColumn);
       const columnFloors = groupByFloor(roomsForColumn);
       if (columnFloors.length === 0) {
         return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
@@ -1566,6 +1621,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         </div>
       );
     };
+
 
     const renderPrevFloorRows = () => {
       if (previousEntries.length === 0) {
