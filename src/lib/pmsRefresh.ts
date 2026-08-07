@@ -573,6 +573,10 @@ export async function runPmsRefresh(
         return score(b) - score(a);
       })[0];
       matchedRoomIds.add(room.id);
+      if (portfolioMode && previoRoomId && !externalIdToRoomId.has(previoRoomId)) {
+        learnedExternalIds.set(room.id, previoRoomId);
+      }
+
 
       const classification = classifyPmsHousekeepingRow(row, today);
       const departureParsed = classification.departureTime;
