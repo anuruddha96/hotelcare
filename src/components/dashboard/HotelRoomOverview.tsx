@@ -1760,6 +1760,25 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </span>
             )}
             {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">{t('roomOverview.dropHere')}</Badge>}
+            {selectionEnabled && roomList.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                onClick={() => toggleUnitGroupSelection(roomList.map(r => {
+                  const a = assignmentMap.get(r.id);
+                  return {
+                    roomId: r.id,
+                    roomNumber: r.room_number,
+                    sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
+                    assignedTo: a?.assigned_to ?? null,
+                    assignedToName: a ? staffMap[a.assigned_to] ?? null : null,
+                  };
+                }))}
+              >
+                {roomList.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
+              </Button>
+            )}
           </div>
           {dndCount > 0 && (
             <Badge variant="outline" className="text-purple-600 border-purple-300 text-xs">
