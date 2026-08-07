@@ -28,7 +28,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
-import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff } from '@/lib/hkAssignmentDnd';
+import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
+import {
+  initStagedScope,
+  stageMove,
+  undoLastStagedMove,
+  discardStagedMoves,
+  dropStagedMoves,
+  acknowledgeRestore,
+  useStagedMoves,
+} from '@/lib/stagedAssignments';
 
 // Real-time Break Timer Display Component for Managers
 function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; startedAt: string }) {
