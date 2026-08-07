@@ -179,6 +179,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [syncFlash, setSyncFlash] = useState(false);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const isSupervisor = profile?.role === 'supervisor';
+  // Supervisors may move work around the board (RLS keeps them inside their
+  // scoped venues) but keep every other manager-only mutation untouched.
+  const canDragAssign = !!isManagerOrAdmin || isSupervisor;
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
   const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
