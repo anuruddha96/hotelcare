@@ -213,9 +213,19 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 ]}
               />
               <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}
-                fill={PICKUP_LEGEND_COLOR}>
+                fill={PICKUP_LEGEND_COLOR} isAnimationActive={false}>
                 {data.map((d) => <Cell key={d.date} fill={barColor(d.pickup)} />)}
+                {showLabels && (
+                  <LabelList
+                    dataKey="pickup"
+                    position="top"
+                    fontSize={10}
+                    fill="hsl(var(--foreground))"
+                    formatter={(v: number) => (v === 0 ? "" : `${v > 0 ? "+" : ""}${v}`)}
+                  />
+                )}
               </Bar>
+
               {showOcc && (
                 <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} opacity={0.85} />
               )}
