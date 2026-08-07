@@ -3213,6 +3213,106 @@ export type Database = {
           },
         ]
       }
+      pms_unit_mappings: {
+        Row: {
+          canonical_room_name: string | null
+          confidence: number
+          conflict_reason: string | null
+          created_at: string
+          external_room_id: string | null
+          external_type_id: string | null
+          hotel_id: string
+          id: string
+          metadata: Json
+          normalized_name: string
+          organization_slug: string
+          pms_account_id: string | null
+          pms_hotel_id: string | null
+          review_notes: string | null
+          room_id: string | null
+          source_date: string | null
+          source_file: string | null
+          source_kind: string
+          source_name: string
+          status: string
+          suggested_venue_name: string | null
+          updated_at: string
+          venue_id: string | null
+        }
+        Insert: {
+          canonical_room_name?: string | null
+          confidence?: number
+          conflict_reason?: string | null
+          created_at?: string
+          external_room_id?: string | null
+          external_type_id?: string | null
+          hotel_id: string
+          id?: string
+          metadata?: Json
+          normalized_name: string
+          organization_slug: string
+          pms_account_id?: string | null
+          pms_hotel_id?: string | null
+          review_notes?: string | null
+          room_id?: string | null
+          source_date?: string | null
+          source_file?: string | null
+          source_kind?: string
+          source_name: string
+          status?: string
+          suggested_venue_name?: string | null
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Update: {
+          canonical_room_name?: string | null
+          confidence?: number
+          conflict_reason?: string | null
+          created_at?: string
+          external_room_id?: string | null
+          external_type_id?: string | null
+          hotel_id?: string
+          id?: string
+          metadata?: Json
+          normalized_name?: string
+          organization_slug?: string
+          pms_account_id?: string | null
+          pms_hotel_id?: string | null
+          review_notes?: string | null
+          room_id?: string | null
+          source_date?: string | null
+          source_file?: string | null
+          source_kind?: string
+          source_name?: string
+          status?: string
+          suggested_venue_name?: string | null
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_unit_mappings_pms_account_id_fkey"
+            columns: ["pms_account_id"]
+            isOneToOne: false
+            referencedRelation: "pms_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pms_unit_mappings_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pms_unit_mappings_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pms_upload_summary: {
         Row: {
           assigned_rooms: number | null
@@ -6192,6 +6292,10 @@ export type Database = {
         Returns: Json
       }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
+      slnt_venue_visible: {
+        Args: { _user_id: string; _venue_id: string }
+        Returns: boolean
+      }
       soft_delete_user_profile: {
         Args: { p_caller_id?: string; p_target_user_id: string }
         Returns: Json
