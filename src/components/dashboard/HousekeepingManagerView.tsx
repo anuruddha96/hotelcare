@@ -170,6 +170,37 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const { moves: stagedMoves, restored: stagedRestored } = useStagedMoves();
   const [applying, setApplying] = useState(false);
 
+  // Tap-to-assign: units picked on the board above are staged onto whichever
+  // housekeeper the manager taps in the sticky bar (works on touch and mouse).
+  const selectedUnits = useUnitSelection();
+  const assignSelectionTo = (staff: { id: string; full_name: string } | null) => {
+    if (selectedUnits.length === 0) return;
+    let staged = 0;
+    selectedUnits.forEach((unit) => {
+      if ((unit.assignedTo ?? null) === (staff?.id ?? null)) return;
+      stageMove({
+        roomId: unit.roomId,
+        roomNumber: unit.roomNumber,
+        toStaffId: staff?.id ?? null,
+        toStaffName: staff?.full_name ?? null,
+        fromStaffId: unit.assignedTo ?? null,
+        fromStaffName: unit.assignedToName ?? null,
+        sourceType: unit.sourceType,
+      });
+      staged += 1;
+    });
+    clearUnitSelection();
+    if (staged > 0) {
+      toast.success(
+        staff
+          ? `${staged} ${terms.unitPlural.toLowerCase()} staged for ${staff.full_name}`
+          : `${staged} ${terms.unitPlural.toLowerCase()} staged to unassign`,
+      );
+    }
+  };
+
+
+
   useEffect(() => {
     if (!stagedEnabled || !user?.id) return;
     initStagedScope(`${user.id}:${profile?.assigned_hotel ?? 'all'}:${selectedDate}`);
