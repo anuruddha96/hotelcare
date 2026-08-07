@@ -29,6 +29,7 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
+import { venueEdgeStyle } from '@/lib/venueColors';
 import {
   initStagedScope,
   stageMove,
