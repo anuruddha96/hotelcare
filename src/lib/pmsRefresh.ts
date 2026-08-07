@@ -768,8 +768,12 @@ export async function runPmsRefresh(
           ...(existingMetadata ?? {}),
           pmsSyncDate: today,
           lastPmsRefreshDate: today,
+          // Keep the Previo room id on the room so outbound status pushes
+          // (supervisor approval -> "clean" in Previo) can address it.
+          ...(previoRoomId ? { roomId: previoRoomId } : {}),
         },
       };
+
       if (reservationDataAuthoritative) {
         updateData.guest_count = nextGuestCount;
         updateData.guest_nights_stayed = guestNightsStayed;
