@@ -199,6 +199,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   // Two labelled PMS file slots (SLNT: one per Previo account)
   const [slotFiles, setSlotFiles] = useState<(File | null)[]>([null, null]);
   const [runningSlot, setRunningSlot] = useState<number | null>(null);
+  const [isApiSyncing, setIsApiSyncing] = useState(false);
+  const [apiSyncStatus, setApiSyncStatus] = useState<{ label: string; ok: boolean; message: string }[]>([]);
+
 
   // Resolve hotel slug to full hotel name for filtering
   useEffect(() => {
