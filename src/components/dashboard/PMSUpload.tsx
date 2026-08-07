@@ -558,6 +558,27 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       const processed = { processed: 0, updated: 0, assigned: 0, errors: [] as string[] };
       const checkoutRoomsList: any[] = [];
       const dailyCleaningRoomsList: any[] = [];
+      let skippedTechnical = 0;
+
+      // Venue tenants (SLNT) export long marketing unit names ("CityNest - City
+      // center, new studio, ..."). Resolve them through the confirmed Previo
+      // unit mapping instead of failing the row.
+      const unitAliasToRoomId = new Map<string, string>();
+      if (venuesEnabled && profile?.organization_slug) {
+        const { data: aliasRows } = await supabase
+          .from('pms_unit_mappings')
+          .select('normalized_name, canonical_room_name, room_id, status')
+          .eq('organization_slug', profile.organization_slug)
+          .not('room_id', 'is', null);
+        for (const m of aliasRows ?? []) {
+          if (!m.room_id) continue;
+          if (m.normalized_name) unitAliasToRoomId.set(m.normalized_name, m.room_id);
+          if (m.canonical_room_name) {
+            unitAliasToRoomId.set(normalizeUnitName(m.canonical_room_name), m.room_id);
+          }
+        }
+      }
+
 
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
