@@ -39,6 +39,7 @@ import {
   acknowledgeRestore,
   useStagedMoves,
 } from '@/lib/stagedAssignments';
+import { useUnitSelection, clearUnitSelection } from '@/lib/unitSelection';
 
 // Real-time Break Timer Display Component for Managers
 function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; startedAt: string }) {
