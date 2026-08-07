@@ -194,6 +194,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   // Supervisors may move work around the board (RLS keeps them inside their
   // scoped venues) but keep every other manager-only mutation untouched.
   const canDragAssign = !!isManagerOrAdmin || isSupervisor;
+  // Tap-to-select assignment: works identically with a mouse and on touch,
+  // where native HTML5 drag never fires.
+  const selectedUnits = useUnitSelection();
+  const selectionEnabled = venuesEnabled && canDragAssign;
+  const selectedUnitIds = new Set(selectedUnits.map((u) => u.roomId));
+  const longPressRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressFiredRef = useRef(false);
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
   const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
