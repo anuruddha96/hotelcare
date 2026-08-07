@@ -1130,7 +1130,7 @@ export async function runPmsRefresh(
   }
 
   return {
-    status, updated, total: rows.length, notFound, checkouts, errors,
+    status, updated, total: portfolioMode ? consideredRows : rows.length, notFound, checkouts, errors,
     managerMessage: reservationManagerMessage,
     reservationDataAuthoritative,
     reservationIssue,
