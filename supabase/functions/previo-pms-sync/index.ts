@@ -168,7 +168,7 @@ serve(async (req) => {
     const pmsAccountId: string | null = body.pmsAccountId ?? null;
     let accountRow: any = null;
     if (pmsAccountId) {
-      const { data: acc } = await createClient(SUPABASE_URL, SERVICE)
+      const { data: acc } = await service
         .from("pms_accounts")
         .select("id, hotel_id, label, pms_hotel_id, credentials_secret_name, is_active")
         .eq("id", pmsAccountId)
