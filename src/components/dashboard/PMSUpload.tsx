@@ -13,6 +13,7 @@ import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import { normalizeUnitName, isTechnicalRow } from '@/lib/slntUnitMapping';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
 import { PMSUploadHistoryDialog } from './PMSUploadHistoryDialog';
 import { PMSSyncHistoryDialog } from './PMSSyncHistoryDialog';
@@ -172,7 +173,7 @@ interface PMSUploadProps {
 export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   const { t } = useTranslation();
   const { user, profile } = useAuth();
-  const { nonDestructivePmsUpload, dualPmsUpload } = useTenantFeatures();
+  const { nonDestructivePmsUpload, dualPmsUpload, venuesEnabled } = useTenantFeatures();
   const userRole = profile?.role;
   const selectedHotel = profile?.assigned_hotel; // Get selected hotel from profile
   const [uploading, setUploading] = useState(false);
@@ -558,6 +559,27 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       const processed = { processed: 0, updated: 0, assigned: 0, errors: [] as string[] };
       const checkoutRoomsList: any[] = [];
       const dailyCleaningRoomsList: any[] = [];
+      let skippedTechnical = 0;
+
+      // Venue tenants (SLNT) export long marketing unit names ("CityNest - City
+      // center, new studio, ..."). Resolve them through the confirmed Previo
+      // unit mapping instead of failing the row.
+      const unitAliasToRoomId = new Map<string, string>();
+      if (venuesEnabled && profile?.organization_slug) {
+        const { data: aliasRows } = await supabase
+          .from('pms_unit_mappings')
+          .select('normalized_name, canonical_room_name, room_id, status')
+          .eq('organization_slug', profile.organization_slug)
+          .not('room_id', 'is', null);
+        for (const m of aliasRows ?? []) {
+          if (!m.room_id) continue;
+          if (m.normalized_name) unitAliasToRoomId.set(m.normalized_name, m.room_id);
+          if (m.canonical_room_name) {
+            unitAliasToRoomId.set(normalizeUnitName(m.canonical_room_name), m.room_id);
+          }
+        }
+      }
+
 
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
@@ -574,6 +596,12 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const rawRoomName = String(roomVal).trim();
           const roomNumber = extractRoomNumber(rawRoomName);
 
+          // Previo exports contain "Technikai" separator rows — not units.
+          if (venuesEnabled && isTechnicalRow(rawRoomName)) {
+            skippedTechnical++;
+            continue;
+          }
+
           // Helper to run a hotel-scoped lookup
           const lookupRoom = async (matcher: (q: any) => any) => {
             let q = supabase
@@ -584,8 +612,21 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             return await q;
           };
 
+          // 0) Confirmed Previo unit mapping (SLNT long marketing names)
+          const mappedRoomId = venuesEnabled
+            ? unitAliasToRoomId.get(normalizeUnitName(rawRoomName))
+            : undefined;
+
+          let rooms: any[] | null = null;
+          let roomError: any = null;
+          if (mappedRoomId) {
+            ({ data: rooms, error: roomError } = await lookupRoom((q) => q.eq('id', mappedRoomId)));
+          }
+
           // 1) Try exact match on full Previo/raw name (handles "Onity 101", "Single 901", "hk202", ...)
-          let { data: rooms, error: roomError } = await lookupRoom((q) => q.eq('room_number', rawRoomName));
+          if (!roomError && (!rooms || rooms.length === 0)) {
+            ({ data: rooms, error: roomError } = await lookupRoom((q) => q.eq('room_number', rawRoomName)));
+          }
 
           // 2) Case-insensitive fallback
           if (!roomError && (!rooms || rooms.length === 0) && rawRoomName !== roomNumber) {
@@ -598,9 +639,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           }
 
           if (roomError || !rooms || rooms.length === 0) {
-            processed.errors.push(`Room "${rawRoomName}" (also tried extracted "${roomNumber}") not found in ${selectedHotel || 'any hotel'}`);
+            processed.errors.push(
+              venuesEnabled
+                ? `Unit "${rawRoomName}" is not mapped yet — confirm it in Admin → Venues & Access → Previo unit mapping review`
+                : `Room "${rawRoomName}" (also tried extracted "${roomNumber}") not found in ${selectedHotel || 'any hotel'}`
+            );
             continue;
           }
+
 
           const room = rooms[0];
           const currentStatus = room.status;
@@ -902,6 +948,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
         }
       }
 
+      if (skippedTechnical > 0) {
+        console.log(`[PMS] Skipped ${skippedTechnical} technical separator rows`);
+      }
       setProgress(100);
       if (opts.append) {
         setResults(prev => prev ? {
@@ -1475,7 +1524,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5 animate-pulse" />
-              <span>{t('pms.processing')}</span>
+              <span>
+                {runningSlot !== null
+                  ? `Processing PMS file ${runningSlot + 1}…`
+                  : t('pms.processing')}
+              </span>
               {backgroundUpload && (
                 <Badge variant="secondary" className="ml-2">
                   {t('pms.backgroundUpload')}
@@ -1496,7 +1549,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           </div>
         )}
 
-        {results && (
+        {results && !uploading && (
+
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-green-600">
               <CheckCircle className="h-5 w-5" />
