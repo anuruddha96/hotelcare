@@ -1578,18 +1578,34 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                 {t('pms.warning.title')}
               </AlertDialogTitle>
               <AlertDialogDescription className="space-y-2">
-                <p className="font-semibold text-amber-600">
-                  {t('pms.warning.secondUpload')}
-                </p>
-                <p>
-                  {t('pms.warning.description')} <strong>{selectedHotel || 'selected hotel'}</strong>
-                </p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>{t('pms.warning.clearAssignments')}</li>
-                  <li>{t('pms.warning.clearMinibar')}</li>
-                  <li>{t('pms.warning.resetStatuses')}</li>
-                </ul>
+                {nonDestructivePmsUpload ? (
+                  <>
+                    <p>
+                      Re-running the PMS file for <strong>{resolvedHotelName || selectedHotel}</strong> only
+                      refreshes unit statuses.
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li>Existing housekeeping assignments are kept</li>
+                      <li>Daily / checkout and ready-to-clean statuses are updated</li>
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-semibold text-amber-600">
+                      {t('pms.warning.secondUpload')}
+                    </p>
+                    <p>
+                      {t('pms.warning.description')} <strong>{selectedHotel || 'selected hotel'}</strong>
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li>{t('pms.warning.clearAssignments')}</li>
+                      <li>{t('pms.warning.clearMinibar')}</li>
+                      <li>{t('pms.warning.resetStatuses')}</li>
+                    </ul>
+                  </>
+                )}
               </AlertDialogDescription>
+
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={handleWarningCancel}>
