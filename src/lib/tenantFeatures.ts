@@ -24,13 +24,16 @@ const DEFAULT_FEATURES: TenantFeatures = {
   housekeepingOnly: false,
 };
 
+const SLNT_FEATURES: Partial<TenantFeatures> = {
+  venuesEnabled: true,
+  scopedStaffEnabled: true,
+  multiPmsAccounts: true,
+  housekeepingOnly: true,
+};
+
 const ORG_FEATURES: Record<string, Partial<TenantFeatures>> = {
-  slnt: {
-    venuesEnabled: true,
-    scopedStaffEnabled: true,
-    multiPmsAccounts: true,
-    housekeepingOnly: true,
-  },
+  slnt: SLNT_FEATURES,
+  'slnt-group': SLNT_FEATURES,
 };
 
 /**
