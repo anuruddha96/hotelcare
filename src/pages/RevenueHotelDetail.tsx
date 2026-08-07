@@ -622,13 +622,23 @@ export default function RevenueHotelDetail() {
         </TabsList>
 
         <TabsContent value="grid" className="space-y-3">
-          {/* Decisions first: month performance + pickup window */}
+          {/* Decisions first: month performance, then tonight, then outlook */}
           <MonthPerformanceHeader
             today={live.today}
             metrics={live.metrics}
             pickupWindowDays={pickupWindow}
             onPickupWindowChange={setPickupWindow}
           />
+          <RevenuePulsePanel
+            today={live.today}
+            metrics={live.metrics}
+            roomsAvailable={live.roomsAvailable}
+            thresholds={live.thresholds}
+          />
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] items-start">
+            <RevenueIntelligencePanel hotelId={hotelId ?? null} />
+            <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
+          </div>
           <RateStrategyGrid
             loading={live.loading}
             today={live.today}
@@ -645,18 +655,12 @@ export default function RevenueHotelDetail() {
             leftByTypeDate={leftByTypeDate}
           />
           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
-          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
-          <RevenueIntelligencePanel hotelId={hotelId ?? null} />
-          {/* Technical detail last */}
-          <RevenuePulsePanel
-            today={live.today}
-            metrics={live.metrics}
-            roomsAvailable={live.roomsAvailable}
-            thresholds={live.thresholds}
-          />
+          {/* Detail last */}
+          <PickupMovementBoard metrics={live.metrics} windowDays={pickupWindow} />
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>
+
 
 
         <TabsContent value="prices">
