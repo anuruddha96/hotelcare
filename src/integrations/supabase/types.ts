@@ -2706,9 +2706,11 @@ export type Database = {
           last_sync_status: string | null
           last_sync_success_at: string | null
           organization_slug: string
+          outbound_kill_switch: boolean
           pms_hotel_id: string | null
           pms_type: string
           settings: Json
+          status_push_enabled: boolean
           sync_paused: boolean
           updated_at: string
         }
@@ -2728,9 +2730,11 @@ export type Database = {
           last_sync_status?: string | null
           last_sync_success_at?: string | null
           organization_slug: string
+          outbound_kill_switch?: boolean
           pms_hotel_id?: string | null
           pms_type?: string
           settings?: Json
+          status_push_enabled?: boolean
           sync_paused?: boolean
           updated_at?: string
         }
@@ -2750,9 +2754,11 @@ export type Database = {
           last_sync_status?: string | null
           last_sync_success_at?: string | null
           organization_slug?: string
+          outbound_kill_switch?: boolean
           pms_hotel_id?: string | null
           pms_type?: string
           settings?: Json
+          status_push_enabled?: boolean
           sync_paused?: boolean
           updated_at?: string
         }
