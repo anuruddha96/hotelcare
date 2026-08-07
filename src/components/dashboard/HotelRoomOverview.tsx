@@ -35,6 +35,8 @@ interface RoomData {
   hotel: string | null;
   room_number: string;
   floor_number: number | null;
+  venue_id?: string | null;
+
   status: string | null;
   last_cleaned_at: string | null;
   is_checkout_room: boolean | null;
