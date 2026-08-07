@@ -1029,6 +1029,51 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       staffCount={successAnimation.staffCount}
       onComplete={() => setSuccessAnimation({ show: false, roomCount: 0, staffCount: 0 })}
     />
+
+    <AlertDialog open={!!pendingAssign} onOpenChange={(o) => { if (!o) setPendingAssign(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Assign {terms.unit.toLowerCase()} to {pendingAssign?.staffName}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {pendingAssign?.fromName
+              ? `${pendingAssign.roomNumber} will move from ${pendingAssign.fromName} to ${pendingAssign.staffName}.`
+              : `${pendingAssign?.roomNumber ?? ''} will be assigned to ${pendingAssign?.staffName ?? ''}.`}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={assigning}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={assigning}
+            onClick={async (e) => {
+              e.preventDefault();
+              if (!pendingAssign || !user?.id) return;
+              setAssigning(true);
+              try {
+                await assignRoomToStaff({
+                  roomId: pendingAssign.roomId,
+                  staffId: pendingAssign.staffId,
+                  assignmentDate: selectedDate,
+                  assignedBy: user.id,
+                  organizationSlug: profile?.organization_slug ?? null,
+                  isCheckoutRoom: pendingAssign.sourceType === 'checkout',
+                });
+                toast.success(`${pendingAssign.roomNumber} → ${pendingAssign.staffName}`);
+                setPendingAssign(null);
+                await Promise.all([fetchTeamAssignments(), fetchRoomAssignments()]);
+                window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+              } catch (err) {
+                console.error(err);
+                toast.error('Failed to assign');
+              } finally {
+                setAssigning(false);
+              }
+            }}
+          >
+            {assigning ? 'Assigning…' : 'Assign'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }
