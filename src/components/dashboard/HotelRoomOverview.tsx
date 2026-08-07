@@ -711,18 +711,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const chipContent = (
       <div 
         className="flex flex-col items-center gap-0.5"
-        draggable={isManagerOrAdmin ? true : undefined}
-        onDragStart={isManagerOrAdmin ? (e) => {
-          e.dataTransfer.setData('roomId', room.id);
-          e.dataTransfer.setData('roomNumber', room.room_number);
-          e.dataTransfer.setData('sourceType', isCheckout ? 'checkout' : 'daily');
-          e.dataTransfer.effectAllowed = 'move';
+        draggable={canDragAssign ? true : undefined}
+        onDragStart={canDragAssign ? (e) => {
+          setRoomDragPayload(e, {
+            roomId: room.id,
+            roomNumber: room.room_number,
+            sourceType: isCheckout ? 'checkout' : 'daily',
+            origin: 'overview',
+            assignedTo: assignment?.assigned_to ?? null,
+            assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
+          });
           (e.currentTarget as HTMLElement).style.opacity = '0.5';
           justDraggedRef.current = Date.now();
           setHoveredRoomId(null);
           if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         } : undefined}
-        onDragEnd={isManagerOrAdmin ? (e) => {
+        onDragEnd={canDragAssign ? (e) => {
           (e.currentTarget as HTMLElement).style.opacity = '1';
           setDragOverSection(null);
           justDraggedRef.current = Date.now();
