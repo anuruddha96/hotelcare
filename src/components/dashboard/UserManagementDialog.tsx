@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Dialog,
@@ -37,7 +38,7 @@ interface Profile {
   full_name: string;
   nickname?: string;
   phone_number?: string;
-  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager' | 'breakfast_staff';
+  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager' | 'breakfast_staff' | 'supervisor';
   created_at: string;
   assigned_hotel?: string;
   is_super_admin?: boolean;
@@ -53,6 +54,7 @@ interface UserManagementDialogProps {
 }
 
 export function UserManagementDialog({ open, onOpenChange }: UserManagementDialogProps) {
+  const { scopedStaffEnabled } = useTenantFeatures();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
