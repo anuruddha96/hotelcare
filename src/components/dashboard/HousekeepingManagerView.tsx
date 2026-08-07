@@ -932,7 +932,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   >
                     {myChips.length === 0 && (
                       <span className="text-xs text-muted-foreground self-center">
-                        {isDropTarget ? `Drop to assign` : `Drag ${terms.unitPlural.toLowerCase()} here`}
+                        {isDropTarget ? `Drop to assign` : hasSelection ? `Tap to assign ${selectedUnits.length} selected` : `Tap ${terms.unitPlural.toLowerCase()} above, then tap here`}
                       </span>
                     )}
                     {myChips.map((a) => (
