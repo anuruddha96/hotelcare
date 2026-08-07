@@ -28,7 +28,7 @@ serve(async (req) => {
     // Get room information from HotelCare
     const { data: room, error: roomError } = await supabase
       .from('rooms')
-      .select('hotel, room_number')
+      .select('hotel, room_number, pms_metadata')
       .eq('id', roomId)
       .single();
 
@@ -67,12 +67,18 @@ serve(async (req) => {
       .maybeSingle();
 
     if (configError || !pmsConfig) {
+      // Portfolio tenants (e.g. SLNT) have no legacy pms_configurations row:
+      // the owning Previo account comes from pms_unit_mappings -> pms_accounts.
+      const portfolio = await pushViaPmsAccount(supabase, roomId, room, status);
+      if (portfolio) return portfolio;
+
       console.log('No PMS configuration found for hotel:', room.hotel, 'tried:', Array.from(hotelKeys));
       return new Response(
         JSON.stringify({ success: true, skipped: true, message: 'No PMS integration configured for this hotel' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
 
     // FLAG-BASED GATE (replaces the previous hardcoded 'previo-test' allowlist).
     // Push happens only when: status_push_enabled=true AND outbound_kill_switch=false.
