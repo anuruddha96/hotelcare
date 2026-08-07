@@ -536,6 +536,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'finance_manager': return 'bg-teal-600 text-white';
       case 'top_management_manager': return 'bg-violet-600 text-white';
       case 'breakfast_staff': return 'bg-amber-500 text-white';
+      case 'supervisor': return 'bg-indigo-600 text-white';
       default: return 'bg-gray-500 text-white';
     }
   };
@@ -557,6 +558,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'finance_manager': return 'Finance Manager';
       case 'top_management_manager': return 'Top Management Manager';
       case 'breakfast_staff': return 'Breakfast Staff';
+      case 'supervisor': return 'Supervisor';
       default: return role.replace('_', ' ').toUpperCase();
     }
   };
@@ -791,6 +793,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                              {currentUserRole === 'admin' && (
                                <>
                                  <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                                 {scopedStaffEnabled && <SelectItem value="supervisor">Supervisor</SelectItem>}
                                  <SelectItem value="reception">Reception</SelectItem>
                                  <SelectItem value="maintenance">Maintenance</SelectItem>
                                  <SelectItem value="marketing">Marketing</SelectItem>
@@ -913,6 +916,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                      {scopedStaffEnabled && <SelectItem value="supervisor">Supervisor</SelectItem>}
                       <SelectItem value="reception">Reception</SelectItem>
                       <SelectItem value="maintenance">Maintenance</SelectItem>
                       <SelectItem value="marketing">Marketing</SelectItem>
@@ -1030,6 +1034,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                      {scopedStaffEnabled && <SelectItem value="supervisor">Supervisor</SelectItem>}
                       <SelectItem value="reception">Reception</SelectItem>
                       <SelectItem value="maintenance">Maintenance</SelectItem>
                       <SelectItem value="marketing">Marketing</SelectItem>
