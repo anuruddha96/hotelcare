@@ -198,6 +198,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   // where native HTML5 drag never fires.
   const selectedUnits = useUnitSelection();
   const selectionEnabled = venuesEnabled && canDragAssign;
+  // Rental portfolios (SLNT) have many small units: keep the chips tight so a
+  // whole venue fits on one phone screen and tapping stays easy.
+  const compactChips = terms.isProperty;
   const selectedUnitIds = new Set(selectedUnits.map((u) => u.roomId));
   const longPressRef = useRef<NodeJS.Timeout | null>(null);
   const longPressFiredRef = useRef(false);
