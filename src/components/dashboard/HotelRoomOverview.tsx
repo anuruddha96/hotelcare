@@ -1623,13 +1623,31 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       })),
                     });
                   } : undefined}
-                  title={canDragAssign ? `Drag to assign all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name}` : undefined}
-                  style={{ cursor: canDragAssign ? 'grab' : 'default' }}
+                  title={canDragAssign ? `Tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name} (or drag)` : undefined}
+                  style={{ cursor: canDragAssign ? 'pointer' : 'default' }}
+                  onClick={selectionEnabled ? () => {
+                    toggleUnitGroupSelection(group.rooms.map(r => ({
+                      roomId: r.id,
+                      roomNumber: r.room_number,
+                      sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
+                      assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                      assignedToName: (() => {
+                        const a = assignmentMap.get(r.id);
+                        return a ? staffMap[a.assigned_to] ?? null : null;
+                      })(),
+                    })));
+                  } : undefined}
                 >
                   <span className="h-3 w-1.5 rounded-full shrink-0" style={color ? { backgroundColor: color } : undefined} />
                   <span className="text-[11px] font-semibold text-foreground">{group.name}</span>
                   <Badge variant="secondary" className="text-[9px] px-1 py-0">{group.rooms.length}</Badge>
+                  {selectionEnabled && (
+                    <span className="ml-auto text-[10px] text-primary font-medium">
+                      {group.rooms.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
+                    </span>
+                  )}
                 </div>
+
                 <div className="flex flex-wrap gap-1.5">
                   {group.rooms.map(room => (
                     <div key={room.id} className="animate-fade-in">
