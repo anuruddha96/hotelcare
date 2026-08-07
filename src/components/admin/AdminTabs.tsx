@@ -13,6 +13,7 @@ import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import VenueManagement from '@/components/slnt/VenueManagement';
 import StaffVenueAccess from '@/components/slnt/StaffVenueAccess';
 import PmsAccountsPanel from '@/components/slnt/PmsAccountsPanel';
+import UnitMappingReview from '@/components/slnt/UnitMappingReview';
 
 
 export const AdminTabs = () => {
@@ -64,6 +65,7 @@ export const AdminTabs = () => {
         {venuesEnabled && (
           <TabsContent value="venues">
             <div className="space-y-6">
+              {multiPmsAccounts && <UnitMappingReview />}
               <VenueManagement />
               <StaffVenueAccess />
               {multiPmsAccounts && <PmsAccountsPanel />}
