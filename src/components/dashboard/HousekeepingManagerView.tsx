@@ -122,7 +122,9 @@ interface RoomAssignment {
   status: string;
   room_number: string;
   hotel: string;
+  venue_id?: string | null;
 }
+
 
 interface HousekeepingManagerViewProps {
   onActiveInnerTabChange?: (tab: string) => void;
