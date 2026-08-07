@@ -154,6 +154,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const { profile } = useAuth();
   const { t } = useTranslation();
   const terms = usePropertyTerms();
+  const { venuesEnabled } = useTenantFeatures();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
