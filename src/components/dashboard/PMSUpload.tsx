@@ -596,6 +596,12 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           const rawRoomName = String(roomVal).trim();
           const roomNumber = extractRoomNumber(rawRoomName);
 
+          // Previo exports contain "Technikai" separator rows — not units.
+          if (venuesEnabled && isTechnicalRow(rawRoomName)) {
+            skippedTechnical++;
+            continue;
+          }
+
           // Helper to run a hotel-scoped lookup
           const lookupRoom = async (matcher: (q: any) => any) => {
             let q = supabase
@@ -606,8 +612,21 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             return await q;
           };
 
+          // 0) Confirmed Previo unit mapping (SLNT long marketing names)
+          const mappedRoomId = venuesEnabled
+            ? unitAliasToRoomId.get(normalizeUnitName(rawRoomName))
+            : undefined;
+
+          let rooms: any[] | null = null;
+          let roomError: any = null;
+          if (mappedRoomId) {
+            ({ data: rooms, error: roomError } = await lookupRoom((q) => q.eq('id', mappedRoomId)));
+          }
+
           // 1) Try exact match on full Previo/raw name (handles "Onity 101", "Single 901", "hk202", ...)
-          let { data: rooms, error: roomError } = await lookupRoom((q) => q.eq('room_number', rawRoomName));
+          if (!roomError && (!rooms || rooms.length === 0)) {
+            ({ data: rooms, error: roomError } = await lookupRoom((q) => q.eq('room_number', rawRoomName)));
+          }
 
           // 2) Case-insensitive fallback
           if (!roomError && (!rooms || rooms.length === 0) && rawRoomName !== roomNumber) {
@@ -620,9 +639,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           }
 
           if (roomError || !rooms || rooms.length === 0) {
-            processed.errors.push(`Room "${rawRoomName}" (also tried extracted "${roomNumber}") not found in ${selectedHotel || 'any hotel'}`);
+            processed.errors.push(
+              venuesEnabled
+                ? `Unit "${rawRoomName}" is not mapped yet — confirm it in Admin → Venues & Access → Previo unit mapping review`
+                : `Room "${rawRoomName}" (also tried extracted "${roomNumber}") not found in ${selectedHotel || 'any hotel'}`
+            );
             continue;
           }
+
 
           const room = rooms[0];
           const currentStatus = room.status;
