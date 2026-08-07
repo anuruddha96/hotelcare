@@ -26,6 +26,9 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { usePropertyTerms } from '@/lib/propertyTerminology';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff } from '@/lib/hkAssignmentDnd';
 
 // Real-time Break Timer Display Component for Managers
 function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; startedAt: string }) {
