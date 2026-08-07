@@ -1536,20 +1536,46 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-center">
+                <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
                   <Button
                     onClick={runSlotQueue}
-                    disabled={uploading || !slotFiles.some(Boolean)}
+                    disabled={uploading || isApiSyncing || !slotFiles.some(Boolean)}
                     className="w-full max-w-xs"
                   >
                     <Upload className="mr-2 h-4 w-4" />
                     Run PMS update
                   </Button>
+                  <Button
+                    variant="outline"
+                    onClick={runApiSync}
+                    disabled={uploading || isApiSyncing}
+                    className="w-full max-w-xs"
+                  >
+                    <RefreshCw className={`mr-2 h-4 w-4 ${isApiSyncing ? 'animate-spin' : ''}`} />
+                    {isApiSyncing ? 'Syncing from Previo…' : 'Sync both accounts from Previo'}
+                  </Button>
                 </div>
+                {apiSyncStatus.length > 0 && (
+                  <div className="space-y-1 rounded-md border p-3">
+                    {apiSyncStatus.map((s) => (
+                      <div key={s.label} className="flex items-start gap-2 text-sm">
+                        {s.ok ? (
+                          <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        ) : (
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                        )}
+                        <span className="font-medium">{s.label}:</span>
+                        <span className={s.ok ? 'text-muted-foreground' : 'text-destructive'}>{s.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-center text-xs text-muted-foreground">
                   Either file alone or both together — they run one after another and
-                  never remove existing housekeeping assignments.
+                  never remove existing housekeeping assignments. The Previo sync pulls the
+                  same data straight from both accounts through the API.
                 </p>
+
               </div>
             ) : (
               selectedHotel !== 'previo-test' && (
