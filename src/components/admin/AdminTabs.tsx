@@ -6,12 +6,18 @@ import { TranslationManagement } from './TranslationManagement';
 import { PhotoCleanupManager } from '@/components/dashboard/PhotoCleanupManager';
 import PMSConfigurationManagement from './PMSConfigurationManagement';
 import { BreakfastCodeManagement } from './BreakfastCodeManagement';
-import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap } from 'lucide-react';
+import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin } from 'lucide-react';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import VenueManagement from '@/components/slnt/VenueManagement';
+import StaffVenueAccess from '@/components/slnt/StaffVenueAccess';
+import PmsAccountsPanel from '@/components/slnt/PmsAccountsPanel';
 
 
 export const AdminTabs = () => {
+  const { venuesEnabled, multiPmsAccounts } = useTenantFeatures();
+
   return (
     <div className="p-4 sm:p-6">
       <Tabs defaultValue="organizations" className="space-y-6">
@@ -42,6 +48,12 @@ export const AdminTabs = () => {
               <GraduationCap className="w-4 h-4" />
               Training
             </TabsTrigger>
+            {venuesEnabled && (
+              <TabsTrigger value="venues" className="gap-2">
+                <MapPin className="w-4 h-4" />
+                Venues &amp; Access
+              </TabsTrigger>
+            )}
             <TabsTrigger value="system" className="gap-2">
               <HardDrive className="w-4 h-4" />
               System
@@ -49,9 +61,20 @@ export const AdminTabs = () => {
           </TabsList>
         </div>
 
+        {venuesEnabled && (
+          <TabsContent value="venues">
+            <div className="space-y-6">
+              <VenueManagement />
+              <StaffVenueAccess />
+              {multiPmsAccounts && <PmsAccountsPanel />}
+            </div>
+          </TabsContent>
+        )}
+
         <TabsContent value="training">
           <TrainingAdminPanel />
         </TabsContent>
+
 
         <TabsContent value="breakfast">
           <BreakfastCodeManagement />

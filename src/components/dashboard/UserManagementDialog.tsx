@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Dialog,
@@ -37,7 +38,7 @@ interface Profile {
   full_name: string;
   nickname?: string;
   phone_number?: string;
-  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager' | 'breakfast_staff';
+  role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager' | 'breakfast_staff' | 'supervisor';
   created_at: string;
   assigned_hotel?: string;
   is_super_admin?: boolean;
@@ -53,6 +54,7 @@ interface UserManagementDialogProps {
 }
 
 export function UserManagementDialog({ open, onOpenChange }: UserManagementDialogProps) {
+  const { scopedStaffEnabled } = useTenantFeatures();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
@@ -534,6 +536,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'finance_manager': return 'bg-teal-600 text-white';
       case 'top_management_manager': return 'bg-violet-600 text-white';
       case 'breakfast_staff': return 'bg-amber-500 text-white';
+      case 'supervisor': return 'bg-indigo-600 text-white';
       default: return 'bg-gray-500 text-white';
     }
   };
@@ -555,6 +558,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       case 'finance_manager': return 'Finance Manager';
       case 'top_management_manager': return 'Top Management Manager';
       case 'breakfast_staff': return 'Breakfast Staff';
+      case 'supervisor': return 'Supervisor';
       default: return role.replace('_', ' ').toUpperCase();
     }
   };
@@ -789,6 +793,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                              {currentUserRole === 'admin' && (
                                <>
                                  <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                                 {scopedStaffEnabled && <SelectItem value="supervisor">Supervisor</SelectItem>}
                                  <SelectItem value="reception">Reception</SelectItem>
                                  <SelectItem value="maintenance">Maintenance</SelectItem>
                                  <SelectItem value="marketing">Marketing</SelectItem>
@@ -911,6 +916,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                      {scopedStaffEnabled && <SelectItem value="supervisor">Supervisor</SelectItem>}
                       <SelectItem value="reception">Reception</SelectItem>
                       <SelectItem value="maintenance">Maintenance</SelectItem>
                       <SelectItem value="marketing">Marketing</SelectItem>
@@ -1028,6 +1034,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                      {scopedStaffEnabled && <SelectItem value="supervisor">Supervisor</SelectItem>}
                       <SelectItem value="reception">Reception</SelectItem>
                       <SelectItem value="maintenance">Maintenance</SelectItem>
                       <SelectItem value="marketing">Marketing</SelectItem>
