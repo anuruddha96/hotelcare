@@ -755,11 +755,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = isCheckoutBucket(room);
     const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
-    const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms;
+    const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms && !selectionEnabled;
+    const isSelected = selectedUnitIds.has(room.id);
+    const asSelectedUnit = (): SelectedUnit => ({
+      roomId: room.id,
+      roomNumber: room.room_number,
+      sourceType: isCheckout ? 'checkout' : 'daily',
+      assignedTo: assignment?.assigned_to ?? null,
+      assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
+    });
 
     const chipContent = (
       <div 
-        className="flex flex-col items-center gap-0.5"
+        className="flex flex-col items-center gap-0.5 select-none"
         draggable={canDragAssign ? true : undefined}
         onDragStart={canDragAssign ? (e) => {
           setRoomDragPayload(e, {
@@ -781,23 +789,55 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           justDraggedRef.current = Date.now();
           setHoveredRoomId(null);
         } : undefined}
-        onClick={() => handleRoomClick(room)}
+        // Selection mode: a plain tap/click picks the unit, a long press (or
+        // right click) still opens the unit detail dialog.
+        onTouchStart={selectionEnabled ? () => {
+          longPressFiredRef.current = false;
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+          longPressRef.current = setTimeout(() => {
+            longPressFiredRef.current = true;
+            openSettingsDialog(room);
+          }, 550);
+        } : undefined}
+        onTouchEnd={selectionEnabled ? () => {
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+        } : undefined}
+        onTouchMove={selectionEnabled ? () => {
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+        } : undefined}
+        onContextMenu={selectionEnabled ? (e) => { e.preventDefault(); openSettingsDialog(room); } : undefined}
+        onClick={() => {
+          if (selectionEnabled) {
+            if (longPressFiredRef.current) { longPressFiredRef.current = false; return; }
+            if (Date.now() - justDraggedRef.current < 600) return;
+            toggleUnitSelection(asSelectedUnit());
+            return;
+          }
+          handleRoomClick(room);
+        }}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
         onMouseLeave={handleHoverLeave}
-        style={{ cursor: isManagerOrAdmin ? 'grab' : canInteractWithRooms ? 'pointer' : 'default' }}
+        style={{ cursor: canDragAssign ? 'pointer' : canInteractWithRooms ? 'pointer' : 'default' }}
       >
         <div
           className={`
-            px-2 py-1 rounded text-xs font-bold border-2 transition-all min-w-[40px] text-center
+            relative px-2 py-1 rounded text-xs font-bold border-2 transition-all min-w-[40px] text-center
             ${colorClass}
             ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
             ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
             ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
             ${roomOverdue ? 'animate-pulse' : ''}
+            ${isSelected ? 'ring-2 ring-primary ring-offset-2 shadow-md scale-105' : ''}
             ${canInteractWithRooms ? 'hover:scale-110 hover:shadow-md' : ''}
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
         >
+          {isSelected && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
+              ✓
+            </span>
+          )}
+
 
           {room.room_number}
           {(room.pms_metadata as any)?.isNoShow === true && (
