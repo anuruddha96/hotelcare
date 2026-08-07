@@ -813,6 +813,25 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 setDropTargetStaffId(null);
                 const payload = readRoomDragPayload(e);
                 if (!payload) return;
+                // A whole venue row was dragged — stage every unit at once.
+                if (payload.bulk && payload.bulk.length > 0 && stagedEnabled) {
+                  let staged = 0;
+                  payload.bulk.forEach(item => {
+                    if (item.assignedTo === staff.id) return;
+                    stageMove({
+                      roomId: item.roomId,
+                      roomNumber: item.roomNumber,
+                      toStaffId: staff.id,
+                      toStaffName: staff.full_name,
+                      fromStaffId: item.assignedTo ?? null,
+                      fromStaffName: item.assignedToName ?? null,
+                      sourceType: item.sourceType,
+                    });
+                    staged += 1;
+                  });
+                  if (staged > 0) toast.success(`${staged} ${terms.unitPlural.toLowerCase()} staged for ${staff.full_name}`);
+                  return;
+                }
                 if (payload.assignedTo === staff.id) return;
                 if (stagedEnabled) {
                   stageMove({
@@ -836,6 +855,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   fromName: payload.assignedToName ?? null,
                 });
               } : undefined}
+
             >
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
