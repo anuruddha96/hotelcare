@@ -830,14 +830,19 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           const myChips = [...savedChips, ...stagedIn];
           const isDropTarget = dropTargetStaffId === staff.id;
 
+          const hasSelection = stagedEnabled && selectedUnits.length > 0;
+
           return (
             <Card
               key={staff.id}
               className={`transition-all duration-200 ${
                 isDropTarget
                   ? 'ring-2 ring-primary shadow-lg scale-[1.02] bg-primary/5'
-                  : 'hover:shadow-md'
+                  : hasSelection
+                    ? 'ring-1 ring-primary/40 cursor-pointer hover:ring-2 hover:ring-primary'
+                    : 'hover:shadow-md'
               }`}
+              onClick={hasSelection ? () => assignSelectionTo(staff) : undefined}
               onDragOver={canDragAssign ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTargetStaffId(staff.id); } : undefined}
               onDragLeave={canDragAssign ? (e) => {
                 if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTargetStaffId(null);
