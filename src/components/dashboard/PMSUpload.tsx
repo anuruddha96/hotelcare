@@ -887,9 +887,20 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       }
 
       setProgress(100);
-      setResults(processed);
-      setCheckoutRooms(checkoutRoomsList);
-      setDailyCleaningRooms(dailyCleaningRoomsList);
+      if (opts.append) {
+        setResults(prev => prev ? {
+          processed: prev.processed + processed.processed,
+          updated: prev.updated + processed.updated,
+          assigned: prev.assigned + processed.assigned,
+          errors: [...prev.errors, ...processed.errors],
+        } : processed);
+        setCheckoutRooms(prev => [...prev, ...checkoutRoomsList]);
+        setDailyCleaningRooms(prev => [...prev, ...dailyCleaningRoomsList]);
+      } else {
+        setResults(processed);
+        setCheckoutRooms(checkoutRoomsList);
+        setDailyCleaningRooms(dailyCleaningRoomsList);
+      }
       setBackgroundUpload(false);
       
       // Save summary for managers/admins to view later
