@@ -922,8 +922,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                                 ? 'bg-blue-100 text-blue-800 border-blue-200'
                                 : 'bg-muted text-foreground border-border'
                         } ${canDragAssign ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        style={venuesEnabled ? venueEdgeStyle(a.venueId) : undefined}
                         title={a.pending ? `${a.roomNumber} — not saved yet` : a.roomNumber}
                       >
+
                         {a.roomNumber}
                         {a.pending && <span className="text-[9px] opacity-70">●</span>}
                       </span>
