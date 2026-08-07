@@ -172,7 +172,7 @@ interface PMSUploadProps {
 export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   const { t } = useTranslation();
   const { user, profile } = useAuth();
-  const { nonDestructivePmsUpload, dualPmsUpload } = useTenantFeatures();
+  const { nonDestructivePmsUpload, dualPmsUpload, venuesEnabled } = useTenantFeatures();
   const userRole = profile?.role;
   const selectedHotel = profile?.assigned_hotel; // Get selected hotel from profile
   const [uploading, setUploading] = useState(false);
