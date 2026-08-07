@@ -483,6 +483,9 @@ export async function runPmsRefresh(
     try {
       const rawRoomName = String(row.Room ?? "").trim();
       if (!rawRoomName) continue;
+      // Previo exports contain "Technikai" separator rows for portfolio
+      // accounts — they are not units and must not count as unmatched.
+      if (aliasToRoomId.size > 0 && isTechnicalRow(rawRoomName)) continue;
       const roomNumber = extractRoomNumber(rawRoomName);
       const previoRoomId = row.RoomId != null ? String(row.RoomId) : "";
 
@@ -493,7 +496,19 @@ export async function runPmsRefresh(
         return await matcher(q);
       };
 
-      let { data: roomsFound } = await lookup((q) => q.eq("room_number", rawRoomName));
+      // Confirmed unit mapping wins when present (portfolio tenants only).
+      const mappedRoomId =
+        (previoRoomId && externalIdToRoomId.get(previoRoomId)) ||
+        aliasToRoomId.get(normalizeUnitName(rawRoomName)) ||
+        null;
+
+      let roomsFound: any[] | null = null;
+      if (mappedRoomId) {
+        ({ data: roomsFound } = await lookup((q) => q.eq("id", mappedRoomId)));
+      }
+      if (!roomsFound || roomsFound.length === 0) {
+        ({ data: roomsFound } = await lookup((q) => q.eq("room_number", rawRoomName)));
+      }
       if ((!roomsFound || roomsFound.length === 0) && rawRoomName !== roomNumber) {
         ({ data: roomsFound } = await lookup((q) => q.ilike("room_number", rawRoomName)));
       }
@@ -505,6 +520,7 @@ export async function runPmsRefresh(
           q.filter("pms_metadata->>roomId", "eq", previoRoomId),
         ));
       }
+
       if (!roomsFound || roomsFound.length === 0) {
         notFound++;
         if (unmatchedRoomNumbers.length < 200) unmatchedRoomNumbers.push(String(rawRoomName));
