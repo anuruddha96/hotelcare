@@ -215,3 +215,93 @@ function mapToPrevioStatusId(status: string): number {
     default:             return 1;
   }
 }
+
+/**
+ * Portfolio tenants (SLNT): the room's Previo account is resolved through
+ * pms_unit_mappings -> pms_accounts instead of the legacy pms_configurations
+ * row. Returns null when this room is not part of such a portfolio, so the
+ * caller can fall back to its existing "skipped" response.
+ */
+async function pushViaPmsAccount(
+  supabase: any,
+  roomId: string,
+  room: { hotel: string; room_number: string; pms_metadata: any },
+  status: string,
+): Promise<Response | null> {
+  const { data: mapping } = await supabase
+    .from('pms_unit_mappings')
+    .select('pms_account_id, external_room_id, status')
+    .eq('room_id', roomId)
+    .not('external_room_id', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!mapping?.pms_account_id) return null;
+
+  const { data: account } = await supabase
+    .from('pms_accounts')
+    .select('id, label, pms_hotel_id, credentials_secret_name, is_active, status_push_enabled, outbound_kill_switch')
+    .eq('id', mapping.pms_account_id)
+    .maybeSingle();
+
+  if (!account) return null;
+
+  if (account.is_active !== true || account.status_push_enabled !== true || account.outbound_kill_switch === true) {
+    console.log(`[previo-update-room-status] Push disabled for account ${account.label}`);
+    return new Response(
+      JSON.stringify({ success: true, skipped: true, message: 'Outbound push disabled for this PMS account' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+
+  const previoRoomId = String(room.pms_metadata?.roomId ?? mapping.external_room_id ?? '');
+  if (!previoRoomId) {
+    return new Response(
+      JSON.stringify({ success: true, skipped: true, message: 'Unit not mapped to a Previo room id' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+
+  const previoStatusId = mapToPrevioStatusId(status);
+  const { response } = await fetchPrevioWithAuth({
+    credentialsSecretName: account.credentials_secret_name,
+    path: `/rest/rooms/${previoRoomId}/clean-statuses`,
+    pmsHotelId: String(account.pms_hotel_id || ''),
+    method: 'PUT',
+    body: JSON.stringify({ roomCleanStatusId: previoStatusId }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Previo API error (${account.label}): ${response.status} ${errorText.slice(0, 200)}`);
+  }
+
+  const responseData = await response.json().catch(() => ({}));
+
+  await supabase.from('pms_sync_history').insert({
+    hotel_id: room.hotel,
+    sync_type: 'room_status_update',
+    direction: 'push',
+    sync_status: 'success',
+    data: {
+      room_id: roomId,
+      room_number: room.room_number,
+      roomCleanStatusId: previoStatusId,
+      hotelcare_status: status,
+      previo_room_id: previoRoomId,
+      pms_account: account.label,
+      response: responseData,
+    },
+  });
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      message: `Unit status updated in Previo (${account.label})`,
+      roomNumber: room.room_number,
+      roomCleanStatusId: previoStatusId,
+    }),
+    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+  );
+}
