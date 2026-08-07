@@ -1308,84 +1308,108 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           <PmsSyncStatus hotelId={selectedHotel} compact />
         )}
 
-        {/* Hotel Selection Warning */}
-        {selectedHotel && (
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5" />
-              <div>
-                <h4 className="font-semibold text-blue-800 mb-1">
-                  {t('pms.hotelFilterActive')}
-                </h4>
-                <p className="text-sm text-blue-700">
-                  {t('pms.currentlyOperating')} <strong>{selectedHotel}</strong>
-                  <br />
-                  {t('pms.onlyRoomsAffected')}
-                </p>
-              </div>
+        {/* Compact target / mode line */}
+        {selectedHotel ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">{t('pms.currentlyOperating')}</span>
+            <strong className="text-foreground">{resolvedHotelName || selectedHotel}</strong>
+            <Badge variant={nonDestructivePmsUpload ? 'secondary' : 'outline'} className="ml-auto">
+              {nonDestructivePmsUpload ? 'Status update only — assignments kept' : t('pms.dataResetWarning')}
+            </Badge>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
+            <div>
+              <p className="font-medium">{t('pms.noHotelSelected')}</p>
+              <p className="text-muted-foreground">{t('pms.selectHotelFirst')}</p>
             </div>
           </div>
         )}
-        
-        {!selectedHotel && (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
-              <div>
-                <h4 className="font-semibold text-amber-800 mb-1">
-                  {t('pms.noHotelSelected')}
-                </h4>
-                <p className="text-sm text-amber-700">
-                  {t('pms.selectHotelFirst')}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-        
+
         {!uploading && !results && selectedHotel && (
           <>
-            {/* Warning about data reset */}
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
-                <div>
-                  <h4 className="font-semibold text-amber-800 mb-1">
-                    {t('pms.dataResetWarning')}
-                  </h4>
-                  <p className="text-sm text-amber-700">
-                    {t('pms.uploadingWillReset')} {selectedHotel} {t('pms.forCurrentDay')}
-                  </p>
+            {dualPmsUpload ? (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[0, 1].map((slot) => (
+                    <div key={slot} className="rounded-lg border p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">PMS file {slot + 1}</p>
+                        {runningSlot === slot && (
+                          <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                        )}
+                      </div>
+                      {slotFiles[slot] ? (
+                        <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5">
+                          <FileSpreadsheet className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-sm">{slotFiles[slot]!.name}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto h-7 px-2"
+                            onClick={() =>
+                              setSlotFiles((prev) => prev.map((f, i) => (i === slot ? null : f)))
+                            }
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      ) : (
+                        <Input
+                          type="file"
+                          accept=".xlsx,.xls"
+                          onChange={(e) => {
+                            const picked = e.target.files?.[0] ?? null;
+                            setSlotFiles((prev) => prev.map((f, i) => (i === slot ? picked : f)));
+                            e.target.value = '';
+                          }}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
-              </div>
-            </div>
-            
-            {selectedHotel && selectedHotel !== 'previo-test' && (
-              <div 
-                {...getRootProps()} 
-                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                  isDragActive 
-                    ? 'border-primary bg-primary/5' 
-                    : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
-                }`}
-              >
-                <input {...getInputProps()} />
-                <Upload className={`h-12 w-12 mx-auto mb-4 transition-colors ${
-                  isDragActive ? 'text-primary' : 'text-muted-foreground'
-                }`} />
-                <div className="space-y-2">
-                <h3 className="font-medium">
-                  {isDragActive ? t('pms.dropHere') : t('pms.title')}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {isDragActive 
-                    ? t('pms.releaseToUpload')
-                    : t('pms.dragDrop')
-                  }
+                <div className="flex justify-center">
+                  <Button
+                    onClick={runSlotQueue}
+                    disabled={uploading || !slotFiles.some(Boolean)}
+                    className="w-full max-w-xs"
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    Run PMS update
+                  </Button>
+                </div>
+                <p className="text-center text-xs text-muted-foreground">
+                  Either file alone or both together — they run one after another and
+                  never remove existing housekeeping assignments.
                 </p>
               </div>
-            </div>
+            ) : (
+              selectedHotel !== 'previo-test' && (
+                <div
+                  {...getRootProps()}
+                  className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                    isDragActive
+                      ? 'border-primary bg-primary/5'
+                      : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
+                  }`}
+                >
+                  <input {...getInputProps()} />
+                  <Upload className={`h-10 w-10 mx-auto mb-3 transition-colors ${
+                    isDragActive ? 'text-primary' : 'text-muted-foreground'
+                  }`} />
+                  <div className="space-y-1">
+                    <h3 className="font-medium">
+                      {isDragActive ? t('pms.dropHere') : t('pms.title')}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {isDragActive ? t('pms.releaseToUpload') : t('pms.dragDrop')}
+                    </p>
+                  </div>
+                </div>
+              )
             )}
+
 
             {/* Upload Buttons */}
             <div className="flex justify-center gap-4 mt-4 flex-wrap">
