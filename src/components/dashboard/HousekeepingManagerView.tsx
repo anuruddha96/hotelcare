@@ -26,6 +26,9 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { usePropertyTerms } from '@/lib/propertyTerminology';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff } from '@/lib/hkAssignmentDnd';
 
 // Real-time Break Timer Display Component for Managers
 function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; startedAt: string }) {
@@ -119,6 +122,10 @@ interface HousekeepingManagerViewProps {
 export function HousekeepingManagerView({ onActiveInnerTabChange }: HousekeepingManagerViewProps = {}) {
   const { user, profile } = useAuth();
   const { t } = useTranslation();
+  const terms = usePropertyTerms();
+  const { venuesEnabled } = useTenantFeatures();
+  // Managers/supervisors may move work between housekeepers by drag & drop.
+  const canDragAssign = !!profile?.role && ['admin', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -129,6 +136,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [bulkUnassignMode, setBulkUnassignMode] = useState(false);
   const [selectedAssignments, setSelectedAssignments] = useState<string[]>([]);
   const [roomAssignments, setRoomAssignments] = useState<RoomAssignment[]>([]);
+  // Drag-and-drop assignment (SLNT-style boards): pending confirmation + hover target.
+  const [dropTargetStaffId, setDropTargetStaffId] = useState<string | null>(null);
+  const [pendingAssign, setPendingAssign] = useState<
+    { roomId: string; roomNumber: string; staffId: string; staffName: string; sourceType: string; fromName: string | null } | null
+  >(null);
+  const [assigning, setAssigning] = useState(false);
   const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
   const [workingRoomDialogOpen, setWorkingRoomDialogOpen] = useState(false);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
@@ -144,6 +157,16 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     fetchRoomAssignments();
     fetchStaffAttendance();
     fetchManagerHotelName();
+  }, [selectedDate]);
+
+  // Keep the cards in sync when the unit board unassigns something.
+  useEffect(() => {
+    const onChanged = () => {
+      fetchTeamAssignments();
+      fetchRoomAssignments();
+    };
+    window.addEventListener('hk-assignments-changed', onChanged);
+    return () => window.removeEventListener('hk-assignments-changed', onChanged);
   }, [selectedDate]);
 
   // Real-time subscriptions for live updates
@@ -668,8 +691,37 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           const assignment = teamAssignments.find(a => a.staff_id === staff.id);
           const progressPercentage = assignment ? getProgressPercentage(assignment.completed, assignment.total_assigned) : 0;
           
+          const myChips = roomAssignments.filter(a => a.assigned_to === staff.id);
+          const isDropTarget = dropTargetStaffId === staff.id;
+
           return (
-            <Card key={staff.id} className="hover:shadow-md transition-shadow">
+            <Card
+              key={staff.id}
+              className={`transition-all duration-200 ${
+                isDropTarget
+                  ? 'ring-2 ring-primary shadow-lg scale-[1.02] bg-primary/5'
+                  : 'hover:shadow-md'
+              }`}
+              onDragOver={canDragAssign ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTargetStaffId(staff.id); } : undefined}
+              onDragLeave={canDragAssign ? (e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTargetStaffId(null);
+              } : undefined}
+              onDrop={canDragAssign ? (e) => {
+                e.preventDefault();
+                setDropTargetStaffId(null);
+                const payload = readRoomDragPayload(e);
+                if (!payload) return;
+                if (payload.assignedTo === staff.id) return;
+                setPendingAssign({
+                  roomId: payload.roomId,
+                  roomNumber: payload.roomNumber,
+                  staffId: staff.id,
+                  staffName: staff.full_name,
+                  sourceType: payload.sourceType,
+                  fromName: payload.assignedToName ?? null,
+                });
+              } : undefined}
+            >
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
                   <div>
@@ -692,11 +744,53 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     )}
                   </div>
                   <Badge variant={assignment?.total_assigned ? "default" : "secondary"}>
-                    {assignment?.total_assigned || 0} rooms
+                    {assignment?.total_assigned || 0} {terms.unitPlural.toLowerCase()}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
+                {/* Assigned unit chips — drag one out to unassign, drop one in to assign. */}
+                {venuesEnabled && (
+                  <div
+                    className={`flex flex-wrap gap-1.5 rounded-md border border-dashed p-2 min-h-[46px] transition-colors ${
+                      isDropTarget ? 'border-primary bg-primary/10' : 'border-border/60'
+                    }`}
+                  >
+                    {myChips.length === 0 && (
+                      <span className="text-xs text-muted-foreground self-center">
+                        {isDropTarget ? `Drop to assign` : `Drag ${terms.unitPlural.toLowerCase()} here`}
+                      </span>
+                    )}
+                    {myChips.map((a) => (
+                      <span
+                        key={a.id}
+                        draggable={canDragAssign}
+                        onDragStart={canDragAssign ? (e) => {
+                          setRoomDragPayload(e, {
+                            roomId: a.room_id,
+                            roomNumber: a.room_number,
+                            sourceType: 'assigned',
+                            origin: 'housekeeper',
+                            assignedTo: staff.id,
+                            assignedToName: staff.full_name,
+                          });
+                          (e.currentTarget as HTMLElement).style.opacity = '0.5';
+                        } : undefined}
+                        onDragEnd={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border transition-transform duration-150 hover:scale-105 ${
+                          a.status === 'completed'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                            : a.status === 'in_progress'
+                              ? 'bg-blue-100 text-blue-800 border-blue-200'
+                              : 'bg-muted text-foreground border-border'
+                        } ${canDragAssign ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        title={a.room_number}
+                      >
+                        {a.room_number}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {assignment ? (
                   <>
                     {/* Progress Bar */}
@@ -945,6 +1039,51 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       staffCount={successAnimation.staffCount}
       onComplete={() => setSuccessAnimation({ show: false, roomCount: 0, staffCount: 0 })}
     />
+
+    <AlertDialog open={!!pendingAssign} onOpenChange={(o) => { if (!o) setPendingAssign(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Assign {terms.unit.toLowerCase()} to {pendingAssign?.staffName}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {pendingAssign?.fromName
+              ? `${pendingAssign.roomNumber} will move from ${pendingAssign.fromName} to ${pendingAssign.staffName}.`
+              : `${pendingAssign?.roomNumber ?? ''} will be assigned to ${pendingAssign?.staffName ?? ''}.`}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={assigning}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={assigning}
+            onClick={async (e) => {
+              e.preventDefault();
+              if (!pendingAssign || !user?.id) return;
+              setAssigning(true);
+              try {
+                await assignRoomToStaff({
+                  roomId: pendingAssign.roomId,
+                  staffId: pendingAssign.staffId,
+                  assignmentDate: selectedDate,
+                  assignedBy: user.id,
+                  organizationSlug: profile?.organization_slug ?? null,
+                  isCheckoutRoom: pendingAssign.sourceType === 'checkout',
+                });
+                toast.success(`${pendingAssign.roomNumber} → ${pendingAssign.staffName}`);
+                setPendingAssign(null);
+                await Promise.all([fetchTeamAssignments(), fetchRoomAssignments()]);
+                window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+              } catch (err) {
+                console.error(err);
+                toast.error('Failed to assign');
+              } finally {
+                setAssigning(false);
+              }
+            }}
+          >
+            {assigning ? 'Assigning…' : 'Assign'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }

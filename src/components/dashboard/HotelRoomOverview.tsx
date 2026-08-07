@@ -11,11 +11,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban, AlertTriangle } from 'lucide-react';
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
+import { usePropertyTerms } from '@/lib/propertyTerminology';
+import { setRoomDragPayload, readRoomDragPayload, unassignRoom } from '@/lib/hkAssignmentDnd';
 
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -150,6 +153,7 @@ function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): 
 export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
   const { t } = useTranslation();
+  const terms = usePropertyTerms();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
@@ -174,8 +178,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
   const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
   const [syncFlash, setSyncFlash] = useState(false);
+  const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
+  const [unassigning, setUnassigning] = useState(false);
 
   const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const isSupervisor = profile?.role === 'supervisor';
+  // Supervisors may move work around the board (RLS keeps them inside their
+  // scoped venues) but keep every other manager-only mutation untouched.
+  const canDragAssign = !!isManagerOrAdmin || isSupervisor;
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
   const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
@@ -199,8 +209,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       fetchData(true);
       setTimeout(() => setSyncFlash(false), 2000);
     };
+    const onAssignmentsChanged = () => fetchData(true);
     window.addEventListener('pms-sync-completed', onSynced);
-    return () => window.removeEventListener('pms-sync-completed', onSynced);
+    window.addEventListener('hk-assignments-changed', onAssignmentsChanged);
+    return () => {
+      window.removeEventListener('pms-sync-completed', onSynced);
+      window.removeEventListener('hk-assignments-changed', onAssignmentsChanged);
+    };
   }, []);
 
   // Auto-refresh: realtime subscription on rooms/assignments + visibility-aware polling
@@ -708,18 +723,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const chipContent = (
       <div 
         className="flex flex-col items-center gap-0.5"
-        draggable={isManagerOrAdmin ? true : undefined}
-        onDragStart={isManagerOrAdmin ? (e) => {
-          e.dataTransfer.setData('roomId', room.id);
-          e.dataTransfer.setData('roomNumber', room.room_number);
-          e.dataTransfer.setData('sourceType', isCheckout ? 'checkout' : 'daily');
-          e.dataTransfer.effectAllowed = 'move';
+        draggable={canDragAssign ? true : undefined}
+        onDragStart={canDragAssign ? (e) => {
+          setRoomDragPayload(e, {
+            roomId: room.id,
+            roomNumber: room.room_number,
+            sourceType: isCheckout ? 'checkout' : 'daily',
+            origin: 'overview',
+            assignedTo: assignment?.assigned_to ?? null,
+            assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
+          });
           (e.currentTarget as HTMLElement).style.opacity = '0.5';
           justDraggedRef.current = Date.now();
           setHoveredRoomId(null);
           if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         } : undefined}
-        onDragEnd={isManagerOrAdmin ? (e) => {
+        onDragEnd={canDragAssign ? (e) => {
           (e.currentTarget as HTMLElement).style.opacity = '1';
           setDragOverSection(null);
           justDraggedRef.current = Date.now();
@@ -830,7 +849,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {roomFlags.cleanNotes && (
             <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
-          {staffName && (
+          {staffName && !terms.isProperty && (
             <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
               {staffName}
             </span>
@@ -857,7 +876,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             <div className="p-2.5 space-y-2">
               {/* Header */}
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-foreground">Room {room.room_number}</span>
+                <span className="text-sm font-bold text-foreground">{terms.unit} {room.room_number}</span>
                 <Badge variant="outline" className={`text-[10px] px-1.5 py-0 uppercase ${
                   statusKey === 'clean' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' :
                   statusKey === 'in_progress' ? 'bg-sky-100 text-sky-700 border-sky-300' :
@@ -1307,10 +1326,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     setDragOverSection(null);
     justDraggedRef.current = Date.now();
     setHoveredRoomId(null);
-    const roomId = e.dataTransfer.getData('roomId');
-    const roomNumber = e.dataTransfer.getData('roomNumber');
-    const sourceType = e.dataTransfer.getData('sourceType');
-    if (!roomId || sourceType === targetType) return;
+    const payload = readRoomDragPayload(e);
+    if (!payload) return;
+    const { roomId, roomNumber, sourceType } = payload;
+
+    // A chip dragged out of a housekeeper card and dropped back on the board
+    // means "take this off them" — ask first, never retype the unit.
+    if (payload.origin === 'housekeeper') {
+      setPendingUnassign({ roomId, roomNumber, staffName: payload.assignedToName || null });
+      return;
+    }
+
+    if (sourceType === targetType) return;
+    // Retyping a unit between checkout/daily stays a manager-only action.
+    if (!isManagerOrAdmin) return;
+
+
     // Dropping onto "no-show" behaves like moving back to daily (managers
     // typically drag a no-show back to daily to reassign / clean it).
     const effectiveTarget: 'checkout' | 'daily' = targetType === 'checkout' ? 'checkout' : 'daily';
@@ -1531,12 +1562,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         className={`space-y-2 rounded-lg transition-all duration-200 ${
           isDragOver ? 'ring-2 ring-primary/40 bg-primary/5 p-2 -m-2' : ''
         }`}
-        onDragOver={isManagerOrAdmin ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverSection(sectionType); } : undefined}
-        onDragEnter={isManagerOrAdmin ? (e) => { e.preventDefault(); setDragOverSection(sectionType); } : undefined}
-        onDragLeave={isManagerOrAdmin ? (e) => {
+        onDragOver={canDragAssign ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverSection(sectionType); } : undefined}
+        onDragEnter={canDragAssign ? (e) => { e.preventDefault(); setDragOverSection(sectionType); } : undefined}
+        onDragLeave={canDragAssign ? (e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverSection(null);
         } : undefined}
-        onDrop={isManagerOrAdmin ? (e) => handleDrop(e, sectionType) : undefined}
+        onDrop={canDragAssign ? (e) => handleDrop(e, sectionType) : undefined}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-wrap">
@@ -1805,19 +1836,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             />
           ) : (
             <>
-               {renderSection(t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
+               {renderSection(terms.isProperty ? terms.checkoutSection : t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
                <div className="border-t border-border/50" />
-               {renderSection(t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {renderSection(terms.isProperty ? terms.dailySection : t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
                {arrivalRooms.length > 0 && (
                  <>
                    <div className="border-t border-border/50" />
-                   {renderSection(t('team.arrivalRooms'), arrivalRooms, <BedDouble className="h-3.5 w-3.5 text-emerald-600" />, 'arrival')}
+                   {renderSection(terms.isProperty ? `Arrival ${terms.unitPlural}` : t('team.arrivalRooms'), arrivalRooms, <BedDouble className="h-3.5 w-3.5 text-emerald-600" />, 'arrival')}
                  </>
                )}
                {noShowRooms.length > 0 && (
                  <>
                    <div className="border-t border-border/50" />
-                   {renderSection(t('team.noShowRooms'), noShowRooms, <BedDouble className="h-3.5 w-3.5 text-red-600" />, 'noshow')}
+                   {renderSection(terms.isProperty ? terms.noShowSection : t('team.noShowRooms'), noShowRooms, <BedDouble className="h-3.5 w-3.5 text-red-600" />, 'noshow')}
                  </>
                )}
 
@@ -1837,7 +1868,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[85vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}
+              {terms.unit} {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}
               {selectedRoom && (
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
                   selectedRoom.status === 'clean' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
@@ -2251,6 +2282,44 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!pendingUnassign} onOpenChange={(o) => { if (!o) setPendingUnassign(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unassign {terms.unit.toLowerCase()}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingUnassign?.staffName
+                ? `${pendingUnassign.roomNumber} will be removed from ${pendingUnassign.staffName} and returned to the unassigned board.`
+                : `${pendingUnassign?.roomNumber ?? ''} will be returned to the unassigned board.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unassigning}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={unassigning}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!pendingUnassign) return;
+                setUnassigning(true);
+                try {
+                  await unassignRoom(pendingUnassign.roomId, selectedDate);
+                  toast.success(`${pendingUnassign.roomNumber} unassigned`);
+                  setPendingUnassign(null);
+                  await fetchData();
+                  window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+                } catch {
+                  toast.error('Failed to unassign');
+                } finally {
+                  setUnassigning(false);
+                }
+              }}
+            >
+              {unassigning ? 'Removing…' : 'Unassign'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+
   );
 }
