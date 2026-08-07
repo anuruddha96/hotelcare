@@ -48,6 +48,12 @@ export const AdminTabs = () => {
               <GraduationCap className="w-4 h-4" />
               Training
             </TabsTrigger>
+            {venuesEnabled && (
+              <TabsTrigger value="venues" className="gap-2">
+                <MapPin className="w-4 h-4" />
+                Venues &amp; Access
+              </TabsTrigger>
+            )}
             <TabsTrigger value="system" className="gap-2">
               <HardDrive className="w-4 h-4" />
               System
@@ -55,9 +61,20 @@ export const AdminTabs = () => {
           </TabsList>
         </div>
 
+        {venuesEnabled && (
+          <TabsContent value="venues">
+            <div className="space-y-6">
+              <VenueManagement />
+              <StaffVenueAccess />
+              {multiPmsAccounts && <PmsAccountsPanel />}
+            </div>
+          </TabsContent>
+        )}
+
         <TabsContent value="training">
           <TrainingAdminPanel />
         </TabsContent>
+
 
         <TabsContent value="breakfast">
           <BreakfastCodeManagement />
