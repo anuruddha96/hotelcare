@@ -160,6 +160,65 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [managerHotelName, setManagerHotelName] = useState<string>('');
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
   const [successAnimation, setSuccessAnimation] = useState<{ show: boolean; roomCount: number; staffCount: number }>({ show: false, roomCount: 0, staffCount: 0 });
+
+  // Staged (unsaved) drag & drop moves — no dialog per move, one blanket apply.
+  const stagedEnabled = venuesEnabled && canDragAssign;
+  const { moves: stagedMoves, restored: stagedRestored } = useStagedMoves();
+  const [applying, setApplying] = useState(false);
+
+  useEffect(() => {
+    if (!stagedEnabled || !user?.id) return;
+    initStagedScope(`${user.id}:${profile?.assigned_hotel ?? 'all'}:${selectedDate}`);
+  }, [stagedEnabled, user?.id, profile?.assigned_hotel, selectedDate]);
+
+  // Warn before losing unapplied moves.
+  useEffect(() => {
+    if (stagedMoves.length === 0) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [stagedMoves.length]);
+
+  // Drop restored moves whose unit is no longer on today's board.
+  useEffect(() => {
+    if (!stagedRestored || roomAssignments.length === 0) return;
+    acknowledgeRestore();
+    toast.info(`Restored ${stagedMoves.length} unsaved ${stagedMoves.length === 1 ? 'move' : 'moves'} — Apply or Discard below.`);
+  }, [stagedRestored, roomAssignments.length]);
+
+  const applyStagedMoves = async () => {
+    if (!user?.id || stagedMoves.length === 0) return;
+    setApplying(true);
+    const applied: string[] = [];
+    const failed: string[] = [];
+    for (const move of stagedMoves) {
+      try {
+        if (move.toStaffId) {
+          await assignRoomToStaff({
+            roomId: move.roomId,
+            staffId: move.toStaffId,
+            assignmentDate: selectedDate,
+            assignedBy: user.id,
+            organizationSlug: profile?.organization_slug ?? null,
+            isCheckoutRoom: move.sourceType === 'checkout',
+          });
+        } else {
+          await unassignRoom(move.roomId, selectedDate);
+        }
+        applied.push(move.roomId);
+      } catch (err) {
+        console.error('[staged apply] failed for', move.roomNumber, err);
+        failed.push(move.roomNumber);
+      }
+    }
+    dropStagedMoves(applied);
+    if (applied.length > 0) toast.success(`${applied.length} ${applied.length === 1 ? 'move' : 'moves'} saved`);
+    if (failed.length > 0) toast.error(`Could not save: ${failed.join(', ')}`);
+    await Promise.all([fetchTeamAssignments(), fetchRoomAssignments()]);
+    window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    setApplying(false);
+  };
+
   useEffect(() => {
     fetchHousekeepingStaff();
     fetchTeamAssignments();
@@ -177,6 +236,28 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     window.addEventListener('hk-assignments-changed', onChanged);
     return () => window.removeEventListener('hk-assignments-changed', onChanged);
   }, [selectedDate]);
+
+  // The unit board stages unassigns; keep both panels showing the same draft.
+  useEffect(() => {
+    const onStaged = (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        | { roomId: string; roomNumber: string; fromStaffId: string | null; fromStaffName: string | null }
+        | undefined;
+      if (!d || !stagedEnabled) return;
+      stageMove({
+        roomId: d.roomId,
+        roomNumber: d.roomNumber,
+        toStaffId: null,
+        toStaffName: null,
+        fromStaffId: d.fromStaffId,
+        fromStaffName: d.fromStaffName,
+        sourceType: 'assigned',
+      });
+    };
+    window.addEventListener('hk-stage-unassign', onStaged);
+    return () => window.removeEventListener('hk-stage-unassign', onStaged);
+  }, [stagedEnabled]);
+
 
   // Real-time subscriptions for live updates
   useEffect(() => {
