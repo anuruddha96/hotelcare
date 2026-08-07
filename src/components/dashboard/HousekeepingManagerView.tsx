@@ -1155,6 +1155,33 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       onComplete={() => setSuccessAnimation({ show: false, roomCount: 0, staffCount: 0 })}
     />
 
+    {/* Staged moves bar — one blanket confirmation for all drag & drop changes. */}
+    {stagedEnabled && stagedMoves.length > 0 && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[min(680px,calc(100%-1.5rem))] animate-fade-in">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card/95 backdrop-blur px-4 py-3 shadow-lg">
+          <span className="text-sm font-medium">
+            {stagedMoves.length} unsaved {stagedMoves.length === 1 ? 'move' : 'moves'}
+          </span>
+          <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[220px]">
+            {stagedMoves.slice(-3).map(m => `${m.roomNumber} → ${m.toStaffName ?? 'unassigned'}`).join(', ')}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="ghost" size="sm" disabled={applying} onClick={() => undoLastStagedMove()}>
+              Undo last
+            </Button>
+            <Button variant="outline" size="sm" disabled={applying} onClick={() => discardStagedMoves()}>
+              Discard
+            </Button>
+            <Button size="sm" disabled={applying} onClick={applyStagedMoves}>
+              {applying ? 'Saving…' : `Apply ${stagedMoves.length}`}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+
+
+
     <AlertDialog open={!!pendingAssign} onOpenChange={(o) => { if (!o) setPendingAssign(null); }}>
       <AlertDialogContent>
         <AlertDialogHeader>
