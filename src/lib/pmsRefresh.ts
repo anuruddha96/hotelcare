@@ -516,7 +516,9 @@ export async function runPmsRefresh(
       // Previo exports contain "Technikai" separator rows for portfolio
       // accounts — they are not units and must not count as unmatched.
       if (aliasToRoomId.size > 0 && isTechnicalRow(rawRoomName)) continue;
+      consideredRows++;
       const roomNumber = extractRoomNumber(rawRoomName);
+
       const previoRoomId = row.RoomId != null ? String(row.RoomId) : "";
 
       const lookup = async (matcher: (q: any) => any) => {
