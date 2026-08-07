@@ -221,18 +221,51 @@ serve(async (req) => {
     }
 
 
-    const { data: cfg } = await service
-      .from("pms_configurations")
-      .select("id, hotel_id, pms_hotel_id, credentials_secret_name, settings")
-      .eq("hotel_id", targetHotel)
-      .eq("pms_type", "previo")
-      .maybeSingle();
+    let cfg: any = null;
+    if (accountRow) {
+      // Portfolio account: credentials come from the account row. Fall back to
+      // a dedicated SLNT secret, then to the shared live Previo credentials.
+      const secretName = accountRow.credentials_secret_name
+        || (Deno.env.get("PREVIO_CREDS_SLNT") ? "PREVIO_CREDS_SLNT" : null)
+        || (Deno.env.get("PREVIO_CREDS_OTTOFIORI") ? "PREVIO_CREDS_OTTOFIORI" : null);
+      if (!accountRow.pms_hotel_id) {
+        return new Response(
+          JSON.stringify({ error: `PMS account "${accountRow.label}" has no Previo hotel ID configured.` }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (!secretName) {
+        return new Response(
+          JSON.stringify({
+            error:
+              `No Previo credentials available for "${accountRow.label}". Ask a super admin to store the SLNT API key as the PREVIO_CREDS_SLNT secret.`,
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      cfg = {
+        id: accountRow.id,
+        hotel_id: accountRow.hotel_id,
+        pms_hotel_id: accountRow.pms_hotel_id,
+        credentials_secret_name: secretName,
+        settings: {},
+      };
+    } else {
+      const { data: found } = await service
+        .from("pms_configurations")
+        .select("id, hotel_id, pms_hotel_id, credentials_secret_name, settings")
+        .eq("hotel_id", targetHotel)
+        .eq("pms_type", "previo")
+        .maybeSingle();
+      cfg = found;
+    }
     if (!cfg) {
       return new Response(
         JSON.stringify({ error: `No Previo config for ${targetHotel}` }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
 
     let credsProtocol: "xml" | "rest" = "rest";
     try {
