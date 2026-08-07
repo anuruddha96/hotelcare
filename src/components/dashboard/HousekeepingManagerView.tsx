@@ -1215,30 +1215,78 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       onComplete={() => setSuccessAnimation({ show: false, roomCount: 0, staffCount: 0 })}
     />
 
-    {/* Staged moves bar — one blanket confirmation for all drag & drop changes. */}
-    {stagedEnabled && stagedMoves.length > 0 && (
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[min(680px,calc(100%-1.5rem))] animate-fade-in">
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card/95 backdrop-blur px-4 py-3 shadow-lg">
-          <span className="text-sm font-medium">
-            {stagedMoves.length} unsaved {stagedMoves.length === 1 ? 'move' : 'moves'}
-          </span>
-          <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[220px]">
-            {stagedMoves.slice(-3).map(m => `${m.roomNumber} → ${m.toStaffName ?? 'unassigned'}`).join(', ')}
-          </span>
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" disabled={applying} onClick={() => undoLastStagedMove()}>
-              Undo last
-            </Button>
-            <Button variant="outline" size="sm" disabled={applying} onClick={() => discardStagedMoves()}>
-              Discard
-            </Button>
-            <Button size="sm" disabled={applying} onClick={applyStagedMoves}>
-              {applying ? 'Saving…' : `Apply ${stagedMoves.length}`}
-            </Button>
+    {/* Sticky bottom bars: tap-to-assign for the current selection, plus the
+        blanket apply for everything staged (drag & drop or tap). */}
+    {stagedEnabled && (selectedUnits.length > 0 || stagedMoves.length > 0) && (
+      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 w-[min(880px,calc(100%-1rem))] space-y-2 animate-fade-in">
+        {selectedUnits.length > 0 && (
+          <div className="rounded-xl border bg-card/95 backdrop-blur px-3 py-2.5 shadow-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm font-semibold">
+                {selectedUnits.length} {selectedUnits.length === 1 ? terms.unit.toLowerCase() : terms.unitPlural.toLowerCase()} selected
+              </span>
+              <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[260px]">
+                {selectedUnits.slice(0, 6).map(u => u.roomNumber).join(', ')}{selectedUnits.length > 6 ? '…' : ''}
+              </span>
+              <div className="ml-auto flex items-center gap-1.5">
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => assignSelectionTo(null)}>
+                  Unassign
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => clearUnitSelection()}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+              {housekeepingStaff.length === 0 && (
+                <span className="text-xs text-muted-foreground">No housekeepers available</span>
+              )}
+              {housekeepingStaff.map((staff) => {
+                const count = teamAssignments.find(t => t.staff_id === staff.id)?.total_assigned || 0;
+                const initials = staff.full_name.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
+                return (
+                  <button
+                    key={staff.id}
+                    onClick={() => assignSelectionTo(staff)}
+                    className="shrink-0 flex items-center gap-1.5 rounded-full border bg-background hover:bg-primary hover:text-primary-foreground transition-colors px-2.5 py-1.5"
+                    title={`Assign ${selectedUnits.length} to ${staff.full_name}`}
+                  >
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-foreground">
+                      {initials}
+                    </span>
+                    <span className="text-xs font-medium max-w-[92px] truncate">{staff.nickname || staff.full_name}</span>
+                    <Badge variant="secondary" className="text-[9px] px-1 py-0">{count}</Badge>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
+
+        {stagedMoves.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card/95 backdrop-blur px-4 py-3 shadow-lg">
+            <span className="text-sm font-medium">
+              {stagedMoves.length} unsaved {stagedMoves.length === 1 ? 'move' : 'moves'}
+            </span>
+            <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[220px]">
+              {stagedMoves.slice(-3).map(m => `${m.roomNumber} → ${m.toStaffName ?? 'unassigned'}`).join(', ')}
+            </span>
+            <div className="ml-auto flex items-center gap-2">
+              <Button variant="ghost" size="sm" disabled={applying} onClick={() => undoLastStagedMove()}>
+                Undo last
+              </Button>
+              <Button variant="outline" size="sm" disabled={applying} onClick={() => discardStagedMoves()}>
+                Discard
+              </Button>
+              <Button size="sm" disabled={applying} onClick={applyStagedMoves}>
+                {applying ? 'Saving…' : `Apply ${stagedMoves.length}`}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     )}
+
 
 
 
