@@ -871,7 +871,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             <div className="p-2.5 space-y-2">
               {/* Header */}
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-foreground">Room {room.room_number}</span>
+                <span className="text-sm font-bold text-foreground">{terms.unit} {room.room_number}</span>
                 <Badge variant="outline" className={`text-[10px] px-1.5 py-0 uppercase ${
                   statusKey === 'clean' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' :
                   statusKey === 'in_progress' ? 'bg-sky-100 text-sky-700 border-sky-300' :
@@ -1863,7 +1863,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[85vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              Room {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}
+              {terms.unit} {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}
               {selectedRoom && (
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
                   selectedRoom.status === 'clean' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
