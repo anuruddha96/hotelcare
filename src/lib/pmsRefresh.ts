@@ -7,6 +7,7 @@ import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
+import { normalizeUnitName, isTechnicalRow } from "@/lib/slntUnitMapping";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
 const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Syst[ée]m\s*-/i;
