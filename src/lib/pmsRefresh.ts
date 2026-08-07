@@ -211,38 +211,79 @@ export async function runPmsRefresh(
 
   const trigger = options.trigger ?? "manual";
 
+  // Step 0 — portfolio hotels (e.g. SLNT) carry several Previo accounts under
+  // one HotelCare hotel. When active accounts exist we sync each of them and
+  // merge the rows. Hotels without accounts keep the exact previous path.
+  const { data: accountRows } = await supabase
+    .from("pms_accounts")
+    .select("id, label, pms_hotel_id, is_active, pms_type")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true)
+    .eq("pms_type", "previo");
+  const accounts = (accountRows as any[]) || [];
+
   // Step 1 — sync rooms catalog + mapping. Safe in dry-run because
   // `mapOnly:true` never writes to public.rooms; it only heals
   // pms_room_mappings and reports back any Previo rooms we couldn't
   // auto-match. In apply-mode we send `importLocal:true` so hotels with
   // room_import_enabled also get their room roster upserted.
   let unmapped: PmsSyncResult["unmapped"] = [];
-  try {
-    const { data: mapData } = await supabase.functions.invoke("previo-sync-rooms", {
-      body: dryRun ? { hotelId, mapOnly: true } : { hotelId, importLocal: true },
-    });
-    const res = (mapData as any)?.results;
-    if (res && Array.isArray(res.unmapped)) unmapped = res.unmapped;
-  } catch (e) {
-    console.warn("[pmsRefresh] catalog sync warning:", e);
+  if (accounts.length === 0) {
+    try {
+      const { data: mapData } = await supabase.functions.invoke("previo-sync-rooms", {
+        body: dryRun ? { hotelId, mapOnly: true } : { hotelId, importLocal: true },
+      });
+      const res = (mapData as any)?.results;
+      if (res && Array.isArray(res.unmapped)) unmapped = res.unmapped;
+    } catch (e) {
+      console.warn("[pmsRefresh] catalog sync warning:", e);
+    }
   }
 
-  // Step 2 — pull today's PMS snapshot.
-  const { data, error } = await supabase.functions.invoke("previo-pms-sync", {
-    body: { hotelId, dryRun },
-  });
-  if (error || (data && (data as any).ok === false)) {
-    const serverMsg = (data as any)?.error as string | undefined;
-    const raw = serverMsg || error?.message || "PMS sync failed";
-    // Surface the two most common (and previously opaque) failures in plain words.
-    if (/unauthorized|401/i.test(raw)) {
-      throw new Error("Your session expired. Please sign in again, then retry the PMS sync.");
+  // Step 2 — pull today's PMS snapshot (per account when applicable).
+  let data: any = null;
+  if (accounts.length > 0) {
+    const merged: any = { ok: true, rows: [] as any[] };
+    const accountErrors: string[] = [];
+    for (const acc of accounts) {
+      const { data: accData, error: accError } = await supabase.functions.invoke("previo-pms-sync", {
+        body: { hotelId, dryRun, pmsAccountId: acc.id },
+      });
+      const failMsg = (accData as any)?.error || accError?.message;
+      if (failMsg || (accData as any)?.ok === false) {
+        accountErrors.push(`${acc.label || acc.pms_hotel_id}: ${failMsg || "sync failed"}`);
+        continue;
+      }
+      merged.rows.push(...(((accData as any)?.rows) || []));
+      if ((accData as any)?.reservationDataAuthoritative === false) merged.reservationDataAuthoritative = false;
     }
-    if (/forbidden|403/i.test(raw)) {
-      throw new Error("Your account is not allowed to sync this hotel's PMS. Ask an admin to check your assigned hotel.");
+    if (accountErrors.length === accounts.length) {
+      throw new Error(`Previo sync failed for all accounts — ${accountErrors.join(" | ")}`);
     }
-    throw new Error(raw);
+    if (accountErrors.length > 0) {
+      merged.managerFacingSuccess = false;
+      merged.reservationIssue = accountErrors.join(" | ");
+    }
+    data = merged;
+  } else {
+    const { data: singleData, error } = await supabase.functions.invoke("previo-pms-sync", {
+      body: { hotelId, dryRun },
+    });
+    if (error || (singleData && (singleData as any).ok === false)) {
+      const serverMsg = (singleData as any)?.error as string | undefined;
+      const raw = serverMsg || error?.message || "PMS sync failed";
+      // Surface the two most common (and previously opaque) failures in plain words.
+      if (/unauthorized|401/i.test(raw)) {
+        throw new Error("Your session expired. Please sign in again, then retry the PMS sync.");
+      }
+      if (/forbidden|403/i.test(raw)) {
+        throw new Error("Your account is not allowed to sync this hotel's PMS. Ask an admin to check your assigned hotel.");
+      }
+      throw new Error(raw);
+    }
+    data = singleData;
   }
+
 
   const rows: any[] = (data as any)?.rows || [];
   const reservationDataAuthoritative = (data as any)?.reservationDataAuthoritative !== false;
