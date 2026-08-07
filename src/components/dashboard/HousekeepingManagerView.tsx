@@ -900,9 +900,14 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 <div className="flex justify-between items-start">
                   <div>
                     <CardTitle className="text-lg">{staff.full_name}</CardTitle>
-                    {staff.nickname && (
-                      <p className="text-sm text-muted-foreground">({staff.nickname})</p>
-                    )}
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground max-w-[180px] truncate">
+                        @{(staff.email || '').split('@')[0] || staff.nickname || staff.full_name}
+                      </span>
+                      {staff.nickname && (
+                        <span className="text-[11px] text-muted-foreground">({staff.nickname})</span>
+                      )}
+                    </div>
                     {staffAttendance[staff.id]?.status === 'on_break' && (
                       <div className="mt-2 space-y-1">
                         <Badge className="bg-amber-500 text-white text-xs font-semibold">

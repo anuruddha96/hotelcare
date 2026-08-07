@@ -198,6 +198,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   // where native HTML5 drag never fires.
   const selectedUnits = useUnitSelection();
   const selectionEnabled = venuesEnabled && canDragAssign;
+  // Rental portfolios (SLNT) have many small units: keep the chips tight so a
+  // whole venue fits on one phone screen and tapping stays easy.
+  const compactChips = terms.isProperty;
   const selectedUnitIds = new Set(selectedUnits.map((u) => u.roomId));
   const longPressRef = useRef<NodeJS.Timeout | null>(null);
   const longPressFiredRef = useRef(false);
@@ -837,14 +840,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       >
         <div
           className={`
-            relative px-2 py-1 rounded text-xs font-bold border-2 transition-all min-w-[40px] text-center
+            relative rounded border transition-all text-center
+            ${compactChips ? 'px-1.5 py-0.5 text-[11px] font-semibold leading-tight min-w-[34px]' : 'px-2 py-1 text-xs font-bold border-2 min-w-[40px]'}
             ${colorClass}
             ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
             ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
             ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
             ${roomOverdue ? 'animate-pulse' : ''}
             ${isSelected ? 'ring-2 ring-primary ring-offset-2 shadow-md scale-105' : ''}
-            ${canInteractWithRooms ? 'hover:scale-110 hover:shadow-md' : ''}
+            ${canInteractWithRooms && !compactChips ? 'hover:scale-110 hover:shadow-md' : ''}
+            ${compactChips && canInteractWithRooms ? 'hover:shadow-sm' : ''}
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
         >
@@ -927,7 +932,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         </div>
         {/* Bed config & staff name indicators below chip */}
         <div className="flex flex-col items-center gap-0">
-          {(room as any).bed_configuration && (
+          {!compactChips && (room as any).bed_configuration && (
             <span className="text-[8px] text-purple-600 dark:text-purple-400 font-semibold truncate max-w-[48px]">
               {(() => {
                 const bc = (room as any).bed_configuration;
