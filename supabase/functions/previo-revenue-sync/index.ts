@@ -348,6 +348,8 @@ serve(async (req) => {
   }
 
   const errors: string[] = [];
+  /** Non-fatal notes: optional data the PMS did not expose this run. */
+  const softNotes: string[] = [];
 
   // ---------- 1. room types ----------
   let roomTypes: RoomTypeInfo[] = [];
