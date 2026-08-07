@@ -344,7 +344,10 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     return fallbackMatch ? fallbackMatch[1] : originalName;
   };
 
-  const processFile = async (file: File) => {
+  const processFile = async (
+    file: File,
+    opts: { append?: boolean; silent?: boolean } = {},
+  ) => {
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
       toast.error('Please upload an Excel file (.xlsx or .xls)');
       return;
@@ -352,7 +355,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
     setUploading(true);
     setProgress(0);
-    setResults(null);
+    if (!opts.append) setResults(null);
 
     // Check if user might navigate away and enable background processing
     const handleBeforeUnload = () => {
