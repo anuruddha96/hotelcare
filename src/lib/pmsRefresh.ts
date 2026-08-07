@@ -362,6 +362,10 @@ export async function runPmsRefresh(
 
   let updated = 0;
   let notFound = 0;
+  // Rows that represent a real unit (portfolio feeds contain technical /
+  // separator rows that must not inflate the "x/y rooms" counter).
+  let consideredRows = 0;
+
   let checkouts = 0;
   // Room-number rosters recorded into pms_sync_history so managers get the same
   // summary the manual XLSX upload used to produce.
