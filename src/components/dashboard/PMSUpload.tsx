@@ -1521,7 +1521,11 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5 animate-pulse" />
-              <span>{t('pms.processing')}</span>
+              <span>
+                {runningSlot !== null
+                  ? `Processing PMS file ${runningSlot + 1}…`
+                  : t('pms.processing')}
+              </span>
               {backgroundUpload && (
                 <Badge variant="secondary" className="ml-2">
                   {t('pms.backgroundUpload')}
@@ -1542,7 +1546,8 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           </div>
         )}
 
-        {results && (
+        {results && !uploading && (
+
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-green-600">
               <CheckCircle className="h-5 w-5" />
