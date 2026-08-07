@@ -28,7 +28,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
-import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff } from '@/lib/hkAssignmentDnd';
+import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
+import {
+  initStagedScope,
+  stageMove,
+  undoLastStagedMove,
+  discardStagedMoves,
+  dropStagedMoves,
+  acknowledgeRestore,
+  useStagedMoves,
+} from '@/lib/stagedAssignments';
 
 // Real-time Break Timer Display Component for Managers
 function BreakTimerDisplay({ breakType, startedAt }: { breakType: string; startedAt: string }) {
@@ -151,6 +160,65 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [managerHotelName, setManagerHotelName] = useState<string>('');
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
   const [successAnimation, setSuccessAnimation] = useState<{ show: boolean; roomCount: number; staffCount: number }>({ show: false, roomCount: 0, staffCount: 0 });
+
+  // Staged (unsaved) drag & drop moves — no dialog per move, one blanket apply.
+  const stagedEnabled = venuesEnabled && canDragAssign;
+  const { moves: stagedMoves, restored: stagedRestored } = useStagedMoves();
+  const [applying, setApplying] = useState(false);
+
+  useEffect(() => {
+    if (!stagedEnabled || !user?.id) return;
+    initStagedScope(`${user.id}:${profile?.assigned_hotel ?? 'all'}:${selectedDate}`);
+  }, [stagedEnabled, user?.id, profile?.assigned_hotel, selectedDate]);
+
+  // Warn before losing unapplied moves.
+  useEffect(() => {
+    if (stagedMoves.length === 0) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [stagedMoves.length]);
+
+  // Drop restored moves whose unit is no longer on today's board.
+  useEffect(() => {
+    if (!stagedRestored || roomAssignments.length === 0) return;
+    acknowledgeRestore();
+    toast.info(`Restored ${stagedMoves.length} unsaved ${stagedMoves.length === 1 ? 'move' : 'moves'} — Apply or Discard below.`);
+  }, [stagedRestored, roomAssignments.length]);
+
+  const applyStagedMoves = async () => {
+    if (!user?.id || stagedMoves.length === 0) return;
+    setApplying(true);
+    const applied: string[] = [];
+    const failed: string[] = [];
+    for (const move of stagedMoves) {
+      try {
+        if (move.toStaffId) {
+          await assignRoomToStaff({
+            roomId: move.roomId,
+            staffId: move.toStaffId,
+            assignmentDate: selectedDate,
+            assignedBy: user.id,
+            organizationSlug: profile?.organization_slug ?? null,
+            isCheckoutRoom: move.sourceType === 'checkout',
+          });
+        } else {
+          await unassignRoom(move.roomId, selectedDate);
+        }
+        applied.push(move.roomId);
+      } catch (err) {
+        console.error('[staged apply] failed for', move.roomNumber, err);
+        failed.push(move.roomNumber);
+      }
+    }
+    dropStagedMoves(applied);
+    if (applied.length > 0) toast.success(`${applied.length} ${applied.length === 1 ? 'move' : 'moves'} saved`);
+    if (failed.length > 0) toast.error(`Could not save: ${failed.join(', ')}`);
+    await Promise.all([fetchTeamAssignments(), fetchRoomAssignments()]);
+    window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    setApplying(false);
+  };
+
   useEffect(() => {
     fetchHousekeepingStaff();
     fetchTeamAssignments();
@@ -168,6 +236,28 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     window.addEventListener('hk-assignments-changed', onChanged);
     return () => window.removeEventListener('hk-assignments-changed', onChanged);
   }, [selectedDate]);
+
+  // The unit board stages unassigns; keep both panels showing the same draft.
+  useEffect(() => {
+    const onStaged = (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        | { roomId: string; roomNumber: string; fromStaffId: string | null; fromStaffName: string | null }
+        | undefined;
+      if (!d || !stagedEnabled) return;
+      stageMove({
+        roomId: d.roomId,
+        roomNumber: d.roomNumber,
+        toStaffId: null,
+        toStaffName: null,
+        fromStaffId: d.fromStaffId,
+        fromStaffName: d.fromStaffName,
+        sourceType: 'assigned',
+      });
+    };
+    window.addEventListener('hk-stage-unassign', onStaged);
+    return () => window.removeEventListener('hk-stage-unassign', onStaged);
+  }, [stagedEnabled]);
+
 
   // Real-time subscriptions for live updates
   useEffect(() => {
@@ -691,7 +781,15 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           const assignment = teamAssignments.find(a => a.staff_id === staff.id);
           const progressPercentage = assignment ? getProgressPercentage(assignment.completed, assignment.total_assigned) : 0;
           
-          const myChips = roomAssignments.filter(a => a.assigned_to === staff.id);
+          // Chips shown = saved assignments adjusted by staged (unsaved) moves.
+          const movedAway = new Set(stagedMoves.filter(m => m.toStaffId !== staff.id).map(m => m.roomId));
+          const savedChips = roomAssignments
+            .filter(a => a.assigned_to === staff.id && !movedAway.has(a.room_id))
+            .map(a => ({ key: a.id, roomId: a.room_id, roomNumber: a.room_number, status: a.status, pending: false }));
+          const stagedIn = stagedMoves
+            .filter(m => m.toStaffId === staff.id)
+            .map(m => ({ key: `staged-${m.roomId}`, roomId: m.roomId, roomNumber: m.roomNumber, status: 'assigned', pending: true }));
+          const myChips = [...savedChips, ...stagedIn];
           const isDropTarget = dropTargetStaffId === staff.id;
 
           return (
@@ -712,7 +810,20 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 const payload = readRoomDragPayload(e);
                 if (!payload) return;
                 if (payload.assignedTo === staff.id) return;
+                if (stagedEnabled) {
+                  stageMove({
+                    roomId: payload.roomId,
+                    roomNumber: payload.roomNumber,
+                    toStaffId: staff.id,
+                    toStaffName: staff.full_name,
+                    fromStaffId: payload.assignedTo ?? null,
+                    fromStaffName: payload.assignedToName ?? null,
+                    sourceType: payload.sourceType,
+                  });
+                  return;
+                }
                 setPendingAssign({
+
                   roomId: payload.roomId,
                   roomNumber: payload.roomNumber,
                   staffId: staff.id,
@@ -763,12 +874,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     )}
                     {myChips.map((a) => (
                       <span
-                        key={a.id}
+                        key={a.key}
                         draggable={canDragAssign}
                         onDragStart={canDragAssign ? (e) => {
                           setRoomDragPayload(e, {
-                            roomId: a.room_id,
-                            roomNumber: a.room_number,
+                            roomId: a.roomId,
+                            roomNumber: a.roomNumber,
                             sourceType: 'assigned',
                             origin: 'housekeeper',
                             assignedTo: staff.id,
@@ -777,18 +888,22 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                           (e.currentTarget as HTMLElement).style.opacity = '0.5';
                         } : undefined}
                         onDragEnd={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium border transition-transform duration-150 hover:scale-105 ${
-                          a.status === 'completed'
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                            : a.status === 'in_progress'
-                              ? 'bg-blue-100 text-blue-800 border-blue-200'
-                              : 'bg-muted text-foreground border-border'
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border animate-fade-in transition-transform duration-150 hover:scale-105 ${
+                          a.pending
+                            ? 'bg-primary/10 text-primary border-primary border-dashed'
+                            : a.status === 'completed'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                              : a.status === 'in_progress'
+                                ? 'bg-blue-100 text-blue-800 border-blue-200'
+                                : 'bg-muted text-foreground border-border'
                         } ${canDragAssign ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                        title={a.room_number}
+                        title={a.pending ? `${a.roomNumber} — not saved yet` : a.roomNumber}
                       >
-                        {a.room_number}
+                        {a.roomNumber}
+                        {a.pending && <span className="text-[9px] opacity-70">●</span>}
                       </span>
                     ))}
+
                   </div>
                 )}
                 {assignment ? (
@@ -1039,6 +1154,33 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       staffCount={successAnimation.staffCount}
       onComplete={() => setSuccessAnimation({ show: false, roomCount: 0, staffCount: 0 })}
     />
+
+    {/* Staged moves bar — one blanket confirmation for all drag & drop changes. */}
+    {stagedEnabled && stagedMoves.length > 0 && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[min(680px,calc(100%-1.5rem))] animate-fade-in">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card/95 backdrop-blur px-4 py-3 shadow-lg">
+          <span className="text-sm font-medium">
+            {stagedMoves.length} unsaved {stagedMoves.length === 1 ? 'move' : 'moves'}
+          </span>
+          <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[220px]">
+            {stagedMoves.slice(-3).map(m => `${m.roomNumber} → ${m.toStaffName ?? 'unassigned'}`).join(', ')}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="ghost" size="sm" disabled={applying} onClick={() => undoLastStagedMove()}>
+              Undo last
+            </Button>
+            <Button variant="outline" size="sm" disabled={applying} onClick={() => discardStagedMoves()}>
+              Discard
+            </Button>
+            <Button size="sm" disabled={applying} onClick={applyStagedMoves}>
+              {applying ? 'Saving…' : `Apply ${stagedMoves.length}`}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+
+
 
     <AlertDialog open={!!pendingAssign} onOpenChange={(o) => { if (!o) setPendingAssign(null); }}>
       <AlertDialogContent>

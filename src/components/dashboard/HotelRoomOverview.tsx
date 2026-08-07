@@ -18,6 +18,7 @@ import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, unassignRoom } from '@/lib/hkAssignmentDnd';
 
 import { Textarea } from '@/components/ui/textarea';
@@ -154,6 +155,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const { profile } = useAuth();
   const { t } = useTranslation();
   const terms = usePropertyTerms();
+  const { venuesEnabled } = useTenantFeatures();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
@@ -1331,11 +1333,24 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const { roomId, roomNumber, sourceType } = payload;
 
     // A chip dragged out of a housekeeper card and dropped back on the board
-    // means "take this off them" — ask first, never retype the unit.
+    // means "take this off them". On staged boards the move is queued for the
+    // blanket Apply; elsewhere we keep the per-move confirmation.
     if (payload.origin === 'housekeeper') {
+      if (venuesEnabled && canDragAssign) {
+        window.dispatchEvent(new CustomEvent('hk-stage-unassign', {
+          detail: {
+            roomId,
+            roomNumber,
+            fromStaffId: payload.assignedTo || null,
+            fromStaffName: payload.assignedToName || null,
+          },
+        }));
+        return;
+      }
       setPendingUnassign({ roomId, roomNumber, staffName: payload.assignedToName || null });
       return;
     }
+
 
     if (sourceType === targetType) return;
     // Retyping a unit between checkout/daily stays a manager-only action.

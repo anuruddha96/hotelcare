@@ -199,6 +199,9 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
   // Two labelled PMS file slots (SLNT: one per Previo account)
   const [slotFiles, setSlotFiles] = useState<(File | null)[]>([null, null]);
   const [runningSlot, setRunningSlot] = useState<number | null>(null);
+  const [isApiSyncing, setIsApiSyncing] = useState(false);
+  const [apiSyncStatus, setApiSyncStatus] = useState<{ label: string; ok: boolean; message: string }[]>([]);
+
 
   // Resolve hotel slug to full hotel name for filtering
   useEffect(() => {
@@ -1124,6 +1127,105 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     );
   };
 
+  // Multi-account Previo API sync (SLNT: two Previo hotel IDs under one
+  // portfolio). Runs each account through the same previo-pms-sync function
+  // Ottofiori uses, then feeds the rows into the existing non-destructive
+  // processFile path. Other tenants never reach this code — it is gated on
+  // the SLNT-only dualPmsUpload flag and on rows existing in pms_accounts.
+  const runApiSync = async () => {
+    if (!selectedHotel) return;
+    setIsApiSyncing(true);
+    setApiSyncStatus([]);
+    setResults(null);
+    setCheckoutRooms([]);
+    setDailyCleaningRooms([]);
+
+    try {
+      const { data: accounts, error: accErr } = await supabase
+        .from('pms_accounts')
+        .select('id, label, pms_hotel_id, is_active, sync_paused')
+        .eq('hotel_id', selectedHotel)
+        .order('pms_hotel_id');
+      if (accErr) throw accErr;
+
+      const active = (accounts ?? []).filter((a: any) => a.is_active !== false && a.sync_paused !== true);
+      if (active.length === 0) {
+        toast.error('No active Previo accounts configured for this portfolio');
+        return;
+      }
+
+      let done = 0;
+      const statuses: { label: string; ok: boolean; message: string }[] = [];
+
+      for (const account of active as any[]) {
+        setApiSyncStatus([...statuses, { label: account.label, ok: true, message: 'Contacting Previo…' }]);
+        try {
+          const { data, error } = await supabase.functions.invoke('previo-pms-sync', {
+            body: { pmsAccountId: account.id, hotelId: selectedHotel },
+          });
+          const payload = data as any;
+          if (error || payload?.ok === false || payload?.error) {
+            throw new Error(payload?.error || error?.message || 'Previo sync failed');
+          }
+          const rows: Record<string, any>[] = payload?.rows ?? [];
+          if (rows.length === 0) {
+            statuses.push({ label: account.label, ok: false, message: 'Previo returned no units for this account' });
+          } else {
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+            const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const file = new File([buf], `previo-${account.pms_hotel_id}.xlsx`, {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+            if (done === 0) markUploadToday();
+            await processFile(file, { append: done > 0, silent: true });
+            done++;
+            statuses.push({ label: account.label, ok: true, message: `${rows.length} units synced` });
+          }
+          await supabase
+            .from('pms_accounts')
+            .update({
+              last_sync_at: new Date().toISOString(),
+              last_sync_success_at: new Date().toISOString(),
+              last_sync_status: 'ok',
+              last_sync_error: null,
+              consecutive_failures: 0,
+            } as never)
+            .eq('id', account.id);
+        } catch (e: any) {
+          const message = e?.message || String(e);
+          statuses.push({ label: account.label, ok: false, message });
+          await supabase
+            .from('pms_accounts')
+            .update({
+              last_sync_at: new Date().toISOString(),
+              last_sync_status: 'failed',
+              last_sync_error: message,
+              consecutive_failures: (account.consecutive_failures ?? 0) + 1,
+            } as never)
+            .eq('id', account.id);
+        }
+        setApiSyncStatus([...statuses]);
+      }
+
+      const failed = statuses.filter((s) => !s.ok);
+      if (done > 0 && failed.length === 0) {
+        toast.success(`Previo sync complete — ${done} account${done > 1 ? 's' : ''} updated, assignments kept`);
+      } else if (done > 0) {
+        toast.warning(`Synced ${done} account(s); ${failed.length} failed — see details below`);
+      } else {
+        toast.error(failed[0]?.message || 'Previo sync failed');
+      }
+    } catch (e: any) {
+      toast.error(`Previo sync failed: ${e?.message || e}`);
+    } finally {
+      setIsApiSyncing(false);
+    }
+  };
+
+
+
 
   // Handle confirmation from warning dialog
   const handleWarningConfirm = async () => {
@@ -1434,20 +1536,46 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-center">
+                <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
                   <Button
                     onClick={runSlotQueue}
-                    disabled={uploading || !slotFiles.some(Boolean)}
+                    disabled={uploading || isApiSyncing || !slotFiles.some(Boolean)}
                     className="w-full max-w-xs"
                   >
                     <Upload className="mr-2 h-4 w-4" />
                     Run PMS update
                   </Button>
+                  <Button
+                    variant="outline"
+                    onClick={runApiSync}
+                    disabled={uploading || isApiSyncing}
+                    className="w-full max-w-xs"
+                  >
+                    <RefreshCw className={`mr-2 h-4 w-4 ${isApiSyncing ? 'animate-spin' : ''}`} />
+                    {isApiSyncing ? 'Syncing from Previo…' : 'Sync both accounts from Previo'}
+                  </Button>
                 </div>
+                {apiSyncStatus.length > 0 && (
+                  <div className="space-y-1 rounded-md border p-3">
+                    {apiSyncStatus.map((s) => (
+                      <div key={s.label} className="flex items-start gap-2 text-sm">
+                        {s.ok ? (
+                          <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        ) : (
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                        )}
+                        <span className="font-medium">{s.label}:</span>
+                        <span className={s.ok ? 'text-muted-foreground' : 'text-destructive'}>{s.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-center text-xs text-muted-foreground">
                   Either file alone or both together — they run one after another and
-                  never remove existing housekeeping assignments.
+                  never remove existing housekeeping assignments. The Previo sync pulls the
+                  same data straight from both accounts through the API.
                 </p>
+
               </div>
             ) : (
               selectedHotel !== 'previo-test' && (

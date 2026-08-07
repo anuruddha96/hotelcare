@@ -2692,6 +2692,8 @@ export type Database = {
       pms_accounts: {
         Row: {
           api_base_url: string | null
+          auto_sync_enabled: boolean
+          consecutive_failures: number
           created_at: string
           credentials_secret_name: string | null
           hotel_id: string
@@ -2702,14 +2704,18 @@ export type Database = {
           last_sync_at: string | null
           last_sync_error: string | null
           last_sync_status: string | null
+          last_sync_success_at: string | null
           organization_slug: string
           pms_hotel_id: string | null
           pms_type: string
           settings: Json
+          sync_paused: boolean
           updated_at: string
         }
         Insert: {
           api_base_url?: string | null
+          auto_sync_enabled?: boolean
+          consecutive_failures?: number
           created_at?: string
           credentials_secret_name?: string | null
           hotel_id: string
@@ -2720,14 +2726,18 @@ export type Database = {
           last_sync_at?: string | null
           last_sync_error?: string | null
           last_sync_status?: string | null
+          last_sync_success_at?: string | null
           organization_slug: string
           pms_hotel_id?: string | null
           pms_type?: string
           settings?: Json
+          sync_paused?: boolean
           updated_at?: string
         }
         Update: {
           api_base_url?: string | null
+          auto_sync_enabled?: boolean
+          consecutive_failures?: number
           created_at?: string
           credentials_secret_name?: string | null
           hotel_id?: string
@@ -2738,10 +2748,12 @@ export type Database = {
           last_sync_at?: string | null
           last_sync_error?: string | null
           last_sync_status?: string | null
+          last_sync_success_at?: string | null
           organization_slug?: string
           pms_hotel_id?: string | null
           pms_type?: string
           settings?: Json
+          sync_paused?: boolean
           updated_at?: string
         }
         Relationships: []
