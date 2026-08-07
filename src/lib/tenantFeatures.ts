@@ -64,6 +64,8 @@ export function tenantFeaturesFor(
     scopedStaffEnabled: overrides.scopedStaffEnabled ?? base.scopedStaffEnabled,
     multiPmsAccounts: overrides.multiPmsAccounts ?? base.multiPmsAccounts,
     housekeepingOnly: overrides.housekeepingOnly ?? base.housekeepingOnly,
+    nonDestructivePmsUpload: overrides.nonDestructivePmsUpload ?? base.nonDestructivePmsUpload,
+    dualPmsUpload: overrides.dualPmsUpload ?? base.dualPmsUpload,
   };
 }
 
