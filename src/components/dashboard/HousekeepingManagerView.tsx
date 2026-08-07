@@ -124,6 +124,8 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const { t } = useTranslation();
   const terms = usePropertyTerms();
   const { venuesEnabled } = useTenantFeatures();
+  // Managers/supervisors may move work between housekeepers by drag & drop.
+  const canDragAssign = !!profile?.role && ['admin', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
