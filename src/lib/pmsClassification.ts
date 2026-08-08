@@ -79,7 +79,7 @@ export const classifyPmsHousekeepingRow = (
   // when PMS gives a real departure time/date for today or says the guest has
   // checked out. Last-night Night/Total rows with blank Departure remain Daily.
   const isCheckoutRoom = isScheduledDeparture || isCheckedOut;
-  const isDepartureTomorrow = !isCheckoutRoom && (
+  const isDepartureTomorrow = !inactiveReservation && !isCheckoutRoom && (
     row.DepartureTomorrow === true ||
     (nightTotal !== null && nightTotal.currentNight === nightTotal.totalNights)
   );

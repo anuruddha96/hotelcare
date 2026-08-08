@@ -75,6 +75,7 @@ describe("PMS housekeeping classification", () => {
       expect(result.isCheckoutRoom).toBe(false);
       expect(result.isDailyRoom).toBe(false);
       expect(result.isCheckedOut).toBe(false);
+      expect(result.isDepartureTomorrow).toBe(false);
     }
   });
 });
