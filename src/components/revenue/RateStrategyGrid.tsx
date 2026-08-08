@@ -176,7 +176,51 @@ export default function RateStrategyGrid({
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
-  const LEFT_W = isMobile ? 124 : 200;
+  const DEFAULT_LEFT_W = isMobile ? 124 : 200;
+  const RAIL_W = 46;
+  const LEFT_STORAGE_KEY = `revenue-grid-left:${hotelId ?? "default"}`;
+  /** Width of the frozen room-type column, and whether it is collapsed to a rail. */
+  const [leftW, setLeftW] = useState<number>(DEFAULT_LEFT_W);
+  const [railed, setRailed] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  // Remember the reader's preferred left width per hotel.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LEFT_STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { w?: number; railed?: boolean };
+      if (typeof saved.w === "number") setLeftW(Math.min(360, Math.max(96, saved.w)));
+      setRailed(!!saved.railed);
+    } catch { /* first visit */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [LEFT_STORAGE_KEY]);
+
+  useEffect(() => {
+    try { localStorage.setItem(LEFT_STORAGE_KEY, JSON.stringify({ w: leftW, railed })); } catch { /* private mode */ }
+  }, [LEFT_STORAGE_KEY, leftW, railed]);
+
+  const LEFT_W = railed ? RAIL_W : leftW;
+
+  /** Drag the divider to give the room-type names more or less room. */
+  const startResize = useCallback((startX: number, startW: number) => {
+    setDragging(true);
+    const move = (clientX: number) => {
+      const next = Math.min(360, Math.max(96, startW + (clientX - startX)));
+      setRailed(false);
+      setLeftW(next);
+    };
+    const onMove = (e: PointerEvent) => move(e.clientX);
+    const onUp = () => {
+      setDragging(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
+
   const [days, setDays] = useState(30);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
@@ -191,6 +235,7 @@ export default function RateStrategyGrid({
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
 
   const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
   /** When on, the grid shows only the cells flagged by the safety net. */
