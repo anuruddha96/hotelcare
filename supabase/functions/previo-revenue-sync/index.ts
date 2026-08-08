@@ -465,12 +465,13 @@ serve(async (req) => {
     .reduce((s, r) => s + r.numRooms, 0);
   const { data: revSettings } = await service
     .from("hotel_revenue_settings")
-    .select("sellable_rooms")
+    .select("sellable_rooms, base_currency, eur_conversion_rate")
     .eq("hotel_id", hotelId)
     .maybeSingle();
   const totalRooms =
     Number((revSettings as { sellable_rooms?: number } | null)?.sellable_rooms || 0) ||
     totalRoomsFromKinds;
+
 
   if (roomTypes.length && orgSlug) {
     const { data: existing } = await service
