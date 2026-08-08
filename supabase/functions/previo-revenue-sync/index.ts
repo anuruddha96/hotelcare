@@ -56,6 +56,13 @@ function grab(block: string, tag: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+/** Read an attribute off a tag, e.g. <price currency="EUR">120</price>. */
+function grabAttr(block: string, tag: string, attr: string): string | null {
+  const m = block.match(new RegExp(`<${tag}\\b[^>]*\\b${attr}\\s*=\\s*"([^"]*)"`, "i"));
+  return m ? m[1].trim() : null;
+}
+
+
 function blocks(xml: string, tag: string): string[] {
   const out: string[] = [];
   const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "g");
