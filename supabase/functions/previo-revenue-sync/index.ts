@@ -559,6 +559,7 @@ serve(async (req) => {
 
   // Record the currency Previo actually publishes for this hotel, so the app
   // stops labelling forints as euros. Majority vote across the rate rows.
+  let detectedCurrency: string | null = null;
   try {
     const tally = new Map<string, number>();
     for (const r of dedupedRates.values()) {
@@ -569,6 +570,7 @@ serve(async (req) => {
     let detected: string | null = null;
     let best = 0;
     for (const [c, n] of tally) if (n > best) { best = n; detected = c; }
+    detectedCurrency = detected;
     if (detected) {
       await service
         .from("hotel_revenue_settings")
@@ -579,6 +581,40 @@ serve(async (req) => {
   } catch (e) {
     errors.push(`currency detection: ${(e as Error).message}`);
   }
+
+  // Every stored amount must be in ONE currency — the property's own — or the
+  // ADR, revenue and pickup numbers mix euros with forints and become fiction.
+  const baseCurrency = (
+    detectedCurrency ??
+    (revSettings as { base_currency?: string | null } | null)?.base_currency ??
+    "EUR"
+  ).toUpperCase();
+  const eurRate = Number((revSettings as { eur_conversion_rate?: number | null } | null)?.eur_conversion_rate) || null;
+  /**
+   * Convert one amount into the property's base currency.
+   * When Previo declares no currency we only intervene if the amount is far
+   * too small to be a plausible base-currency price (a euro amount sitting in
+   * a forint property), and only when we have a rate to convert with.
+   */
+  const toBase = (amount: number | null, cur: string | null): number | null => {
+    if (amount === null || !Number.isFinite(amount)) return amount;
+    const c = (cur || "").toUpperCase();
+    if (c && c === baseCurrency) return amount;
+    if (!eurRate || eurRate <= 0) return amount;
+    if (c === "EUR" && baseCurrency !== "EUR") return Math.round(amount * eurRate * 100) / 100;
+    if (baseCurrency === "EUR" && c && c !== "EUR") return Math.round((amount / eurRate) * 100) / 100;
+    if (!c && baseCurrency !== "EUR" && eurRate > 20 && amount > 0 && amount < eurRate / 2) {
+      return Math.round(amount * eurRate * 100) / 100;
+    }
+    return amount;
+  };
+  const normaliseNight = (n: Night): Night => ({
+    ...n,
+    nightly_price_eur: toBase(n.original_nightly_price ?? n.nightly_price_eur, n.source_currency),
+    total_price_eur: toBase(n.original_total_price ?? n.total_price_eur, n.source_currency),
+  });
+
+
 
 
 
