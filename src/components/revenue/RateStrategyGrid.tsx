@@ -264,6 +264,9 @@ export default function RateStrategyGrid({
 
   useEffect(() => { void refreshDrafts(); }, [refreshDrafts]);
 
+  const failedCount = useMemo(() => pending.filter((d) => d.status === "failed").length, [pending]);
+
+
   /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
   async function pushDrafts() {
     if (!hotelId || pending.length === 0) return;
