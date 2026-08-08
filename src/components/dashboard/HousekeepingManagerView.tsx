@@ -911,53 +911,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
               onDragLeave={canDragAssign ? (e) => {
                 if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTargetStaffId(null);
               } : undefined}
-              onDrop={canDragAssign ? (e) => {
-                e.preventDefault();
-                setDropTargetStaffId(null);
-                const payload = readRoomDragPayload(e);
-                if (!payload) return;
-                // A whole venue row was dragged — stage every unit at once.
-                if (payload.bulk && payload.bulk.length > 0 && stagedEnabled) {
-                  let staged = 0;
-                  payload.bulk.forEach(item => {
-                    if (item.assignedTo === staff.id) return;
-                    stageMove({
-                      roomId: item.roomId,
-                      roomNumber: item.roomNumber,
-                      toStaffId: staff.id,
-                      toStaffName: staff.full_name,
-                      fromStaffId: item.assignedTo ?? null,
-                      fromStaffName: item.assignedToName ?? null,
-                      sourceType: item.sourceType,
-                    });
-                    staged += 1;
-                  });
-                  if (staged > 0) toast.success(`${staged} ${terms.unitPlural.toLowerCase()} staged for ${staff.full_name}`);
-                  return;
-                }
-                if (payload.assignedTo === staff.id) return;
-                if (stagedEnabled) {
-                  stageMove({
-                    roomId: payload.roomId,
-                    roomNumber: payload.roomNumber,
-                    toStaffId: staff.id,
-                    toStaffName: staff.full_name,
-                    fromStaffId: payload.assignedTo ?? null,
-                    fromStaffName: payload.assignedToName ?? null,
-                    sourceType: payload.sourceType,
-                  });
-                  return;
-                }
-                setPendingAssign({
-
-                  roomId: payload.roomId,
-                  roomNumber: payload.roomNumber,
-                  staffId: staff.id,
-                  staffName: staff.full_name,
-                  sourceType: payload.sourceType,
-                  fromName: payload.assignedToName ?? null,
-                });
-              } : undefined}
+              onDrop={canDragAssign ? (e) => handleDropOnStaff(e, staff) : undefined}
 
             >
               <CardHeader className="pb-3">
