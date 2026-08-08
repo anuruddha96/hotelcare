@@ -77,6 +77,16 @@ export const handler = async (req: Request): Promise<Response> => {
       );
     }
 
+    // Roles that may never be created through this endpoint by non-admins
+    const PRIVILEGED_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
+    if (callerRole !== 'admin' && PRIVILEGED_ROLES.includes(String(role))) {
+      console.error('❌ Attempted privilege escalation to role:', role);
+      return new Response(
+        JSON.stringify({ success: false, error: 'You cannot create users with this role' }),
+        { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+      );
+    }
+
     if (callerRole === 'housekeeping_manager' && role !== 'housekeeping') {
       console.error('❌ Housekeeping manager cannot create non-housekeeping staff');
       return new Response(
@@ -85,10 +95,28 @@ export const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    // Use caller's org if not super admin and no org provided
-    const finalOrgSlug = organization_slug || callerOrgSlug || 'rdhotels';
-    
+    // Non-admins are always locked to their own organization; they cannot pass an arbitrary slug
+    if (callerRole !== 'admin') {
+      if (!callerOrgSlug) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Your account has no organization assigned' }),
+          { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+        );
+      }
+      if (organization_slug && organization_slug !== callerOrgSlug) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'You cannot create users in another organization' }),
+          { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+        );
+      }
+    }
+
+    const finalOrgSlug = callerRole === 'admin'
+      ? (organization_slug || callerOrgSlug || 'rdhotels')
+      : callerOrgSlug!;
+
     console.log('✅ Permission check passed, using org:', finalOrgSlug);
+
 
     // Helper function to sanitize strings for email (remove accents and special chars)
     const sanitizeForEmail = (text: string): string => {
