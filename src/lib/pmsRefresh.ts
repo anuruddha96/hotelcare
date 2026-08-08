@@ -1157,7 +1157,9 @@ export async function runPmsRefresh(
           trigger,
           updated,
           notFound,
-          total: portfolioMode ? consideredRows : rows.length,
+          total: portfolioMode ? (appUnitCount || consideredRows) : rows.length,
+          previoRows: portfolioMode ? consideredRows : rows.length,
+          unmappedListings: portfolioMode ? unmatchedRoomNumbers.length : undefined,
 
           checkouts,
           dailyCount: dailyRoomNumbers.length,
@@ -1178,7 +1180,7 @@ export async function runPmsRefresh(
   }
 
   return {
-    status, updated, total: portfolioMode ? consideredRows : rows.length, notFound, checkouts, errors,
+    status, updated, total: portfolioMode ? (appUnitCount || consideredRows) : rows.length, notFound, checkouts, errors,
     managerMessage: reservationManagerMessage,
     reservationDataAuthoritative,
     reservationIssue,
