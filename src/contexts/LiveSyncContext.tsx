@@ -108,10 +108,11 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!enabled || !hotelId) return;
     (async () => {
+      const keys = await resolveHotelKeys(hotelId).catch(() => [hotelId]);
       const { data } = await supabase
         .from("pms_sync_history")
         .select("created_at, sync_status, data")
-        .eq("hotel_id", hotelId)
+        .in("hotel_id", keys.length ? keys : [hotelId])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -289,10 +290,11 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     (async () => {
+      const keys = await resolveHotelKeys(hotelId).catch(() => [hotelId]);
       const { data } = await supabase
         .from("pms_sync_history")
         .select("created_at, sync_status")
-        .eq("hotel_id", hotelId)
+        .in("hotel_id", keys.length ? keys : [hotelId])
         .gte("created_at", `${today}T00:00:00`)
         .in("sync_status", ["success", "partial"])
         .order("created_at", { ascending: false })
