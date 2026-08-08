@@ -6320,6 +6320,10 @@ export type Database = {
       hotel_has_active_previo: { Args: { _hotel_id: string }; Returns: boolean }
       is_revenue_user: { Args: { _uid: string }; Returns: boolean }
       is_super_admin: { Args: { user_id: string }; Returns: boolean }
+      manager_assignable_role: {
+        Args: { _role: Database["public"]["Enums"]["user_role"] }
+        Returns: boolean
+      }
       normalize_hotel_name: { Args: { input_hotel: string }; Returns: string }
       organization_has_custom_branding: {
         Args: { org_slug: string }
