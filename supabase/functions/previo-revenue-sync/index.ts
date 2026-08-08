@@ -387,13 +387,42 @@ serve(async (req) => {
   /** Non-fatal notes: optional data the PMS did not expose this run. */
   const softNotes: string[] = [];
 
+  // Load credentials once per account; skip (and report) accounts we cannot auth.
+  type LiveAccount = { label: string; hotId: string; creds: unknown; idx: number };
+  const liveAccounts: LiveAccount[] = [];
+  accounts.forEach((a, idx) => {
+    if (!a.secretName || !a.hotId) {
+      errors.push(`${a.label}: no Previo credentials configured`);
+      return;
+    }
+    try {
+      liveAccounts.push({ label: a.label, hotId: a.hotId, creds: loadPrevioCredentials(a.secretName), idx });
+    } catch (e) {
+      errors.push(`${a.label}: credentials unavailable: ${String(e)}`);
+    }
+  });
+  if (liveAccounts.length === 0) {
+    return json({ error: `Previo credentials unavailable for ${hotelId}: ${errors.join(" | ")}` }, 500);
+  }
+  const multi = liveAccounts.length > 1;
+  /** Keep obk ids unique across profiles when a hotel merges several accounts. */
+  const scopeObk = (acc: LiveAccount, obkId: string) => (multi ? `${acc.hotId}:${obkId}` : obkId);
+
   // ---------- 1. room types ----------
-  let roomTypes: RoomTypeInfo[] = [];
-  const kindsRes = await callPrevioXml({ method: "getObjectKinds", creds, pmsHotelId: hotId, extraXml: "" });
-  if (kindsRes.ok) roomTypes = parseObjectKinds(kindsRes.text);
-  else errors.push(`getObjectKinds: [${kindsRes.status}] ${kindsRes.errorMessage ?? "failed"}`);
+  const roomTypes: RoomTypeInfo[] = [];
+  for (const acc of liveAccounts) {
+    const kindsRes = await callPrevioXml({ method: "getObjectKinds", creds: acc.creds as any, pmsHotelId: acc.hotId, extraXml: "" });
+    if (!kindsRes.ok) {
+      errors.push(`${acc.label} getObjectKinds: [${kindsRes.status}] ${kindsRes.errorMessage ?? "failed"}`);
+      continue;
+    }
+    for (const rt of parseObjectKinds(kindsRes.text)) {
+      roomTypes.push({ ...rt, obkId: scopeObk(acc, rt.obkId), order: rt.order + acc.idx * 1000 });
+    }
+  }
 
   const nameByObk = new Map(roomTypes.map((r) => [r.obkId, r.name]));
+
 
   // Previo mixes three things in getObjectKinds: physical unit groups
   // ("Room (cap 2) — 15 units"), sellable rate-plan room types covering the
