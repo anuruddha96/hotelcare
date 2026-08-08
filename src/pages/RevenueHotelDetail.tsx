@@ -665,8 +665,17 @@ export default function RevenueHotelDetail() {
             demandByDate={demandByDate}
             leftByTypeDate={leftByTypeDate}
           />
+          <DemandPricingPanel
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            today={live.today}
+            nights={live.nights}
+            rates={live.rates}
+            canEdit={revAdmin}
+          />
           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
           <PickupMovementBoard metrics={live.metrics} windowDays={pickupWindow} />
+
           {/* AI analysis at the bottom */}
           <RevenueIntelligencePanel hotelId={hotelId ?? null} />
 
