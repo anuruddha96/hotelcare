@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { requireRole } from '../_shared/requireAdmin.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,10 +11,21 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders })
   }
 
+  // Manual runs require a signed-in admin/manager. The unattended daily run is
+  // handled entirely inside the database (public.run_auto_signout via pg_cron).
+  const auth = await requireRole(req, ['admin', 'manager', 'housekeeping_manager', 'hr'])
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.error }), {
+      status: auth.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
   try {
-    const supabaseUrl = 'https://pcmszqqklkolvvlabohq.supabase.co'
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
+
 
     const today = new Date().toISOString().split('T')[0]
 
