@@ -19,6 +19,7 @@ import {
   localizedRoomTypeName, occupancyTone2, pickupTone, rateTone,
   DEFAULT_THRESHOLDS, type RevenueThresholds,
 } from "@/lib/revenueThresholds";
+import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenueCurrency";
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 
@@ -759,7 +760,7 @@ export default function RateStrategyGrid({
 
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Current</span>
-                <span className="font-medium tabular-nums">{eur(edit.old_price)}</span>
+                <span className="font-medium tabular-nums">{moneyBase(edit.old_price)}</span>
                 <span className="text-muted-foreground">→</span>
                 <Input
                   type="number"
@@ -768,7 +769,7 @@ export default function RateStrategyGrid({
                   value={edit.value}
                   onChange={(e) => setEdit({ ...edit, value: e.target.value })}
                 />
-                <span className="text-muted-foreground">{editMode === "set" ? "EUR" : "%"}</span>
+                <span className="text-muted-foreground">{editMode === "set" ? getRevenueCurrency().code : "%"}</span>
               </div>
 
               <div className="space-y-2">
@@ -840,8 +841,8 @@ export default function RateStrategyGrid({
                   <tr key={d.id} className="border-b last:border-0">
                     <td className="py-1.5 whitespace-nowrap">{d.stay_date}</td>
                     <td className="py-1.5">{d.room_type_name} · {d.occupancy}g</td>
-                    <td className="py-1.5 text-right tabular-nums text-muted-foreground">{eur(d.old_price)}</td>
-                    <td className="py-1.5 text-right tabular-nums font-semibold">{eur(d.new_price)}</td>
+                    <td className="py-1.5 text-right tabular-nums text-muted-foreground">{moneyBase(d.old_price)}</td>
+                    <td className="py-1.5 text-right tabular-nums font-semibold">{moneyBase(d.new_price)}</td>
                     <td className="py-1.5 text-right">
                       <Button
                         size="icon" variant="ghost" className="h-7 w-7"
