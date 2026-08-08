@@ -46,4 +46,36 @@ describe("PMS housekeeping classification", () => {
     expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), ReservationStatusId: 6 }).isCheckedOut).toBe(true);
     expect(classifyPmsHousekeepingRow({ ...row("Q-201", "11:00", null), ReservationStatusId: 5 }).isCheckedOut).toBe(false);
   });
+
+  it("keeps reserved arrivals out of Daily until check-in", () => {
+    const result = classifyPmsHousekeepingRow({
+      Room: "Sobi Apartment",
+      Occupied: "No",
+      ArrivalDate: "2026-08-08",
+      DepartureDate: "2026-08-12",
+      NotArrived: true,
+      RawReservationStatusId: 2,
+      "Night / Total": "1/4",
+    }, "2026-08-08");
+    expect(result.isNotArrived).toBe(true);
+    expect(result.isDailyRoom).toBe(false);
+    expect(result.isStayThrough).toBe(false);
+  });
+
+  it("treats cancelled and no-show reservations as vacant", () => {
+    for (const status of [7, 8]) {
+      const result = classifyPmsHousekeepingRow({
+        Occupied: "Yes",
+        Departure: "10:00",
+        RawReservationStatusId: status,
+        IsNoShow: status === 8,
+        IsCancelled: status === 7,
+        "Night / Total": "1/3",
+      }, "2026-08-08");
+      expect(result.isCheckoutRoom).toBe(false);
+      expect(result.isDailyRoom).toBe(false);
+      expect(result.isCheckedOut).toBe(false);
+      expect(result.isDepartureTomorrow).toBe(false);
+    }
+  });
 });

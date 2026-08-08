@@ -19,6 +19,8 @@ export interface PmsHousekeepingClassification {
   isStayThrough: boolean;
   /** Reservation starts today but the guest has not checked in yet. */
   isNotArrived: boolean;
+  isCancelled: boolean;
+  isNoShow: boolean;
 }
 
 
@@ -65,35 +67,40 @@ export const classifyPmsHousekeepingRow = (
 ): PmsHousekeepingClassification => {
   const departureTime = excelTimeToString(row.Departure);
   const nightTotal = parseNightTotal(row["Night / Total"]);
-  const isScheduledDeparture = departureTime !== null;
-  const isCheckedOut = row.CheckedOut === true
-    || statusLooksCheckedOut(row.Status ?? row.ReservationStatus ?? row.ReservationStatusId);
+  const rawStatusId = Number(row.RawReservationStatusId ?? row.ReservationStatusId ?? 0);
+  const isCancelled = rawStatusId === 7 || row.IsCancelled === true;
+  const isNoShow = rawStatusId === 8 || row.IsNoShow === true;
+  const inactiveReservation = isCancelled || isNoShow;
+  const isScheduledDeparture = !inactiveReservation && departureTime !== null;
+  const isCheckedOut = !inactiveReservation && (row.CheckedOut === true
+    || statusLooksCheckedOut(row.Status ?? row.ReservationStatus ?? row.ReservationStatusId));
 
   // Checkout is intentionally strict: a room belongs in Checkout Rooms only
   // when PMS gives a real departure time/date for today or says the guest has
   // checked out. Last-night Night/Total rows with blank Departure remain Daily.
   const isCheckoutRoom = isScheduledDeparture || isCheckedOut;
-  const isDepartureTomorrow = !isCheckoutRoom && (
+  const isDepartureTomorrow = !inactiveReservation && !isCheckoutRoom && (
     row.DepartureTomorrow === true ||
     (nightTotal !== null && nightTotal.currentNight === nightTotal.totalNights)
   );
-  const isDailyRoom = !isCheckoutRoom && (
+  const departureDate = row.DepartureDate ? String(row.DepartureDate).slice(0, 10) : null;
+  const arrivalDate = row.ArrivalDate ? String(row.ArrivalDate).slice(0, 10) : null;
+  const isNotArrived = !inactiveReservation && (row.NotArrived === true
+    || (!!today && !!arrivalDate && arrivalDate === today && !isCheckoutRoom && !occupiedYes(row.Occupied)));
+  const isDailyRoom = !inactiveReservation && !isNotArrived && !isCheckoutRoom && (
     occupiedYes(row.Occupied) ||
     (nightTotal !== null && nightTotal.currentNight > 0)
   );
 
-  const departureDate = row.DepartureDate ? String(row.DepartureDate).slice(0, 10) : null;
-  const arrivalDate = row.ArrivalDate ? String(row.ArrivalDate).slice(0, 10) : null;
   // PMS positively says the guest is still in-house tomorrow: departure date is
   // in the future AND there is no departure/checkout signal today.
-  const isStayThrough = !isCheckoutRoom
+  const isStayThrough = !inactiveReservation
+    && !isNotArrived
+    && !isCheckoutRoom
     && !!today
     && !!departureDate
     && departureDate > today
     && (occupiedYes(row.Occupied) || (!!arrivalDate && arrivalDate <= today));
-
-  const isNotArrived = row.NotArrived === true
-    || (!!today && !!arrivalDate && arrivalDate === today && !isCheckoutRoom && !occupiedYes(row.Occupied));
 
   return {
     departureTime,
@@ -105,6 +112,8 @@ export const classifyPmsHousekeepingRow = (
     isDailyRoom,
     isStayThrough,
     isNotArrived,
+    isCancelled,
+    isNoShow,
   };
 
 };

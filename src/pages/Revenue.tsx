@@ -128,17 +128,35 @@ export default function Revenue() {
     const lastSyncStatusByHotel = new Map<string, string>();
     const lastSyncErrorByHotel = new Map<string, string>();
     if (hotelIds.length > 0) {
-      const { data: pmsRows } = await supabase
-        .from("pms_configurations")
-        .select("hotel_id, pms_type, last_sync_at, last_sync_status, last_sync_error, is_active")
-        .in("hotel_id", hotelIds)
-        .eq("pms_type", "previo")
-        .eq("is_active", true);
+      const [{ data: pmsRows }, { data: accountRows }] = await Promise.all([
+        supabase
+          .from("pms_configurations")
+          .select("hotel_id, pms_type, last_sync_at, last_sync_status, last_sync_error, is_active")
+          .in("hotel_id", hotelIds)
+          .eq("pms_type", "previo")
+          .eq("is_active", true),
+        supabase
+          .from("pms_accounts")
+          .select("hotel_id, pms_type, last_sync_at, last_sync_status, last_sync_error, is_active")
+          .in("hotel_id", hotelIds)
+          .eq("pms_type", "previo")
+          .eq("is_active", true),
+      ]);
       for (const p of pmsRows ?? []) {
         previoIds.add(p.hotel_id);
         if ((p as any).last_sync_at) lastSyncByHotel.set(p.hotel_id, (p as any).last_sync_at);
         if ((p as any).last_sync_status) lastSyncStatusByHotel.set(p.hotel_id, (p as any).last_sync_status);
         if ((p as any).last_sync_error) lastSyncErrorByHotel.set(p.hotel_id, (p as any).last_sync_error);
+      }
+      for (const p of accountRows ?? []) {
+        previoIds.add(p.hotel_id);
+        const existing = lastSyncByHotel.get(p.hotel_id);
+        if ((p as any).last_sync_at && (!existing || (p as any).last_sync_at > existing)) {
+          lastSyncByHotel.set(p.hotel_id, (p as any).last_sync_at);
+          if ((p as any).last_sync_status) lastSyncStatusByHotel.set(p.hotel_id, (p as any).last_sync_status);
+          if ((p as any).last_sync_error) lastSyncErrorByHotel.set(p.hotel_id, (p as any).last_sync_error);
+          else lastSyncErrorByHotel.delete(p.hotel_id);
+        }
       }
     }
 

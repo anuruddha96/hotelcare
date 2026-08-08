@@ -121,6 +121,10 @@ function isNoShowStatus(statusId: number): boolean {
   return statusId === 8;
 }
 
+function isCancelledStatus(statusId: number): boolean {
+  return statusId === 7;
+}
+
 function isInHouseStatus(statusId: number): boolean {
   // Previo: 3 = in house (checked in), 5 = checked-in (legacy REST value).
   return statusId === 3 || statusId === 5;
@@ -814,10 +818,15 @@ serve(async (req) => {
       const res = (r.roomId ? reservationsByObjId.get(r.roomId) : undefined)
         ?? reservationsByRoomName.get(r.name)
         ?? (roomNumber !== r.name ? reservationsByRoomName.get(roomNumber) : undefined);
-      const isOccupied = !!res && res.arrivalDate <= today && res.departureDate > today;
-      const isDeparture = !!res && res.departureDate === today;
-      const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
+      const isCancelled = !!res && isCancelledStatus(res.statusId);
+      const isNoShow = !!res && isNoShowStatus(res.statusId);
       const isArrival = !!res && res.arrivalDate === today;
+      const isCheckedIn = !!res && isInHouseStatus(res.statusId);
+      const isNotArrived = !!res && isArrival && !isCancelled && !isNoShow && !isCheckedIn;
+      const isOccupied = !!res && !isCancelled && !isNoShow && !isNotArrived
+        && res.arrivalDate <= today && res.departureDate > today;
+      const isDeparture = !!res && !isCancelled && !isNoShow && res.departureDate === today;
+      const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
       const isCheckedOut = !!res && isCheckedOutStatus(res.statusId) && isDeparture;
       // Only real checkouts (today or already checked out) belong in the
       // Checkout Rooms bucket. "Departs tomorrow" stays a daily room but
@@ -840,31 +849,25 @@ serve(async (req) => {
       // not a phrase found somewhere in the note text. Previo marks a no-show
       // with statusId 8. Free-text matching used to flag in-house guests whose
       // OTA blob happened to contain the words "no show".
-      const spansToday = !!res && res.arrivalDate <= today && res.departureDate >= today;
-      const isNoShow = !!res && spansToday && isNoShowStatus(res.statusId);
-
-      // Arrival that has not checked in yet (Previo status still "reserved").
-      // This is NOT a no-show — it only becomes one when Previo says so.
-      const isNotArrived = !!res && isArrival && !isNoShow && !isCheckedOut
-        && !isInHouseStatus(res.statusId);
-
-
       return {
         Room: r.name,
         RoomId: r.roomId,
         RoomKindName: r.roomKindName,
         // A no-show never occupies the room, and it is not a real arrival.
-        Occupied: !isNoShow && (isOccupied || isDeparture) ? "Yes" : "No",
+        Occupied: !isNoShow && !isCancelled && !isNotArrived && (isOccupied || isDeparture) ? "Yes" : "No",
         // Prefer the real reservation departure time; fall back to 11:00
         // (Ottofiori standard check-out) so the chip is never blank.
-        Departure: !isNoShow && isDeparture ? (res?.departureTime || "11:00") : null,
-        DepartureTomorrow: !isNoShow && departureTomorrowConfirmed,
+        Departure: !isNoShow && !isCancelled && isDeparture
+          ? (res?.departureTime || (accountRow?.hotel_id === "slnt-group" ? "10:00" : "11:00"))
+          : null,
+        DepartureTomorrow: !isNoShow && !isCancelled && departureTomorrowConfirmed,
         DepartureDate: res?.departureDate ?? null,
         ArrivalDate: res?.arrivalDate ?? null,
-        Arrival: !isNoShow && isArrival ? "15:00" : null,
+        Arrival: !isNoShow && !isCancelled && isArrival ? "15:00" : null,
         CheckedOut: isCheckedOut,
-        IsCheckoutRoom: !isNoShow && isCheckoutRoom,
+        IsCheckoutRoom: !isNoShow && !isCancelled && isCheckoutRoom,
         IsNoShow: isNoShow,
+        IsCancelled: isCancelled,
         NotArrived: isNotArrived,
 
 
@@ -873,7 +876,9 @@ serve(async (req) => {
         // for audit/storage, but only true checkout statuses are exposed here.
         ReservationStatusId: isCheckedOut ? (res?.statusId ?? null) : null,
         RawReservationStatusId: res?.statusId ?? null,
-        People: res?.guestsCount ?? (isOccupied || isDeparture ? r.capacity : 0),
+        People: isCancelled || isNoShow || isNotArrived
+          ? 0
+          : (res?.guestsCount ?? (isOccupied || isDeparture ? r.capacity : 0)),
         "Night / Total": totalNights > 0 ? `${currentNight}/${totalNights}` : null,
         CurrentNight: currentNight || null,
         TotalNights: totalNights || null,

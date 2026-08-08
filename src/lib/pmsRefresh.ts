@@ -149,6 +149,7 @@ export interface PmsSyncResult {
   reservationIssue?: Record<string, any> | null;
   proposedChanges?: ProposedRoomChange[];
   unmapped?: Array<{ pms_room_id: string; pms_room_name: string; room_kind_name: string; extracted_number: string }>;
+  accounts?: Array<{ id: string; label: string; status: "success" | "error"; rows: number; error?: string }>;
 }
 
 /**
@@ -222,6 +223,7 @@ export async function runPmsRefresh(
     .eq("is_active", true)
     .eq("pms_type", "previo");
   const accounts = (accountRows as any[]) || [];
+  const accountResults: NonNullable<PmsSyncResult["accounts"]> = [];
 
   // Step 1 — sync rooms catalog + mapping. Safe in dry-run because
   // `mapOnly:true` never writes to public.rooms; it only heals
@@ -253,9 +255,33 @@ export async function runPmsRefresh(
       const failMsg = (accData as any)?.error || accError?.message;
       if (failMsg || (accData as any)?.ok === false) {
         accountErrors.push(`${acc.label || acc.pms_hotel_id}: ${failMsg || "sync failed"}`);
+        accountResults.push({ id: acc.id, label: acc.label || acc.pms_hotel_id, status: "error", rows: 0, error: failMsg || "sync failed" });
+        if (!dryRun) {
+          await supabase.from("pms_accounts").update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_status: "error",
+            last_sync_error: failMsg || "sync failed",
+          } as any).eq("id", acc.id);
+        }
         continue;
       }
-      merged.rows.push(...(((accData as any)?.rows) || []));
+      const accRows = ((accData as any)?.rows) || [];
+      merged.rows.push(...accRows.map((row: any) => ({
+        ...row,
+        PmsAccountId: acc.id,
+        PmsHotelId: acc.pms_hotel_id,
+      })));
+      accountResults.push({ id: acc.id, label: acc.label || acc.pms_hotel_id, status: "success", rows: accRows.length });
+      if (!dryRun) {
+        const nowIso = new Date().toISOString();
+        await supabase.from("pms_accounts").update({
+          last_sync_at: nowIso,
+          last_sync_success_at: nowIso,
+          last_sync_status: "success",
+          last_sync_error: null,
+          consecutive_failures: 0,
+        } as any).eq("id", acc.id);
+      }
       if ((accData as any)?.reservationDataAuthoritative === false) merged.reservationDataAuthoritative = false;
     }
     if (accountErrors.length === accounts.length) {
@@ -302,6 +328,7 @@ export async function runPmsRefresh(
       reservationIssue,
       proposedChanges: dryRun ? [] : undefined,
       unmapped,
+      accounts: accountResults,
     };
   }
 
@@ -771,6 +798,8 @@ export async function runPmsRefresh(
           // Keep the Previo room id on the room so outbound status pushes
           // (supervisor approval -> "clean" in Previo) can address it.
           ...(previoRoomId ? { roomId: previoRoomId } : {}),
+          ...(row.PmsAccountId ? { pms_account_id: row.PmsAccountId } : {}),
+          ...(row.PmsHotelId ? { pms_hotel_id: row.PmsHotelId } : {}),
         },
       };
 
@@ -789,7 +818,8 @@ export async function runPmsRefresh(
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
         // A manager's manual no-show mark for today wins over the PMS snapshot.
-        updateData.pms_metadata.isNoShow = manualNoShowOverride || row.IsNoShow === true;
+        updateData.pms_metadata.isNoShow = manualNoShowOverride || classification.isNoShow;
+        updateData.pms_metadata.isCancelled = classification.isCancelled;
 
         // Arrival today (vacant room expecting a guest) — neither checkout nor
         // a daily stayover; surfaced in its own Arrivals bucket in Team View.
@@ -1128,6 +1158,7 @@ export async function runPmsRefresh(
           reservationFetchError,
           reservationIssue,
           managerMessage: reservationManagerMessage ?? null,
+          accounts: accountResults,
         },
       } as any);
     } catch { /* non-fatal */ }
@@ -1140,5 +1171,6 @@ export async function runPmsRefresh(
     reservationIssue,
     proposedChanges: dryRun ? proposedChanges : undefined,
     unmapped,
+    accounts: accountResults,
   };
 }
