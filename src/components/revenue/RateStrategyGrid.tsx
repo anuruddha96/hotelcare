@@ -157,7 +157,10 @@ interface PendingDraft {
   occupancy: number;
   old_price: number | null;
   new_price: number;
+  status?: string | null;
+  push_error?: string | null;
 }
+
 
 /**
  * Previo-style pricelist: room types down a FROZEN left column with one
@@ -240,17 +243,18 @@ export default function RateStrategyGrid({
     return out;
   }, [pricedTypes, priceMap, language]);
 
-  /** Load pending drafts so edited cells show their new price immediately. */
+  /** Load pending + failed drafts so nothing silently disappears after a push. */
   const refreshDrafts = useCallback(async () => {
     if (!hotelId) return;
     const { data } = await supabase
       .from("revenue_rate_drafts")
-      .select("id, stay_date, room_type_name, occupancy, old_price, new_price")
+      .select("id, stay_date, room_type_name, occupancy, old_price, new_price, status, push_error")
       .eq("hotel_id", hotelId)
-      .eq("status", "draft")
+      .in("status", ["draft", "failed"])
       .order("stay_date");
     const rows = (data ?? []) as PendingDraft[];
     setPending(rows);
+
     const m = new Map<string, number>();
     for (const d of rows) {
       m.set(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, Number(d.new_price));
@@ -259,6 +263,9 @@ export default function RateStrategyGrid({
   }, [hotelId]);
 
   useEffect(() => { void refreshDrafts(); }, [refreshDrafts]);
+
+  const failedCount = useMemo(() => pending.filter((d) => d.status === "failed").length, [pending]);
+
 
   /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
   async function pushDrafts() {
@@ -464,7 +471,11 @@ export default function RateStrategyGrid({
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs">
               <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} saved as draft — not in Previo yet.
+              {failedCount > 0 && (
+                <span className="text-destructive"> {failedCount} failed to push — open to see why and retry.</span>
+              )}
             </span>
+
             <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
               <Send className="h-3.5 w-3.5 mr-1" />Review &amp; push
             </Button>
@@ -841,7 +852,15 @@ export default function RateStrategyGrid({
                 {pending.map((d) => (
                   <tr key={d.id} className="border-b last:border-0">
                     <td className="py-1.5 whitespace-nowrap">{d.stay_date}</td>
-                    <td className="py-1.5">{d.room_type_name} · {d.occupancy}g</td>
+                    <td className="py-1.5">
+                      {d.room_type_name} · {d.occupancy}g
+                      {d.status === "failed" && (
+                        <span className="block text-[10px] text-destructive">
+                          Failed: {d.push_error || "Previo rejected this price"} — will retry on next push
+                        </span>
+                      )}
+                    </td>
+
                     <td className="py-1.5 text-right tabular-nums text-muted-foreground">{moneyBase(d.old_price)}</td>
                     <td className="py-1.5 text-right tabular-nums font-semibold">{moneyBase(d.new_price)}</td>
                     <td className="py-1.5 text-right">

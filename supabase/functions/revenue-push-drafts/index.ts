@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
       .from("revenue_rate_drafts")
       .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency")
       .eq("hotel_id", hotelId)
-      .eq("status", "draft");
+      .in("status", ["draft", "failed"]);
     if (draftIds.length > 0) q = q.in("id", draftIds);
 
     const { data: drafts, error: draftErr } = await q;
