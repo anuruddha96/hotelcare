@@ -109,6 +109,35 @@ function pct(n: number) {
   return `${Math.round(n * 10) / 10}%`;
 }
 
+interface AiSignal {
+  key: string;
+  title: string;
+  why: string;
+  action?: string | null;
+  tone?: "good" | "warn" | "bad";
+  priority?: number;
+  confidence?: "high" | "medium" | "low" | null;
+}
+
+interface SignalAction {
+  decision: "done" | "dismissed";
+  note: string | null;
+}
+
+interface DisplaySignal {
+  key: string;
+  title: string;
+  why: string;
+  action: string | null;
+  tone: "good" | "warn" | "bad";
+  confidence: "high" | "medium" | "low" | null;
+  ai: boolean;
+}
+
+function slugify(v: string): string {
+  return v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+}
+
 /* -------------------------------------------------------------- component */
 
 interface Props {
@@ -501,7 +530,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     if (!uid) return;
     const { error } = await supabase
       .from("revenue_signal_actions")
-      .upsert({
+      .upsert([{
         hotel_id: hotelId,
         business_date: today,
         signal_key: signal.key,
@@ -509,7 +538,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         decision,
         note: note ?? null,
         acted_by: uid,
-      }, { onConflict: "hotel_id,business_date,signal_key" });
+      }], { onConflict: "hotel_id,business_date,signal_key" });
     if (error) {
       setActions((prev) => {
         const next = { ...prev };
@@ -536,9 +565,8 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     setAiError(null);
     try {
       const evidence = {
-        currency: currencySymbol ? undefined : undefined,
         goals,
-        kpi: { adr: kpi.adr, roomNights: kpi.roomNights, value: kpi.value },
+        kpi: { adr: kpi.adr, roomNights: kpi.roomNights, revenue: kpi.revenue },
         heuristics: recommendations,
         leakage: {
           channel: leakage.channel, roomType: leakage.roomType,
