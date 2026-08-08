@@ -260,6 +260,13 @@ export default function RevenueHotelDetail() {
     setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
+    // Money on this page is whatever the PMS publishes (HUF for SLNT, EUR for
+    // Ottofiori) — configure the formatter before anything renders numbers.
+    setRevenueCurrency({
+      code: (st as any)?.base_currency ?? "EUR",
+      eurRate: (st as any)?.eur_conversion_rate ?? null,
+      eurRateSource: (st as any)?.eur_rate_source ?? null,
+    });
 
     // Latest occupancy snapshot per date (occSnaps already ordered desc by captured_at).
     const occMap = new Map<string, { occupancy_pct: number; rooms_sold: number }>();
