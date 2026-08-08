@@ -687,6 +687,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         ok: true, supported: true, days, totalRooms, accounts: accountResults,
+        warnings: insertErrors.length ? insertErrors.slice(0, 5) : undefined,
         reservations: reservations.length,
         pricelist: { id: resolvedPricelistId, method: pricelistMethodUsed, entries: pricelistEntries.length, error: pricelistError, available: availablePricelists },
         upserts: {
