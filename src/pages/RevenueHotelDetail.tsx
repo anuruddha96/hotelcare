@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
-import { setRevenueCurrency } from "@/lib/revenueCurrency";
+import { setRevenueCurrency, useRevenueCurrency } from "@/lib/revenueCurrency";
 import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
 import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
@@ -264,6 +264,7 @@ export default function RevenueHotelDetail() {
     // Money on this page is whatever the PMS publishes (HUF for SLNT, EUR for
     // Ottofiori) — configure the formatter before anything renders numbers.
     setRevenueCurrency({
+      hotelId: hotelId ?? undefined,
       code: (st as any)?.base_currency ?? "EUR",
       eurRate: (st as any)?.eur_conversion_rate ?? null,
       eurRateSource: (st as any)?.eur_rate_source ?? null,
