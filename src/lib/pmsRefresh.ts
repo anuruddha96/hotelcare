@@ -671,7 +671,15 @@ export async function runPmsRefresh(
         && new Date(existingMetadata.checkedOutAt as string).getTime() > new Date(lastCleanedAt).getTime();
       const cleanedToday =
         getDateOnly(lastCleanedAt) === today && room.status === "clean" && !checkedOutAfterClean;
-      const effectiveStatus = pmsNeedsCleaning
+      // Portfolio tenants (SLNT) manage housekeeping status directly in Previo
+      // too: when Previo says the unit is Clean and no departure was confirmed
+      // after the last clean, that wins over "it's a checkout/daily unit today".
+      const trustPmsCleanFlag = accounts.length > 0
+        && mappedStatus === "clean"
+        && !checkedOutAfterClean;
+      const effectiveStatus = trustPmsCleanFlag
+        ? "clean"
+        : pmsNeedsCleaning
         ? row.IsNoShow === true
           ? "clean"
           : cleanedToday ? "clean" : "dirty"
