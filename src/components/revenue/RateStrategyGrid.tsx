@@ -171,6 +171,7 @@ export default function RateStrategyGrid({
   demandByDate, leftByTypeDate,
 }: Props) {
   const { language } = useTranslation();
+  useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
   const LEFT_W = isMobile ? 124 : 200;
   const [days, setDays] = useState(30);
