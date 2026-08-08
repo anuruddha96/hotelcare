@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
+import { requireRole } from '../_shared/requireAdmin.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,6 +9,14 @@ const corsHeaders = {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
+
+  const auth = await requireRole(req, ['admin']);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ success: false, error: auth.error }), {
+      status: auth.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 
   try {
@@ -21,6 +30,7 @@ Deno.serve(async (req) => {
         },
       }
     );
+
 
     // Get storage buckets
     const { data: buckets, error: bucketsError } = await supabaseClient.storage.listBuckets();
