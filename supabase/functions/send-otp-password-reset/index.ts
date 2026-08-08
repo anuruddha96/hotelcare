@@ -40,12 +40,21 @@ const handler = async (req: Request): Promise<Response> => {
       .ilike('email', email)
       .single();
 
+    // Always return a generic success response so this endpoint cannot be used
+    // to discover which email addresses have accounts.
+    const genericResponse = () => new Response(
+      JSON.stringify({
+        success: true,
+        message: "If an account exists for that email address, a verification code has been sent.",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    );
+
     if (profileError || !profile) {
-      return new Response(JSON.stringify({ error: "No account found with this email address" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+      console.log('Password reset OTP requested for unknown address');
+      return genericResponse();
     }
+
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
