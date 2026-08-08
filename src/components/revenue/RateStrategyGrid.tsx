@@ -773,13 +773,15 @@ export default function RateStrategyGrid({
               {rows.map((row) => (
                 <div
                   key={row.key}
-                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/50" : row.kind === "rate" ? "border-b" : "border-b bg-primary/10 font-semibold"}`}
+                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/50" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
                   style={{ height: rowH(row.kind) }}
                 >
-                  {/* Frozen label cell */}
+                  {/* Frozen label cell — must stay fully opaque, otherwise the
+                      scrolling date cells read through it. */}
                   <div
-                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold" : row.kind === "rate" ? "bg-card text-muted-foreground" : "bg-primary/10 border-l-2 border-l-primary font-semibold"}`}
+                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold" : row.kind === "rate" ? "bg-card text-muted-foreground" : "bg-muted border-l-2 border-l-primary font-semibold text-foreground"}`}
                     style={{ width: LEFT_W }}
+
                   >
                     {railed ? (
                       <span className="w-full truncate text-center text-[10px]" title={row.label}>
