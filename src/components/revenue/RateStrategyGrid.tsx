@@ -852,7 +852,15 @@ export default function RateStrategyGrid({
                 {pending.map((d) => (
                   <tr key={d.id} className="border-b last:border-0">
                     <td className="py-1.5 whitespace-nowrap">{d.stay_date}</td>
-                    <td className="py-1.5">{d.room_type_name} · {d.occupancy}g</td>
+                    <td className="py-1.5">
+                      {d.room_type_name} · {d.occupancy}g
+                      {d.status === "failed" && (
+                        <span className="block text-[10px] text-destructive">
+                          Failed: {d.push_error || "Previo rejected this price"} — will retry on next push
+                        </span>
+                      )}
+                    </td>
+
                     <td className="py-1.5 text-right tabular-nums text-muted-foreground">{moneyBase(d.old_price)}</td>
                     <td className="py-1.5 text-right tabular-nums font-semibold">{moneyBase(d.new_price)}</td>
                     <td className="py-1.5 text-right">
