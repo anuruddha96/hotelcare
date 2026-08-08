@@ -139,3 +139,13 @@ export function eurEquivalent(value: number | null | undefined): string {
 export function isForeignCurrency(): boolean {
   return current.code !== "EUR";
 }
+
+/**
+ * Format an amount in the hotel's OWN currency, never converted. Used wherever
+ * the number is a price that goes back to the PMS (rate edits, drafts).
+ */
+export function moneyBase(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const n = Math.round(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return current.code === "EUR" ? `€${n}` : `${n} ${currencySymbol(current.code)}`;
+}
