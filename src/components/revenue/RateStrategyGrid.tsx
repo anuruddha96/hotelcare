@@ -612,7 +612,20 @@ export default function RateStrategyGrid({
 
                 {/* Date header */}
                 <div className="flex border-b bg-card" style={{ height: DAY_H }}>
-                  <div className="sticky left-0 z-40 border-r bg-card" style={{ width: LEFT_W }} />
+                  <div className="sticky left-0 z-40 border-r bg-card" style={{ width: LEFT_W }}>
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="Drag to resize the room type column"
+                      title="Drag to resize · double-click to reset"
+                      onPointerDown={(e) => { e.preventDefault(); startResize(e.clientX, LEFT_W); }}
+                      onDoubleClick={() => { setRailed(false); setLeftW(DEFAULT_LEFT_W); }}
+                      className="ml-auto hidden h-full w-2 cursor-col-resize items-center justify-center sm:flex"
+                    >
+                      <span className="h-5 w-[3px] rounded-full bg-border hover:bg-primary" />
+                    </div>
+                  </div>
+
                   {dates.map((d, i) => (
                     <div
                       key={d}
