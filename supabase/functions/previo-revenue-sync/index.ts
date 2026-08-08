@@ -316,15 +316,49 @@ serve(async (req) => {
   const from = today;
   const to = addDays(today, horizonDays);
 
+  // Portfolio tenants (SLNT) keep several Previo profiles under ONE hotel row
+  // in `pms_accounts`; classic tenants (Ottofiori, RD Hotels) still use the
+  // single `pms_configurations` row. Resolve both into a list of accounts.
+  const { data: accountRows } = await service
+    .from("pms_accounts")
+    .select("id, label, pms_hotel_id, credentials_secret_name, is_active")
+    .eq("hotel_id", hotelId)
+    .eq("pms_type", "previo")
+    .eq("is_active", true);
+
   const { data: cfg } = await service
     .from("pms_configurations")
     .select("pms_hotel_id, credentials_secret_name")
     .eq("hotel_id", hotelId)
     .eq("pms_type", "previo")
     .maybeSingle();
-  if (!cfg) return json({ error: `No Previo configuration for ${hotelId}` }, 404);
 
-  const conf = cfg as { pms_hotel_id?: string; credentials_secret_name?: string };
+  const fallbackSecret = () =>
+    (Deno.env.get("PREVIO_CREDS_SLNT") ? "PREVIO_CREDS_SLNT" : null)
+    || (Deno.env.get("PREVIO_CREDS_OTTOFIORI") ? "PREVIO_CREDS_OTTOFIORI" : null);
+
+  type Account = { label: string; hotId: string; secretName: string | null };
+  const accounts: Account[] = ((accountRows ?? []) as any[]).length
+    ? ((accountRows ?? []) as any[]).map((a) => ({
+        label: a.label || String(a.pms_hotel_id || ""),
+        hotId: String(a.pms_hotel_id || ""),
+        secretName: a.credentials_secret_name || fallbackSecret(),
+      }))
+    : cfg
+    ? [{
+        label: hotelId,
+        hotId: String((cfg as any).pms_hotel_id || ""),
+        secretName: (cfg as any).credentials_secret_name ?? null,
+      }]
+    : [];
+
+  if (accounts.length === 0) return json({ error: `No Previo configuration for ${hotelId}` }, 404);
+  const missingCreds = accounts.filter((a) => !a.secretName || !a.hotId);
+  if (missingCreds.length === accounts.length) {
+    return json({
+      error: `No Previo credentials available for ${hotelId}. Ask a super admin to store the API key as PREVIO_CREDS_SLNT.`,
+    }, 400);
+  }
 
   // Organization slug lives on hotel_configurations -> organizations.
   const { data: hotelCfg } = await service
@@ -338,14 +372,16 @@ serve(async (req) => {
     const { data: org } = await service.from("organizations").select("slug").eq("id", orgId).maybeSingle();
     orgSlug = (org as { slug?: string } | null)?.slug || orgSlug;
   }
-  if (!orgSlug) return json({ error: `No organization found for ${hotelId}` }, 404);
-  const hotId = String(conf.pms_hotel_id || "");
-  let creds;
-  try {
-    creds = loadPrevioCredentials(conf.credentials_secret_name);
-  } catch (e) {
-    return json({ error: `Previo credentials unavailable: ${String(e)}` }, 500);
+  if (!orgSlug) {
+    const { data: hc } = await service
+      .from("hotel_configurations")
+      .select("organization_slug")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    orgSlug = (hc as any)?.organization_slug || "";
   }
+  if (!orgSlug) return json({ error: `No organization found for ${hotelId}` }, 404);
+
 
   const errors: string[] = [];
   /** Non-fatal notes: optional data the PMS did not expose this run. */
