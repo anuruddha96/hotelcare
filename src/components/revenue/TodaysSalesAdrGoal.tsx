@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
+import { currencySymbol } from "@/lib/revenueCurrency";
 
 /* ------------------------------------------------------------------ types */
 
