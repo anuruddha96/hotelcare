@@ -421,17 +421,24 @@ serve(async (req) => {
       return out;
     };
 
+    const insertErrors: string[] = [];
     let occInserted = 0;
     for (const part of chunk(occRows, 200)) {
       const { error } = await service.from("occupancy_snapshots").insert(part);
       if (!error) occInserted += part.length;
-      else console.error("occupancy_snapshots insert error:", error.message);
+      else {
+        console.error("occupancy_snapshots insert error:", error.message);
+        insertErrors.push(`occupancy_snapshots: ${error.message}`);
+      }
     }
     let pickupInserted = 0;
     for (const part of chunk(pickupRows, 200)) {
       const { error } = await service.from("pickup_snapshots").insert(part);
       if (!error) pickupInserted += part.length;
-      else console.error("pickup_snapshots insert error:", error.message);
+      else {
+        console.error("pickup_snapshots insert error:", error.message);
+        insertErrors.push(`pickup_snapshots: ${error.message}`);
+      }
     }
 
     // ---- 5. Breakfast roster (upsert per room/day for /bb) ----
