@@ -638,6 +638,8 @@ export default function RevenueHotelDetail() {
             metrics={live.metrics}
             pickupWindowDays={pickupWindow}
             onPickupWindowChange={setPickupWindow}
+            hotelId={hotelId ?? null}
+            canEdit={revAdmin}
           />
           <RevenuePulsePanel
             today={live.today}
