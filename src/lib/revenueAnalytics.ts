@@ -278,7 +278,11 @@ export function occupancyTone(pct: number): string {
   return "text-emerald-600 dark:text-emerald-400";
 }
 
+/**
+ * Formats a money amount in the hotel's real currency. The name is historic —
+ * the value is NOT necessarily euros (SLNT's Previo quotes forints), so this
+ * delegates to the currency configured for the hotel on screen.
+ */
 export function eur(value: number | null | undefined, digits = 0): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return `€${value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  return money(value, digits);
 }
