@@ -469,7 +469,10 @@ serve(async (req) => {
         onConflict: "hotel_id,stay_date,room_number",
       });
       if (!error) breakfastUpserted += part.length;
-      else console.error("breakfast_roster upsert error:", error.message);
+      else {
+        console.error("breakfast_roster upsert error:", error.message);
+        insertErrors.push(`breakfast_roster: ${error.message}`);
+      }
     }
 
     // ---- 5b. Seed Rooms Setup + Daily Rates + sensible defaults (idempotent) ----
