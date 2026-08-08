@@ -1369,6 +1369,32 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    {/* Sticky drop dock — appears while dragging so any unit/venue can be
+        dropped on a housekeeper without dragging across the whole page. */}
+    {canDragAssign && dragActive && housekeepingStaff.length > 0 && (
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-card/95 backdrop-blur px-2 py-2 shadow-lg">
+        <div className="flex gap-2 overflow-x-auto">
+          {housekeepingStaff.map((staff) => (
+            <div
+              key={staff.id}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTargetStaffId(staff.id); }}
+              onDragLeave={() => setDropTargetStaffId(null)}
+              onDrop={(e) => handleDropOnStaff(e, staff)}
+              className={`shrink-0 rounded-lg border px-3 py-2 text-xs ${
+                dropTargetStaffId === staff.id ? 'ring-2 ring-primary bg-primary/10' : 'bg-background'
+              }`}
+            >
+              <div className="font-semibold truncate max-w-[130px]">{staff.full_name}</div>
+              <div className="text-[10px] text-muted-foreground">
+                {roomAssignments.filter(a => a.assigned_to === staff.id).length} {terms.unitPlural.toLowerCase()}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
     </>
+
   );
 }
