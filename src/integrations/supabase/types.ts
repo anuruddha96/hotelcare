@@ -4384,9 +4384,12 @@ export type Database = {
           obj_id: string | null
           obk_id: string | null
           organization_slug: string
+          original_nightly_price: number | null
+          original_total_price: number | null
           res_id: string
           room_key: string
           room_type_name: string | null
+          source_currency: string | null
           source_name: string | null
           status_id: number
           stay_date: string
@@ -4405,9 +4408,12 @@ export type Database = {
           obj_id?: string | null
           obk_id?: string | null
           organization_slug: string
+          original_nightly_price?: number | null
+          original_total_price?: number | null
           res_id: string
           room_key?: string
           room_type_name?: string | null
+          source_currency?: string | null
           source_name?: string | null
           status_id?: number
           stay_date: string
@@ -4426,9 +4432,12 @@ export type Database = {
           obj_id?: string | null
           obk_id?: string | null
           organization_slug?: string
+          original_nightly_price?: number | null
+          original_total_price?: number | null
           res_id?: string
           room_key?: string
           room_type_name?: string | null
+          source_currency?: string | null
           source_name?: string | null
           status_id?: number
           stay_date?: string
@@ -4450,9 +4459,12 @@ export type Database = {
           obj_id: string | null
           obk_id: string | null
           organization_slug: string | null
+          original_nightly_price: number | null
+          original_total_price: number | null
           res_id: string
           room_key: string
           room_type_name: string | null
+          source_currency: string | null
           source_name: string | null
           status_id: number | null
           stay_date: string
@@ -4472,9 +4484,12 @@ export type Database = {
           obj_id?: string | null
           obk_id?: string | null
           organization_slug?: string | null
+          original_nightly_price?: number | null
+          original_total_price?: number | null
           res_id: string
           room_key?: string
           room_type_name?: string | null
+          source_currency?: string | null
           source_name?: string | null
           status_id?: number | null
           stay_date: string
@@ -4494,9 +4509,12 @@ export type Database = {
           obj_id?: string | null
           obk_id?: string | null
           organization_slug?: string | null
+          original_nightly_price?: number | null
+          original_total_price?: number | null
           res_id?: string
           room_key?: string
           room_type_name?: string | null
+          source_currency?: string | null
           source_name?: string | null
           status_id?: number | null
           stay_date?: string
